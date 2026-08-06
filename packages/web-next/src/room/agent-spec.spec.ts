@@ -1,9 +1,10 @@
-import type { Member, Room } from '@codor/protocol';
+import type { AgentPreset, Member, Room } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_POLICY,
   POLICIES,
+  applyAgentPreset,
   type AdapterLike,
   availableAgentHandle,
   buildSpawnSpec,
@@ -86,6 +87,72 @@ const kimi: AdapterLike = {
 const acpGeneric: AdapterLike = {
   id: 'acp', harness: 'acp', configurable: true, capabilities: { thinking: false },
 };
+
+const durablePreset = (over: Partial<AgentPreset> = {}): AgentPreset => ({
+  id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+  schema_version: 1,
+  created_ts: '2026-08-06T00:00:00.000Z',
+  updated_ts: '2026-08-06T00:00:00.000Z',
+  label: 'Saved helper',
+  handle: 'saved-helper',
+  harness: 'claude-code',
+  ...over,
+});
+
+describe('individual preset snapshots', () => {
+  it('maps native reusable fields, clears stale ACP values, and suffixes the handle', () => {
+    const result = applyAgentPreset({
+      preset: durablePreset({
+        display_name: 'Saved Helper', model: 'opus', thinking: 'high', policy: 'workspace-write',
+      }),
+      config: {
+        harness: 'acp', model: 'stale', thinking: 'low', policy: 'full-access',
+        displayName: 'stale name', acpExecutable: 'old', acpArgs: '--old',
+      },
+      adapters: [claude],
+      members: [agent({ handle: 'saved-helper' })],
+    });
+    expect(result).toEqual({
+      ok: true,
+      config: expect.objectContaining({
+        harness: 'claude-code', displayName: 'Saved Helper', model: 'opus',
+        thinking: 'high', policy: 'workspace-write',
+        acpExecutable: undefined, acpArgs: undefined,
+      }),
+      handle: 'saved-helper-2',
+    });
+  });
+
+  it('maps named and custom ACP presets to the existing selector fields', () => {
+    const named = applyAgentPreset({
+      preset: durablePreset({ harness: 'acp', acp_provider: 'kimi' }),
+      config: config({ model: 'stale', acpExecutable: 'old', acpArgs: 'old' }),
+      adapters: [{ ...kimi, installed: true }, { ...acpGeneric, installed: true }], members: [],
+    });
+    expect(named).toMatchObject({ ok: true, config: { harness: 'acp:kimi', model: '', acpExecutable: undefined } });
+
+    const custom = applyAgentPreset({
+      preset: durablePreset({
+        harness: 'acp', acp_launch: { executable: '/tools/acp', argv: ['acp', '--profile=x'] },
+      }),
+      config: config({ harness: 'claude-code' }),
+      adapters: [{ ...acpGeneric, installed: true }], members: [],
+    });
+    expect(custom).toMatchObject({
+      ok: true,
+      config: { harness: 'acp', model: '', acpExecutable: '/tools/acp', acpArgs: 'acp\n--profile=x' },
+    });
+  });
+
+  it('rejects a stale catalog without changing the caller draft', () => {
+    const result = applyAgentPreset({
+      preset: durablePreset({ model: 'missing/model' }),
+      config: config({ displayName: 'keep me', model: 'existing' }),
+      adapters: [{ ...claude, models: ['opus'] }], members: [],
+    });
+    expect(result).toEqual({ ok: false, message: expect.stringContaining('no longer offered') });
+  });
+});
 
 // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=provider-selection-wire-mapping
 describe('named ACP provider selection maps to the safe wire shape', () => {
@@ -463,6 +530,14 @@ describe('payload hygiene', () => {
       config: config(), handle: 'scout', cwd: '/p', adapters: [claude], members: [],
     });
     expect(spec.model).toBeUndefined();
+  });
+
+  it('carries an optional display name through the ordinary spawn payload', () => {
+    const spec = buildSpawnSpec({
+      config: config({ displayName: '  Visible Scout  ' }),
+      handle: 'scout', cwd: '/p', adapters: [claude], members: [],
+    });
+    expect(spec.display_name).toBe('Visible Scout');
   });
 
   // harn:assume acp-launch-is-structured-authorized-and-bounded ref=acp-launch-regression

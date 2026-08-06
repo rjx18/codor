@@ -3285,9 +3285,10 @@ describe('Phase 3 usability core', () => {
     expect(failed.room.id).toBe('still-useful');
     expect(failed.room.config.starting_agent_handle).toBe('codor');
     expect(daemon.store.listMembers('still-useful').map((member) => member.kind).sort())
-      .toEqual(['human', 'system']);
+      .toEqual(['agent', 'human', 'system']);
+    expect(daemon.store.getMemberByHandle('still-useful', 'codor')).toMatchObject({ state: 'dead' });
     expect(daemon.store.listMessages('still-useful', { limit: 10 }).at(-1)?.body)
-      .toContain('fixture spawn failed');
+      .toMatch(/fixture spawn failed.*remove it and spawn a replacement/);
   });
 
   // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-regression
@@ -3318,6 +3319,66 @@ describe('Phase 3 usability core', () => {
   // harn:end spawn-default-cwd-is-absolute-or-empty
   // harn:end starting-agent-name-derives-one-valid-identity-v6
   // harn:end channel-starting-agent-handle-persisted
+
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-expansion-regression
+  // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-snapshot-regression
+  it('expands a current ordered roster into detached safe member snapshots', () => {
+    const first = daemon.createAgentPreset({
+      label: 'First', handle: 'first-roster-agent', harness: 'fake',
+    });
+    const second = daemon.createAgentPreset({
+      label: 'Second', handle: 'second-roster-agent', display_name: 'Second Display',
+      harness: 'fake', policy: 'workspace-write',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+    const cwd = testCwd('roster');
+    const created = daemon.createRoom({
+      id: 'roster-room', name: 'Roster Room', owner: { handle: 'roster-owner', display_name: 'Roster Owner' },
+      cwd, default_roster: true,
+    });
+
+    expect(created.room.config).toMatchObject({ cwd });
+    expect(created.room.config.starting_agent_handle).toBeUndefined();
+    expect(created.initialAgents.map((member) => member.handle))
+      .toEqual(['first-roster-agent', 'second-roster-agent']);
+    expect(created.initialAgents.map((member) => member.state)).toEqual(['idle', 'idle']);
+    expect(created.initialAgents.map((member) => member.policy))
+      .toEqual(['read-only', 'workspace-write']);
+    expect(created.initialAgents[0]!.display_name).toBe('first-roster-agent');
+    expect(created.initialAgents.every((member) => member.cwd === cwd)).toBe(true);
+
+    daemon.updateAgentPreset(first.id, {
+      label: 'First changed', handle: 'first-roster-renamed', harness: 'fake', policy: 'full-access',
+    });
+    expect(daemon.store.getMemberByHandle('roster-room', 'first-roster-agent')).toMatchObject({
+      handle: 'first-roster-agent', policy: 'read-only', state: 'idle',
+    });
+    expect(daemon.store.getMemberByHandle('roster-room', 'first-roster-renamed')).toBeUndefined();
+  });
+  // harn:end default-roster-channel-members-are-detached-ordered-snapshots
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
+
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-expansion-regression
+  it('rejects roster/Starting-agent mixing and invalid complete rosters before mutation', () => {
+    const first = daemon.createAgentPreset({
+      label: 'Valid', handle: 'valid-roster-agent', harness: 'fake',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id] });
+    const spawn = vi.spyOn(fake, 'spawn');
+    expect(() => daemon.createRoom({
+      id: 'mixed-roster', name: 'Mixed', owner: { handle: 'owner-mixed', display_name: 'Owner Mixed' },
+      default_roster: true,
+      starting_agent: { harness: 'fake', handle: 'legacy-agent' },
+    } as never)).toThrow('mutually exclusive');
+    expect(() => daemon.createRoom({
+      id: 'owner-roster', name: 'Owner collision', owner: { handle: 'valid-roster-agent', display_name: 'Owner' },
+      default_roster: true,
+    })).toThrow('already in use by the channel owner');
+    expect(daemon.store.getRoom('mixed-roster')).toBeUndefined();
+    expect(daemon.store.getRoom('owner-roster')).toBeUndefined();
+    expect(spawn).not.toHaveBeenCalled();
+  });
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
 
   it('normalizes cwd inputs before every local member or adapter mutation', () => {
     const project = testCwd('project');

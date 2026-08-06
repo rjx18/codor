@@ -112,6 +112,34 @@ const daemon = new Daemon({
   executableOnPath: (executable) => acpPresent.has(executable),
 });
 
+// Phase 2 fixture: these are individual presets only. The browser tests never
+// read the default roster, so this seed cannot accidentally exercise Phase 3.
+// Wait for the asynchronous thinky catalog before creating its model-bound preset;
+// the daemon uses the same live catalog check as a real management request.
+for (let attempt = 0; attempt < 100; attempt += 1) {
+  if (daemon.registeredAdapters().some((adapter) =>
+    adapter.id === 'thinky' && adapter.models?.includes('thinky/kappa'))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const phase2Presets = {
+  native: daemon.createAgentPreset({
+    label: 'Saved native helper', handle: 'saved-native', display_name: 'Saved Native',
+    harness: 'fake', policy: 'workspace-write',
+  }),
+  model: daemon.createAgentPreset({
+    label: 'Model helper', handle: 'model-helper', display_name: 'Model Helper',
+    harness: 'thinky', model: 'thinky/kappa', thinking: 'high', policy: 'read-only',
+  }),
+  named: daemon.createAgentPreset({
+    label: 'Kimi saved helper', handle: 'kimi-helper', display_name: 'Kimi Helper',
+    harness: 'acp', acp_provider: 'kimi',
+  }),
+  custom: daemon.createAgentPreset({
+    label: 'Custom saved helper', handle: 'custom-helper', display_name: 'Custom Helper',
+    harness: 'acp', acp_launch: { executable: process.execPath, argv: ['--acp-fixture', '--literal=x'] },
+  }),
+};
+
 // ── Channels: distinct previews / working / failure / unread states ──────
 const owner = { handle: 'richard', display_name: 'Richard' };
 for (const [id, name] of [

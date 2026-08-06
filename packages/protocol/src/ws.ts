@@ -166,6 +166,11 @@ export const ActSchema = z.discriminatedUnion('act', [
     act: z.literal('spawn'),
     harness: z.string().min(1),
     handle: AssignableHandleSchema,
+    // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-contract
+    // A reusable preset may carry a display name. Keep it bounded and optional so
+    // older/manual clients retain the handle-derived default.
+    display_name: z.string().trim().min(1).max(120).optional(),
+    // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
     cwd: z.string().min(1),
     model: z.string().optional(),
     policy: z.string().optional(),

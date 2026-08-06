@@ -211,6 +211,47 @@ describe('room seeding', () => {
       store.addMember('eng', { kind: 'agent', handle: 'switchboard', display_name: 'X' }),
     ).toThrow();
   });
+
+  // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed-regression
+  it('seeds ordered concrete initial agents atomically and rolls back invalid snapshots', () => {
+    const seeded = store.createRoom({
+      id: 'roster', name: 'Roster', owner: { handle: 'owner', display_name: 'Owner' },
+      initialAgents: [
+        {
+          member: {
+            kind: 'agent', handle: 'first-agent', display_name: 'First Agent', harness: 'fake',
+            cwd: '/work/roster', policy: 'read-only', state: 'dead', custody: 'owned',
+          },
+        },
+        {
+          member: {
+            kind: 'agent', handle: 'second-agent', display_name: 'Second Agent', harness: 'acp',
+            cwd: '/work/roster', state: 'dead', custody: 'owned',
+          },
+          runtime: { acp_launch: { executable: '/usr/bin/acp', argv: ['--stdio'] } },
+        },
+      ],
+    });
+    expect(seeded.initialAgents.map((member) => member.handle))
+      .toEqual(['first-agent', 'second-agent']);
+    expect(seeded.initialAgents.every((member) => member.state === 'dead')).toBe(true);
+    expect(store.getAgentRuntimeConfig('roster', seeded.initialAgents[1]!.id))
+      .toEqual({ acp_launch: { executable: '/usr/bin/acp', argv: ['--stdio'] } });
+    expect(store.getMember('roster', seeded.initialAgents[0]!.id)).not.toHaveProperty('acp_launch');
+
+    expect(() => store.createRoom({
+      id: 'invalid-roster', name: 'Invalid roster', owner: { handle: 'owner-2', display_name: 'Owner 2' },
+      initialAgents: [{
+        member: {
+          kind: 'agent', handle: 'switchboard', display_name: 'Invalid', harness: 'fake',
+          cwd: '/work/roster', state: 'dead', custody: 'owned',
+        },
+      }],
+    })).toThrow();
+    expect(store.getRoom('invalid-roster')).toBeUndefined();
+    expect(store.listMembers('invalid-roster')).toEqual([]);
+  });
+  // harn:end default-roster-channel-members-are-detached-ordered-snapshots
 });
 
 // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-store-regression

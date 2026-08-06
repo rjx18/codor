@@ -1,0 +1,25 @@
+id: individual-agent-preset-selection-snapshots-one-ordinary-spawn
+hash: a-2bac9ff041ec
+title: Selecting an individual preset fills one editable ordinary spawn draft
+state: active
+statement: Add agent must show authorized individual agent presets beside its
+  built-in role shortcuts, resolve a freshly read valid preset into the same
+  editable handle, display-name, harness, model, thinking, policy, and ACP
+  controls used by manual creation, preserve room-derived cwd and per-add
+  purpose, and submit exactly one ordinary spawn act containing concrete
+  snapshotted values and no preset or roster reference; malformed, deleted, or
+  currently catalog-invalid presets must leave the draft unchanged with a
+  recoverable error, while later preset edit or deletion cannot mutate an
+  already selected draft or created member, because a reusable preset is an
+  input shortcut rather than live membership state or a second creation
+  lifecycle.
+depends_on:
+  - individual-agent-presets-are-bounded-catalog-validated-configurations
+  - individual-agent-presets-are-versioned-local-state
+  - agent-preset-management-is-authorized-and-transport-neutral
+  - web-spawn-dialog-exposes-canonical-agent-controls
+  - agent-controls-shared-by-both-dialogs
+  - one-control-chooses-an-agent-everywhere
+  - agent-selection-shows-detected-acp-and-advanced-custom
+  - new-agent-requests-require-available-native-or-detected-acp
+created_by: agent-presets-p2-add-agent

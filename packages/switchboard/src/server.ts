@@ -13,8 +13,11 @@ import {
   BROWSER_PROTOCOL_EPOCH,
   AcpLaunchConfigSchema,
   AcpProviderIdSchema,
+  AgentPresetIdSchema,
+  AgentPresetInputSchema,
   ClientFrameSchema,
   CreateRoomRequestSchema,
+  DefaultRosterInputSchema,
   type BridgeOrigin,
   type Member,
   type Policy,
@@ -33,6 +36,7 @@ import {
 import { constantTimeEqual, hashTranscript } from './crypto/challenge.js';
 import type { CryptoVault, PairingRequest } from './crypto/pairing.js';
 import { type Daemon, MAX_ATTACHMENT_BYTES } from './daemon.js';
+import { AgentPresetNotFoundError, AgentPresetReferenceConflictError } from './store.js';
 import { listLocalDirectories, LocalDirectoryError } from './local-dirs.js';
 import { isPipePath } from './local-socket.js';
 import type { PushSubscriptionStore } from './push/subscriptions.js';
@@ -760,6 +764,98 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     void reply.send(await daemon.refreshUsageLimits());
   });
   // harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
+
+  // harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-boundary
+  const sendAgentPresetError = (reply: FastifyReply, error: unknown) => {
+    if (error instanceof AgentPresetNotFoundError) {
+      return reply.code(404).send({ error: error.message });
+    }
+    if (error instanceof AgentPresetReferenceConflictError) {
+      return reply.code(409).send({ error: error.message });
+    }
+    return reply.code(400).send({ error: String(error) });
+  };
+
+  app.get('/api/agent-presets', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    return reply.send({ presets: daemon.listAgentPresets() });
+  });
+
+  app.get('/api/agent-presets/:presetId', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    const { presetId } = req.params as { presetId: string };
+    if (!AgentPresetIdSchema.safeParse(presetId).success) {
+      return reply.code(404).send({ error: `no such agent preset: ${presetId}` });
+    }
+    const preset = daemon.getAgentPreset(presetId);
+    return preset === undefined
+      ? reply.code(404).send({ error: `no such agent preset: ${presetId}` })
+      : reply.send({ preset });
+  });
+
+  app.post('/api/agent-presets', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    try {
+      const preset = daemon.createAgentPreset(AgentPresetInputSchema.parse(req.body));
+      return reply.code(201).send({ preset });
+    } catch (error) {
+      return sendAgentPresetError(reply, error);
+    }
+  });
+
+  app.put('/api/agent-presets/:presetId', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    const { presetId } = req.params as { presetId: string };
+    if (!AgentPresetIdSchema.safeParse(presetId).success) {
+      return reply.code(404).send({ error: `no such agent preset: ${presetId}` });
+    }
+    try {
+      const preset = daemon.updateAgentPreset(
+        presetId,
+        AgentPresetInputSchema.parse(req.body),
+      );
+      return reply.send({ preset });
+    } catch (error) {
+      return sendAgentPresetError(reply, error);
+    }
+  });
+
+  app.delete('/api/agent-presets/:presetId', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    const { presetId } = req.params as { presetId: string };
+    if (!AgentPresetIdSchema.safeParse(presetId).success) {
+      return reply.code(404).send({ error: `no such agent preset: ${presetId}` });
+    }
+    try {
+      daemon.deleteAgentPreset(presetId);
+      return reply.code(204).send();
+    } catch (error) {
+      return sendAgentPresetError(reply, error);
+    }
+  });
+
+  app.get('/api/default-roster', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    return reply.send({ roster: daemon.getDefaultRoster() });
+  });
+
+  app.put('/api/default-roster', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
+    try {
+      const roster = daemon.replaceDefaultRoster(DefaultRosterInputSchema.parse(req.body));
+      return reply.send({ roster });
+    } catch (error) {
+      return sendAgentPresetError(reply, error);
+    }
+  });
+  // harn:end agent-preset-management-is-authorized-and-transport-neutral
 
   // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary
   app.get('/api/local/dirs', (req, reply) => {
@@ -1827,6 +1923,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               daemon.spawnMember(frame.room, {
                 harness: act.harness,
                 handle: act.handle,
+                // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-dispatch
+                display_name: act.display_name,
+                // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
                 cwd: act.cwd,
                 policy: act.policy,
                 model: act.model,

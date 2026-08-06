@@ -1,0 +1,318 @@
+id: agent-presets-p1-domain-persistence
+title: Phase 1 - persist catalog-validated individual agent presets and one
+  ordered default-roster reference group
+notes: >-
+  This is only Phase 1 of .codor/PHASED-PLAN.md. Add a domain and persistence
+  contract for two deliberately separate local switchboard concepts: reusable
+  individual agent presets, and the one ordered default-roster group whose
+  members are references to those presets. Nothing in this plan renders or
+  changes Add agent, Settings, Create Channel, first-channel onboarding, member
+  creation, room creation, routing, runtime sessions, CLI commands, account
+  state, relay state, or cloud synchronization.
+
+  Protocol adds a dedicated strict agent-preset module. A preset has a
+  server-issued stable ULID, schema_version 1, created/updated timestamps, a
+  bounded display label, required assignable handle and runtime harness, and
+  only the optional reusable configuration named by the roadmap: display name,
+  model, thinking, canonical policy, and exactly one named ACP provider or
+  authorized structured custom launch when the harness is acp. The create and
+  full-replacement update input is strict and carries no id, version, timestamp,
+  cwd, purpose, credential, native session reference, runtime/member state,
+  usage, tasks, spend, host, custody, membership, or room. Full replacement
+  keeps the server id and created timestamp stable. There is no partial merge
+  whose omitted fields could retain stale authority accidentally.
+
+  Preset create/update validates before Store mutation against the same live
+  daemon registration used for ordinary new agents: a native harness must be
+  installed, generic ACP must be configurable and carry a bounded authorized
+  launch, and a named ACP id must be currently detected and resolve through the
+  frozen provider registry. Canonical policy and thinking use the existing
+  adapter validation rather than a second list. Native model ids use the
+  existing bounded MODEL_ID grammar and the selected registration; when a
+  non-empty harness model catalog is present the saved id must be in it, while
+  an absent catalog retains the existing exact custom-model escape. ACP carries
+  no client-selected model. Validation failure leaves presets and roster
+  untouched and never calls adapter.spawn or creates a member.
+
+  Store migration creates a versioned agent_presets table plus a singleton
+  default_rosters row and normalized default_roster_items table. The default
+  group has stable id "default", schema_version 1, an updated timestamp, and an
+  ordered duplicate-free list of preset ULIDs. Its empty state is valid. One
+  transaction replaces the complete membership/order only after every referenced
+  preset exists; ordinal constraints and foreign keys preserve exact order
+  across reopen. Preset deletion is deterministic RESTRICT behavior: a
+  referenced preset returns a stable conflict and changes nothing; removing the
+  reference in a successful roster replacement makes a later delete succeed.
+  Preset edits preserve roster membership because references use the stable id.
+
+  Global REST exposes list/create/full-update/delete for individual presets and
+  get/full-replace for the default roster. Every read and write requires the
+  existing manage_agents capability, so owner/browser-owner/admin succeed while
+  anonymous, observer, member, and agent credentials cannot read custom launch
+  material or mutate switchboard-wide configuration. Unknown ids, stale roster
+  references, and referenced deletes get explicit 404/409-style outcomes rather
+  than generic success. The web runtime gains typed API helpers only (no UI),
+  all through relayFetch: hosted calls therefore use the active computer's
+  authenticated tunnel and direct/self-hosted calls retain native fetch. A
+  focused direct-daemon regression proves the transport-free methods enforce the
+  same schema/catalog/reference rules; a direct-client regression proves native
+  fetch paths, methods, bearer headers, response shapes, and 204 delete.
+
+  Versioned rows are local to one Store database and are not room changelog
+  entities. Reopening a populated pre-feature database creates the empty v1
+  preset/roster state without changing existing rooms or members; reopening
+  populated v1 state preserves ids, versions, values, custom launch structure,
+  roster order, and reference integrity. No preset value is projected into an
+  existing member in this phase.
+assumptions:
+  create:
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      title: An individual agent preset is reusable configuration, never runtime or
+        membership state
+      statement: An individual agent preset must be a strict schema-version-1
+        configuration with a stable server-issued ULID, bounded preset label,
+        assignable handle, runtime harness, optional display name, model,
+        supported thinking, canonical policy, and exactly one currently valid
+        named ACP provider or authorized structured custom launch for the acp
+        harness; it must reject cwd, purpose, credentials, native session
+        references, runtime/member state, usage, tasks, spend, host, custody,
+        membership, room, and every unknown field. Create and full-replacement
+        update must validate the harness, model, thinking, policy, and ACP
+        selection against the daemon's current adapter/provider catalog and
+        existing spawn validators before persistence, without spawning a process
+        or member, because a reusable configuration must be safe and meaningful
+        without becoming a hidden runtime snapshot or a second hardcoded adapter
+        truth.
+      reason: Phase 1 needs one durable reusable input for later ordinary member
+        creation while keeping every machine-, room-, credential-, and
+        lifecycle-specific value out of the preset boundary.
+      depends_on:
+        - adapter-catalog-distinguishes-installed-and-configurable
+        - adapters-own-their-model-catalog
+        - canonical-spawn-controls-enforced
+        - harness-declares-supported-thinking-levels
+        - harness-declares-what-a-policy-becomes
+        - new-agent-requests-require-available-native-or-detected-acp
+        - named-acp-provider-selection-resolves-to-private-structured-launch
+    - id: individual-agent-presets-are-versioned-local-state
+      title: Individual preset CRUD preserves stable versioned switchboard-local
+        identity across restart
+      statement: The switchboard Store must migrate old and fresh databases to
+        versioned individual-preset persistence, generate a never-reused stable
+        id on create, list and read validated version-1 rows deterministically,
+        replace configuration while preserving id and created timestamp, and
+        delete only the addressed row; every operation must be atomic and
+        survive reopen without entering a room changelog, relay archive,
+        account, cloud, member, or runtime store, because preset configuration
+        belongs to exactly one local switchboard and later consumers need a
+        stable reference rather than a name-based identity.
+      reason: Stable local identity and explicit stored schema versions are the
+        persistence foundation for later Add agent and channel-roster snapshot
+        phases.
+      depends_on:
+        - individual-agent-presets-are-bounded-catalog-validated-configurations
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      title: The default roster is one ordered group of individual-preset references
+      statement: The switchboard must persist exactly one schema-version-1
+        default-roster group with stable id default and an atomically replaced,
+        duplicate-free ordered list of existing individual preset ids; empty is
+        valid, every reference must resolve before any replacement lands, and
+        ordinal order and the group timestamp must survive restart, because the
+        future Create Channel choice represents one complete ordered group and
+        is not itself an individual agent preset or a bag of copied configs.
+      reason: Keeping group membership normalized and referential makes later roster
+        expansion deterministic without conflating it with reusable single-agent
+        shortcuts.
+      depends_on:
+        - individual-agent-presets-are-versioned-local-state
+    - id: default-roster-references-block-preset-deletion
+      title: A preset referenced by the default roster cannot be deleted
+      statement: Deleting an individual preset whose stable id is present in the
+        default roster must fail with a deterministic reference-conflict result
+        and leave both the preset and complete roster unchanged; after an atomic
+        roster replacement removes that id, the same preset may be deleted
+        normally, because silently cascading a delete would rewrite the
+        operator's ordered group while allowing a dangling reference would make
+        later channel creation nondeterministic.
+      reason: Explicit RESTRICT semantics preserve reference integrity and make the
+        required operator action observable to both future Settings UI and
+        direct API consumers.
+      depends_on:
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+    - id: agent-preset-management-is-authorized-and-transport-neutral
+      title: Preset and default-roster management uses one manage-agents REST contract
+        in direct and hosted modes
+      statement: Every network read or mutation of individual presets or the default
+        roster must require the existing global manage_agents capability, reject
+        anonymous, observer, member, and agent principals, and return only
+        through the switchboard REST contract; web runtime callers must use
+        relayFetch with the caller's bearer so hosted mode reaches only the
+        active computer's switchboard and direct/self-hosted mode retains native
+        fetch, while trusted direct daemon calls use the same validation and
+        atomic Store methods. No WebSocket act, CLI command, relay record, or
+        cloud/account synchronization may be added, because local configuration
+        must have one authorization and behavior contract independent of browser
+        topology.
+      reason: Custom ACP launch material and switchboard-wide defaults are management
+        data, and the roadmap requires direct/hosted parity without inventing a
+        second transport or CLI surface.
+      depends_on:
+        - individual-agent-presets-are-versioned-local-state
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - roles-gate-human-acts-not-agents
+        - agent-network-authority-is-narrow
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Preset validation consumes the existing installed/configurable
+        registration truth; availability detection and catalog projection do not
+        change.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Presets consult the daemon's current registration and never add a model
+        id to protocol, switchboard constants, or web UI.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Preset validation calls the same adapter policy/thinking validator;
+        adapter capability declarations and actual spawn behavior remain
+        unchanged.
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: A preset may retain only a level the selected adapter already declares;
+        no new level or fallback is introduced.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: Presets store only the canonical policy value and do not reinterpret or
+        duplicate the adapter's native mapping.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Preset writes reuse its live availability/provider preflight but do not
+        create a room or member and do not weaken ordinary new-agent gates.
+    - id: named-acp-provider-selection-resolves-to-private-structured-launch
+      outcome: unchanged
+      reason: A named preset stores only the safe provider id; resolution remains
+        daemon-owned, while an authorized custom preset deliberately stores its
+        bounded structured launch in this manage_agents-only configuration API.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: Custom launch input retains the existing schema, executable resolution,
+        shell-free shape, and manage_agents gate; no environment or shell text
+        is added.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: New global routes reuse manage_agents at admin rank; the human role
+        matrix itself does not change.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials remain barred from every global operation, including
+        all new preset and roster reads and mutations.
+    - id: server-token-required
+      outcome: unchanged
+      reason: Preset routes use the existing authenticated REST admission and add no
+        tokenless network path.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Typed runtime helpers accept the active session token and use the
+        existing routed fetch; they add no global cache, store, credential, or
+        cross-computer state.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Presets and the singleton roster are global Settings resources read
+        through their own REST endpoints, not room-sync entities; room change
+        allocation and hydration remain untouched.
+anchors:
+  individual-agent-presets-are-bounded-catalog-validated-configurations:
+    individual-agent-preset-schema:
+      action: change
+      reason: Define the strict versioned preset/input schemas, bounded fields,
+        allowed configuration whitelist, and ACP one-of rules in a dedicated
+        protocol module.
+    individual-agent-preset-schema-regression:
+      action: change
+      reason: Prove valid native/named/custom shapes and reject missing identity,
+        forbidden runtime/member fields, unknown keys, invalid version, invalid
+        handle/policy/thinking, and ACP/model mismatches.
+    individual-agent-preset-catalog-validation:
+      action: change
+      reason: Validate full create/update input against live installed, configurable,
+        model, capability, and named-provider catalog truth before calling
+        Store, without spawning.
+    individual-agent-preset-direct-validation-regression:
+      action: change
+      reason: Direct daemon tests prove installed/stale harness, model catalog,
+        policy/thinking, named/custom ACP, no-spawn, and validation rollback
+        behavior.
+  individual-agent-presets-are-versioned-local-state:
+    individual-agent-preset-store-migration:
+      action: change
+      reason: Add idempotent versioned preset tables to fresh and legacy Store startup
+        without changing existing room/member data.
+    individual-agent-preset-store-crud:
+      action: change
+      reason: Add atomic create/list/get/full-replace/delete row mapping with stable
+        server identity and deterministic list order.
+    individual-agent-preset-persistence-regression:
+      action: change
+      reason: Prove legacy migration, CRUD isolation, timestamps/ids/version, custom
+        launch round-trip, restart durability, and absence of member or room
+        mutation.
+  default-roster-is-one-versioned-ordered-preset-reference-group:
+    default-roster-schema:
+      action: change
+      reason: Define the separate singleton group and full-replacement input schemas
+        with ordered unique preset ids.
+    default-roster-store:
+      action: change
+      reason: Seed the one versioned group, normalize ordered items, and replace the
+        complete reference list atomically only after every id resolves.
+    default-roster-order-regression:
+      action: change
+      reason: Prove empty, reorder, duplicate/missing rejection, update stability,
+        rollback, and exact order across restart.
+  default-roster-references-block-preset-deletion:
+    preset-roster-reference-integrity:
+      action: change
+      reason: Enforce and surface RESTRICT deletion while preserving atomic
+        remove-reference-then-delete behavior.
+    preset-roster-reference-regression:
+      action: change
+      reason: Prove a referenced delete is a no-op conflict, preset update keeps its
+        roster slot, and deletion succeeds only after reference removal.
+  agent-preset-management-is-authorized-and-transport-neutral:
+    agent-preset-rest-boundary:
+      action: change
+      reason: Add manage_agents-gated REST list/create/full-update/delete and
+        singleton-roster get/full-replace routes with explicit validation,
+        not-found, conflict, and no-content results.
+    agent-preset-rest-regression:
+      action: change
+      reason: Prove owner/browser-owner/admin success, anonymous 401,
+        observer/member/agent 403, custom-launch confidentiality, request schema
+        failure, stable errors, and direct HTTP CRUD/order/reference/restart
+        behavior.
+files:
+  - packages/protocol/src/agent-presets.ts
+  - packages/protocol/src/agent-presets.spec.ts
+  - packages/protocol/src/index.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/agent-presets.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+verification: Run pnpm --filter @codor/protocol test; pnpm --filter
+  @codor/switchboard exec vitest run src/agent-presets.spec.ts; pnpm --filter
+  @codor/web-next exec vitest run src/runtime/api.spec.ts; pnpm --filter
+  @codor/protocol build; pnpm --filter @codor/switchboard build; pnpm --filter
+  @codor/web-next build; harn find --plan agent-presets-p1-domain-persistence;
+  harn check agent-presets-p1-domain-persistence; and the staged Harn gate
+  before the one implementation commit. The focused suites must cover schemas,
+  pre-feature migration, CRUD, stable identity/version/timestamps, exact roster
+  order, duplicate/missing references, RESTRICT deletion, reopen/restart,
+  catalog and ACP validation with no spawn, global authorization for every
+  principal class, direct daemon behavior, direct native-fetch client behavior,
+  and routed HTTP helper usage. Do not run web e2e because this phase adds no
+  UI.
+applied:
+  applied_at: 2026-08-06T07:15:07.144Z

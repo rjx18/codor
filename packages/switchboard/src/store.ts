@@ -5,6 +5,10 @@ import { basename, join } from 'node:path';
 
 import Database from 'better-sqlite3';
 import {
+  type AgentPreset,
+  type AgentPresetInput,
+  AgentPresetInputSchema,
+  AgentPresetSchema,
   type AcpLaunchConfig,
   type AcpUsageBaseline,
   type AgentTaskList,
@@ -20,6 +24,10 @@ import {
   ChangeLogEntrySchema,
   type Delivery,
   DeliverySchema,
+  type DefaultRoster,
+  type DefaultRosterInput,
+  DefaultRosterInputSchema,
+  DefaultRosterSchema,
   type Member,
   MemberSchema,
   type Message,
@@ -865,6 +873,51 @@ function migrateBridgeOriginUniqueness(db: Database.Database): void {
 }
 // harn:end bridge-enable-admin-or-owner
 
+// harn:assume individual-agent-presets-are-versioned-local-state ref=individual-agent-preset-store-migration
+/** Additive migration for switchboard-local preset and singleton roster state. */
+function migrateAgentPresetStore(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_presets (
+      id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      label TEXT NOT NULL,
+      handle TEXT NOT NULL,
+      display_name TEXT,
+      harness TEXT NOT NULL,
+      model TEXT,
+      thinking TEXT,
+      policy TEXT,
+      acp_provider TEXT,
+      acp_launch TEXT,
+      created_ts TEXT NOT NULL,
+      updated_ts TEXT NOT NULL
+    );
+  `);
+  // harn:assume default-roster-is-one-versioned-ordered-preset-reference-group ref=default-roster-store
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS default_rosters (
+      id TEXT PRIMARY KEY CHECK (id = 'default'),
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      updated_ts TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS default_roster_items (
+      roster_id TEXT NOT NULL REFERENCES default_rosters(id) ON DELETE CASCADE,
+      ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+      preset_id TEXT NOT NULL REFERENCES agent_presets(id) ON DELETE RESTRICT,
+      PRIMARY KEY (roster_id, ordinal),
+      UNIQUE (roster_id, preset_id)
+    );
+    CREATE INDEX IF NOT EXISTS default_roster_items_preset
+      ON default_roster_items (preset_id, roster_id);
+  `);
+  db.prepare(
+    `INSERT OR IGNORE INTO default_rosters (id, schema_version, updated_ts)
+     VALUES ('default', 1, ?)`,
+  ).run(new Date().toISOString());
+  // harn:end default-roster-is-one-versioned-ordered-preset-reference-group
+}
+// harn:end individual-agent-presets-are-versioned-local-state
+
 const toBool = (n: number): boolean => n !== 0;
 const fromBool = (b: boolean): number => (b ? 1 : 0);
 const orNull = <T>(v: T | undefined): T | null => (v === undefined ? null : v);
@@ -923,6 +976,28 @@ interface MemberRow {
   removed_ts: string | null;
   limits: string | null;
   tasks: string | null;
+}
+
+interface AgentPresetRow {
+  id: string;
+  schema_version: number;
+  label: string;
+  handle: string;
+  display_name: string | null;
+  harness: string;
+  model: string | null;
+  thinking: string | null;
+  policy: string | null;
+  acp_provider: string | null;
+  acp_launch: string | null;
+  created_ts: string;
+  updated_ts: string;
+}
+
+interface DefaultRosterRow {
+  id: string;
+  schema_version: number;
+  updated_ts: string;
 }
 
 interface MessageRow {
@@ -1042,6 +1117,36 @@ interface MeterRow {
   input_tokens: number;
   output_tokens: number;
   uncosted_tokens: number;
+}
+
+function agentPresetFromRow(row: AgentPresetRow): AgentPreset {
+  return AgentPresetSchema.parse({
+    id: row.id,
+    schema_version: row.schema_version,
+    label: row.label,
+    handle: row.handle,
+    display_name: row.display_name ?? undefined,
+    harness: row.harness,
+    model: row.model ?? undefined,
+    thinking: row.thinking ?? undefined,
+    policy: row.policy ?? undefined,
+    acp_provider: row.acp_provider ?? undefined,
+    acp_launch: row.acp_launch === null ? undefined : JSON.parse(row.acp_launch),
+    created_ts: row.created_ts,
+    updated_ts: row.updated_ts,
+  });
+}
+
+function defaultRosterFromRows(
+  roster: DefaultRosterRow,
+  items: readonly { preset_id: string }[],
+): DefaultRoster {
+  return DefaultRosterSchema.parse({
+    id: roster.id,
+    schema_version: roster.schema_version,
+    updated_ts: roster.updated_ts,
+    preset_ids: items.map((item) => item.preset_id),
+  });
 }
 
 function memberFromRow(row: MemberRow): Member {
@@ -1255,6 +1360,14 @@ export interface AgentRuntimeConfig {
   usage_baseline?: AcpUsageBaseline;
 }
 
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+/** A fully preflighted agent snapshot that may join the room transaction. */
+export interface InitialAgent {
+  member: NewMember;
+  runtime?: AgentRuntimeConfig;
+}
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+
 export interface NewMessage {
   author: string;
   kind: Message['kind'];
@@ -1356,6 +1469,24 @@ export type LifecycleRetryRefusalReason =
   | 'deleted_trigger'
   | 'settled_collaboration';
 
+export class AgentPresetNotFoundError extends Error {
+  readonly code = 'agent_preset_not_found';
+
+  constructor(readonly presetId: string) {
+    super(`no such agent preset: ${presetId}`);
+    this.name = 'AgentPresetNotFoundError';
+  }
+}
+
+export class AgentPresetReferenceConflictError extends Error {
+  readonly code = 'agent_preset_reference_conflict';
+
+  constructor(readonly presetId: string) {
+    super(`agent preset is referenced by the default roster: ${presetId}`);
+    this.name = 'AgentPresetReferenceConflictError';
+  }
+}
+
 /**
  * The room store: better-sqlite3, synchronous, one file per switchboard.
  * Every mutation of a client-visible entity appends to the change log inside
@@ -1370,6 +1501,7 @@ export class Store {
       this.db.pragma('journal_mode = WAL');
       this.db.pragma('foreign_keys = ON');
       this.db.exec(SCHEMA);
+      migrateAgentPresetStore(this.db);
       migrateDeliveryPayloadSnapshot(this.db);
       migrateMemberCustody(this.db);
       migrateMemberLifecycle(this.db);
@@ -1444,11 +1576,15 @@ export class Store {
     name: string;
     owner: { handle: string; display_name: string };
     config?: Partial<RoomConfig>;
+    // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+    /** Concrete, already validated agents, inserted in this exact order. */
+    initialAgents?: readonly InitialAgent[];
+    // harn:end default-roster-channel-members-are-detached-ordered-snapshots
     bootstrapWelcome?: {
       author: { handle: string; display_name: string };
       body: string;
     };
-  }): { room: Room; owner: Member; system: Member } {
+  }): { room: Room; owner: Member; system: Member; initialAgents: Member[] } {
     const config = RoomConfigSchema.parse({
       ...opts.config,
       color: opts.config?.color ?? deriveRoomColor(opts.id),
@@ -1470,6 +1606,32 @@ export class Store {
         handle: 'switchboard',
         display_name: 'Switchboard',
       });
+      // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+      // These rows are deliberately dead until the daemon has activated each
+      // independent runtime. A failed external spawn therefore cannot undo the
+      // room transaction or erase a durable member identity.
+      const initialAgents = (opts.initialAgents ?? []).map(({ member, runtime }) => {
+        const inserted = this.insertMember(opts.id, member);
+        if (
+          runtime?.acp_launch !== undefined ||
+          runtime?.lifecycle !== undefined ||
+          runtime?.usage_baseline !== undefined
+        ) {
+          this.db.prepare(
+            `UPDATE members
+             SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
+             WHERE room = ? AND id = ?`,
+          ).run(
+            runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
+            runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
+            runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
+            opts.id,
+            inserted.id,
+          );
+        }
+        return inserted;
+      });
+      // harn:end default-roster-channel-members-are-detached-ordered-snapshots
       if (opts.bootstrapWelcome !== undefined) {
         const tutorial = this.insertMember(opts.id, {
           kind: 'system',
@@ -1482,7 +1644,7 @@ export class Store {
           body: opts.bootstrapWelcome.body,
         });
       }
-      return { owner, system };
+      return { owner, system, initialAgents };
     })();
     return { room: this.getRoom(opts.id)!, ...result };
   }
@@ -1549,6 +1711,134 @@ export class Store {
     })();
   }
   // harn:end channel-archive-is-durable-soft-state
+
+  // harn:assume individual-agent-presets-are-versioned-local-state ref=individual-agent-preset-store-crud
+  listAgentPresets(): AgentPreset[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM agent_presets ORDER BY id',
+    ).all() as AgentPresetRow[];
+    return rows.map(agentPresetFromRow);
+  }
+
+  getAgentPreset(id: string): AgentPreset | undefined {
+    const row = this.db.prepare(
+      'SELECT * FROM agent_presets WHERE id = ?',
+    ).get(id) as AgentPresetRow | undefined;
+    return row === undefined ? undefined : agentPresetFromRow(row);
+  }
+
+  createAgentPreset(input: AgentPresetInput): AgentPreset {
+    const validated = AgentPresetInputSchema.parse(input);
+    return this.db.transaction(() => {
+      const id = this.newUlid();
+      const ts = new Date().toISOString();
+      this.db.prepare(
+        `INSERT INTO agent_presets
+          (id, schema_version, label, handle, display_name, harness, model, thinking,
+           policy, acp_provider, acp_launch, created_ts, updated_ts)
+         VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        validated.label,
+        validated.handle,
+        orNull(validated.display_name),
+        validated.harness,
+        orNull(validated.model),
+        orNull(validated.thinking),
+        orNull(validated.policy),
+        orNull(validated.acp_provider),
+        jsonOrNull(validated.acp_launch),
+        ts,
+        ts,
+      );
+      return this.getAgentPreset(id)!;
+    })();
+  }
+
+  updateAgentPreset(id: string, input: AgentPresetInput): AgentPreset {
+    const validated = AgentPresetInputSchema.parse(input);
+    return this.db.transaction(() => {
+      const existing = this.getAgentPreset(id);
+      if (existing === undefined) throw new AgentPresetNotFoundError(id);
+      const updatedTs = new Date().toISOString();
+      this.db.prepare(
+        `UPDATE agent_presets
+         SET label = ?, handle = ?, display_name = ?, harness = ?, model = ?,
+             thinking = ?, policy = ?, acp_provider = ?, acp_launch = ?, updated_ts = ?
+         WHERE id = ?`,
+      ).run(
+        validated.label,
+        validated.handle,
+        orNull(validated.display_name),
+        validated.harness,
+        orNull(validated.model),
+        orNull(validated.thinking),
+        orNull(validated.policy),
+        orNull(validated.acp_provider),
+        jsonOrNull(validated.acp_launch),
+        updatedTs,
+        id,
+      );
+      return this.getAgentPreset(id)!;
+    })();
+  }
+  // harn:end individual-agent-presets-are-versioned-local-state
+
+  // harn:assume default-roster-references-block-preset-deletion ref=preset-roster-reference-integrity
+  deleteAgentPreset(id: string): void {
+    this.db.transaction(() => {
+      if (this.getAgentPreset(id) === undefined) throw new AgentPresetNotFoundError(id);
+      const reference = this.db.prepare(
+        `SELECT 1 FROM default_roster_items
+         WHERE roster_id = 'default' AND preset_id = ? LIMIT 1`,
+      ).get(id);
+      if (reference !== undefined) throw new AgentPresetReferenceConflictError(id);
+      this.db.prepare('DELETE FROM agent_presets WHERE id = ?').run(id);
+    })();
+  }
+  // harn:end default-roster-references-block-preset-deletion
+
+  // harn:assume default-roster-is-one-versioned-ordered-preset-reference-group ref=default-roster-store
+  getDefaultRoster(): DefaultRoster {
+    const roster = this.db.prepare(
+      `SELECT id, schema_version, updated_ts FROM default_rosters WHERE id = 'default'`,
+    ).get() as DefaultRosterRow | undefined;
+    if (roster === undefined) throw new Error('default roster is not initialized');
+    const items = this.db.prepare(
+      `SELECT preset_id FROM default_roster_items
+       WHERE roster_id = 'default' ORDER BY ordinal`,
+    ).all() as { preset_id: string }[];
+    return defaultRosterFromRows(roster, items);
+  }
+
+  replaceDefaultRoster(input: DefaultRosterInput | readonly string[]): DefaultRoster {
+    const validated = DefaultRosterInputSchema.parse(
+      Array.isArray(input) ? { preset_ids: [...input] } : input,
+    );
+    return this.db.transaction(() => {
+      // Validate every reference before deleting the old complete ordered list.
+      for (const presetId of validated.preset_ids) {
+        if (this.getAgentPreset(presetId) === undefined) {
+          throw new AgentPresetNotFoundError(presetId);
+        }
+      }
+      const updatedTs = new Date().toISOString();
+      this.db.prepare(
+        `UPDATE default_rosters
+         SET schema_version = 1, updated_ts = ? WHERE id = 'default'`,
+      ).run(updatedTs);
+      this.db.prepare(
+        `DELETE FROM default_roster_items WHERE roster_id = 'default'`,
+      ).run();
+      const insert = this.db.prepare(
+        `INSERT INTO default_roster_items (roster_id, ordinal, preset_id)
+         VALUES ('default', ?, ?)`,
+      );
+      validated.preset_ids.forEach((presetId, ordinal) => insert.run(ordinal, presetId));
+      return this.getDefaultRoster();
+    })();
+  }
+  // harn:end default-roster-is-one-versioned-ordered-preset-reference-group
 
   // ── members ───────────────────────────────────────────────────────────
 
