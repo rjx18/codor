@@ -61,13 +61,21 @@ async function openSpawn(page: Page): Promise<ReturnType<Page['getByTestId']>> {
   return dialog;
 }
 
-async function openRosterChannel(page: Page, name: string): Promise<string> {
+async function openRosterChannel(
+  page: Page,
+  name: string,
+  expected: readonly FixturePreset[],
+  hidden: readonly FixturePreset[],
+): Promise<string> {
   await page.getByTestId('create-room').click();
   const dialog = page.getByTestId('create-channel-dialog');
   await expect(dialog).toBeVisible();
   await dialog.getByTestId('create-name').fill(name);
   await dialog.getByTestId('create-folder-alpha-project').click();
   await dialog.getByTestId('create-roster-select').click();
+  const summary = dialog.getByTestId('create-roster-select').locator('.nx-roster-choice-copy > span');
+  await expect(summary).toHaveText(expected.map((preset) => `@${preset.handle}`).join(' · '));
+  for (const preset of hidden) await expect(summary).not.toContainText(`@${preset.handle}`);
   await expect(dialog.getByTestId('create-roster-select')).toHaveAttribute('aria-pressed', 'true');
   await dialog.getByTestId('create-go').click();
   const slug = name.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -137,7 +145,7 @@ test.describe('Phase 5 preset, roster, and computer isolation', () => {
     await spawn.getByTestId('spawn-go').click();
     await expect(page.getByTestId(`member-${fixture.a.presets[0]!.handle}`)).toBeVisible({ timeout: 30_000 });
 
-    await openRosterChannel(page, 'P5 A roster channel');
+    await openRosterChannel(page, 'P5 A roster channel', fixture.a.roster, fixture.b.roster);
     for (const preset of fixture.a.roster) {
       await expect(page.getByTestId(`member-${preset.handle}`)).toBeVisible({ timeout: 30_000 });
     }
@@ -225,7 +233,7 @@ test.describe('Phase 5 preset, roster, and computer isolation', () => {
     await page.getByRole('link', { name: 'Back to the channel' }).click();
     await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
     await switchComputer(page, 'codor-host-b');
-    const bRosterRoom = await openRosterChannel(page, 'P5 B roster channel');
+    const bRosterRoom = await openRosterChannel(page, 'P5 B roster channel', bAfterEdit.roster, fixture.a.roster);
     for (const preset of bAfterEdit.roster) {
       await expect(page.getByTestId(`member-${preset.handle}`)).toBeVisible({ timeout: 30_000 });
     }
