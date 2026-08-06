@@ -33,6 +33,9 @@ import type {
   VoiceNote,
   WireEvent,
   CreateRoomRequest,
+  WorktreeAdoptRequest,
+  WorktreeCreateRequest,
+  WorktreeListResponse,
 } from '@codor/protocol';
 
 import {
@@ -91,6 +94,7 @@ import {
   type TurnOutputPatch,
 } from './store.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
+import { WorktreeManager } from './worktrees.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -472,6 +476,7 @@ export function interactionKey(kind: 'ask' | 'approval', card: AskCard): string 
 export class Daemon {
   readonly store: Store;
   readonly blobs: BlobStore;
+  readonly worktrees: WorktreeManager;
   readonly pushLog: { room: string; body: string; ts: string }[] = [];
   private readonly adapters = new Map<string, HarnessAdapter>();
   // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-daemon
@@ -552,6 +557,7 @@ export class Daemon {
     this.store = new Store(options.dbPath, {
       codexHome: process.env.CODEX_HOME ?? join(serviceHome, '.codex'),
     });
+    this.worktrees = new WorktreeManager(this.store);
     this.blobs = new BlobStore(options.blobRoot);
     this.hostId = options.hostId;
     this.residency = options.residency;
@@ -5028,6 +5034,88 @@ export class Daemon {
     if (!message?.run) return [];
     return this.project(room, this.blobs.read(room, message.run.events_ref));
   }
+
+  // harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-lifecycle-daemon-boundary
+  /** Worktree lifecycle is a separate additive projection. These delegations
+   * intentionally do not call room/member/session/runtime mutation paths. */
+  async listWorktrees(room: string, requestedCwd?: string): Promise<WorktreeListResponse> {
+    const cwd = this.resolveWorktreeCwd(room, requestedCwd);
+    if (cwd === undefined) {
+      return {
+        repository: null,
+        registered: [],
+        discovered: [],
+      };
+    }
+    return this.worktrees.list(room, cwd);
+  }
+
+  adoptWorktree(
+    room: string,
+    input: WorktreeAdoptRequest,
+    requestedCwd?: string,
+  ): ReturnType<WorktreeManager['adopt']> {
+    const cwd = this.resolveWorktreeCwd(room, requestedCwd);
+    if (cwd === undefined) throw new Error('room has no existing repository cwd');
+    return this.worktrees.adopt(room, cwd, input);
+  }
+
+  createWorktree(
+    room: string,
+    input: WorktreeCreateRequest,
+    requestedCwd?: string,
+  ): ReturnType<WorktreeManager['create']> {
+    const cwd = this.resolveWorktreeCwd(room, requestedCwd);
+    if (cwd === undefined) throw new Error('room has no existing repository cwd');
+    return this.worktrees.create(room, cwd, input);
+  }
+
+  unregisterWorktree(room: string, worktreeId: string): ReturnType<WorktreeManager['unregister']> {
+    return this.worktrees.unregister(room, worktreeId);
+  }
+
+  removeWorktree(
+    room: string,
+    worktreeId: string,
+    requestedCwd?: string,
+  ): ReturnType<WorktreeManager['remove']> {
+    const cwd = this.resolveWorktreeCwd(room, requestedCwd);
+    if (cwd === undefined) throw new Error('room has no existing repository cwd');
+    return this.worktrees.remove(room, cwd, worktreeId);
+  }
+
+  private resolveWorktreeCwd(room: string, requestedCwd?: string): string | undefined {
+    const cwds = this.worktreeKnownCwds(room);
+    if (requestedCwd !== undefined) {
+      const normalized = normalizeWorkingDirectory(requestedCwd, this.homeDir);
+      if (!cwds.includes(normalized)) throw new Error("cwd is not one of the room's known directories");
+      return normalized;
+    }
+    return cwds[0];
+  }
+
+  private worktreeKnownCwds(room: string): string[] {
+    const raw: string[] = [];
+    const roomCwd = this.store.getRoom(room)?.config.cwd;
+    if (roomCwd !== undefined) raw.push(roomCwd);
+    for (const member of this.store.listMembers(room)) {
+      if (member.cwd !== undefined) raw.push(member.cwd);
+    }
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const value of raw) {
+      try {
+        const cwd = normalizeWorkingDirectory(value, this.homeDir);
+        if (seen.has(cwd)) continue;
+        seen.add(cwd);
+        normalized.push(cwd);
+      } catch {
+        // Missing member/room directories are not safe Git selectors.
+      }
+    }
+    return normalized;
+  }
+  // harn:end worktree-lifecycle-is-roster-neutral
 
   // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-contract
   /**

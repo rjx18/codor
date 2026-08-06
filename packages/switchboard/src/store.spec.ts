@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Store } from './store.js';
+import { Store, type WorktreeObservation } from './store.js';
 import { estimateCostUsd } from './pricing.js';
 
 let dir: string;
@@ -14,6 +14,126 @@ let store: Store;
 
 const openRoom = (s: Store) =>
   s.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-schema
+describe('registered worktree store schema', () => {
+  it('creates the repository and active/tombstone tables without touching room sync state', () => {
+    openRoom(store);
+    const readonly = new Database(join(dir, 'test.sqlite'));
+    const tables = readonly
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('repositories', 'worktrees') ORDER BY name")
+      .all() as { name: string }[];
+    expect(tables.map((table) => table.name)).toEqual(['repositories', 'worktrees']);
+    readonly.close();
+    expect(store.currentSeq('eng')).toBe(3);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
+describe('registered worktree store lifecycle', () => {
+  const observations = () => {
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'),
+      git_admin_id: join(dir, 'repo', '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      head: '0123456789abcdef0123456789abcdef01234567',
+      branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'repo child'),
+      git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      head: main.head,
+      branch: 'feature/child',
+    };
+    return { main, secondary };
+  };
+
+  it('persists stable main/secondary identities, tombstones, re-adoption, and reopen', () => {
+    openRoom(store);
+    const beforeSeq = store.currentSeq('eng');
+    const { main, secondary } = observations();
+    const first = store.registerWorktree(
+      'eng',
+      {
+        common_path: join(dir, 'repo', '.git'),
+        primary_path: main.path,
+        primary_git_admin_id: main.git_admin_id,
+      },
+      main,
+      secondary,
+      'child-label',
+      'adopted',
+    );
+    expect(first.worktree.alias).toBe('child-label');
+    expect(store.listRegisteredWorktrees('eng')).toHaveLength(2);
+    expect(store.currentSeq('eng')).toBe(beforeSeq);
+
+    const unregistered = store.unregisterWorktree('eng', first.worktree.id, '2026-08-06T00:01:00.000Z');
+    expect(unregistered).toMatchObject({ lifecycle: 'unregistered', unregistered_ts: '2026-08-06T00:01:00.000Z' });
+    const readopted = store.registerWorktree(
+      'eng',
+      {
+        common_path: join(dir, 'repo', '.git'),
+        primary_path: main.path,
+        primary_git_admin_id: main.git_admin_id,
+      },
+      main,
+      { ...secondary, path: join(dir, 'moved child') },
+      'child-renamed',
+      'adopted',
+      '2026-08-06T00:02:00.000Z',
+    );
+    expect(readopted.worktree.id).toBe(first.worktree.id);
+    expect(readopted.worktree.path).toBe(join(dir, 'moved child'));
+    expect(readopted.worktree.lifecycle).toBe('active');
+
+    const removed = store.removeWorktree('eng', first.worktree.id, '2026-08-06T00:03:00.000Z');
+    expect(removed).toMatchObject({ lifecycle: 'removed', branch: 'feature/child' });
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRepository('eng')?.id).toBe(first.repository.id);
+    expect(store.getWorktree('eng', first.worktree.id)).toMatchObject({
+      id: first.worktree.id,
+      lifecycle: 'removed',
+      removed_ts: '2026-08-06T00:03:00.000Z',
+      branch: 'feature/child',
+    });
+    expect(store.currentSeq('eng')).toBe(beforeSeq);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-regression
+describe('registered worktree store constraints', () => {
+  it('keeps active aliases unique while allowing a tombstone to retain history', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'same', 'created');
+    const second: WorktreeObservation = { ...secondary, path: join(dir, 'child-two'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child-two') };
+    expect(() => store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, second, 'same', 'created')).toThrow();
+    expect(store.listRegisteredWorktrees('eng')).toHaveLength(2);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'codor-store-'));

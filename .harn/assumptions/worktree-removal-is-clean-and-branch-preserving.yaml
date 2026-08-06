@@ -1,0 +1,15 @@
+id: worktree-removal-is-clean-and-branch-preserving
+hash: a-67445d727ac7
+title: Worktree unregister and removal are distinct conservative operations
+state: active
+statement: Unregistering an active secondary must change registry lifecycle only
+  and leave Git and the filesystem untouched, while filesystem removal must be a
+  separate explicit operation limited to an actively registered non-main
+  secondary whose fresh repository, Git administrative identity, canonical path,
+  availability, lock state, and empty tracked/untracked status still match;
+  removal must call non-force git worktree remove, tombstone only after success,
+  and never prune or delete the checked-out branch.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - worktree-git-execution-is-argument-safe
+created_by: native-worktrees-phase1-registry

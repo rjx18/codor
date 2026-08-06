@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { connect as netConnect } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -50,6 +50,10 @@ const testCwd = (name = 'work') => {
   mkdirSync(path, { recursive: true });
   return path;
 };
+
+function fixtureGit(cwd: string, args: readonly string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+}
 
 const spawnAgentWithToken = (handle: string, room = 'eng') => {
   let captured: Session | undefined;
@@ -392,6 +396,113 @@ describe('retry_run act (retried-runs-are-fresh-deliveries)', () => {
     owner.ws.close();
   });
 });
+
+// harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-authorization-regression
+// harn:assume agent-network-authority-is-narrow ref=agent-authz-regression
+describe('native worktree REST authorization and lifecycle', () => {
+  it('keeps discovery read-only, admits human room readers, and gates lifecycle mutation to admins', async () => {
+    const fixture = join(dir, 'worktree lifecycle fixture');
+    const primary = join(fixture, 'primary checkout');
+    const secondary = join(fixture, 'secondary checkout');
+    const created = join(fixture, 'created checkout');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'review/rest', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        ...init.headers,
+      },
+    });
+
+    const anonymous = await fetch(`${base}/api/rooms/eng/worktrees`);
+    expect(anonymous.status).toBe(401);
+    const observerRead = await jsonRequest(OBSERVER_TOKEN, '/api/rooms/eng/worktrees');
+    expect(observerRead.status).toBe(200);
+    const beforeAdopt = await observerRead.json() as {
+      repository: unknown;
+      registered: unknown[];
+      discovered: { path: string }[];
+    };
+    expect(beforeAdopt.repository).toBeNull();
+    expect(beforeAdopt.registered).toEqual([]);
+    expect(beforeAdopt.discovered.map((candidate) => candidate.path)).toContain(secondary);
+
+    const agentPrincipal = spawnAgentWithToken('worktree-rest-agent');
+    const listSpy = vi.spyOn(daemon.worktrees, 'list');
+    const agentRead = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees');
+    expect(agentRead.status).toBe(403);
+    expect(listSpy).not.toHaveBeenCalled();
+    listSpy.mockRestore();
+
+    const memberMutation = await jsonRequest(MEMBER_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'member-attempt' }),
+    });
+    expect(memberMutation.status).toBe(403);
+    const observerMutation = await jsonRequest(OBSERVER_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'observer-attempt' }),
+    });
+    expect(observerMutation.status).toBe(403);
+    const agentMutation = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'agent-attempt' }),
+    });
+    expect(agentMutation.status).toBe(403);
+    expect(daemon.store.getRepository('eng')).toBeUndefined();
+
+    const adoptedResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'REST Review' }),
+    });
+    expect(adoptedResponse.status).toBe(201);
+    const adopted = await adoptedResponse.json() as { worktree: { id: string; alias: string } };
+    expect(adopted.worktree.alias).toBe('rest-review');
+
+    const createdResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ alias: 'REST Created', branch: 'feature/rest-created', path: created }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const createdRecord = await createdResponse.json() as { worktree: { id: string; path: string } };
+    expect(createdRecord.worktree.path).toBe(created);
+    expect(daemon.store.listRegisteredWorktrees('eng')).toHaveLength(3);
+
+    const unregisteredResponse = await jsonRequest(ADMIN_TOKEN, `/api/rooms/eng/worktrees/${adopted.worktree.id}/unregister`, {
+      method: 'POST',
+      body: '{}',
+    });
+    expect(unregisteredResponse.status).toBe(200);
+    expect(existsSync(secondary)).toBe(true);
+    const readoptedResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary }),
+    });
+    expect(readoptedResponse.status).toBe(201);
+    expect((await readoptedResponse.json() as { worktree: { id: string } }).worktree.id)
+      .toBe(adopted.worktree.id);
+
+    const removedResponse = await jsonRequest(ADMIN_TOKEN, `/api/rooms/eng/worktrees/${adopted.worktree.id}/remove`, {
+      method: 'POST',
+      body: '{}',
+    });
+    expect(removedResponse.status).toBe(200);
+    expect(existsSync(secondary)).toBe(false);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/review/rest'])).toContain('review/rest');
+  });
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end worktree-management-is-human-admin-only
 
 afterEach(async () => {
   await server.close();

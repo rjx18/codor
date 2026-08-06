@@ -39,6 +39,15 @@ import {
   type RunSummary,
   RunSummarySchema,
   deriveRoomColor,
+  type WorktreeAvailability,
+  type WorktreeDiscoveryCandidate,
+  type WorktreeLifecycle,
+  type WorktreeSource,
+  type RepositoryRecord,
+  type RegisteredWorktree,
+  WorktreeAliasSchema,
+  RegisteredWorktreeSchema,
+  RepositoryRecordSchema,
 } from '@codor/protocol';
 
 import { estimateCostUsd, priceForModel } from './pricing.js';
@@ -62,6 +71,7 @@ import {
 // harn:assume attach-custody-lease-tracks-child-pid ref=attach-lease-store
 // harn:assume collaboration-groups-are-durable-state ref=collaboration-store-schema
 // harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-schema
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -70,6 +80,43 @@ CREATE TABLE IF NOT EXISTS rooms (
   config TEXT NOT NULL,        -- RoomConfig JSON
   seq INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS repositories (
+  id TEXT PRIMARY KEY,
+  room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  common_path TEXT NOT NULL,
+  primary_path TEXT NOT NULL,
+  primary_git_admin_id TEXT NOT NULL,
+  created_ts TEXT NOT NULL,
+  updated_ts TEXT NOT NULL,
+  UNIQUE (room)
+);
+CREATE TABLE IF NOT EXISTS worktrees (
+  id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  alias TEXT NOT NULL,
+  path TEXT NOT NULL,
+  git_admin_id TEXT NOT NULL,
+  primary_checkout INTEGER NOT NULL DEFAULT 0 CHECK (primary_checkout IN (0, 1)),
+  source TEXT NOT NULL CHECK (source IN ('main', 'adopted', 'created')),
+  lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'unregistered', 'removed')),
+  availability TEXT NOT NULL CHECK (availability IN ('available', 'missing', 'locked', 'prunable')),
+  locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+  head TEXT,
+  branch TEXT,
+  registered_ts TEXT NOT NULL,
+  updated_ts TEXT NOT NULL,
+  unregistered_ts TEXT,
+  removed_ts TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_alias_unique
+  ON worktrees (repository_id, alias) WHERE lifecycle = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_admin_unique
+  ON worktrees (repository_id, git_admin_id) WHERE lifecycle = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_path_unique
+  ON worktrees (repository_id, path) WHERE lifecycle = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_primary_unique
+  ON worktrees (repository_id) WHERE lifecycle = 'active' AND primary_checkout = 1;
 CREATE TABLE IF NOT EXISTS members (
   id TEXT PRIMARY KEY,
   room TEXT NOT NULL REFERENCES rooms(id),
@@ -227,6 +274,7 @@ CREATE TABLE IF NOT EXISTS changes (
   PRIMARY KEY (room_id, seq)
 );
 `;
+// harn:end registered-worktree-identities-are-durable
 // harn:end substantive-output-messages-drive-unread
 // harn:end collaboration-groups-are-durable-state
 // harn:end attach-custody-lease-tracks-child-pid
@@ -1033,6 +1081,36 @@ interface RoomRow {
   seq: number;
 }
 
+interface RepositoryRow {
+  id: string;
+  room: string;
+  common_path: string;
+  primary_path: string;
+  primary_git_admin_id: string;
+  created_ts: string;
+  updated_ts: string;
+}
+
+interface WorktreeRow {
+  id: string;
+  repository_id: string;
+  room: string;
+  alias: string;
+  path: string;
+  git_admin_id: string;
+  primary_checkout: number;
+  source: WorktreeSource;
+  lifecycle: WorktreeLifecycle;
+  availability: WorktreeAvailability;
+  locked: number;
+  head: string | null;
+  branch: string | null;
+  registered_ts: string;
+  updated_ts: string;
+  unregistered_ts: string | null;
+  removed_ts: string | null;
+}
+
 interface MeterRow {
   room: string;
   day: string;
@@ -1222,6 +1300,40 @@ function roomFromRow(row: RoomRow): Room {
 }
 // harn:end every-channel-has-a-visible-accent
 
+function repositoryFromRow(row: RepositoryRow): RepositoryRecord {
+  return RepositoryRecordSchema.parse({
+    id: row.id,
+    room: row.room,
+    common_path: row.common_path,
+    primary_path: row.primary_path,
+    primary_git_admin_id: row.primary_git_admin_id,
+    created_ts: row.created_ts,
+    updated_ts: row.updated_ts,
+  });
+}
+
+function worktreeFromRow(row: WorktreeRow): RegisteredWorktree {
+  return RegisteredWorktreeSchema.parse({
+    id: row.id,
+    repository_id: row.repository_id,
+    room: row.room,
+    alias: row.alias,
+    path: row.path,
+    git_admin_id: row.git_admin_id,
+    primary: toBool(row.primary_checkout),
+    source: row.source,
+    lifecycle: row.lifecycle,
+    availability: row.availability,
+    locked: toBool(row.locked),
+    head: row.head ?? undefined,
+    branch: row.branch ?? undefined,
+    registered_ts: row.registered_ts,
+    updated_ts: row.updated_ts,
+    unregistered_ts: row.unregistered_ts ?? undefined,
+    removed_ts: row.removed_ts ?? undefined,
+  });
+}
+
 function meterFromRow(row: MeterRow): RoomMeter {
   return RoomMeterSchema.parse(row);
 }
@@ -1254,6 +1366,26 @@ export interface AgentRuntimeConfig {
   lifecycle?: SessionLifecycleSupport;
   usage_baseline?: AcpUsageBaseline;
 }
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
+/** A fresh Git observation contains no Codor identity and never becomes an
+ * active row unless an explicit lifecycle method asks the store to register it. */
+export interface WorktreeObservation {
+  path: string;
+  git_admin_id: string;
+  primary: boolean;
+  availability: WorktreeAvailability;
+  locked: boolean;
+  head?: string;
+  branch?: string;
+}
+
+export interface RepositoryObservation {
+  common_path: string;
+  primary_path: string;
+  primary_git_admin_id: string;
+}
+// harn:end registered-worktree-identities-are-durable
 
 export interface NewMessage {
   author: string;
@@ -1498,6 +1630,329 @@ export class Store {
     const rows = this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as RoomRow[];
     return rows.map(roomFromRow);
   }
+
+  // harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
+  /** Return the room's repository projection without creating one as a side effect. */
+  getRepository(room: string): RepositoryRecord | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM repositories WHERE room = ? ORDER BY id LIMIT 1')
+      .get(room) as RepositoryRow | undefined;
+    return row === undefined ? undefined : repositoryFromRow(row);
+  }
+
+  getRepositoryByCommonPath(room: string, commonPath: string): RepositoryRecord | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM repositories WHERE room = ? AND common_path = ?')
+      .get(room, commonPath) as RepositoryRow | undefined;
+    return row === undefined ? undefined : repositoryFromRow(row);
+  }
+
+  getWorktree(room: string, worktreeId: string): RegisteredWorktree | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM worktrees WHERE room = ? AND id = ?')
+      .get(room, worktreeId) as WorktreeRow | undefined;
+    return row === undefined ? undefined : worktreeFromRow(row);
+  }
+
+  getWorktreeByGitAdmin(
+    room: string,
+    gitAdminId: string,
+    options: { includeTombstones?: boolean } = {},
+  ): RegisteredWorktree | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM worktrees
+         WHERE room = ? AND git_admin_id = ?
+           AND (? = 1 OR lifecycle = 'active')
+         ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+         LIMIT 1`,
+      )
+      .get(room, gitAdminId, options.includeTombstones ? 1 : 0) as WorktreeRow | undefined;
+    return row === undefined ? undefined : worktreeFromRow(row);
+  }
+
+  listWorktrees(
+    room: string,
+    options: { includeTombstones?: boolean; repositoryId?: string } = {},
+  ): RegisteredWorktree[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM worktrees
+         WHERE room = ?
+           AND (? IS NULL OR repository_id = ?)
+           AND (? = 1 OR lifecycle = 'active')
+         ORDER BY primary_checkout DESC, alias, id`,
+      )
+      .all(
+        room,
+        options.repositoryId ?? null,
+        options.repositoryId ?? null,
+        options.includeTombstones ? 1 : 0,
+      ) as WorktreeRow[];
+    return rows.map(worktreeFromRow);
+  }
+
+  listRegisteredWorktrees(room: string, repositoryId?: string): RegisteredWorktree[] {
+    return this.listWorktrees(room, { repositoryId });
+  }
+
+  /** Persist the repository, its stable main row, and one explicitly selected
+   * secondary in one SQLite transaction. No room change-log row is appended. */
+  registerWorktree(
+    room: string,
+    repository: RepositoryObservation,
+    main: WorktreeObservation,
+    secondary: WorktreeObservation,
+    alias: string,
+    source: Exclude<WorktreeSource, 'main'>,
+    now = new Date().toISOString(),
+  ): { repository: RepositoryRecord; worktree: RegisteredWorktree } {
+    if (!main.primary || secondary.primary) throw new Error('invalid primary/secondary worktree observations');
+    const normalizedAlias = WorktreeAliasSchema.parse(alias);
+    return this.db.transaction(() => {
+      if (!this.getRoom(room)) throw new Error(`no such room: ${room}`);
+
+      const existingRoomRepository = this.db
+        .prepare('SELECT * FROM repositories WHERE room = ? LIMIT 1')
+        .get(room) as RepositoryRow | undefined;
+      if (
+        existingRoomRepository !== undefined
+        && existingRoomRepository.common_path !== repository.common_path
+      ) {
+        throw new Error('a room may register only one Git repository');
+      }
+
+      let repositoryRow = this.db
+        .prepare('SELECT * FROM repositories WHERE room = ? AND common_path = ?')
+        .get(room, repository.common_path) as RepositoryRow | undefined;
+      if (repositoryRow === undefined) {
+        const repositoryId = this.newUlid();
+        this.db.prepare(
+          `INSERT INTO repositories
+             (id, room, common_path, primary_path, primary_git_admin_id, created_ts, updated_ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          repositoryId,
+          room,
+          repository.common_path,
+          repository.primary_path,
+          repository.primary_git_admin_id,
+          now,
+          now,
+        );
+        repositoryRow = this.db
+          .prepare('SELECT * FROM repositories WHERE id = ?')
+          .get(repositoryId) as RepositoryRow;
+      } else {
+        this.db.prepare(
+          `UPDATE repositories
+           SET primary_path = ?, primary_git_admin_id = ?, updated_ts = ?
+           WHERE id = ?`,
+        ).run(repository.primary_path, repository.primary_git_admin_id, now, repositoryRow.id);
+        repositoryRow = this.db
+          .prepare('SELECT * FROM repositories WHERE id = ?')
+          .get(repositoryRow.id) as RepositoryRow;
+      }
+
+      const mainRow = this.db
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE repository_id = ? AND primary_checkout = 1
+           ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+           LIMIT 1`,
+        )
+        .get(repositoryRow.id) as WorktreeRow | undefined;
+      if (mainRow === undefined) {
+        this.insertWorktreeRow(
+          repositoryRow.id,
+          room,
+          'main',
+          main,
+          'main',
+          now,
+        );
+      } else {
+        this.updateWorktreeRow(mainRow.id, main, {
+          alias: 'main',
+          lifecycle: 'active',
+          source: 'main',
+          unregistered_ts: null,
+          removed_ts: null,
+          updated_ts: now,
+        });
+      }
+
+      const existingSecondary = this.db
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE repository_id = ? AND git_admin_id = ? AND primary_checkout = 0
+           ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+           LIMIT 1`,
+        )
+        .get(repositoryRow.id, secondary.git_admin_id) as WorktreeRow | undefined;
+      if (existingSecondary === undefined) {
+        this.insertWorktreeRow(
+          repositoryRow.id,
+          room,
+          normalizedAlias,
+          secondary,
+          source,
+          now,
+        );
+      } else {
+        this.updateWorktreeRow(existingSecondary.id, secondary, {
+          alias: normalizedAlias,
+          lifecycle: 'active',
+          // The original source and registration timestamp are identity history;
+          // re-adoption only clears the tombstone and refreshes observations.
+          source: existingSecondary.source,
+          unregistered_ts: null,
+          removed_ts: null,
+          updated_ts: now,
+        });
+      }
+
+      const refreshedRepository = this.db
+        .prepare('SELECT * FROM repositories WHERE id = ?')
+        .get(repositoryRow.id) as RepositoryRow;
+      const refreshedWorktree = this.db
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE repository_id = ? AND git_admin_id = ? AND primary_checkout = 0
+           ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+           LIMIT 1`,
+        )
+        .get(repositoryRow.id, secondary.git_admin_id) as WorktreeRow;
+      return {
+        repository: repositoryFromRow(refreshedRepository),
+        worktree: worktreeFromRow(refreshedWorktree),
+      };
+    })();
+  }
+
+  /** Refresh an active row from a fresh Git observation. This deliberately
+   * bypasses the room changelog because worktree metadata is an additive REST
+   * projection, not room-sync state. */
+  refreshWorktreeObservation(
+    room: string,
+    worktreeId: string,
+    observation: WorktreeObservation,
+    now = new Date().toISOString(),
+  ): RegisteredWorktree {
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active') {
+        throw new Error(`no active worktree: ${worktreeId}`);
+      }
+      this.updateWorktreeRow(existing.id, observation, { updated_ts: now });
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+
+  unregisterWorktree(room: string, worktreeId: string, now = new Date().toISOString()): RegisteredWorktree {
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
+        throw new Error(`only an active secondary worktree can be unregistered: ${worktreeId}`);
+      }
+      this.db.prepare(
+        `UPDATE worktrees
+         SET lifecycle = 'unregistered', unregistered_ts = ?, updated_ts = ?
+         WHERE room = ? AND id = ? AND lifecycle = 'active'`,
+      ).run(now, now, room, worktreeId);
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+
+  removeWorktree(room: string, worktreeId: string, now = new Date().toISOString()): RegisteredWorktree {
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
+        throw new Error(`only an active secondary worktree can be removed: ${worktreeId}`);
+      }
+      this.db.prepare(
+        `UPDATE worktrees
+         SET lifecycle = 'removed', availability = 'missing', locked = 0,
+             removed_ts = ?, updated_ts = ?
+         WHERE room = ? AND id = ? AND lifecycle = 'active'`,
+      ).run(now, now, room, worktreeId);
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+
+  private insertWorktreeRow(
+    repositoryId: string,
+    room: string,
+    alias: string,
+    observation: WorktreeObservation,
+    source: WorktreeSource,
+    now: string,
+  ): void {
+    this.db.prepare(
+      `INSERT INTO worktrees
+         (id, repository_id, room, alias, path, git_admin_id, primary_checkout, source,
+          lifecycle, availability, locked, head, branch, registered_ts, updated_ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      this.newUlid(),
+      repositoryId,
+      room,
+      WorktreeAliasSchema.parse(alias),
+      observation.path,
+      observation.git_admin_id,
+      fromBool(observation.primary),
+      source,
+      observation.availability,
+      fromBool(observation.locked),
+      observation.head ?? null,
+      observation.branch ?? null,
+      now,
+      now,
+    );
+  }
+
+  private updateWorktreeRow(
+    id: string,
+    observation: WorktreeObservation,
+    patch: {
+      alias?: string;
+      lifecycle?: WorktreeLifecycle;
+      source?: WorktreeSource;
+      unregistered_ts?: string | null;
+      removed_ts?: string | null;
+      updated_ts: string;
+    },
+  ): void {
+    const alias = patch.alias === undefined ? undefined : WorktreeAliasSchema.parse(patch.alias);
+    this.db.prepare(
+      `UPDATE worktrees
+       SET alias = COALESCE(?, alias), path = ?, git_admin_id = ?,
+           primary_checkout = ?, source = COALESCE(?, source), lifecycle = COALESCE(?, lifecycle),
+           availability = ?, locked = ?, head = ?, branch = ?,
+           unregistered_ts = CASE WHEN ? = 1 THEN ? ELSE unregistered_ts END,
+           removed_ts = CASE WHEN ? = 1 THEN ? ELSE removed_ts END,
+           updated_ts = ?
+       WHERE id = ?`,
+    ).run(
+      alias ?? null,
+      observation.path,
+      observation.git_admin_id,
+      fromBool(observation.primary),
+      patch.source ?? null,
+      patch.lifecycle ?? null,
+      observation.availability,
+      fromBool(observation.locked),
+      observation.head ?? null,
+      observation.branch ?? null,
+      patch.unregistered_ts === undefined ? 0 : 1,
+      patch.unregistered_ts ?? null,
+      patch.removed_ts === undefined ? 0 : 1,
+      patch.removed_ts ?? null,
+      patch.updated_ts,
+      id,
+    );
+  }
+  // harn:end registered-worktree-identities-are-durable
 
   updateRoomConfig(room: string, patch: Partial<RoomConfig>): Room {
     return this.db.transaction(() => {

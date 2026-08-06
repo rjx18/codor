@@ -1,0 +1,124 @@
+import { z } from 'zod';
+
+import { RoomIdSchema, TimestampSchema } from './ids.js';
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-contract
+/** A worktree/repository id is a Codor identity, not a Git branch or path. */
+export const RepositoryIdSchema = z.ulid();
+export const WorktreeIdSchema = z.ulid();
+
+/** Cross-platform absolute paths are accepted at the wire boundary. The
+ * switchboard canonicalizes existing paths before it invokes Git or persists
+ * them; this schema only prevents relative path selectors. */
+export const WorktreePathSchema = z.string().min(1).refine(
+  (value) => value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\'),
+  'worktree paths must be absolute',
+);
+
+/** Aliases are display/routing selectors, never command fragments. */
+export const WorktreeAliasSchema = z.string()
+  .trim()
+  .min(1)
+  .max(48)
+  .regex(/^[a-z0-9][a-z0-9._-]*$/);
+
+/** Branches are checked with Git as well as this bounded wire shape. */
+export const WorktreeBranchSchema = z.string()
+  .min(1)
+  .max(255)
+  .refine((value) => !value.startsWith('-'), 'branch names may not start with a dash');
+
+export const WorktreeSourceSchema = z.enum(['main', 'adopted', 'created']);
+export const WorktreeLifecycleSchema = z.enum(['active', 'unregistered', 'removed']);
+export const WorktreeAvailabilitySchema = z.enum(['available', 'missing', 'locked', 'prunable']);
+export type WorktreeSource = z.infer<typeof WorktreeSourceSchema>;
+export type WorktreeLifecycle = z.infer<typeof WorktreeLifecycleSchema>;
+export type WorktreeAvailability = z.infer<typeof WorktreeAvailabilitySchema>;
+
+const CommitHashSchema = z.string().regex(/^[0-9a-f]{40}$/i);
+
+export const RepositoryRecordSchema = z.object({
+  id: RepositoryIdSchema,
+  room: RoomIdSchema,
+  common_path: WorktreePathSchema,
+  primary_path: WorktreePathSchema,
+  primary_git_admin_id: WorktreePathSchema,
+  created_ts: TimestampSchema,
+  updated_ts: TimestampSchema,
+});
+export type RepositoryRecord = z.infer<typeof RepositoryRecordSchema>;
+
+export const RegisteredWorktreeSchema = z.object({
+  id: WorktreeIdSchema,
+  repository_id: RepositoryIdSchema,
+  room: RoomIdSchema,
+  alias: WorktreeAliasSchema,
+  path: WorktreePathSchema,
+  git_admin_id: WorktreePathSchema,
+  primary: z.boolean(),
+  source: WorktreeSourceSchema,
+  lifecycle: WorktreeLifecycleSchema,
+  availability: WorktreeAvailabilitySchema,
+  locked: z.boolean(),
+  head: CommitHashSchema.optional(),
+  branch: z.string().min(1).optional(),
+  registered_ts: TimestampSchema,
+  updated_ts: TimestampSchema,
+  unregistered_ts: TimestampSchema.optional(),
+  removed_ts: TimestampSchema.optional(),
+});
+export type RegisteredWorktree = z.infer<typeof RegisteredWorktreeSchema>;
+
+export const WorktreeDiscoveryCandidateSchema = z.object({
+  path: WorktreePathSchema,
+  git_admin_id: WorktreePathSchema,
+  primary: z.boolean(),
+  availability: WorktreeAvailabilitySchema,
+  locked: z.boolean(),
+  head: CommitHashSchema.optional(),
+  branch: z.string().min(1).optional(),
+  registered_id: WorktreeIdSchema.optional(),
+  alias: WorktreeAliasSchema.optional(),
+});
+export type WorktreeDiscoveryCandidate = z.infer<typeof WorktreeDiscoveryCandidateSchema>;
+
+export const WorktreeListResponseSchema = z.object({
+  repository: RepositoryRecordSchema.nullable(),
+  registered: z.array(RegisteredWorktreeSchema),
+  discovered: z.array(WorktreeDiscoveryCandidateSchema),
+});
+export type WorktreeListResponse = z.infer<typeof WorktreeListResponseSchema>;
+
+export const WorktreeAdoptRequestSchema = z.object({
+  path: WorktreePathSchema,
+  alias: z.string().trim().min(1).max(128).optional(),
+});
+export type WorktreeAdoptRequest = z.infer<typeof WorktreeAdoptRequestSchema>;
+
+export const WorktreeCreateRequestSchema = z.object({
+  alias: z.string().trim().min(1).max(128),
+  branch: WorktreeBranchSchema,
+  path: WorktreePathSchema,
+});
+export type WorktreeCreateRequest = z.infer<typeof WorktreeCreateRequestSchema>;
+
+export const WorktreeLifecycleResponseSchema = z.object({
+  repository: RepositoryRecordSchema,
+  worktree: RegisteredWorktreeSchema,
+});
+export type WorktreeLifecycleResponse = z.infer<typeof WorktreeLifecycleResponseSchema>;
+// harn:end registered-worktree-identities-are-durable
+
+// harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-contract
+export const WorktreeDiscoveryResponseSchema = WorktreeListResponseSchema;
+export type WorktreeDiscoveryResponse = WorktreeListResponse;
+// harn:end worktree-discovery-never-registers-candidates
+
+// harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-contract
+export const WorktreeCreateResponseSchema = WorktreeLifecycleResponseSchema;
+// harn:end worktree-creation-registers-only-a-new-secondary
+
+// harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-contract
+export const WorktreeUnregisterResponseSchema = WorktreeLifecycleResponseSchema;
+export const WorktreeRemoveResponseSchema = WorktreeLifecycleResponseSchema;
+// harn:end worktree-removal-is-clean-and-branch-preserving

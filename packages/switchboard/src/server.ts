@@ -15,6 +15,9 @@ import {
   AcpProviderIdSchema,
   ClientFrameSchema,
   CreateRoomRequestSchema,
+  WorktreeAdoptRequestSchema,
+  WorktreeCreateRequestSchema,
+  WorktreeIdSchema,
   type BridgeOrigin,
   type Member,
   type Policy,
@@ -340,6 +343,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
   });
   // harn:end agent-network-authority-is-narrow
+
+  // harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-role-gate
+  const authorizeWorktreeRead = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    // Worktree metadata is operator-facing room state. Agent credentials do not
+    // gain even read access merely because they can read room transcripts.
+    if (principal.kind === 'agent') {
+      void reply.code(403).send({ error: 'forbidden: agent cannot use worktree management' });
+      return undefined;
+    }
+    return authorizeRoom(principal, room, 'read', reply);
+  };
+
+  const authorizeWorktreeMutation = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    if (principal.kind === 'agent') {
+      void reply.code(403).send({ error: 'forbidden: agent cannot use worktree management' });
+      return undefined;
+    }
+    return authorizeRoom(principal, room, 'manage_worktrees', reply);
+  };
+  // harn:end worktree-management-is-human-admin-only
 
   // harn:assume voice-provider-selection-is-operator-config ref=voice-selection-server-option
   // The active provider is operator config only — a browser never names it.
@@ -961,6 +992,100 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   });
   // harn:end room-git-inspection-read-only-from-known-cwds
+
+  // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-rest
+  const listWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.send(await daemon.listWorktrees(room, cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.get('/api/rooms/:room/worktrees', listWorktreeRoute);
+  app.get('/api/rooms/:room/worktrees/discover', listWorktreeRoute);
+  // harn:end worktree-discovery-never-registers-candidates
+
+  // harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-contract
+  app.post('/api/rooms/:room/worktrees/adopt', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const input = WorktreeAdoptRequestSchema.parse(req.body);
+      const { cwd } = req.query as { cwd?: string };
+      return reply.code(201).send(await daemon.adoptWorktree(room, input, cwd));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end registered-worktree-identities-are-durable
+
+  // harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-rest
+  const createWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const input = WorktreeCreateRequestSchema.parse({
+        ...body,
+        path: body.path ?? body.target,
+      });
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.code(201).send(await daemon.createWorktree(room, input, cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.post('/api/rooms/:room/worktrees', createWorktreeRoute);
+  app.post('/api/rooms/:room/worktrees/create', createWorktreeRoute);
+  // harn:end worktree-creation-registers-only-a-new-secondary
+
+  // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-rest
+  const worktreeIdFromParams = (req: FastifyRequest): string => {
+    const { worktreeId } = req.params as { worktreeId: string };
+    return WorktreeIdSchema.parse(worktreeId);
+  };
+
+  const unregisterWorktreeRoute = (req: FastifyRequest, reply: FastifyReply): void => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const worktree = daemon.unregisterWorktree(room, worktreeIdFromParams(req));
+      const repository = daemon.store.getRepository(room);
+      if (repository === undefined) throw new Error('worktree repository is unavailable');
+      void reply.send({ repository, worktree });
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.post('/api/rooms/:room/worktrees/:worktreeId/unregister', unregisterWorktreeRoute);
+  app.delete('/api/rooms/:room/worktrees/:worktreeId', unregisterWorktreeRoute);
+
+  const removeWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.send(await daemon.removeWorktree(room, worktreeIdFromParams(req), cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.post('/api/rooms/:room/worktrees/:worktreeId/remove', removeWorktreeRoute);
+  app.post('/api/rooms/:room/worktrees/:worktreeId/filesystem-remove', removeWorktreeRoute);
+  // harn:end worktree-removal-is-clean-and-branch-preserving
 
   // harn:assume attachments-are-capped-files-served-inert ref=attachment-contract
   // Upload streams one file to disk under the room's attachment dir keyed by a
