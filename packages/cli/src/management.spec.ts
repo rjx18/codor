@@ -169,6 +169,13 @@ describe('management failures', () => {
       .toBe(MANAGEMENT_EXIT_CODES.conflict);
     expect(cliExitCode(classifyManagementError(new Error('cannot pause @worker during an active turn; stop the turn first'))))
       .toBe(MANAGEMENT_EXIT_CODES.conflict);
+    expect(cliExitCode(classifyManagementError(new Error(
+      'member @worker is mirrored from another switchboard; configure it there',
+    )))).toBe(MANAGEMENT_EXIT_CODES.conflict);
+    expect(cliExitCode(classifyManagementError(new Error('member @worker has no resumable session'))))
+      .toBe(MANAGEMENT_EXIT_CODES.conflict);
+    expect(cliExitCode(classifyManagementError(new Error("adapter 'fake' does not support resume"))))
+      .toBe(MANAGEMENT_EXIT_CODES.conflict);
     expect(cliExitCode(classifyManagementError(new Error("adapter 'fake' does not support thinking level 'ultra'"))))
       .toBe(MANAGEMENT_EXIT_CODES.invocation);
     const schemaFailure = new Error('Invalid input') as Error & { issues: unknown[] };

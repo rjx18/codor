@@ -58,7 +58,7 @@ export function classifyManagementError(error: unknown): ManagementError {
   } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (
-    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove/.test(lower)
+    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume/.test(lower)
   ) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {

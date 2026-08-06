@@ -405,6 +405,14 @@ describe('correlated agent management over WebSocket', () => {
     expect(await observerClient.next((frame) => frame.type === 'error' && frame.ref === 'observer-pause'))
       .toMatchObject({ type: 'error', ref: 'observer-pause' });
 
+    const adminClient = await connectAs(ADMIN_TOKEN);
+    adminClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'admin-configure',
+      act: { act: 'configure', member_id: agentId, model: 'admin-model' },
+    }));
+    expect(await adminClient.next((frame) => frame.type === 'member' && frame.ref === 'admin-configure'))
+      .toMatchObject({ type: 'member', ref: 'admin-configure', member: { id: agentId, model: 'admin-model' } });
+
     let agentSession: Session | undefined;
     const originalSpawn = fake.spawn.bind(fake);
     vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
@@ -440,6 +448,7 @@ describe('correlated agent management over WebSocket', () => {
     expect(fake.deliveries.length).toBe(deliveriesBefore);
 
     owner.ws.close();
+    adminClient.ws.close();
     memberClient.ws.close();
     observerClient.ws.close();
     agentClient.ws.close();

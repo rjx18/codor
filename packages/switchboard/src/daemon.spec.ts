@@ -155,7 +155,44 @@ describe('structured agent lifecycle guards', () => {
     expect(fake.deliveries).toHaveLength(0);
     expect(runMessages()).toHaveLength(0);
   });
+
+  it('refuses pause while an interactive attach is active or pending without mutation', async () => {
+    const attached = spawnAgent('attached-pause');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@attached-pause initialize');
+    await daemon.settle();
+    const acquired = await daemon.acquireAttachLease('eng', attached.id, 1234);
+    const beforeActive = daemon.store.getMember('eng', attached.id)!;
+    expect(() => daemon.pauseMember('eng', attached.id)).toThrow('active interactive attach lease');
+    expect(daemon.store.getMember('eng', attached.id)).toEqual(beforeActive);
+    expect(daemon.store.getAttachLease(acquired.lease.id)).toEqual(acquired.lease);
+    daemon.reportAttachChild(acquired.lease.id, 999_998, 999_998);
+    expect(daemon.completeAttachLease(acquired.lease.id).status).toBe('completed');
+
+    const pending = spawnAgent('pending-pause');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@pending-pause initialize');
+    await daemon.settle();
+    fake.enqueue({ kind: 'complete', final_text: '@richard pending turn', delay_ms: 100 });
+    daemon.postHumanMessage('eng', '@pending-pause start pending attach');
+    await until(() => daemon.store.getMember('eng', pending.id)?.state === 'running' ? true : undefined);
+    daemon.store.updateMember('eng', pending.id, { state: 'idle' });
+    const pendingAcquisition = daemon.acquireAttachLease('eng', pending.id, 5678);
+    await Promise.resolve();
+    const beforePending = daemon.store.getMember('eng', pending.id)!;
+    expect(() => daemon.pauseMember('eng', pending.id)).toThrow('active interactive attach lease');
+    expect(daemon.store.getMember('eng', pending.id)).toEqual(beforePending);
+    expect(daemon.store.getAttachLeaseForMember(pending.id)).toBeUndefined();
+    const pendingLease = await pendingAcquisition;
+    daemon.reportAttachChild(pendingLease.lease.id, 999_997, 999_997);
+    expect(daemon.completeAttachLease(pendingLease.lease.id).status).toBe('completed');
+    await daemon.settle();
+  });
 });
+
+// harn:end agent-management-does-not-invent-work
+// harn:end agent-pause-refuses-active-turn
+// harn:end agent-add-selects-one-public-adapter
 
 // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-regression
 // harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=aggregate-routing-regression

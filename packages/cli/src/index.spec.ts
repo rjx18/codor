@@ -1301,6 +1301,55 @@ describe('@codor/cli', () => {
   });
   // harn:end agent-remove-requires-explicit-confirmation
   // harn:end management-output-is-json-pure-and-safe
+
+  it('classifies mirrored configuration and non-resumable revive as conflicts', async () => {
+    const invoke = async (args: string[]) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const mirroredCwd = join(dir, 'mirrored-agent');
+    mkdirSync(mirroredCwd);
+    const mirrored = daemon.joinMember('eng', {
+      harness: 'fake', handle: 'mirrored-agent', session_ref: 'mirrored-session', cwd: mirroredCwd,
+    });
+    const mirroredConfigure = await invoke([
+      'agent', 'configure', mirrored.handle, '--channel', 'eng', '--model', 'blocked-model', '--json',
+    ]);
+    expect(mirroredConfigure.error).toMatchObject({
+      name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.conflict,
+    });
+    expect(mirroredConfigure.stdout).toEqual([]);
+    expect(mirroredConfigure.stderr).toEqual([]);
+    expect(daemon.store.getMember('eng', mirrored.id)?.model).toBeUndefined();
+
+    const unrevivableCwd = join(dir, 'unrevivable-agent');
+    mkdirSync(unrevivableCwd);
+    const unrevivable = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'unrevivable', cwd: unrevivableCwd,
+    });
+    daemon.killMember('eng', unrevivable.id);
+    const unresumableRevive = await invoke([
+      'agent', 'revive', unrevivable.handle, '--channel', 'eng', '--json',
+    ]);
+    expect(unresumableRevive.error).toMatchObject({
+      name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.conflict,
+    });
+    expect(unresumableRevive.stdout).toEqual([]);
+    expect(unresumableRevive.stderr).toEqual([]);
+  });
+
   // harn:end structured-agent-cli-preserves-flat-lifecycle
 
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-regression
@@ -1381,6 +1430,20 @@ describe('@codor/cli', () => {
       author: alpha.member.id,
       body: 'remote member attribution',
     });
+
+    output = [];
+    await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'agent', 'list', '--channel', 'eng', '--json',
+    ], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+      isTTY: false,
+    });
+    expect(output).toHaveLength(1);
+    expect(JSON.parse(output[0]!)).toEqual([
+      expect.objectContaining({ handle: 'alpha', adapter: 'fake', status: 'idle' }),
+    ]);
   });
   // harn:end member-env-selects-narrow-cli-identity
 

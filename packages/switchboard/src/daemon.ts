@@ -2117,6 +2117,9 @@ export class Daemon {
     const existing = this.store.getMember(room, memberId);
     if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
     if (existing.removed_ts !== undefined) throw new Error(`member @${existing.handle} was removed`);
+    if (this.store.getAttachLeaseForMember(memberId) || this.pendingAttach.has(memberId)) {
+      throw new Error(`member @${existing.handle} has an active interactive attach lease`);
+    }
     if (existing.state === 'dead') throw new Error(`member @${existing.handle} is dead; revive it instead`);
     if (existing.state === 'paused') throw new Error(`member @${existing.handle} is already paused`);
     if (existing.state === 'custody_uncertain') {

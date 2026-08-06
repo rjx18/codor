@@ -1667,8 +1667,8 @@ export function createProgram(context: CliContext = {}): Command {
         out(renderAgent(removed, options.json === true));
       });
     });
-  // harn:end structured-agent-cli-preserves-flat-lifecycle
   // harn:end human-facing-surfaces-call-rooms-channels
+  // harn:end structured-agent-cli-preserves-flat-lifecycle
   const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
   channelManagement.aliases().splice(0);
   const structuredChannelManagement = program
