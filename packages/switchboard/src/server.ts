@@ -334,11 +334,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   };
 
-  const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) => {
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server
+  /** Default discovery hides archived channels; management `--all` opts in. */
+  const roomsFor = (principal: AuthPrincipal, includeArchived = false) => daemon.store.listRooms().filter((room) => {
+    if (!includeArchived && room.config.archived_ts !== undefined) return false;
     if (principal.kind === 'owner' || principal.kind === 'browser') return true;
     if (principal.kind === 'agent') return room.id === principal.room;
     return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
   });
+  // harn:end channel-archive-is-durable-soft-state
   // harn:end agent-network-authority-is-narrow
 
   // harn:assume voice-provider-selection-is-operator-config ref=voice-selection-server-option
@@ -1465,11 +1469,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       };
 
       socket.on('message', (raw: Buffer) => {
-        let frame;
+        let parsed: unknown;
         try {
-          frame = ClientFrameSchema.parse(JSON.parse(raw.toString()));
+          parsed = JSON.parse(raw.toString());
         } catch (error) {
           return send({ type: 'error', message: `invalid frame: ${String(error)}` });
+        }
+        const rawRef = typeof parsed === 'object' && parsed !== null && 'ref' in parsed
+          && typeof parsed.ref === 'string' && parsed.ref.length > 0 && parsed.ref.length <= 128
+          ? parsed.ref
+          : undefined;
+        let frame;
+        try {
+          frame = ClientFrameSchema.parse(parsed);
+        } catch (error) {
+          return send({
+            type: 'error',
+            message: `invalid frame: ${String(error)}`,
+            ...(rawRef !== undefined && { ref: rawRef }),
+          });
         }
         try {
           if (frame.type === 'mirror_turn') {
@@ -1498,10 +1516,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               throw new Error('forbidden: principal cannot list rooms');
             }
             // harn:assume list-rooms-reply-carries-per-room-seq ref=rooms-reply-seq-populate
-            const listedRooms = roomsFor(principal);
+            const listedRooms = roomsFor(principal, frame.all === true);
             send({
               type: 'rooms',
               rooms: listedRooms.map((room) => daemon.project(room.id, room)),
+              // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+              ...(frame.ref !== undefined && { ref: frame.ref }),
+              // harn:end management-frames-correlate-one-result
               // Per-room committed seq lets a multiplexed client warm-resync any
               // room that fell behind since its last applied frame — the recovery
               // path for a live-socket miss short of a reload.
@@ -1510,6 +1531,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               ),
             });
             // harn:end list-rooms-reply-carries-per-room-seq
+          } else if (frame.type === 'create_room') {
+            // harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+            if (!authorizeGlobal(principal, 'manage_rooms')) {
+              throw new Error('forbidden: principal cannot manage rooms');
+            }
+            // harn:end roles-gate-human-acts-not-agents
+            if (
+              frame.request.starting_agent?.acp_launch !== undefined
+              && !authorizeGlobal(principal, 'manage_agents')
+            ) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const created = daemon.createRoom(frame.request);
+            options.crypto?.roomKeys.ensureRoom(created.room.id);
+            send({
+              type: 'room',
+              seq: daemon.store.currentSeq(created.room.id),
+              room: daemon.project(created.room.id, created.room),
+              // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+              ref: frame.ref,
+              // harn:end management-frames-correlate-one-result
+            });
           } else if (frame.type === 'subscribe') {
             // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-admission
             const browserClient = principal.kind === 'browser'
@@ -1687,6 +1730,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 }),
                 ...(act.stall_minutes !== undefined && { stall_minutes: act.stall_minutes }),
               });
+            // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server
+            } else if (act.act === 'rename_room') {
+              const updated = daemon.renameRoom(frame.room, act.name);
+              send({
+                type: 'room',
+                seq: daemon.store.currentSeq(frame.room),
+                room: daemon.project(frame.room, updated),
+                // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+                ...(frame.ref !== undefined && { ref: frame.ref }),
+                // harn:end management-frames-correlate-one-result
+              });
+            } else if (act.act === 'archive_room') {
+              const updated = daemon.archiveRoom(frame.room);
+              send({
+                type: 'room',
+                seq: daemon.store.currentSeq(frame.room),
+                room: daemon.project(frame.room, updated),
+                // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+                ...(frame.ref !== undefined && { ref: frame.ref }),
+                // harn:end management-frames-correlate-one-result
+              });
+            // harn:end channel-archive-is-durable-soft-state
             }
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
@@ -1769,7 +1834,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'retry_run') daemon.retryRun(frame.room, act.message_id, actor.id);
           }
         } catch (error) {
-          send({ type: 'error', message: String(error), ref: frame.type });
+          // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+          send({
+            type: 'error',
+            message: String(error),
+            ref: ('ref' in frame ? frame.ref : undefined) ?? frame.type,
+          });
+          // harn:end management-frames-correlate-one-result
         }
       });
     });

@@ -12,7 +12,12 @@ import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSche
 import { AssignableHandleSchema } from './member.js';
 import { MemberSchema } from './member.js';
 import { MessageSchema, VoiceNoteSchema } from './message.js';
-import { RoomMeterSchema, RoomSchema, RoomSupportSchema } from './room.js';
+import {
+  CreateRoomRequestSchema,
+  RoomMeterSchema,
+  RoomSchema,
+  RoomSupportSchema,
+} from './room.js';
 
 // ── client → server ────────────────────────────────────────────────────────
 
@@ -67,8 +72,25 @@ export const PostFrameSchema = z.object({
 });
 export type PostFrame = z.infer<typeof PostFrameSchema>;
 
-export const ListRoomsFrameSchema = z.object({ type: z.literal('list_rooms') });
+// harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+/** Opaque request ids are echoed only on the authoritative management result. */
+export const ManagementRefSchema = z.string().min(1).max(128);
+
+export const ListRoomsFrameSchema = z.object({
+  type: z.literal('list_rooms'),
+  /** Optional for legacy callers; structured management callers always set it. */
+  ref: ManagementRefSchema.optional(),
+  /** Include soft-archived channels in discovery. */
+  all: z.boolean().optional(),
+});
 export type ListRoomsFrame = z.infer<typeof ListRoomsFrameSchema>;
+
+export const CreateRoomFrameSchema = z.object({
+  type: z.literal('create_room'),
+  ref: ManagementRefSchema,
+  request: CreateRoomRequestSchema,
+});
+export type CreateRoomFrame = z.infer<typeof CreateRoomFrameSchema>;
 
 export const ActSchema = z.discriminatedUnion('act', [
   z.object({
@@ -194,6 +216,10 @@ export const ActSchema = z.discriminatedUnion('act', [
     act: z.literal('retry_run'),
     message_id: MessageIdSchema,
   }),
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol
+  z.object({ act: z.literal('rename_room'), name: z.string().min(1) }),
+  z.object({ act: z.literal('archive_room') }),
+  // harn:end channel-archive-is-durable-soft-state
 ])
   // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-act-schema
   // A discriminated union cannot refine a single member, so the ACP spawn one-of is
@@ -224,6 +250,9 @@ export const ActFrameSchema = z.object({
   type: z.literal('act'),
   room: RoomIdSchema,
   act: ActSchema,
+  // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+  ref: ManagementRefSchema.optional(),
+  // harn:end management-frames-correlate-one-result
 });
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 
@@ -246,6 +275,7 @@ export type MirrorSessionEndFrame = z.infer<typeof MirrorSessionEndFrameSchema>;
 
 export const ClientFrameSchema = z.discriminatedUnion('type', [
   ListRoomsFrameSchema,
+  CreateRoomFrameSchema,
   SubscribeFrameSchema,
   PostFrameSchema,
   ActFrameSchema,
@@ -284,6 +314,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('rooms'),
     rooms: z.array(RoomSchema),
+    // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+    ref: ManagementRefSchema.optional(),
+    // harn:end management-frames-correlate-one-result
     // Optional per-room committed seq, keyed by room id, so a client multiplexing
     // many rooms on one socket can detect a subscribed room that fell behind and
     // warm-resync only it. Absent from older servers → client skips
@@ -320,7 +353,14 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   }),
   // harn:end live-delivery-consumption-is-idempotent
   z.object({ type: z.literal('meter'), seq: SeqSchema, meter: RoomMeterSchema }),
-  z.object({ type: z.literal('room'), seq: SeqSchema, room: RoomSchema }),
+  z.object({
+    type: z.literal('room'),
+    seq: SeqSchema,
+    room: RoomSchema,
+    // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+    ref: ManagementRefSchema.optional(),
+    // harn:end management-frames-correlate-one-result
+  }),
   // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-protocol
   z.object({ type: z.literal('room_support'), seq: SeqSchema, support: RoomSupportSchema }),
   // harn:end room-support-is-bounded-recipient-scoped-state
@@ -353,7 +393,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('error'),
     message: z.string(),
-    ref: z.string().optional(), // offending frame/act identifier when known
+    // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+    ref: ManagementRefSchema.optional(), // offending frame/act identifier when known
+    // harn:end management-frames-correlate-one-result
   }),
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;

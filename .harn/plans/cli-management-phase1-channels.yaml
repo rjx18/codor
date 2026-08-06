@@ -1,0 +1,474 @@
+id: cli-management-phase1-channels
+title: Phase 1 CLI management foundation and structured channel commands
+notes: >-
+  Implement only Phase 1 of .codor/PHASED-PLAN.md. Add one reusable CLI
+  management layer over the existing authenticated WebSocket protocol, with
+  exact request/act correlation, deterministic human rendering, one-value JSON
+  output, redacted typed failures, stable nonzero exit codes, and destructive
+  confirmation. Add `channel list`, `channel create`, `channel show`, `channel
+  rename`, and archive-only `channel archive`, while preserving the exact flat
+  `channels` command and every other flat command. The structured surface is:
+  `channel list [--all] [--json]`; `channel create <name> --owner <handle>
+  [--owner-name <display-name>] [--id <id>] [--color <color>] [--cwd <path>]
+  [--json]`; `channel show <channel> [--json]`; `channel rename <channel> <name>
+  [--json]`; and `channel archive <channel> [--yes] [--json]`.
+
+  List output is sorted by channel id; human rows and show fields use fixed
+  tab-separated ordering; JSON emits exactly one compact JSON value on stdout
+  and nothing else. The safe CLI projection contains only id, name, active or
+  archived status, created timestamp, optional archive timestamp, color, and
+  cwd. It never serializes credentials, bearer values, member records, ACP
+  launches, or native session references. Ordinary invocation continues to use
+  the private installed Unix socket or Windows named pipe; explicit `--url`
+  continues to require the selected explicit/environment token; the operator
+  token file is never loaded for a non-loopback origin and this phase adds no
+  cloud, account, relay, or token mechanism.
+
+  Correlation is additive to the current wire contract: a management client
+  supplies an opaque unique `ref` on list/create requests and rename/archive
+  acts; successful rooms/room replies and failures echo that exact ref. The
+  client ignores unrelated room events and errors and completes only on its
+  correlated authoritative result or failure. Frames without a ref retain the
+  current legacy behavior. Create reuses the accepted CreateRoomRequest and
+  Daemon.createRoom path, including server-owned id collision suffixing, seeded
+  owner/system members, derived accent, cwd validation, key creation, and
+  redaction; the CLI deliberately exposes no starting-agent or roster option in
+  this phase.
+
+  Archive is soft durable state on the room configuration: it records one
+  timestamp and one room changelog update, removes the channel from default
+  discovery, remains visible to `channel show` and `channel list --all`, and
+  preserves every room, member, message, key, blob, ledger, artifact, and agent
+  lifecycle record. It neither kills agents nor changes direct legacy channel-id
+  operations. An archived channel cannot be renamed or archived a second time,
+  and there is no delete, purge, restore, direct SQLite mutation, or
+  authorization bypass. Read/list/show use existing room visibility;
+  create/rename/archive require owner `manage_rooms` authority, so admin,
+  member, observer, and agent principals cannot mutate channels.
+
+  `channel archive` prompts only on an interactive terminal, writes the prompt
+  and any diagnostic to stderr, accepts an explicit affirmative answer, and
+  otherwise performs no mutation. Noninteractive and JSON invocations require
+  `--yes`; declining is a distinct non-success outcome. New management failures
+  carry stable exit codes: 2 invocation/confirmation, 3 authentication, 4
+  authorization, 5 not found, 6 conflict/refusal, and 7 transport/protocol;
+  uncategorized existing CLI failures retain exit 1. Both the source entrypoint
+  and generated public-package wrapper print one stack-free redacted stderr line
+  and propagate the typed code.
+
+  Explicitly excluded: every agent lifecycle command, agent presets,
+  default-roster behavior, worktrees, qualified posting, starting-agent CLI
+  controls, hard deletion, restore, web UI work, documentation/upgrade notes,
+  cloud/relay/account work, new credentials, and direct database access from the
+  CLI. One implementation commit must consume this plan.
+assumptions:
+  create:
+    - id: management-frames-correlate-one-result
+      title: Management requests and acts complete only on their correlated result
+      statement: Every structured CLI management request or act must carry one opaque
+        unique ref that the switchboard echoes on its authoritative success
+        reply or error, while the client ignores unrelated events and
+        differently referenced errors and legacy frames remain valid without a
+        ref, because a busy shared WebSocket cannot let unrelated channel
+        traffic falsely complete or fail an operator command.
+      reason: Existing flat commands infer completion from ambient events and treat
+        every error as theirs, which is not a safe reusable management
+        foundation.
+      depends_on:
+        - unix-socket-same-protocol
+        - server-token-required
+        - agent-network-authority-is-narrow
+    - id: channel-archive-is-durable-soft-state
+      title: Channel archive is durable soft state and never record deletion
+      statement: Archiving a channel must atomically persist one archive timestamp
+        with one room changelog update, omit the channel from default discovery,
+        retain it for explicit show and all-channel listing, refuse repeat
+        archive or rename of archived state, and preserve every related durable
+        and runtime record without offering hard delete or restore, because
+        Phase 1 removal is reversible data retention rather than destructive
+        erasure or agent lifecycle management.
+      reason: A CLI archive command must have observable durable semantics without
+        introducing the permanent deletion and cross-subsystem cleanup that the
+        approved roadmap excludes.
+      depends_on:
+        - changelog-covers-every-visible-entity
+        - roles-gate-human-acts-not-agents
+        - channel-creation-derived-and-seeded
+    - id: structured-channel-cli-preserves-flat-listing
+      title: Structured channel commands coexist with the flat channels contract
+      statement: The CLI must expose channel list, create, show, rename, and archive
+        under one `channel` family through authenticated switchboard contracts,
+        while the existing flat `channels` command keeps its current
+        active-channel tab output and every unrelated flat command remains
+        registered unchanged, because management automation is additive and
+        installed callers cannot be forced through a renamed or database-coupled
+        path.
+      reason: Phase 1 adds the first structured family but explicitly promises
+        compatibility for the existing CLI surface.
+      depends_on:
+        - management-frames-correlate-one-result
+        - channel-archive-is-durable-soft-state
+        - human-facing-surfaces-call-rooms-channels
+        - member-env-selects-narrow-cli-identity
+    - id: management-output-is-json-pure-and-safe
+      title: Management output is deterministic, JSON-pure, and identity-safe
+      statement: Every structured management command must render fixed-order
+        deterministic human text or exactly one compact JSON value on stdout,
+        keep prompts and diagnostics on stderr, and project only public
+        management fields without credentials, bearer values, member secrets,
+        private ACP launches, or native session references, because scripts must
+        be able to parse success output without terminal noise or accidental
+        authority disclosure.
+      reason: Later command families will reuse this renderer, so Phase 1 must pin the
+        machine contract and secret boundary before more entities are exposed.
+      depends_on:
+        - structured-channel-cli-preserves-flat-listing
+        - cli-help-never-renders-selected-bearer
+        - redaction-before-fanout
+        - agent-member-credentials-stay-secret
+    - id: management-failures-have-stable-redacted-exits
+      title: Management failures use stable exit classes and redacted stderr
+      statement: New management failures must preserve one stable nonzero exit class
+        for invocation or confirmation, authentication, authorization, not
+        found, conflict or refusal, and transport or protocol failure, while
+        both source and packaged entrypoints print exactly one stack-free stderr
+        line with selected tokens, bearer material, and token-bearing URLs
+        redacted and leave stdout empty, because unattended callers need to
+        distinguish remediation without leaking the credential that failed.
+      reason: The current wrappers collapse every rejection to exit 1 and can render a
+        raw transport error, which is insufficient for scriptable management.
+      depends_on:
+        - management-output-is-json-pure-and-safe
+        - public-cli-delegation-reports-concise-failures
+    - id: channel-archive-requires-explicit-confirmation
+      title: Channel archive requires interactive consent or unattended yes
+      statement: Channel archive must mutate only after an explicit affirmative TTY
+        response or `--yes`, must require `--yes` without a TTY and in JSON
+        mode, must keep its prompt off stdout, and must leave state unchanged on
+        refusal, because archive hides a channel from normal discovery and
+        unattended jobs cannot imply destructive consent.
+      reason: The roadmap requires one reusable confirmation boundary before later
+        destructive management families are added.
+      depends_on:
+        - structured-channel-cli-preserves-flat-listing
+        - management-output-is-json-pure-and-safe
+  reviewed:
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Local Unix or named-pipe and explicit URL clients continue to exchange
+        the identical parsed ClientFrame and ServerFrame protocol; only additive
+        management frames and optional refs are introduced.
+    - id: windows-named-pipe-shares-local-websocket-protocol
+      outcome: unchanged
+      reason: The management client reuses ProtocolClient, so Windows retains its
+        deterministic tokenless local pipe and the same frame semantics.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: CODOR_MEMBER_TOKEN continues to win over inherited CODOR_TOKEN on both
+        local and URL transports; management adds no credential fallback.
+    - id: server-token-required
+      outcome: unchanged
+      reason: Network management frames pass through the existing fail-closed bearer
+        authentication, while private local endpoints retain OS-protected owner
+        admission.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Channel list/show use read visibility and channel create/rename/archive
+        are owner-only manage_rooms operations accounted for by the exhaustive
+        role matrix.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials may see only their existing room read projection and
+        are refused every new global or mutating management operation.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: CLI create submits the existing bounded request without a starting
+        agent; id derivation, metadata validation, and future additive
+        starting-agent support remain server-owned.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: The new WebSocket ingress delegates to the same daemon creation path and
+        returns its authoritative collision-suffixed room.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: CLI-created channels still seed both structural members in the existing
+        store transaction.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Rename and archive each append exactly one room change in their store
+        transaction; the CLI never touches SQLite.
+    - id: brakes-default-off
+      outcome: unchanged
+      reason: Adding optional archive metadata to RoomConfig does not change brake,
+        spend, redaction, or stall defaults.
+    - id: list-rooms-reply-carries-per-room-seq
+      outcome: unchanged
+      reason: Correlated room listing still returns the exact committed seq map for
+        every included room; ref and archived inclusion are additive.
+    - id: every-channel-has-a-visible-accent
+      outcome: unchanged
+      reason: Create and every active or archived projection retain the chosen or
+        deterministically derived color.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The new family consistently says channel while wire, store, and daemon
+        implementation retain room terminology.
+    - id: cli-help-never-renders-selected-bearer
+      outcome: unchanged
+      reason: New help and error handling never interpolate the selected token or its
+        raw environment default.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: The generated wrapper still invokes exported runCli and emits one
+        stack-free line, now propagating a typed code and shared redaction.
+    - id: source-cli-installers-remain-idempotent-fallback
+      outcome: unchanged
+      reason: Only the source entrypoint's rejection formatter changes; POSIX and
+        Windows installation behavior and shims stay untouched.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: The packed gate retains its clean-clone offline runtime proof and adds a
+        focused structured-channel and exit/redaction smoke through the
+        installed binary.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: The management helper is part of the already bundled CLI package and
+        adds no dependency or workspace package.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Correlated room results use daemon projection before serialization and
+        CLI safe projection narrows output further.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: Member credentials remain session-only raw values and are neither room
+        fields nor CLI output; failure formatting redacts selected values.
+    - id: member-session-masks-operator-token
+      outcome: unchanged
+      reason: An agent-invoked CLI still uses its narrow masked member token and
+        cannot inherit owner authority into management.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: Phase 1 channel create accepts no starting-agent controls and every
+        channel output projection excludes ACP launch material.
+    - id: browser-created-channel-delivers-its-room-key
+      outcome: unchanged
+      reason: The paired-browser REST create flow and sealed key response remain
+        untouched; CLI owner creation ensures the room key server-side without
+        printing it.
+files:
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/artifact.ts
+  - packages/cli/src/artifact.spec.ts
+  - scripts/packed-install-test.sh
+anchors:
+  management-frames-correlate-one-result:
+    management-correlation-protocol:
+      action: change
+      reason: Add bounded optional refs to legacy list/act and result/error frames,
+        plus one correlated create-room request.
+    management-correlation-server:
+      action: change
+      reason: Echo the exact request ref on authoritative projected success or failure
+        for both network and local listeners.
+    management-correlation-client:
+      action: change
+      reason: Generate one ref, ignore unrelated frames/errors, and accept only the
+        matching result or failure.
+    management-correlation-protocol-regression:
+      action: change
+      reason: Prove additive old-frame parsing and bounded correlated management
+        shapes.
+    management-correlation-server-regression:
+      action: change
+      reason: Prove correlated success, synchronous/async refusal, and unrelated live
+        room events on authenticated sockets.
+    management-correlation-cli-regression:
+      action: change
+      reason: Feed unrelated results and differently referenced errors before the
+        matching success/error and prove exact completion.
+  channel-archive-is-durable-soft-state:
+    channel-archive-protocol:
+      action: change
+      reason: Add optional archive timestamp room metadata and rename/archive acts
+        without a delete or restore act.
+    channel-archive-storage:
+      action: change
+      reason: Persist rename/archive transactionally in room state with one changelog
+        append and no row or file deletion.
+    channel-archive-daemon:
+      action: change
+      reason: Expose authoritative daemon transitions and projected room fanout while
+        leaving agent lifecycle untouched.
+    channel-archive-server:
+      action: change
+      reason: Filter archived rooms from default discovery, include them explicitly,
+        and dispatch owner-authorized rename/archive.
+    channel-archive-protocol-regression:
+      action: change
+      reason: Pin archive metadata and the absence of hard-delete management shapes.
+    channel-archive-store-regression:
+      action: change
+      reason: Prove persistence across reopen, one seq per transition, preserved room
+        data, and repeat/rename refusal after archive.
+    channel-archive-server-regression:
+      action: change
+      reason: Prove active/default versus all listing, showability, authorization, and
+        no destructive side effects through the real server.
+  structured-channel-cli-preserves-flat-listing:
+    structured-channel-command-surface:
+      action: change
+      reason: Register exactly the five Phase 1 subcommands and their bounded options,
+        with no agent, preset, roster, worktree, delete, or restore command.
+    structured-channel-rendering:
+      action: change
+      reason: Render stable active/archive projections and reuse the authenticated
+        correlated client rather than importing Store or SQLite.
+    structured-channel-cli-regression:
+      action: change
+      reason: Exercise all five commands locally and over explicit URL/token while
+        proving the flat channels output and unrelated commands remain
+        compatible.
+    structured-channel-packed-smoke:
+      action: change
+      reason: Exercise the installed family and legacy listing against the packaged
+        daemon without expanding to the later full workflow phase.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: change
+      reason: Centralize fixed human ordering and one-value JSON projection limited to
+        safe channel fields.
+    management-output-regression:
+      action: change
+      reason: Capture stdout and stderr separately and prove parseable single-value
+        JSON, deterministic text, and absence of token/private field names and
+        values.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Define typed management failure classes, stable exit codes, and shared
+        argv/environment/bearer redaction without reclassifying legacy errors.
+    source-cli-failure-entrypoint:
+      action: change
+      reason: Print the shared safe message and propagate a typed code from the source
+        binary.
+    public-cli-failure-entrypoint:
+      action: change
+      reason: Make the generated installed wrapper use the same safe formatter and
+        typed code.
+    management-error-regression:
+      action: change
+      reason: Prove each exit class, empty stdout, one-line stderr, token-bearing URL
+        redaction, and uncategorized legacy exit 1.
+    public-cli-failure-regression:
+      action: change
+      reason: Pin generated-wrapper imports, dynamic exit propagation, concise
+        diagnostics, and no raw secrets.
+    packed-management-failure-regression:
+      action: change
+      reason: Run a missing-channel failure through the installed binary and assert
+        its exact status, stderr-only output, and stack/secret absence.
+  channel-archive-requires-explicit-confirmation:
+    management-confirmation-helper:
+      action: change
+      reason: Share injectable TTY prompting, strict affirmative parsing, unattended
+        refusal, and yes bypass with all prompt text directed to stderr.
+    channel-archive-command-confirmation:
+      action: change
+      reason: Gate the sole Phase 1 destructive command before sending any act and
+        force yes in JSON mode.
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Prove interactive accept/decline, non-TTY and JSON refusal, --yes,
+        prompt placement, and zero mutation when consent is absent.
+  brakes-default-off:
+    room-config-brakes:
+      action: change
+      reason: Add optional archive metadata without altering any existing config
+        default or brake semantics.
+  list-rooms-reply-carries-per-room-seq:
+    rooms-reply-seq-schema:
+      action: change
+      reason: Carry an optional correlation ref while retaining the exact included
+        room seq map.
+    rooms-reply-seq-populate:
+      action: change
+      reason: Populate seq values for the active or explicitly all room selection and
+        echo the request ref.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Account for owner-only rename_room and archive_room acts while list/show
+        remain read capabilities.
+    role-matrix-integration:
+      action: change
+      reason: Keep exhaustive act accounting and prove owner/admin/member/observer
+        outcomes for the new operations.
+  agent-network-authority-is-narrow:
+    agent-room-authorization:
+      action: change
+      reason: Apply the existing room-scoped visibility to correlated listing while
+        rejecting create and both channel-management acts.
+    agent-authz-regression:
+      action: change
+      reason: Prove a valid agent credential cannot create, rename, archive, or list
+        another channel through the new frames.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Dispatch the additive correlated frames once for both authenticated
+        network and protected local transports.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Add the singular structured channel family without exposing protocol
+        room terminology.
+    cli-channel-regression:
+      action: change
+      reason: Update exhaustive command registration and assert no room-named CLI
+        option or command appears.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: change
+      reason: Retain exported runCli delegation while sharing redacted formatting and
+        propagating typed management exits.
+  source-cli-installers-remain-idempotent-fallback:
+    per-user-cli-install-script:
+      action: change
+      reason: Change only the built source entrypoint's rejection handling; installer
+        and shim contracts remain unchanged.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Add a bounded installed channel-family and failure-code smoke inside the
+        existing clean packed runtime proof.
+verification: Run `pnpm --filter @codor/protocol test`, `pnpm --filter
+  @codor/switchboard test`, `pnpm --filter @codor/cli test`, `pnpm --filter
+  '@codor/cli...' build`, `pnpm build`, and `scripts/packed-install-test.sh`.
+  The focused suites must cover protected local socket and explicit URL/token
+  transports; owner, admin, member, observer, and agent authorization; additive
+  legacy frame parsing; exact success/error ref correlation after unrelated
+  events; deterministic human output; one-value JSON stdout with empty stderr;
+  bearer, URL-token, ACP launch, and session-ref absence; all archive
+  confirmation modes; persisted archive/rename changelog state without deletion;
+  exact legacy `channels` output and flat command registration; source and
+  packaged exit propagation; and installed artifact execution. Before the one
+  implementation commit run `harn find --plan cli-management-phase1-channels`,
+  `harn check cli-management-phase1-channels`, stage only the declared files and
+  generated Harn state, and let the pre-commit hook run staged
+  check/apply/staged check.
+applied:
+  applied_at: 2026-08-06T07:42:19.893Z

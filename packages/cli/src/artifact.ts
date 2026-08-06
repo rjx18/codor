@@ -123,14 +123,16 @@ export function stageManifest(
 
 // harn:assume public-cli-delegation-reports-concise-failures ref=public-wrapper-delegation
 export function renderWrapperExecutable(): string {
+  // harn:assume management-failures-have-stable-redacted-exits ref=public-cli-failure-entrypoint
   return `#!/usr/bin/env node
-import { runCli } from '${ENTRY_PACKAGE}';
+import { cliExitCode, formatCliError, runCli } from '${ENTRY_PACKAGE}';
 
 await runCli().catch((error) => {
-  process.stderr.write(\`\${error instanceof Error ? error.message : String(error)}\\n\`);
-  process.exitCode = 1;
+  process.stderr.write(\`\${formatCliError(error)}\\n\`);
+  process.exitCode = cliExitCode(error);
 });
 `;
+  // harn:end management-failures-have-stable-redacted-exits
 }
 // harn:end public-cli-delegation-reports-concise-failures
 

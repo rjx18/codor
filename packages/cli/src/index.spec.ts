@@ -22,11 +22,14 @@ import WebSocket from 'ws';
 
 import {
   createProgram,
+  ManagementError,
+  cliExitCode,
   detectSession,
   nativeResumeCommand,
   packageName,
   parseMirrorHook,
   renderTerminalQr,
+  redactDiagnostic,
   runCli,
   startCodor,
 } from './index.js';
@@ -1084,6 +1087,121 @@ describe('@codor/cli', () => {
     await cli('members', '-r', 'eng');
     expect(output.some((line) => line.startsWith('@reviewer\tidle\tfake'))).toBe(true);
   });
+
+  // harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-cli-regression
+  // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
+  // harn:assume management-failures-have-stable-redacted-exits ref=management-error-regression
+  // harn:assume channel-archive-requires-explicit-confirmation ref=channel-archive-confirmation-regression
+  it('manages channels with deterministic output, confirmation, safe failures, and URL transport', async () => {
+    const invoke = async (
+      args: string[],
+      overrides: { isTTY?: boolean; confirm?: (prompt: string) => Promise<string | boolean> } = {},
+    ) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: overrides.isTTY ?? false,
+          confirm: overrides.confirm,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const listed = await invoke(['channel', 'list', '--json']);
+    expect(listed.error).toBeUndefined();
+    expect(listed.stderr).toEqual([]);
+    expect(listed.stdout).toHaveLength(1);
+    expect(JSON.parse(listed.stdout[0]!)).toEqual([expect.objectContaining({
+      id: 'eng', name: 'Engineering', status: 'active',
+    })]);
+
+    const cwd = join(dir, 'created-cwd');
+    mkdirSync(cwd);
+    const created = await invoke([
+      'channel', 'create', 'Created Channel', '--owner', 'richard', '--owner-name', 'Richard',
+      '--id', 'created-channel', '--cwd', cwd, '--json',
+    ]);
+    expect(created.error).toBeUndefined();
+    const createdJson = JSON.parse(created.stdout[0]!);
+    expect(createdJson).toMatchObject({
+      id: 'created-channel', name: 'Created Channel', status: 'active', cwd,
+    });
+    expect(createdJson).not.toHaveProperty('members');
+    expect(createdJson).not.toHaveProperty('session_ref');
+
+    const renamed = await invoke(['channel', 'rename', 'created-channel', 'Renamed Channel', '--json']);
+    expect(renamed.error).toBeUndefined();
+    expect(JSON.parse(renamed.stdout[0]!)).toMatchObject({
+      id: 'created-channel', name: 'Renamed Channel', status: 'active',
+    });
+
+    const declined = await invoke(['channel', 'archive', 'created-channel'], {
+      isTTY: true,
+      confirm: async () => false,
+    });
+    expect(declined.error).toBeInstanceOf(ManagementError);
+    expect(cliExitCode(declined.error)).toBe(2);
+    expect(declined.stdout).toEqual([]);
+    expect(declined.stderr).toEqual(['Archive channel created-channel? [y/N]']);
+    expect(daemon.store.getRoom('created-channel')?.config.archived_ts).toBeUndefined();
+
+    const unattended = await invoke(['channel', 'archive', 'created-channel']);
+    expect(unattended.error).toBeInstanceOf(ManagementError);
+    expect(cliExitCode(unattended.error)).toBe(2);
+    expect(unattended.stdout).toEqual([]);
+    expect(daemon.store.getRoom('created-channel')?.config.archived_ts).toBeUndefined();
+
+    const archived = await invoke(['channel', 'archive', 'created-channel', '--yes', '--json']);
+    expect(archived.error).toBeUndefined();
+    expect(archived.stderr).toEqual([]);
+    expect(JSON.parse(archived.stdout[0]!)).toMatchObject({
+      id: 'created-channel', status: 'archived', archived_ts: expect.any(String),
+    });
+
+    const activeAfterArchive = await invoke(['channel', 'list', '--json']);
+    expect(JSON.parse(activeAfterArchive.stdout[0]!)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'created-channel' })]),
+    );
+    const allAfterArchive = await invoke(['channel', 'list', '--all', '--json']);
+    expect(JSON.parse(allAfterArchive.stdout[0]!)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'created-channel', status: 'archived' })]),
+    );
+
+    const shown = await invoke(['channel', 'show', 'created-channel']);
+    expect(shown.stdout[0]).toMatch(/^id\tcreated-channel\nname\tRenamed Channel\nstatus\tarchived\n/);
+
+    const flat = await invoke(['channels']);
+    expect(flat.stdout).toEqual(['eng\tEngineering']);
+
+    output = [];
+    await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'channel', 'list', '--json',
+    ], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+      isTTY: false,
+    });
+    expect(JSON.parse(output.at(-1)!)).toEqual([expect.objectContaining({ id: 'eng' })]);
+
+    const redacted = redactDiagnostic(
+      new Error('Bearer secret-token https://host.test/ws?token=secret-token'),
+      ['node', 'codor', '--token', 'secret-token'],
+      { CODOR_TOKEN: 'secret-token' },
+    );
+    expect(redacted).not.toContain('secret-token');
+    expect(redacted).toContain('<redacted>');
+  });
+  // harn:end channel-archive-requires-explicit-confirmation
+  // harn:end management-failures-have-stable-redacted-exits
+  // harn:end management-output-is-json-pure-and-safe
+  // harn:end structured-channel-cli-preserves-flat-listing
 
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-regression
   it('tails a continuation row without a lifecycle summary, in id order', async () => {

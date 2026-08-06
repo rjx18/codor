@@ -213,6 +213,48 @@ describe('room seeding', () => {
   });
 });
 
+// harn:assume channel-archive-is-durable-soft-state ref=channel-archive-store-regression
+describe('channel archive soft state', () => {
+  it('renames and archives transactionally, persists across reopen, and preserves records', () => {
+    const { owner } = openRoom(store);
+    const agent = store.addMember('eng', {
+      kind: 'agent', handle: 'worker', display_name: 'Worker', state: 'idle',
+    });
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'retained' });
+    const beforeRename = store.currentSeq('eng');
+
+    expect(store.renameRoom('eng', 'Renamed')).toMatchObject({ name: 'Renamed' });
+    expect(store.currentSeq('eng')).toBe(beforeRename + 1);
+    expect(store.getChangesSince('eng', beforeRename)).toEqual([{
+      room: 'eng', seq: beforeRename + 1, entity: 'room', entity_id: 'eng',
+    }]);
+
+    const beforeArchive = store.currentSeq('eng');
+    const archived = store.archiveRoom('eng');
+    expect(archived.config.archived_ts).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(store.currentSeq('eng')).toBe(beforeArchive + 1);
+    expect(store.getChangesSince('eng', beforeArchive)).toEqual([{
+      room: 'eng', seq: beforeArchive + 1, entity: 'room', entity_id: 'eng',
+    }]);
+    expect(store.getMember('eng', agent.id)).toBeDefined();
+    expect(store.getMessage('eng', message.id)?.body).toBe('retained');
+    expect(store.listRooms()).toHaveLength(1);
+    expect(() => store.renameRoom('eng', 'Nope')).toThrow('cannot be renamed');
+    expect(() => store.archiveRoom('eng')).toThrow('already archived');
+    expect(() => store.updateRoomConfig('eng', { archived_ts: undefined })).toThrow('immutable');
+    expect(store.getRoom('eng')?.config.archived_ts).toBe(archived.config.archived_ts);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom('eng')).toMatchObject({
+      name: 'Renamed', config: { archived_ts: archived.config.archived_ts },
+    });
+    expect(store.getMember('eng', agent.id)).toBeDefined();
+    expect(store.getMessage('eng', message.id)?.body).toBe('retained');
+  });
+});
+// harn:end channel-archive-is-durable-soft-state
+
 describe('ack and active member lifecycle storage', () => {
   it('roundtrips ack evidence and keeps removed identities outside active lookups', () => {
     const { owner } = openRoom(store);

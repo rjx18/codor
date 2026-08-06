@@ -186,6 +186,34 @@ docker run --rm --network none \
     "$BIN" --data-dir "$DATA" post -r fresh packed-runtime-smoke
     "$BIN" --data-dir "$DATA" tail -r fresh --once | grep -Fq packed-runtime-smoke
 
+    # harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-packed-smoke
+    # harn:assume management-failures-have-stable-redacted-exits ref=packed-management-failure-regression
+    CREATED_CHANNEL="$("$BIN" --data-dir "$DATA" channel create "Packed Channel" --owner proof --id packed --json)"
+    grep -Fq '"id":"packed"' <<<"$CREATED_CHANNEL"
+    RENAMED_CHANNEL="$("$BIN" --data-dir "$DATA" channel rename packed "Packed Renamed" --json)"
+    grep -Fq '"name":"Packed Renamed"' <<<"$RENAMED_CHANNEL"
+    set +e
+    MISSING_CHANNEL="$("$BIN" --data-dir "$DATA" channel show missing-channel --json 2>/proof/missing-channel.out)"
+    MISSING_STATUS=$?
+    set -e
+    [[ "$MISSING_STATUS" -eq 5 ]]
+    [[ -z "$MISSING_CHANNEL" ]]
+    [[ "$(wc -l </proof/missing-channel.out)" -eq 1 ]]
+    if grep -Eq "[[:space:]]at[[:space:]]|node:internal|Unhandled|PROOF_TOKEN|0123456789abcdef" /proof/missing-channel.out; then
+      printf "packed management failure leaked a stack or secret\n" >&2
+      exit 1
+    fi
+    "$BIN" --data-dir "$DATA" channel archive packed --yes --json | grep -Fq '"status":"archived"'
+    DEFAULT_CHANNELS="$("$BIN" --data-dir "$DATA" channel list --json)"
+    if grep -Fq '"id":"packed"' <<<"$DEFAULT_CHANNELS"; then
+      printf "packed archived channel remained in default discovery\n" >&2
+      exit 1
+    fi
+    ALL_CHANNELS="$("$BIN" --data-dir "$DATA" channel list --all --json)"
+    grep -Fq '"id":"packed"' <<<"$ALL_CHANNELS"
+    # harn:end management-failures-have-stable-redacted-exits
+    # harn:end structured-channel-cli-preserves-flat-listing
+
     node --input-type=module -e "
       const origin = 'http://127.0.0.1:${PORT}';
       const token = process.env.PROOF_TOKEN;

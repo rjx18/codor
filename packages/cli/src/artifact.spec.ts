@@ -80,16 +80,18 @@ describe('artifact graph', () => {
   });
 });
 
+// harn:assume management-failures-have-stable-redacted-exits ref=public-cli-failure-regression
 describe('public wrapper', () => {
   const source = renderWrapperExecutable();
 
   it('calls the public runCli export and owns concise rejection handling', () => {
-    expect(source).toContain(`import { runCli } from '${ENTRY_PACKAGE}'`);
+    expect(source).toContain(`import { cliExitCode, formatCliError, runCli } from '${ENTRY_PACKAGE}'`);
     expect(source).toMatch(/await runCli\(\)\.catch/);
     expect(source).not.toContain('dist/program.js');
-    expect(source).toContain('process.exitCode = 1');
+    expect(source).toContain('process.exitCode = cliExitCode(error)');
   });
 });
+// harn:end management-failures-have-stable-redacted-exits
 
 // harn:assume artifact-build-runs-from-clean-source ref=artifact-build-command
 describe('artifact build command', () => {

@@ -31,6 +31,18 @@ import {
 } from './attach.js';
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
+import {
+  MANAGEMENT_EXIT_CODES,
+  ManagementError,
+  archiveManagedRoom,
+  classifyManagementError,
+  confirmArchive,
+  createManagedRoom,
+  listManagedRooms,
+  renameManagedRoom,
+  renderChannel,
+  renderChannelList,
+} from './management.js';
 import { parseMirrorHook } from './mirror.js';
 import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
 import { renderPairingCard } from './setup-ui.js';
@@ -48,6 +60,8 @@ export interface CliContext {
   setup?: SetupOverrides;
   /** Overrides the TTY probe that picks `codor pair`'s card vs plain output. */
   isTTY?: boolean;
+  /** Test seam for the interactive channel archive confirmation. */
+  confirm?(prompt: string): Promise<string | boolean>;
 }
 
 interface GlobalOptions {
@@ -370,6 +384,14 @@ export function createProgram(context: CliContext = {}): Command {
     }
   };
 
+  const withManagementClient = async <T>(fn: (client: ProtocolClient) => Promise<T>): Promise<T> => {
+    try {
+      return await withClient(fn);
+    } catch (error) {
+      throw classifyManagementError(error);
+    }
+  };
+
   const channel = (options: OptionalChannelOptions): string => {
     const room = options.channel ?? env.CODOR_CHANNEL;
     if (!room) throw new Error('--channel or CODOR_CHANNEL is required');
@@ -514,18 +536,140 @@ export function createProgram(context: CliContext = {}): Command {
       await waitForShutdown(running.close);
     });
 
-  program.command('channels').description('list channels').action(async () => {
-    await withClient(async (client) => {
-      client.send({ type: 'list_rooms' });
-      for (;;) {
-        const frame = await client.next();
-        if (frame.type === 'error') throw new Error(frame.message);
-        if (frame.type !== 'rooms') continue;
-        for (const room of frame.rooms) out(`${room.id}\t${room.name}`);
-        return;
-      }
+  const channelManagement = program
+    .command('channels')
+    .alias('channel')
+    .description('list active channels')
+    .action(async () => {
+      await withClient(async (client) => {
+        client.send({ type: 'list_rooms' });
+        for (;;) {
+          const frame = await client.next();
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type !== 'rooms') continue;
+          for (const room of frame.rooms) out(`${room.id}\t${room.name}`);
+          return;
+        }
+      });
     });
-  });
+
+  // harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-command-surface
+  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-terminology
+  channelManagement
+    .command('list')
+    .description('list active channels')
+    .option('--all', 'include archived channels')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: { all?: boolean; json?: boolean }) => {
+      await withManagementClient(async (client) => {
+        const rooms = await listManagedRooms(client, { all: options.all === true });
+        const rendered = renderChannelList(rooms, options.json === true);
+        if (rendered !== '') out(rendered);
+      });
+    });
+
+  channelManagement
+    .command('create')
+    .description('create a channel')
+    .argument('<name>', 'channel name')
+    .requiredOption('--owner <handle>', 'owner handle')
+    .option('--owner-name <display-name>', 'owner display name')
+    .option('--id <id>', 'explicit channel id')
+    .option('--color <color>', 'channel accent color')
+    .option('--cwd <path>', 'channel working directory')
+    .option('--json', 'emit one JSON value')
+    .action(async (name: string, options: {
+      owner: string;
+      ownerName?: string;
+      id?: string;
+      color?: string;
+      cwd?: string;
+      json?: boolean;
+    }) => {
+      if (name.length === 0 || options.owner.length === 0) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'channel name and owner are required');
+      }
+      await withManagementClient(async (client) => {
+        const room = await createManagedRoom(client, {
+          ...(options.id !== undefined && { id: options.id }),
+          name,
+          owner: {
+            handle: options.owner,
+            display_name: options.ownerName ?? options.owner,
+          },
+          ...(options.color !== undefined && { color: options.color }),
+          ...(options.cwd !== undefined && { cwd: options.cwd }),
+        });
+        const rendered = renderChannel(room, options.json === true);
+        out(rendered);
+      });
+    });
+
+  channelManagement
+    .command('show')
+    .description('show a channel')
+    .argument('<channel>', 'channel id')
+    .option('--json', 'emit one JSON value')
+    .action(async (channelId: string, options: { json?: boolean }) => {
+      await withManagementClient(async (client) => {
+        const rooms = await listManagedRooms(client, { all: true });
+        const room = rooms.find((candidate) => candidate.id === channelId);
+        if (room === undefined) {
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such channel ${channelId}`);
+        }
+        out(renderChannel(room, options.json === true));
+      });
+    });
+
+  channelManagement
+    .command('rename')
+    .description('rename an active channel')
+    .argument('<channel>', 'channel id')
+    .argument('<name>', 'new channel name')
+    .option('--json', 'emit one JSON value')
+    .action(async (channelId: string, name: string, options: { json?: boolean }) => {
+      if (name.length === 0) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'channel name is required');
+      }
+      await withManagementClient(async (client) => {
+        const room = await renameManagedRoom(client, channelId, name);
+        out(renderChannel(room, options.json === true));
+      });
+    });
+
+  // harn:assume channel-archive-requires-explicit-confirmation ref=channel-archive-command-confirmation
+  channelManagement
+    .command('archive')
+    .description('soft-archive a channel')
+    .argument('<channel>', 'channel id')
+    .option('--yes', 'confirm archive without prompting')
+    .option('--json', 'emit one JSON value')
+    .action(async (channelId: string, options: { yes?: boolean; json?: boolean }) => {
+      const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      await withManagementClient(async (client) => {
+        const rooms = await listManagedRooms(client, { all: true });
+        const room = rooms.find((candidate) => candidate.id === channelId);
+        if (room === undefined) {
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such channel ${channelId}`);
+        }
+        if (room.config.archived_ts !== undefined) {
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, `channel ${channelId} is already archived`);
+        }
+        await confirmArchive({
+          label: channelId,
+          yes: options.yes === true,
+          json: options.json === true,
+          isTTY,
+          stderr: err,
+          confirm: context.confirm,
+        });
+        const archived = await archiveManagedRoom(client, channelId);
+        out(renderChannel(archived, options.json === true));
+      });
+    });
+  // harn:end channel-archive-requires-explicit-confirmation
+  // harn:end human-facing-surfaces-call-rooms-channels
+  // harn:end structured-channel-cli-preserves-flat-listing
 
   program
     .command('serve')

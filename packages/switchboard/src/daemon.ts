@@ -1046,6 +1046,22 @@ export class Daemon {
     return this.ledger?.graph(room) ?? { nodes: [], edges: [] };
   }
 
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-daemon
+  /** Apply an authorized channel rename through the durable store. */
+  renameRoom(room: string, name: string) {
+    const updated = this.store.renameRoom(room, name);
+    this.emit(room, { type: 'room', seq: this.store.currentSeq(room), room: updated });
+    return updated;
+  }
+
+  /** Soft-archive a channel; this never touches members, messages, or agents. */
+  archiveRoom(room: string) {
+    const updated = this.store.archiveRoom(room);
+    this.emit(room, { type: 'room', seq: this.store.currentSeq(room), room: updated });
+    return updated;
+  }
+  // harn:end channel-archive-is-durable-soft-state
+
   // harn:assume bridge-enable-admin-or-owner ref=bridge-daemon-ingress
   enableBridge(
     room: string,

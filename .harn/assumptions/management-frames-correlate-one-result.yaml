@@ -1,0 +1,15 @@
+id: management-frames-correlate-one-result
+hash: a-fc65aa2a9644
+title: Management requests and acts complete only on their correlated result
+state: active
+statement: Every structured CLI management request or act must carry one opaque
+  unique ref that the switchboard echoes on its authoritative success reply or
+  error, while the client ignores unrelated events and differently referenced
+  errors and legacy frames remain valid without a ref, because a busy shared
+  WebSocket cannot let unrelated channel traffic falsely complete or fail an
+  operator command.
+depends_on:
+  - unix-socket-same-protocol
+  - server-token-required
+  - agent-network-authority-is-narrow
+created_by: cli-management-phase1-channels

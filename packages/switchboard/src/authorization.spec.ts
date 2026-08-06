@@ -49,6 +49,10 @@ const actSamples = {
   wait_end: { act: 'wait_end' },
   configure: { act: 'configure', member_id: '01J00000000000000000000000' },
   set_role: { act: 'set_role', member_id: '01J00000000000000000000000', role: 'member' },
+  // harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+  rename_room: { act: 'rename_room', name: 'renamed' },
+  archive_room: { act: 'archive_room' },
+  // harn:end roles-gate-human-acts-not-agents
 } satisfies { [K in Act['act']]: Extract<Act, { act: K }> };
 
 // harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration

@@ -26,6 +26,10 @@ export const RoomConfigSchema = z.object({
   // harn:assume channel-create-request-contract ref=channel-room-metadata
   color: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol
+  /** Set once when a channel is soft-archived; it is never cleared. */
+  archived_ts: TimestampSchema.optional(),
+  // harn:end channel-archive-is-durable-soft-state
   // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-config-field
   starting_agent_handle: AssignableHandleSchema.optional(),
   // harn:end channel-starting-agent-handle-persisted

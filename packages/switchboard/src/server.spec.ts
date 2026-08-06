@@ -182,6 +182,27 @@ describe('agent member credential principal', () => {
     const denied = await client.next((frame) =>
       frame.type === 'error' && frame.message.includes('agent cannot configure'));
     expect(denied).toMatchObject({ type: 'error', ref: 'act' });
+    client.ws.send(JSON.stringify({
+      type: 'list_rooms', all: true, ref: 'agent-list',
+    }));
+    expect(await client.next((frame) => frame.type === 'rooms' && frame.ref === 'agent-list'))
+      .toMatchObject({ type: 'rooms', ref: 'agent-list', rooms: [{ id: 'eng' }] });
+    for (const [ref, frame] of [
+      ['agent-create', {
+        type: 'create_room', ref: 'agent-create',
+        request: { name: 'Forbidden', owner: { handle: 'richard', display_name: 'Richard' } },
+      }],
+      ['agent-rename', {
+        type: 'act', room: 'eng', ref: 'agent-rename', act: { act: 'rename_room', name: 'Nope' },
+      }],
+      ['agent-archive', {
+        type: 'act', room: 'eng', ref: 'agent-archive', act: { act: 'archive_room' },
+      }],
+    ] as const) {
+      client.ws.send(JSON.stringify(frame));
+      expect(await client.next((candidate) => candidate.type === 'error' && candidate.ref === ref))
+        .toMatchObject({ type: 'error', ref });
+    }
     client.ws.close();
 
     expect(daemon.store.getMember('eng', agent.id)!.policy).toBeUndefined();
@@ -218,6 +239,111 @@ describe('agent member credential principal', () => {
 });
 // harn:end agent-network-authority-is-narrow
 // harn:end agent-member-credentials-stay-secret
+
+// harn:assume management-frames-correlate-one-result ref=management-correlation-server-regression
+// harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server-regression
+describe('correlated channel management over WebSocket', () => {
+  it('ignores unrelated room results, creates, renames, archives, and filters discovery', async () => {
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'unrelated-list' }));
+    client.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'target-list' }));
+    const listed = await client.next((frame) => frame.type === 'rooms' && frame.ref === 'target-list');
+    expect(listed).toMatchObject({ type: 'rooms', ref: 'target-list', rooms: [{ id: 'eng' }] });
+    expect(client.frames.some((frame) => frame.type === 'rooms' && frame.ref === 'unrelated-list')).toBe(true);
+
+    client.ws.send(JSON.stringify({
+      type: 'create_room',
+      ref: 'create-channel',
+      request: {
+        id: 'new-channel',
+        name: 'New Channel',
+        owner: { handle: 'richard', display_name: 'Richard' },
+        cwd: testCwd('new-channel'),
+      },
+    }));
+    const created = await client.next((frame) => frame.type === 'room' && frame.ref === 'create-channel');
+    expect(created).toMatchObject({
+      type: 'room', ref: 'create-channel', room: { id: 'new-channel', name: 'New Channel' },
+    });
+
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'new-channel', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'new-channel', ref: 'rename-channel',
+      act: { act: 'rename_room', name: 'Renamed Channel' },
+    }));
+    const renamed = await client.next((frame) => frame.type === 'room' && frame.ref === 'rename-channel');
+    expect(renamed).toMatchObject({
+      type: 'room', ref: 'rename-channel', room: { name: 'Renamed Channel' },
+    });
+
+    const owner = daemon.ownerOf('new-channel');
+    const member = daemon.store.addMember('new-channel', {
+      kind: 'agent', handle: 'kept-agent', display_name: 'Kept Agent', state: 'idle',
+    });
+    const message = daemon.store.postMessage('new-channel', {
+      author: owner.id, kind: 'chat', body: 'kept message',
+    });
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'new-channel', ref: 'archive-channel', act: { act: 'archive_room' },
+    }));
+    const archived = await client.next((frame) => frame.type === 'room' && frame.ref === 'archive-channel');
+    expect(archived).toMatchObject({
+      type: 'room', ref: 'archive-channel', room: { config: { archived_ts: expect.any(String) } },
+    });
+    expect(daemon.store.getMember('new-channel', member.id)).toBeDefined();
+    expect(daemon.store.getMessage('new-channel', message.id)?.body).toBe('kept message');
+
+    client.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'active-list' }));
+    const active = await client.next((frame) => frame.type === 'rooms' && frame.ref === 'active-list');
+    expect(active.type === 'rooms' && active.rooms.some((room) => room.id === 'new-channel')).toBe(false);
+    client.ws.send(JSON.stringify({ type: 'list_rooms', all: true, ref: 'all-list' }));
+    const all = await client.next((frame) => frame.type === 'rooms' && frame.ref === 'all-list');
+    expect(all.type === 'rooms' && all.rooms.map((room) => room.id)).toContain('new-channel');
+    client.ws.close();
+  });
+
+  it('owner-gates channel mutation while preserving read/list access', async () => {
+    const created = daemon.store.getRoom('eng')!;
+    const ownerClient = await connect();
+    ownerClient.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'owner-list', all: true }));
+    expect(await ownerClient.next((frame) => frame.type === 'rooms' && frame.ref === 'owner-list'))
+      .toMatchObject({ type: 'rooms', ref: 'owner-list' });
+
+    const adminClient = await connectAs(ADMIN_TOKEN);
+    adminClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'admin-rename', act: { act: 'rename_room', name: 'Nope' },
+    }));
+    expect(await adminClient.next((frame) => frame.type === 'error' && frame.ref === 'admin-rename'))
+      .toMatchObject({ type: 'error', ref: 'admin-rename', message: expect.stringContaining('cannot rename room') });
+
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'member-list' }));
+    expect(await memberClient.next((frame) => frame.type === 'rooms' && frame.ref === 'member-list'))
+      .toMatchObject({ type: 'rooms', ref: 'member-list' });
+    memberClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'member-archive', act: { act: 'archive_room' },
+    }));
+    expect(await memberClient.next((frame) => frame.type === 'error' && frame.ref === 'member-archive'))
+      .toMatchObject({ type: 'error', ref: 'member-archive' });
+
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    observerClient.ws.send(JSON.stringify({
+      type: 'create_room', ref: 'observer-create',
+      request: { name: 'Forbidden', owner: { handle: 'richard', display_name: 'Richard' } },
+    }));
+    expect(await observerClient.next((frame) => frame.type === 'error' && frame.ref === 'observer-create'))
+      .toMatchObject({ type: 'error', ref: 'observer-create' });
+    expect(daemon.store.getRoom('eng')).toEqual(created);
+
+    ownerClient.ws.close();
+    adminClient.ws.close();
+    memberClient.ws.close();
+    observerClient.ws.close();
+  });
+});
+// harn:end channel-archive-is-durable-soft-state
+// harn:end management-frames-correlate-one-result
 
 // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=own-queued-sync-regression
 describe('agent queued inbox hydration', () => {

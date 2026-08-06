@@ -1005,6 +1005,46 @@ describe('WS client frames', () => {
     }).success).toBe(true);
   });
 
+  // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol-regression
+  it('accepts correlated management frames while preserving legacy shapes', () => {
+    expect(ClientFrameSchema.parse({ type: 'list_rooms', ref: 'list-1', all: true })).toEqual({
+      type: 'list_rooms', ref: 'list-1', all: true,
+    });
+    expect(ClientFrameSchema.parse({
+      type: 'create_room',
+      ref: 'create-1',
+      request: { name: 'New', owner: { handle: 'richard', display_name: 'Richard' } },
+    })).toMatchObject({ type: 'create_room', ref: 'create-1' });
+    expect(ClientFrameSchema.parse({
+      type: 'act', room: 'r', ref: 'rename-1', act: { act: 'rename_room', name: 'Renamed' },
+    })).toMatchObject({ type: 'act', room: 'r', ref: 'rename-1' });
+    expect(ClientFrameSchema.parse({
+      type: 'act', room: 'r', ref: 'archive-1', act: { act: 'archive_room' },
+    })).toMatchObject({ type: 'act', room: 'r', ref: 'archive-1' });
+    expect(ServerFrameSchema.parse({
+      type: 'rooms', ref: 'list-1', rooms: [], room_seqs: {},
+    })).toMatchObject({ type: 'rooms', ref: 'list-1' });
+    expect(ServerFrameSchema.parse({
+      type: 'room', ref: 'rename-1', seq: 1,
+      room: { id: 'r', name: 'Renamed', created_ts: TS, config: {} },
+    })).toMatchObject({ type: 'room', ref: 'rename-1' });
+    expect(ServerFrameSchema.parse({ type: 'error', ref: 'archive-1', message: 'refused' }))
+      .toEqual({ type: 'error', ref: 'archive-1', message: 'refused' });
+  });
+  // harn:end management-frames-correlate-one-result
+
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol-regression
+  it('carries soft archive metadata without introducing delete or restore acts', () => {
+    const archived = RoomSchema.parse({
+      id: 'r', name: 'Archived', created_ts: TS,
+      config: { archived_ts: TS, color: '#80c56d' },
+    });
+    expect(archived.config.archived_ts).toBe(TS);
+    expect(ActSchema.safeParse({ act: 'delete_room' }).success).toBe(false);
+    expect(ActSchema.safeParse({ act: 'restore_room' }).success).toBe(false);
+  });
+  // harn:end channel-archive-is-durable-soft-state
+
   it('subscribe cursors on since_seq — and requires it', () => {
     expect(
       ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0 }).success,

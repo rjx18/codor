@@ -1,0 +1,16 @@
+id: structured-channel-cli-preserves-flat-listing
+hash: a-388d6d1b9691
+title: Structured channel commands coexist with the flat channels contract
+state: active
+statement: The CLI must expose channel list, create, show, rename, and archive
+  under one `channel` family through authenticated switchboard contracts, while
+  the existing flat `channels` command keeps its current active-channel tab
+  output and every unrelated flat command remains registered unchanged, because
+  management automation is additive and installed callers cannot be forced
+  through a renamed or database-coupled path.
+depends_on:
+  - management-frames-correlate-one-result
+  - channel-archive-is-durable-soft-state
+  - human-facing-surfaces-call-rooms-channels
+  - member-env-selects-narrow-cli-identity
+created_by: cli-management-phase1-channels
