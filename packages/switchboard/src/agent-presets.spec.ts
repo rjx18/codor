@@ -31,7 +31,7 @@ const customAcpInput: AgentPresetInput = {
   handle: 'custom-acp',
   display_name: 'Custom ACP',
   harness: 'acp',
-  acp_launch: { executable: 'custom-agent', argv: ['--acp'] },
+  acp_launch: { executable: process.execPath, argv: ['--acp'] },
 };
 
 let dir: string;
@@ -203,7 +203,7 @@ describe('direct daemon preset validation', () => {
     const spawn = vi.spyOn(fake, 'spawn');
     const acpSpawn = vi.spyOn(acp, 'spawn');
     const executableOnPath = vi.fn((executable: string) =>
-      executable === 'custom-agent' || executable === 'kimi');
+      executable === './relative-agent' || executable === 'kimi');
     const daemon = new Daemon({
       dbPath: join(dir, 'switchboard.sqlite'),
       blobRoot: join(dir, 'blobs'),
@@ -243,15 +243,24 @@ describe('direct daemon preset validation', () => {
       expect(named.acp_provider).toBe('kimi');
       const custom = daemon.createAgentPreset({ ...customAcpInput, handle: 'custom-provider' });
       expect(custom.acp_launch).toEqual(customAcpInput.acp_launch);
-      expect(executableOnPath).toHaveBeenCalledWith('custom-agent');
       expect(acpSpawn).not.toHaveBeenCalled();
       const beforeUnavailableCustom = daemon.listAgentPresets();
       expect(() => daemon.createAgentPreset({
         ...customAcpInput,
         handle: 'unavailable-custom',
         acp_launch: { executable: 'missing-custom-agent', argv: ['--acp'] },
-      })).toThrow('not currently installed');
+      })).toThrow('executable is unavailable');
       expect(daemon.listAgentPresets()).toEqual(beforeUnavailableCustom);
+      expect(executableOnPath('./relative-agent')).toBe(true);
+      const beforeRelativeUpdate = daemon.getAgentPreset(custom.id);
+      const beforeRelativeRoster = daemon.getDefaultRoster();
+      expect(() => daemon.updateAgentPreset(custom.id, {
+        ...customAcpInput,
+        handle: 'relative-update',
+        acp_launch: { executable: './relative-agent', argv: ['--acp'] },
+      })).toThrow('executable is unavailable');
+      expect(daemon.getAgentPreset(custom.id)).toEqual(beforeRelativeUpdate);
+      expect(daemon.getDefaultRoster()).toEqual(beforeRelativeRoster);
       executableOnPath.mockImplementation((executable) => executable !== 'kimi');
       expect(() => daemon.createAgentPreset({
         label: 'Unavailable named ACP', handle: 'unavailable-named',
@@ -398,7 +407,9 @@ describe('agent preset REST authorization and behavior', () => {
     expect(custom.statusCode).toBe(201);
     const customId = (custom.json().preset as { id: string }).id;
 
-    for (const token of ['owner-token', browserToken, 'admin-token']) {
+    for (const [principal, token] of [
+      ['owner', 'owner-token'], ['browser', browserToken], ['admin', 'admin-token'],
+    ] as const) {
       const list = await inject('GET', '/api/agent-presets', token);
       expect(list.statusCode).toBe(200);
       expect(list.json().presets).toEqual(expect.arrayContaining([
@@ -406,12 +417,27 @@ describe('agent preset REST authorization and behavior', () => {
       ]));
       expect((await inject('GET', `/api/agent-presets/${customId}`, token)).statusCode).toBe(200);
       expect((await inject('GET', '/api/default-roster', token)).statusCode).toBe(200);
-      expect((await inject('POST', '/api/agent-presets', token, {
+      const matrixCreate = await inject('POST', '/api/agent-presets', token, {
         ...nativeInput, model: undefined, thinking: undefined,
-      })).statusCode).toBe(201);
+        handle: `${principal}-matrix`,
+      });
+      expect(matrixCreate.statusCode).toBe(201);
+      const matrixId = (matrixCreate.json().preset as { id: string }).id;
+      const matrixUpdate = await inject('PUT', `/api/agent-presets/${matrixId}`, token, {
+        ...nativeInput, model: undefined, thinking: undefined,
+        handle: `${principal}-updated`, label: 'Updated matrix preset',
+      });
+      expect(matrixUpdate.statusCode).toBe(200);
       expect((await inject('PUT', '/api/default-roster', token, {
-        preset_ids: [customId],
+        preset_ids: [matrixId],
       })).statusCode).toBe(200);
+      expect((await inject('DELETE', `/api/agent-presets/${matrixId}`, token)).statusCode)
+        .toBe(409);
+      expect((await inject('PUT', '/api/default-roster', token, {
+        preset_ids: [],
+      })).statusCode).toBe(200);
+      expect((await inject('DELETE', `/api/agent-presets/${matrixId}`, token)).statusCode)
+        .toBe(204);
     }
 
     const deniedTokens: (string | undefined)[] = [
@@ -424,13 +450,13 @@ describe('agent preset REST authorization and behavior', () => {
         ['GET', `/api/agent-presets/${customId}`, undefined],
         ['GET', '/api/default-roster', undefined],
         ['POST', '/api/agent-presets', nativeInput],
+        ['PUT', `/api/agent-presets/${customId}`, nativeInput],
+        ['DELETE', `/api/agent-presets/${customId}`, undefined],
         ['PUT', '/api/default-roster', { preset_ids: [] }],
       ] as const) {
         const response = await inject(method, url, token, payload);
         expect(response.statusCode).toBe(expected);
-        if (method === 'GET' && url === '/api/agent-presets') {
-          expect(response.body).not.toContain('custom-agent');
-        }
+        expect(response.body).not.toContain(customAcpInput.acp_launch!.executable);
       }
     }
   });

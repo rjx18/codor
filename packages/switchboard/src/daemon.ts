@@ -39,6 +39,7 @@ import type {
   DefaultRosterInput,
 } from '@codor/protocol';
 
+import { resolveAcpExecutable } from '@codor/adapter-acp';
 import {
   AgentPresetInputSchema,
   AttachmentSchema,
@@ -1166,16 +1167,12 @@ export class Daemon {
       }
     }
 
-    // This reuses the same frozen provider registry and current PATH detection as
-    // ordinary new-agent creation. It resolves no process and has no side effects.
+    // Named providers reuse the same frozen provider registry and current PATH
+    // detection as ordinary new-agent creation. Custom launches use ACP's exact
+    // no-invocation resolver so validation and the eventual ACP spawn agree.
     if (validated.harness === 'acp') {
       this.resolveAcpLaunch(validated);
-      if (
-        validated.acp_launch !== undefined
-        && !this.executableOnPath(validated.acp_launch.executable)
-      ) {
-        throw new Error('custom ACP executable is not currently installed on the daemon host');
-      }
+      if (validated.acp_launch !== undefined) resolveAcpExecutable(validated.acp_launch.executable);
     }
     return validated;
   }
