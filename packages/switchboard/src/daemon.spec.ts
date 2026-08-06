@@ -7739,3 +7739,145 @@ describe('interaction re-correlation keys on semantic identity with detail', () 
   });
 });
 // harn:end interaction-recorrelation-keys-on-semantic-identity-with-detail
+
+// harn:assume child-members-own-isolated-runtime ref=conversation-runtime-isolation-regression
+describe('registered child conversations own isolated agent runtime', () => {
+  it('keeps sessions, credentials, tasks, usage, and restart state room-local', async () => {
+    const childResult = daemon.store.registerWorktree(
+      'eng',
+      {
+        common_path: join(dir, 'runtime-repository', '.git'),
+        primary_path: join(dir, 'runtime-repository'),
+        primary_git_admin_id: join(dir, 'runtime-repository', '.git'),
+      },
+      {
+        path: join(dir, 'runtime-repository'),
+        git_admin_id: join(dir, 'runtime-repository', '.git'),
+        primary: true,
+        availability: 'available',
+        locked: false,
+        head: '0123456789abcdef0123456789abcdef01234567',
+        branch: 'main',
+      },
+      {
+        path: join(dir, 'runtime-child'),
+        git_admin_id: join(dir, 'runtime-repository', '.git', 'worktrees', 'runtime-child'),
+        primary: false,
+        availability: 'available',
+        locked: false,
+        head: '0123456789abcdef0123456789abcdef01234567',
+        branch: 'feature/runtime-child',
+      },
+      'runtime-child',
+      'adopted',
+    );
+    const child = childResult.worktree.conversation_id;
+    const sessions: Session[] = [];
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      const session = originalSpawn(opts);
+      sessions.push(session);
+      return session;
+    });
+
+    const main = daemon.spawnMember('eng', {
+      harness: 'fake',
+      handle: 'same-runtime-handle',
+      cwd: testCwd('runtime-main'),
+    });
+    const secondary = daemon.spawnMember(child, {
+      harness: 'fake',
+      handle: 'same-runtime-handle',
+      cwd: testCwd('runtime-child'),
+    });
+    spawnSpy.mockRestore();
+
+    expect(main.id).not.toBe(secondary.id);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]).toMatchObject({
+      cwd: join(dir, 'cwd', 'runtime-main'),
+      env: { CODOR_CHANNEL: 'eng', CODOR_MEMBER_ID: main.id },
+    });
+    expect(sessions[1]).toMatchObject({
+      cwd: join(dir, 'cwd', 'runtime-child'),
+      env: { CODOR_CHANNEL: child, CODOR_MEMBER_ID: secondary.id },
+    });
+    const mainToken = sessions[0]!.env!.CODOR_MEMBER_TOKEN!;
+    const childToken = sessions[1]!.env!.CODOR_MEMBER_TOKEN!;
+    expect(childToken).not.toBe(mainToken);
+    expect(daemon.authenticateAgentToken(mainToken)).toMatchObject({ room: 'eng', member: { id: main.id } });
+    expect(daemon.authenticateAgentToken(childToken)).toMatchObject({ room: child, member: { id: secondary.id } });
+    expect(daemon.store.listMembers(child).filter((member) => member.kind === 'agent'))
+      .toEqual([expect.objectContaining({ id: secondary.id, handle: 'same-runtime-handle' })]);
+
+    daemon.store.applyMemberTaskUpdate('eng', main.id, {
+      op: 'replace', items: [{ id: 'main-task', content: 'Main task', status: 'pending' }],
+    });
+    daemon.store.applyMemberTaskUpdate(child, secondary.id, {
+      op: 'replace', items: [{ id: 'child-task', content: 'Child task', status: 'in_progress' }],
+    });
+    const mainUsage = {
+      inputTokens: 11,
+      outputTokens: 3,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 40_000,
+    } as const;
+    const childUsage = {
+      inputTokens: 22,
+      outputTokens: 6,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 80_000,
+    } as const;
+    fake.enqueue({ kind: 'complete', final_text: 'main runtime', agent_usage: mainUsage });
+    daemon.postHumanMessage('eng', '@same-runtime-handle main turn');
+    await daemon.settle();
+    fake.enqueue({ kind: 'complete', final_text: 'child runtime', agent_usage: childUsage });
+    daemon.postHumanMessage(child, '@same-runtime-handle child turn');
+    await daemon.settle();
+
+    const mainMeterBefore = daemon.store.getMeter('eng', '2026-08-06');
+    const childMeterBefore = daemon.store.getMeter(child, '2026-08-06');
+    daemon.store.bumpMeter('eng', '2026-08-06', { turns: 1, input_tokens: 11 });
+    daemon.store.bumpMeter(child, '2026-08-06', { turns: 2, output_tokens: 22 });
+    const mainMeter = daemon.store.getMeter('eng', '2026-08-06')!;
+    const childMeter = daemon.store.getMeter(child, '2026-08-06')!;
+    expect(mainMeter.turns - (mainMeterBefore?.turns ?? 0)).toBe(1);
+    expect(mainMeter.input_tokens - (mainMeterBefore?.input_tokens ?? 0)).toBe(11);
+    expect(childMeter.turns - (childMeterBefore?.turns ?? 0)).toBe(2);
+    expect(childMeter.output_tokens - (childMeterBefore?.output_tokens ?? 0)).toBe(22);
+
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === main.id)?.member.lastUsage)
+      .toEqual(mainUsage);
+    expect(daemon.memberDetails(child).find((detail) => detail.member.id === secondary.id)?.member.lastUsage)
+      .toEqual(childUsage);
+    expect(daemon.store.getMember('eng', main.id)?.tasks?.items).toEqual([
+      { id: 'main-task', content: 'Main task', status: 'pending' },
+    ]);
+    expect(daemon.store.getMember(child, secondary.id)?.tasks?.items).toEqual([
+      { id: 'child-task', content: 'Child task', status: 'in_progress' },
+    ]);
+    expect(daemon.store.getMeter('eng', '2026-08-06')).toEqual(mainMeter);
+    expect(daemon.store.getMeter(child, '2026-08-06')).toEqual(childMeter);
+    expect(daemon.store.listMessages('eng').map((message) => message.body)).toContain('main runtime');
+    expect(daemon.store.listMessages(child).map((message) => message.body)).toContain('child runtime');
+    expect(daemon.store.listMessages('eng').map((message) => message.body)).not.toContain('child runtime');
+    expect(daemon.store.listMessages(child).map((message) => message.body)).not.toContain('main runtime');
+
+    await daemon.close({ force: true });
+    frames = [];
+    daemon = newDaemon();
+    expect(daemon.store.getMember('eng', main.id)?.tasks?.items).toEqual([
+      { id: 'main-task', content: 'Main task', status: 'pending' },
+    ]);
+    expect(daemon.store.getMember(child, secondary.id)?.tasks?.items).toEqual([
+      { id: 'child-task', content: 'Child task', status: 'in_progress' },
+    ]);
+    expect(daemon.store.getMeter('eng', '2026-08-06')).toEqual(mainMeter);
+    expect(daemon.store.getMeter(child, '2026-08-06')).toEqual(childMeter);
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === main.id)?.member)
+      .not.toHaveProperty('lastUsage');
+    expect(daemon.memberDetails(child).find((detail) => detail.member.id === secondary.id)?.member)
+      .not.toHaveProperty('lastUsage');
+  });
+});
+// harn:end child-members-own-isolated-runtime

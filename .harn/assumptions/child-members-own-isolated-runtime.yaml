@@ -1,0 +1,16 @@
+id: child-members-own-isolated-runtime
+hash: a-36ad5996acbf
+title: Child members own isolated roster and runtime state
+state: active
+statement: Root human and reserved Switchboard identities must be shared for
+  child authorization and attribution without copying rows, while agents are
+  created only in their exact conversation; equal handles in main and a child
+  must resolve to distinct member ids whose cwd, native session, raw and hashed
+  credentials, delivery state, transient session/wait/usage caches, durable
+  tasks, and meters cannot affect one another across restart or concurrent
+  turns.
+depends_on:
+  - child-conversation-state-is-room-isolated
+  - agent-member-credentials-stay-secret
+  - member-task-projection-is-durable-and-session-scoped
+created_by: native-worktrees-phase2-conversations

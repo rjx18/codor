@@ -71,6 +71,14 @@ describe('registered worktree store lifecycle', () => {
       'adopted',
     );
     expect(first.worktree.alias).toBe('child-label');
+    expect(first.worktree.conversation_id).toMatch(/^wt-[a-z0-9-]+$/);
+    expect(first.worktree.conversation_id).not.toBe('eng');
+    expect(store.listRegisteredWorktrees('eng').find((item) => item.primary)?.conversation_id)
+      .toBe('eng');
+    expect(store.getRoom(first.worktree.conversation_id)).toBeDefined();
+    expect(store.listPublicRooms().map((room) => room.id)).toEqual(['eng']);
+    expect(store.listMembers(first.worktree.conversation_id).map((member) => member.kind))
+      .toEqual(['human', 'system']);
     expect(store.listRegisteredWorktrees('eng')).toHaveLength(2);
     expect(store.currentSeq('eng')).toBe(beforeSeq);
 
@@ -103,7 +111,10 @@ describe('registered worktree store lifecycle', () => {
       lifecycle: 'removed',
       removed_ts: '2026-08-06T00:03:00.000Z',
       branch: 'feature/child',
+      conversation_id: first.worktree.conversation_id,
     });
+    expect(store.getRoom(first.worktree.conversation_id)).toBeDefined();
+    expect(store.listPublicRooms().map((room) => room.id)).toEqual(['eng']);
     expect(store.currentSeq('eng')).toBe(beforeSeq);
   });
 });
@@ -134,6 +145,145 @@ describe('registered worktree store constraints', () => {
   });
 });
 // harn:end registered-worktree-identities-are-durable
+
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-migration
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-regression
+describe('worktree conversation migration and identity', () => {
+  it('backfills Phase 1 rows idempotently without rewriting the root transcript', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const rootMessage = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'root history' });
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const rootSeq = store.currentSeq('eng');
+    store.close();
+
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.exec('DROP INDEX worktrees_conversation_unique; ALTER TABLE worktrees DROP COLUMN conversation_id');
+    legacy.exec(`
+      DELETE FROM changes WHERE room_id = '${registered.worktree.conversation_id}';
+      DELETE FROM room_read_cursors WHERE room = '${registered.worktree.conversation_id}';
+      DELETE FROM rooms WHERE id = '${registered.worktree.conversation_id}';
+    `);
+    legacy.close();
+    store = new Store(join(dir, 'test.sqlite'));
+
+    expect(store.getMessage('eng', rootMessage.id)).toEqual(rootMessage);
+    expect(store.currentSeq('eng')).toBe(rootSeq);
+    const migrated = store.getWorktree('eng', registered.worktree.id)!;
+    expect(migrated.conversation_id).toBe(`wt-${registered.worktree.id.toLowerCase()}`);
+    expect(store.getRoom(migrated.conversation_id)).toBeDefined();
+    expect(store.listMembers(migrated.conversation_id).map((member) => member.id))
+      .toEqual(store.listMembers('eng').map((member) => member.id));
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getWorktree('eng', registered.worktree.id)?.conversation_id)
+      .toBe(migrated.conversation_id);
+    expect(store.currentSeq('eng')).toBe(rootSeq);
+  });
+
+  it('keeps main and child room state independent across reopen', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'created');
+    const child = registered.worktree.conversation_id;
+    const mainAgent = store.addMember('eng', {
+      kind: 'agent', handle: 'same-handle', display_name: 'Main Agent', state: 'idle',
+    });
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'same-handle', display_name: 'Child Agent', state: 'idle',
+    });
+    expect(mainAgent.id).not.toBe(childAgent.id);
+    expect(store.getMember(child, owner.id)).toMatchObject({ id: owner.id, kind: 'human' });
+    expect(store.listMembers(child).filter((member) => member.kind === 'agent')).toEqual([childAgent]);
+
+    const mainMessage = store.postMessage('eng', { author: mainAgent.id, kind: 'chat', body: 'main-only' });
+    const childMessage = store.postMessage(child, { author: childAgent.id, kind: 'chat', body: 'child-only' });
+    expect(mainMessage.id).toBe(1);
+    expect(childMessage.id).toBe(1);
+    expect(store.listMessages('eng')).toEqual([mainMessage]);
+    expect(store.listMessages(child)).toEqual([childMessage]);
+    expect(store.roomSupport('eng', owner.id).summary.latest?.preview).toBe('main-only');
+    expect(store.roomSupport(child, owner.id).summary.latest?.preview).toBe('child-only');
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(1);
+    expect(store.countUnreadMessages(child, owner.id)).toBe(1);
+    store.markRoomRead('eng', owner.id, store.currentSeq('eng'));
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(0);
+    expect(store.countUnreadMessages(child, owner.id)).toBe(1);
+
+    const day = '2026-08-06';
+    store.bumpMeter('eng', day, { turns: 1, input_tokens: 10 });
+    store.bumpMeter(child, day, { turns: 2, output_tokens: 20 });
+    expect(store.getMeter('eng', day)).toMatchObject({ turns: 1, input_tokens: 10, output_tokens: 0 });
+    expect(store.getMeter(child, day)).toMatchObject({ turns: 2, input_tokens: 0, output_tokens: 20 });
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.listMessages(child)).toMatchObject([{ id: 1, body: 'child-only' }]);
+    expect(store.countUnreadMessages(child, owner.id)).toBe(1);
+    expect(store.getMeter(child, day)).toMatchObject({ turns: 2, output_tokens: 20 });
+  });
+});
+// harn:end registered-worktrees-materialize-stable-conversations
+
+// harn:assume child-conversation-state-is-room-isolated ref=conversation-room-state-regression
+// harn:assume child-conversation-state-is-room-isolated ref=conversation-read-cursor-seeding
+describe('child conversation inherited identities and cursors', () => {
+  it('seeds root humans in every child and adds later root humans without cloning rows', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childOwner = store.getMember(child, owner.id)!;
+    expect(childOwner.id).toBe(owner.id);
+    expect(store.getRoomReadSeq(child, owner.id)).toBe(store.currentSeq(child));
+
+    const later = store.addMember('eng', {
+      kind: 'human', handle: 'later-human', display_name: 'Later Human', role: 'member',
+    });
+    expect(store.getMember(child, later.id)).toMatchObject({ id: later.id, handle: 'later-human' });
+    expect(store.listMembers(child).map((member) => member.id)).toContain(later.id);
+    expect(store.getRoomReadSeq(child, later.id)).toBe(store.currentSeq(child));
+    expect(store.listMembers(child).filter((member) => member.id === later.id)).toHaveLength(1);
+
+    store.updateMember('eng', owner.id, { display_name: 'Richard Renamed' });
+    expect(store.getMember(child, owner.id)?.display_name).toBe('Richard Renamed');
+    expect(store.sync(child, 0).members.find((member) => member.id === owner.id)?.display_name)
+      .toBe('Richard Renamed');
+  });
+});
+// harn:end human-room-read-cursors-are-durable-and-monotonic
+// harn:end child-conversation-state-is-room-isolated
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'codor-store-'));

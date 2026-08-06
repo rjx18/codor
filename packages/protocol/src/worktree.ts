@@ -52,6 +52,9 @@ export const RegisteredWorktreeSchema = z.object({
   id: WorktreeIdSchema,
   repository_id: RepositoryIdSchema,
   room: RoomIdSchema,
+  // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-protocol
+  /** Main points at the existing room; a secondary points at its hidden child room. */
+  conversation_id: RoomIdSchema,
   alias: WorktreeAliasSchema,
   path: WorktreePathSchema,
   git_admin_id: WorktreePathSchema,
@@ -68,6 +71,7 @@ export const RegisteredWorktreeSchema = z.object({
   removed_ts: TimestampSchema.optional(),
 });
 export type RegisteredWorktree = z.infer<typeof RegisteredWorktreeSchema>;
+// harn:end registered-worktrees-materialize-stable-conversations
 
 export const WorktreeDiscoveryCandidateSchema = z.object({
   path: WorktreePathSchema,
@@ -79,6 +83,7 @@ export const WorktreeDiscoveryCandidateSchema = z.object({
   branch: z.string().min(1).optional(),
   registered_id: WorktreeIdSchema.optional(),
   alias: WorktreeAliasSchema.optional(),
+  conversation_id: RoomIdSchema.optional(),
 });
 export type WorktreeDiscoveryCandidate = z.infer<typeof WorktreeDiscoveryCandidateSchema>;
 
@@ -102,9 +107,19 @@ export const WorktreeCreateRequestSchema = z.object({
 });
 export type WorktreeCreateRequest = z.infer<typeof WorktreeCreateRequestSchema>;
 
+// harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
+/** A room key envelope is returned only when the caller has a paired browser device. */
+export const WorktreeRoomKeySchema = z.object({
+  room: RoomIdSchema,
+  generation: z.number().int().positive(),
+  sealed_key: z.string().min(1),
+});
+export type WorktreeRoomKey = z.infer<typeof WorktreeRoomKeySchema>;
+
 export const WorktreeLifecycleResponseSchema = z.object({
   repository: RepositoryRecordSchema,
   worktree: RegisteredWorktreeSchema,
+  room_key: WorktreeRoomKeySchema.optional(),
 });
 export type WorktreeLifecycleResponse = z.infer<typeof WorktreeLifecycleResponseSchema>;
 // harn:end registered-worktree-identities-are-durable

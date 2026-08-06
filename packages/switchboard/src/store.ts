@@ -29,6 +29,7 @@ import {
   type Room,
   type RoomConfig,
   RoomConfigSchema,
+  RoomIdSchema,
   type RoomInboxItem,
   type RoomMeter,
   RoomMeterSchema,
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS worktrees (
   id TEXT PRIMARY KEY,
   repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
   room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  conversation_id TEXT,
   alias TEXT NOT NULL,
   path TEXT NOT NULL,
   git_admin_id TEXT NOT NULL,
@@ -551,6 +553,110 @@ function migrateRoomReadCursors(db: Database.Database): void {
   `);
 }
 // harn:end human-room-read-cursors-are-durable-and-monotonic
+
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-migration
+/**
+ * Phase 1 rows predate conversation_id. Backfill them without using the normal
+ * room-creation path: a child inherits only the root human and reserved system
+ * identities through lookup, so no agent roster or transcript is copied.
+ */
+function migrationChildConversationId(db: Database.Database, worktreeId: string): string {
+  const stem = `wt-${worktreeId.toLowerCase()}`;
+  let candidate = stem;
+  let suffix = 0;
+  while (true) {
+    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(candidate) as { id: string } | undefined;
+    const owner = db.prepare('SELECT id FROM worktrees WHERE conversation_id = ?').get(candidate) as
+      { id: string } | undefined;
+    if (owner?.id === worktreeId || (room === undefined && owner === undefined)) return candidate;
+    suffix += 1;
+    candidate = `${stem}-${String(suffix)}`;
+  }
+}
+
+function appendMigrationChange(
+  db: Database.Database,
+  room: string,
+  entity: ChangeEntity,
+  entityId: string,
+): number {
+  const bumped = db.prepare('UPDATE rooms SET seq = seq + 1 WHERE id = ? RETURNING seq')
+    .get(room) as { seq: number } | undefined;
+  if (!bumped) throw new Error(`no such room: ${room}`);
+  db.prepare('INSERT INTO changes (room_id, seq, entity, entity_id) VALUES (?, ?, ?, ?)')
+    .run(room, bumped.seq, entity, entityId);
+  return bumped.seq;
+}
+
+function migrateWorktreeConversations(db: Database.Database): void {
+  const columns = db.pragma('table_info(worktrees)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'conversation_id')) {
+    db.exec('ALTER TABLE worktrees ADD COLUMN conversation_id TEXT');
+  }
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS worktrees_conversation_unique ON worktrees (conversation_id) WHERE conversation_id IS NOT NULL',
+  );
+
+  const now = new Date().toISOString();
+  const migrate = db.transaction(() => {
+    db.prepare(
+      `UPDATE worktrees SET conversation_id = room
+       WHERE primary_checkout = 1 AND (conversation_id IS NULL OR conversation_id = '')`,
+    ).run();
+
+    const rows = db.prepare(
+      `SELECT id, room, alias, conversation_id
+       FROM worktrees WHERE primary_checkout = 0 ORDER BY id`,
+    ).all() as { id: string; room: string; alias: string; conversation_id: string | null }[];
+    for (const row of rows) {
+      const conversationId = row.conversation_id && row.conversation_id !== ''
+        ? row.conversation_id
+        : migrationChildConversationId(db, row.id);
+      const child = db.prepare('SELECT id, seq FROM rooms WHERE id = ?').get(conversationId) as
+        { id: string; seq: number } | undefined;
+      if (child === undefined) {
+        const root = db.prepare('SELECT name, created_ts, config FROM rooms WHERE id = ?').get(row.room) as
+          { name: string; created_ts: string; config: string } | undefined;
+        if (!root) throw new Error(`no root room for worktree ${row.id}`);
+        db.prepare(
+          'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
+        ).run(conversationId, `${root.name} · ${row.alias}`, now, root.config);
+        appendMigrationChange(db, conversationId, 'room', conversationId);
+        const inherited = db.prepare(
+          `SELECT id, kind FROM members
+           WHERE room = ? AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))
+           ORDER BY id`,
+        ).all(row.room) as { id: string; kind: string }[];
+        const humanIds: string[] = [];
+        for (const member of inherited) {
+          appendMigrationChange(db, conversationId, 'member', member.id);
+          if (member.kind === 'human') humanIds.push(member.id);
+        }
+        const currentSeq = (db.prepare('SELECT seq FROM rooms WHERE id = ?').get(conversationId) as { seq: number }).seq;
+        for (const memberId of humanIds) {
+          db.prepare(
+            `INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+             VALUES (?, ?, ?, ?)`,
+          ).run(conversationId, memberId, currentSeq, now);
+        }
+      } else {
+        const inheritedHumans = db.prepare(
+          `SELECT id FROM members WHERE room = ? AND kind = 'human' ORDER BY id`,
+        ).all(row.room) as { id: string }[];
+        for (const member of inheritedHumans) {
+          db.prepare(
+            `INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+             VALUES (?, ?, ?, ?)`,
+          ).run(conversationId, member.id, child.seq, now);
+        }
+      }
+      db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?')
+        .run(conversationId, row.id);
+    }
+  });
+  migrate();
+}
+// harn:end registered-worktrees-materialize-stable-conversations
 
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
@@ -1095,6 +1201,7 @@ interface WorktreeRow {
   id: string;
   repository_id: string;
   room: string;
+  conversation_id: string | null;
   alias: string;
   path: string;
   git_admin_id: string;
@@ -1313,10 +1420,14 @@ function repositoryFromRow(row: RepositoryRow): RepositoryRecord {
 }
 
 function worktreeFromRow(row: WorktreeRow): RegisteredWorktree {
+  if (row.conversation_id === null || row.conversation_id === '') {
+    throw new Error(`worktree ${row.id} has no conversation mapping`);
+  }
   return RegisteredWorktreeSchema.parse({
     id: row.id,
     repository_id: row.repository_id,
     room: row.room,
+    conversation_id: row.conversation_id,
     alias: row.alias,
     path: row.path,
     git_admin_id: row.git_admin_id,
@@ -1522,6 +1633,7 @@ export class Store {
       migrateMessageContinuations(this.db);
       migrateMessageActivity(this.db);
       migrateRoomReadCursors(this.db);
+      migrateWorktreeConversations(this.db);
       migrateApprovalDeliveryResolution(this.db);
       migrateDeliveryHopCount(this.db);
       migrateDeliverySteering(this.db);
@@ -1630,6 +1742,115 @@ export class Store {
     const rows = this.db.prepare('SELECT * FROM rooms ORDER BY id').all() as RoomRow[];
     return rows.map(roomFromRow);
   }
+
+  // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-root-query
+  /** All rooms remain available to daemon recovery; only this projection hides children. */
+  listPublicRooms(): Room[] {
+    const rows = this.db.prepare(
+      `SELECT rooms.* FROM rooms
+       WHERE NOT EXISTS (
+         SELECT 1 FROM worktrees
+         WHERE worktrees.conversation_id = rooms.id
+           AND worktrees.primary_checkout = 0
+       )
+       ORDER BY rooms.id`,
+    ).all() as RoomRow[];
+    return rows.map(roomFromRow);
+  }
+
+  isChildRoom(room: string): boolean {
+    const row = this.db.prepare(
+      `SELECT 1 AS child FROM worktrees
+       WHERE conversation_id = ? AND primary_checkout = 0 LIMIT 1`,
+    ).get(room) as { child: number } | undefined;
+    return row !== undefined;
+  }
+
+  rootRoomId(room: string): string | undefined {
+    const row = this.db.prepare(
+      `SELECT room FROM worktrees
+       WHERE conversation_id = ? AND primary_checkout = 0
+       ORDER BY lifecycle = 'active' DESC, updated_ts DESC LIMIT 1`,
+    ).get(room) as { room: string } | undefined;
+    return row?.room;
+  }
+
+  private childRoomIds(root: string): string[] {
+    const rows = this.db.prepare(
+      `SELECT conversation_id FROM worktrees
+       WHERE room = ? AND primary_checkout = 0 AND conversation_id IS NOT NULL
+       ORDER BY conversation_id`,
+    ).all(root) as { conversation_id: string }[];
+    return rows.map((row) => row.conversation_id);
+  }
+  // harn:end main-and-direct-conversations-stay-compatible
+
+  // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-schema
+  private newChildConversationId(worktreeId: string): string {
+    const stem = `wt-${worktreeId.toLowerCase()}`;
+    let candidate = stem;
+    let suffix = 0;
+    while (
+      this.db.prepare('SELECT 1 FROM rooms WHERE id = ?').get(candidate) !== undefined
+      || this.db.prepare('SELECT 1 FROM worktrees WHERE conversation_id = ?').get(candidate) !== undefined
+    ) {
+      suffix += 1;
+      candidate = `${stem}-${String(suffix)}`;
+    }
+    return RoomIdSchema.parse(candidate);
+  }
+
+  private ensureChildConversation(
+    root: string,
+    conversationId: string,
+    alias: string,
+    now: string,
+  ): void {
+    const existing = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(conversationId) as
+      RoomRow | undefined;
+    if (existing !== undefined) {
+      for (const member of this.db.prepare(
+        `SELECT id FROM members WHERE room = ? AND kind = 'human' ORDER BY id`,
+      ).all(root) as { id: string }[]) {
+        this.db.prepare(
+          `INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+           VALUES (?, ?, ?, ?)`,
+        ).run(conversationId, member.id, existing.seq, now);
+      }
+      return;
+    }
+    const rootRoom = this.getRoom(root);
+    if (rootRoom === undefined) throw new Error(`no root room: ${root}`);
+    this.db.prepare(
+      'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
+    ).run(conversationId, `${rootRoom.name} · ${alias}`, now, JSON.stringify(rootRoom.config));
+    this.appendChange(conversationId, 'room', conversationId);
+    const inherited = this.db.prepare(
+      `SELECT id, kind FROM members
+       WHERE room = ? AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))
+       ORDER BY id`,
+    ).all(root) as { id: string; kind: string }[];
+    const humanIds: string[] = [];
+    for (const member of inherited) {
+      this.appendChange(conversationId, 'member', member.id);
+      if (member.kind === 'human') humanIds.push(member.id);
+    }
+    const currentSeq = this.currentSeq(conversationId);
+    for (const memberId of humanIds) {
+      this.db.prepare(
+        `INSERT INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (room, member_id) DO NOTHING`,
+      ).run(conversationId, memberId, currentSeq, now);
+    }
+  }
+
+  private appendInheritedMemberChanges(root: string, memberId: string): void {
+    for (const child of this.childRoomIds(root)) {
+      this.appendChange(child, 'member', memberId);
+    }
+  }
+  // harn:end registered-worktrees-materialize-stable-conversations
 
   // harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
   /** Return the room's repository projection without creating one as a side effect. */
@@ -1769,9 +1990,13 @@ export class Store {
           'main',
           main,
           'main',
+          room,
           now,
         );
       } else {
+        if (mainRow.conversation_id !== room) {
+          this.db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?').run(room, mainRow.id);
+        }
         this.updateWorktreeRow(mainRow.id, main, {
           alias: 'main',
           lifecycle: 'active',
@@ -1790,16 +2015,27 @@ export class Store {
            LIMIT 1`,
         )
         .get(repositoryRow.id, secondary.git_admin_id) as WorktreeRow | undefined;
+      let secondaryId: string;
       if (existingSecondary === undefined) {
+        secondaryId = this.newUlid();
         this.insertWorktreeRow(
           repositoryRow.id,
           room,
           normalizedAlias,
           secondary,
           source,
+          this.newChildConversationId(secondaryId),
           now,
+          secondaryId,
         );
       } else {
+        secondaryId = existingSecondary.id;
+        if (existingSecondary.conversation_id === null || existingSecondary.conversation_id === '') {
+          this.db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?').run(
+            this.newChildConversationId(existingSecondary.id),
+            existingSecondary.id,
+          );
+        }
         this.updateWorktreeRow(existingSecondary.id, secondary, {
           alias: normalizedAlias,
           lifecycle: 'active',
@@ -1811,6 +2047,13 @@ export class Store {
           updated_ts: now,
         });
       }
+
+      const secondaryRow = this.db.prepare('SELECT * FROM worktrees WHERE id = ?')
+        .get(secondaryId) as WorktreeRow;
+      if (secondaryRow.conversation_id === null || secondaryRow.conversation_id === '') {
+        throw new Error(`worktree ${secondaryId} has no conversation mapping`);
+      }
+      this.ensureChildConversation(room, secondaryRow.conversation_id, normalizedAlias, now);
 
       const refreshedRepository = this.db
         .prepare('SELECT * FROM repositories WHERE id = ?')
@@ -1886,17 +2129,20 @@ export class Store {
     alias: string,
     observation: WorktreeObservation,
     source: WorktreeSource,
+    conversationId: string,
     now: string,
+    id = this.newUlid(),
   ): void {
     this.db.prepare(
       `INSERT INTO worktrees
-         (id, repository_id, room, alias, path, git_admin_id, primary_checkout, source,
+         (id, repository_id, room, conversation_id, alias, path, git_admin_id, primary_checkout, source,
           lifecycle, availability, locked, head, branch, registered_ts, updated_ts)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
     ).run(
-      this.newUlid(),
+      id,
       repositoryId,
       room,
+      conversationId,
       WorktreeAliasSchema.parse(alias),
       observation.path,
       observation.git_admin_id,
@@ -2014,6 +2260,16 @@ export class Store {
          VALUES (?, ?, ?, ?)
          ON CONFLICT (room, member_id) DO NOTHING`,
       ).run(room, validated.id, seq, new Date().toISOString());
+      if (!this.isChildRoom(room)) {
+        for (const child of this.childRoomIds(room)) {
+          const childSeq = this.appendChange(child, 'member', validated.id);
+          this.db.prepare(
+            `INSERT INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT (room, member_id) DO NOTHING`,
+          ).run(child, validated.id, childSeq, new Date().toISOString());
+        }
+      }
     }
     // harn:end human-room-read-cursors-are-durable-and-monotonic
     return validated;
@@ -2186,8 +2442,10 @@ export class Store {
     patch: Partial<Omit<Member, 'id' | 'kind'>>,
   ): Member {
     return this.db.transaction(() => {
-      const existing = this.getMember(room, memberId);
+      const requestedRoom = room;
+      const existing = this.getMember(requestedRoom, memberId);
       if (!existing) throw new Error(`no such member: ${memberId}`);
+      const storageRoom = this.memberStorageRoom(requestedRoom, memberId);
       const merged = MemberSchema.parse({ ...existing, ...patch });
       // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
       // Preserve the task projection across ordinary config edits; clear it only when
@@ -2196,6 +2454,7 @@ export class Store {
         merged.session_ref !== undefined && merged.session_ref !== existing.session_ref;
       const nextTasks = changesSession ? undefined : merged.tasks;
       // harn:end member-task-projection-is-durable-and-session-scoped
+      room = storageRoom;
       this.db
         .prepare(
           // harn:assume member-config-is-changed-not-respawned ref=member-config-storage
@@ -2237,8 +2496,14 @@ export class Store {
           memberId,
         );
       // harn:end member-config-is-changed-not-respawned
-      this.appendChange(room, 'member', memberId);
-      return { ...merged, tasks: nextTasks };
+      this.appendChange(storageRoom, 'member', memberId);
+      if (storageRoom !== room && (existing.kind === 'human' || existing.kind === 'system')) {
+        this.appendInheritedMemberChanges(storageRoom, memberId);
+      } else if (storageRoom === room && !this.isChildRoom(room)
+        && (existing.kind === 'human' || existing.kind === 'system')) {
+        this.appendInheritedMemberChanges(room, memberId);
+      }
+      return this.getMember(requestedRoom, memberId)!;
     })();
   }
 
@@ -2270,19 +2535,51 @@ export class Store {
   }
   // harn:end agent-member-credentials-stay-secret
 
+  // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-shared-human-resolution
+  private memberStorageRoom(room: string, memberId: string): string {
+    const local = this.db.prepare('SELECT room FROM members WHERE room = ? AND id = ?')
+      .get(room, memberId) as { room: string } | undefined;
+    if (local !== undefined) return local.room;
+    const root = this.rootRoomId(room);
+    if (root === undefined) return room;
+    const inherited = this.db.prepare(
+      `SELECT room FROM members
+       WHERE room = ? AND id = ?
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))`,
+    ).get(root, memberId) as { room: string } | undefined;
+    return inherited?.room ?? room;
+  }
+
   getMember(room: string, memberId: string): Member | undefined {
     const row = this.db
       .prepare('SELECT * FROM members WHERE room = ? AND id = ?')
       .get(room, memberId) as MemberRow | undefined;
-    return row ? memberFromRow(row) : undefined;
+    if (row) return memberFromRow(row);
+    const root = this.rootRoomId(room);
+    if (root === undefined) return undefined;
+    const inherited = this.db.prepare(
+      `SELECT * FROM members
+       WHERE room = ? AND id = ?
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))`,
+    ).get(root, memberId) as MemberRow | undefined;
+    return inherited ? memberFromRow(inherited) : undefined;
   }
 
   getMemberByHandle(room: string, handle: string): Member | undefined {
     const row = this.db
       .prepare('SELECT * FROM members WHERE room = ? AND handle = ? AND removed_ts IS NULL')
       .get(room, handle) as MemberRow | undefined;
-    return row ? memberFromRow(row) : undefined;
+    if (row) return memberFromRow(row);
+    const root = this.rootRoomId(room);
+    if (root === undefined) return undefined;
+    const inherited = this.db.prepare(
+      `SELECT * FROM members
+       WHERE room = ? AND handle = ? AND removed_ts IS NULL
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))`,
+    ).get(root, handle) as MemberRow | undefined;
+    return inherited ? memberFromRow(inherited) : undefined;
   }
+  // harn:end main-and-direct-conversations-stay-compatible
 
   findMemberBySessionRef(
     harness: string,
@@ -2314,7 +2611,16 @@ export class Store {
          AND (? = 1 OR removed_ts IS NULL) ORDER BY id`,
       )
       .all(room, options.includeRemoved ? 1 : 0) as MemberRow[];
-    return rows.map(memberFromRow);
+    const root = this.rootRoomId(room);
+    if (root === undefined) return rows.map(memberFromRow);
+    const inherited = this.db.prepare(
+      `SELECT * FROM members
+       WHERE room = ? AND (? = 1 OR removed_ts IS NULL)
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))
+       ORDER BY id`,
+    ).all(root, options.includeRemoved ? 1 : 0) as MemberRow[];
+    const byId = new Map([...inherited, ...rows].map((row) => [row.id, row]));
+    return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id)).map(memberFromRow);
   }
 
   markAgentRostersStale(room: string): void {

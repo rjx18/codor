@@ -1,0 +1,14 @@
+id: child-conversation-state-is-room-isolated
+hash: a-c76001454c37
+title: Each child conversation owns independent durable room state
+state: active
+statement: Each registered child must use its exact child RoomId for message-id
+  allocation, changelog and hydration cursors, transcripts, deliveries,
+  interactions, summaries, durable human read positions and unread, meters, run
+  blobs, and support projections, so equal numeric ids or seqs in main and
+  another child never read, update, count, or fan out across conversations and
+  all state survives restart.
+depends_on:
+  - registered-worktrees-materialize-stable-conversations
+  - main-and-direct-conversations-stay-compatible
+created_by: native-worktrees-phase2-conversations

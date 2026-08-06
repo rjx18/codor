@@ -12,9 +12,9 @@ notes: >-
   an unregistered discovery candidate. A new secondary receives a collision-safe
   filesystem-safe child RoomId stored on its worktree record; unregister and
   removal retain the child and all history, while re-adoption restores the same
-  worktree and conversation ids. Backfill this mapping idempotently for databases
-  already containing Phase 1 worktree rows, with the root room still main and no
-  rewrite of existing messages.
+  worktree and conversation ids. Backfill this mapping idempotently for
+  databases already containing Phase 1 worktree rows, with the root room still
+  main and no rewrite of existing messages.
 
   Child rooms use the existing per-room message-id allocator, changelog seq,
   deliveries, interactions, read cursors, summaries/support, meters, blobs,
@@ -24,8 +24,8 @@ notes: >-
   and reserved Switchboard identities are inherited from the root for
   authorization, attribution, read cursors, and hydration rather than copied;
   agents and other runtime members live only in their exact conversation. Thus a
-  child begins with no cloned agent roster, and equal agent handles in main and a
-  child remain distinct globally-issued member ids with isolated cwd, session,
+  child begins with no cloned agent roster, and equal agent handles in main and
+  a child remain distinct globally-issued member ids with isolated cwd, session,
   credential hash/token, transient caches and waits, task projection, usage, and
   delivery state. A newly added root human receives a read cursor in every
   existing child, and a migrated/new child baselines all root humans to its own
@@ -74,7 +74,8 @@ assumptions:
         id, Room row, history, members, config, message ids, seq, and encryption
         key, hidden child rooms must stay out of legacy human/browser top-level
         room listings, and a room with no registered secondary must preserve the
-        selector-less REST, WebSocket, startup, and persistence behavior exactly.
+        selector-less REST, WebSocket, startup, and persistence behavior
+        exactly.
       reason: Existing conversations and older clients must not be rewritten or
         exposed to child state before the later UI cutover.
       depends_on:
@@ -101,8 +102,8 @@ assumptions:
         raw and hashed credentials, delivery state, transient session/wait/usage
         caches, durable tasks, and meters cannot affect one another across
         restart or concurrent turns.
-      reason: Worktree-local agents must never inherit another checkout's execution
-        or identity state, and worktree creation must not clone the roster.
+      reason: Worktree-local agents must never inherit another checkout's execution or
+        identity state, and worktree creation must not clone the roster.
       depends_on:
         - child-conversation-state-is-room-isolated
         - agent-member-credentials-stay-secret
@@ -127,9 +128,9 @@ assumptions:
       statement: A remote member attempt for a child must carry that exact child
         RoomId through the existing residency request and session lifecycle,
         while only the home switchboard assigns ids, persists blobs/messages and
-        tasks, meters usage, finalizes the run, and routes results in that child;
-        main and sibling state remain untouched and no relay/cloud wire contract
-        changes.
+        tasks, meters usage, finalizes the run, and routes results in that
+        child; main and sibling state remain untouched and no relay/cloud wire
+        contract changes.
       reason: Hosted multi-computer execution must preserve the same conversation
         boundary as local execution without introducing a second durable writer.
       depends_on:
@@ -148,12 +149,11 @@ assumptions:
     - id: worktree-lifecycle-is-roster-neutral
       outcome: unchanged
       reason: Lifecycle may create only conversation metadata and an empty child room;
-        it still never copies or mutates agents, messages, sessions, credentials,
-        tasks, usage, config, or roster-staleness state.
+        it still never copies or mutates agents, messages, sessions,
+        credentials, tasks, usage, config, or roster-staleness state.
     - id: message-id-txn-allocation
       outcome: unchanged
       reason: A child is an ordinary internal room scope, so dense transaction-local
-        #N allocation remains unchanged and naturally permits equal ids elsewhere.
     - id: changelog-is-sync-cursor
       outcome: unchanged
       reason: Every child owns the same existing per-room seq and change-log contract.
@@ -256,8 +256,8 @@ anchors:
     conversation-room-state-regression:
       action: change
       reason: Prove equal numeric message ids, seq, transcripts, deliveries, support,
-        summaries,
-        read/unread, meters, and reopen remain isolated by child RoomId.
+        summaries, read/unread, meters, and reopen remain isolated by child
+        RoomId.
     conversation-read-cursor-seeding:
       action: change
       reason: Baseline inherited root humans for migrated/new children and new root
@@ -327,7 +327,8 @@ anchors:
     agent-room-authorization:
       action: change
       reason: Root humans inherit child access, while an agent continues to match only
-        its exact root or child RoomId and child rooms stay hidden from human lists.
+        its exact root or child RoomId and child rooms stay hidden from human
+        lists.
   attachments-are-capped-files-served-inert:
     attachment-contract:
       action: keep
@@ -347,14 +348,16 @@ anchors:
   member-task-projection-is-durable-and-session-scoped:
     member-task-storage:
       action: keep
-      reason: Globally distinct child member ids already isolate task rows and sessions.
+      reason: Globally distinct child member ids already isolate task rows and
+        sessions.
     member-task-daemon-landing:
       action: keep
       reason: Task events continue landing by exact member id with no new routing.
   agent-member-credentials-stay-secret:
     member-session-environment:
       action: keep
-      reason: Existing session issuance already stamps the exact room into CODOR_CHANNEL.
+      reason: Existing session issuance already stamps the exact room into
+        CODOR_CHANNEL.
     member-credential-storage:
       action: keep
       reason: Credential hashes remain unique exact-member state.
@@ -384,3 +387,5 @@ verification: Run harn find --plan native-worktrees-phase2-conversations and
   and its ten declared files, run harn check --staged, let the Harn hook apply
   the plan, and create exactly one Phase 2 implementation commit containing the
   implementation, tests, applied plan, and generated assumption truth.
+applied:
+  applied_at: 2026-08-06T09:05:32.095Z

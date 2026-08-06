@@ -304,6 +304,97 @@ describe('multi-box member residency over hyperdht/testnet', () => {
     )).toMatchObject({ state: 'completed', attempt_count: 1 });
   }, 20_000);
 
+  // harn:assume child-home-authority-survives-residency ref=conversation-residency-regression
+  it('keeps a resident child attempt, session, and projections at the child home', async () => {
+    const fixture = await setup();
+    const registration = fixture.daemon.store.registerWorktree(
+      'eng',
+      {
+        common_path: join(fixture.root, 'child-repository', '.git'),
+        primary_path: join(fixture.root, 'child-repository'),
+        primary_git_admin_id: join(fixture.root, 'child-repository', '.git'),
+      },
+      {
+        path: join(fixture.root, 'child-repository'),
+        git_admin_id: join(fixture.root, 'child-repository', '.git'),
+        primary: true,
+        availability: 'available',
+        locked: false,
+        head: '0123456789abcdef0123456789abcdef01234567',
+        branch: 'main',
+      },
+      {
+        path: join(fixture.root, 'child-worktree'),
+        git_admin_id: join(fixture.root, 'child-repository', '.git', 'worktrees', 'child-worktree'),
+        primary: false,
+        availability: 'available',
+        locked: false,
+        head: '0123456789abcdef0123456789abcdef01234567',
+        branch: 'feature/child-worktree',
+      },
+      'child-worktree',
+      'adopted',
+    );
+    const child = registration.worktree.conversation_id;
+    const childMember = fixture.daemon.spawnRemoteMember(child, {
+      host: fixture.outpostVault.keys.identity.device_id,
+      harness: 'fake',
+      handle: 'lab-child',
+      cwd: '/child/work',
+    });
+    const usage = {
+      inputTokens: 31,
+      outputTokens: 9,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 90_000,
+    } as const;
+    fixture.fake.enqueue({
+      kind: 'complete',
+      final_text: '@richard child remote done',
+      agent_usage: usage,
+      items: [{
+        type: 'run.tasks',
+        update: { op: 'replace', items: [{ id: 'child-task', content: 'Child task', status: 'completed' }] },
+      }],
+    });
+    fixture.daemon.postHumanMessage(child, '@lab-child do child work');
+    await fixture.daemon.settle();
+
+    const runs = fixture.daemon.store.listRunMessages(child, { author: childMember.id, limit: 10 });
+    expect(runs).toHaveLength(1);
+    const run = runs[0]!;
+    expect(run.id).toBe(2);
+    expect(fixture.fake.deliveries).toHaveLength(1);
+    expect(fixture.fake.deliveries[0]).toMatchObject({ cwd: '/child/work' });
+    expect(fixture.daemon.store.listMessages('eng')).toEqual([]);
+    expect(fixture.daemon.store.listMessages(child).map((message) => message.id)).toEqual([1, 2]);
+    expect(fixture.daemon.store.getMember(child, childMember.id)).toMatchObject({
+      host: fixture.outpostVault.keys.identity.device_id,
+      session_ref: 'fake-session-1',
+      state: 'idle',
+      tasks: { items: [{ id: 'child-task', status: 'completed' }] },
+    });
+    expect(fixture.daemon.memberDetails(child).find((detail) => detail.member.id === childMember.id)
+      ?.member.lastUsage).toEqual(usage);
+    expect(fixture.daemon.memberDetails('eng').some((detail) => detail.member.id === childMember.id)).toBe(false);
+    expect(fixture.daemon.readRunBlob(child, run.id).map((event) => event.type)).toEqual([
+      'run.started',
+      'run.completed',
+    ]);
+    await waitFor(() => fixture.homeResidency.pendingCompletionAckCount() === 0);
+    const rpcId = `${fixture.homeVault.keys.identity.device_id}:${child}:${String(run.id)}`;
+    const residentAttempt = fixture.outpostResidency.journal.get(
+      fixture.homeVault.keys.identity.device_id,
+      rpcId,
+    );
+    expect(residentAttempt).toMatchObject({ room: child, state: 'completed', attempt_count: 1 });
+    expect(fixture.outpostResidency.journal.events(residentAttempt!).some((event) => event.type === 'run.tasks')).toBe(true);
+    expect(fixture.outpostResidency.journal.get(
+      fixture.homeVault.keys.identity.device_id,
+      `${fixture.homeVault.keys.identity.device_id}:eng:${String(run.id)}`,
+    )).toBeUndefined();
+  }, 20_000);
+
   it('holds the home FIFO while unreachable and drains it after an outpost restart before RPC', async () => {
     const fixture = await setup();
     await fixture.outpostResidency.close();

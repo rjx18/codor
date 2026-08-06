@@ -18,6 +18,7 @@ import {
   WorktreeAdoptRequestSchema,
   WorktreeCreateRequestSchema,
   WorktreeIdSchema,
+  WorktreeLifecycleResponseSchema,
   type BridgeOrigin,
   type Member,
   type Policy,
@@ -214,6 +215,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   if (typeof token !== 'string' || token.trim() === '') {
     throw new Error('startServer requires a non-empty authentication token');
   }
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
+  // Reopening a Phase 2 database must retain the same child key material, including
+  // for unregistered/removed worktrees whose history remains addressable.
+  for (const room of daemon.store.listRooms()) {
+    if (daemon.store.isChildRoom(room.id)) options.crypto?.roomKeys.ensureRoom(room.id);
+  }
   const configuredPrincipals = options.principals ?? [];
   const principalTokens = new Set<string>();
   for (const principal of configuredPrincipals) {
@@ -337,11 +344,15 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   };
 
-  const roomsFor = (principal: AuthPrincipal) => daemon.store.listRooms().filter((room) => {
+  // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-root-query
+  const roomsFor = (principal: AuthPrincipal) => (
+    principal.kind === 'agent' ? daemon.store.listRooms() : daemon.store.listPublicRooms()
+  ).filter((room) => {
     if (principal.kind === 'owner' || principal.kind === 'browser') return true;
     if (principal.kind === 'agent') return room.id === principal.room;
     return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
   });
+  // harn:end main-and-direct-conversations-stay-compatible
   // harn:end agent-network-authority-is-narrow
 
   // harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-role-gate
@@ -1010,6 +1021,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.get('/api/rooms/:room/worktrees/discover', listWorktreeRoute);
   // harn:end worktree-discovery-never-registers-candidates
 
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
+  const worktreeLifecycleResponse = (
+    principal: AuthPrincipal,
+    result: Awaited<ReturnType<Daemon['adoptWorktree']>>,
+  ) => {
+    options.crypto?.roomKeys.ensureRoom(result.worktree.conversation_id);
+    const roomKey = principal.kind === 'browser'
+      ? options.crypto?.roomKeys.sealedFor(principal.deviceId)
+        .find((candidate) => candidate.room === result.worktree.conversation_id)
+      : undefined;
+    return WorktreeLifecycleResponseSchema.parse({
+      ...result,
+      ...(roomKey !== undefined && { room_key: roomKey }),
+    });
+  };
+  // harn:end child-files-voice-and-keys-are-isolated
+
   // harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-contract
   app.post('/api/rooms/:room/worktrees/adopt', async (req, reply) => {
     const principal = authed(req, reply);
@@ -1019,7 +1047,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     try {
       const input = WorktreeAdoptRequestSchema.parse(req.body);
       const { cwd } = req.query as { cwd?: string };
-      return reply.code(201).send(await daemon.adoptWorktree(room, input, cwd));
+      const result = await daemon.adoptWorktree(room, input, cwd);
+      return reply.code(201).send(worktreeLifecycleResponse(principal, result));
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }

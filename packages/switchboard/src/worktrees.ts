@@ -347,6 +347,7 @@ export class WorktreeManager {
 
     const active = this.store.listRegisteredWorktrees(room, repository.id);
     // harn:assume registered-worktree-identities-are-durable ref=worktree-runtime-reconciliation
+    // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-lifecycle
     const byAdmin = new Map(active.map((worktree) => [worktree.git_admin_id, worktree]));
     const seen = new Set<string>();
     for (const observation of inspection.worktrees) {
@@ -367,6 +368,7 @@ export class WorktreeManager {
         ...(registered.branch !== undefined && { branch: registered.branch }),
       });
     }
+    // harn:end registered-worktrees-materialize-stable-conversations
     // harn:end registered-worktree-identities-are-durable
 
     const refreshed = this.store.listRegisteredWorktrees(room, repository.id);
@@ -378,6 +380,7 @@ export class WorktreeManager {
         ...(registered !== undefined && {
           registered_id: registered.id,
           alias: registered.alias,
+          conversation_id: registered.conversation_id,
         }),
       });
     });

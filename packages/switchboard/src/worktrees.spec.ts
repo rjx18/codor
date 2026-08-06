@@ -55,6 +55,7 @@ afterEach(() => {
 });
 
 // harn:assume repository-primary-identity-is-git-derived ref=git-repository-fixtures
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-git-regression
 describe('Git repository identity and read-only discovery', () => {
   it('discovers linked worktrees without registering them and keeps main across branch changes', async () => {
     const secondaryPath = join(fixtureRoot, 'unselected linked worktree');
@@ -66,6 +67,8 @@ describe('Git repository identity and read-only discovery', () => {
     expect(before.discovered.map((candidate) => candidate.path)).toEqual(
       expect.arrayContaining([repositoryPath, secondaryPath]),
     );
+    expect(before.discovered.every((candidate) => candidate.conversation_id === undefined)).toBe(true);
+    expect(store.listRooms().map((room) => room.id)).toEqual(['eng']);
     expect(store.getRepository('eng')).toBeUndefined();
 
     const beforeSeq = store.currentSeq('eng');
@@ -78,6 +81,15 @@ describe('Git repository identity and read-only discovery', () => {
       source: 'adopted',
       lifecycle: 'active',
     });
+    expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
+    expect((await manager.list('eng', repositoryPath)).discovered.find((candidate) =>
+      candidate.path === secondaryPath)).toMatchObject({
+      registered_id: adopted.worktree.id,
+      conversation_id: adopted.worktree.conversation_id,
+    });
+    expect(store.listRooms().map((room) => room.id)).toEqual(
+      expect.arrayContaining(['eng', adopted.worktree.conversation_id]),
+    );
     const main = store.listRegisteredWorktrees('eng').find((worktree) => worktree.primary)!;
     const seqAfterAdopt = store.currentSeq('eng');
     expect(main).toMatchObject({ alias: 'main', primary: true, branch: 'main' });
@@ -97,6 +109,8 @@ describe('Git repository identity and read-only discovery', () => {
     store = new Store(join(fixtureRoot, 'codor.sqlite'));
     manager = new WorktreeManager(store);
     expect(store.getWorktree('eng', adopted.worktree.id)?.id).toBe(adopted.worktree.id);
+    expect(store.getWorktree('eng', adopted.worktree.id)?.conversation_id)
+      .toBe(adopted.worktree.conversation_id);
     expect((await manager.list('eng', repositoryPath)).registered.map((item) => item.id))
       .toEqual(expect.arrayContaining([main.id, adopted.worktree.id]));
   });
@@ -123,6 +137,7 @@ describe('Git repository identity and read-only discovery', () => {
     const ids = { main: main.id, secondary: adopted.worktree.id };
     expect(main.branch).toBeUndefined();
     expect(adopted.worktree.branch).toBeUndefined();
+    expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
 
     const refreshed = await manager.list('eng', repositoryPath);
     expect(refreshed.repository?.id).toBe(repositoryId);
@@ -142,6 +157,8 @@ describe('Git repository identity and read-only discovery', () => {
       .toEqual(expect.arrayContaining([ids.main, ids.secondary]));
     expect(reopened.registered.find((worktree) => worktree.id === ids.main)?.branch).toBeUndefined();
     expect(reopened.registered.find((worktree) => worktree.id === ids.secondary)?.branch).toBeUndefined();
+    expect(reopened.registered.find((worktree) => worktree.id === ids.secondary)?.conversation_id)
+      .toBe(adopted.worktree.conversation_id);
   });
 
   it('returns no repository for a non-Git directory', async () => {
@@ -154,6 +171,7 @@ describe('Git repository identity and read-only discovery', () => {
     });
   });
 });
+// harn:end registered-worktrees-materialize-stable-conversations
 // harn:end repository-primary-identity-is-git-derived
 
 // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-regression
@@ -365,6 +383,7 @@ describe('safe creation and conservative removal', () => {
 // harn:end worktree-git-execution-is-argument-safe
 
 // harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-roster-neutrality-regression
+// harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-roster-neutrality-regression
 describe('registry storage neutrality', () => {
   it('does not rewrite room, roster, transcript, or delivery state across lifecycle operations', async () => {
     const snapshot = () => JSON.stringify({
@@ -384,8 +403,16 @@ describe('registry storage neutrality', () => {
     manager.unregister('eng', adoptedId(store, 'neutrality'));
     await manager.remove('eng', repositoryPath, created.worktree.id);
     expect(snapshot()).toBe(before);
+    for (const worktree of store.listRegisteredWorktrees('eng')) {
+      if (worktree.primary) continue;
+      expect(store.listMembers(worktree.conversation_id).filter((member) => member.kind === 'agent'))
+        .toEqual([]);
+      expect(store.listMessages(worktree.conversation_id)).toEqual([]);
+      expect(store.listDeliveries(worktree.conversation_id)).toEqual([]);
+    }
   });
 });
+// harn:end registered-worktrees-materialize-stable-conversations
 // harn:end worktree-lifecycle-is-roster-neutral
 
 function adoptedId(current: Store, alias: string): string {

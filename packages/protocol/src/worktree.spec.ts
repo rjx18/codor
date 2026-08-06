@@ -8,6 +8,7 @@ import {
   WorktreeDiscoveryResponseSchema,
   WorktreeLifecycleResponseSchema,
   WorktreeListResponseSchema,
+  WorktreeRoomKeySchema,
 } from './worktree.js';
 
 const repository = {
@@ -24,6 +25,7 @@ const worktree = {
   id: '01J00000000000000000000001',
   repository_id: repository.id,
   room: repository.room,
+  conversation_id: 'wt-01j00000000000000000000001',
   alias: 'review-a',
   path: '/tmp/repo/review a',
   git_admin_id: '/tmp/repo/.git/worktrees/review-a',
@@ -39,6 +41,7 @@ const worktree = {
 };
 
 // harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-regression
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-protocol-regression
 describe('native worktree protocol', () => {
   it('accepts bounded durable repository and worktree records', () => {
     expect(RepositoryRecordSchema.parse(repository)).toEqual(repository);
@@ -47,6 +50,14 @@ describe('native worktree protocol', () => {
       repository,
       worktree,
     });
+    const roomKey = {
+      room: worktree.conversation_id,
+      generation: 1,
+      sealed_key: 'sealed-child-key',
+    };
+    expect(WorktreeRoomKeySchema.parse(roomKey)).toEqual(roomKey);
+    expect(WorktreeLifecycleResponseSchema.parse({ repository, worktree, room_key: roomKey }))
+      .toEqual({ repository, worktree, room_key: roomKey });
   });
 
   it('rejects relative paths, main aliases, malformed ids, and invalid lifecycle values', () => {
@@ -58,6 +69,11 @@ describe('native worktree protocol', () => {
     expect(RegisteredWorktreeSchema.safeParse({ ...worktree, id: 'not-an-ulid' }).success).toBe(false);
     expect(RegisteredWorktreeSchema.safeParse({ ...worktree, alias: 'Main' }).success).toBe(false);
     expect(RegisteredWorktreeSchema.safeParse({ ...worktree, lifecycle: 'active-ish' }).success).toBe(false);
+    expect(RegisteredWorktreeSchema.safeParse({ ...worktree, conversation_id: 'not a room' }).success)
+      .toBe(false);
+    expect(WorktreeRoomKeySchema.safeParse({
+      room: worktree.conversation_id, generation: 0, sealed_key: 'key',
+    }).success).toBe(false);
   });
 
   it('keeps discovery candidates separate from registered projections', () => {
@@ -85,6 +101,7 @@ describe('native worktree protocol', () => {
     expect(WorktreeDiscoveryResponseSchema.parse(response).registered).toHaveLength(1);
   });
 });
+// harn:end registered-worktrees-materialize-stable-conversations
 // harn:end registered-worktree-identities-are-durable
 
 // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-regression
