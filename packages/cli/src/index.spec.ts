@@ -144,12 +144,13 @@ const startLiveTurn = async (memberId: string) => {
 };
 
 describe('@codor/cli', () => {
-  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-regression
   it('registers the complete M1 command surface', () => {
     expect(packageName()).toBe('@codor/cli');
     expect(createProgram().commands.map((command) => command.name())).toEqual([
       'up',
       'channels',
+      'agent-preset',
+      'default-roster',
       'serve',
       'install',
       'spawn',
@@ -186,12 +187,17 @@ describe('@codor/cli', () => {
     expect(structuredAgents?.commands.map((command) => command.name())).toEqual([
       'list', 'add', 'configure', 'rename', 'pause', 'revive', 'remove',
     ]);
+    expect(program.commands.find((command) => command.name() === 'agent-preset')?.commands.map((command) => command.name()))
+      .toEqual(['list', 'create', 'update', 'delete']);
+    expect(program.commands.find((command) => command.name() === 'default-roster')?.commands.map((command) => command.name()))
+      .toEqual(['show', 'set']);
+    expect(program.commands.find((command) => command.name() === 'agent')?.commands.find((command) => command.name() === 'add')?.options.map((option) => option.long))
+      .toContain('--preset');
     expect(program.commands.find((command) => command.name() === 'spawn')?.options.map((option) => option.long))
       .toContain('--channel');
     expect(program.commands.flatMap((command) => command.options.map((option) => option.long)))
       .not.toContain('--room');
   });
-  // harn:end human-facing-surfaces-call-rooms-channels
 
   // harn:assume codor-runtime-identity-is-a-clean-break ref=runtime-identity-regression
   it('uses Codor runtime identity for the command, service, install target, and default paths', () => {
@@ -1233,7 +1239,119 @@ describe('@codor/cli', () => {
   // harn:end management-output-is-json-pure-and-safe
   // harn:end structured-channel-cli-preserves-flat-listing
 
-  // harn:assume structured-agent-cli-preserves-flat-lifecycle ref=structured-agent-cli-regression
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-cli-regression
+  // harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-cli-regression
+  // harn:assume preset-deletion-requires-explicit-confirmation ref=preset-delete-confirmation-regression
+  // harn:assume channel-cli-selects-one-initial-agent-mode ref=channel-create-initial-agent-regression
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-cli-regression
+  // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
+  // harn:assume management-failures-have-stable-redacted-exits ref=management-error-regression
+  // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-snapshot-regression
+  it('manages presets, rosters, initial agents, and detached preset adds over both transports', async () => {
+    const invoke = async (
+      args: string[],
+      overrides: { isTTY?: boolean; confirm?: (prompt: string) => Promise<string | boolean> } = {},
+    ) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: overrides.isTTY ?? false,
+          confirm: overrides.confirm,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const presetCwd = join(dir, 'preset-add');
+    mkdirSync(presetCwd);
+    const created = await invoke([
+      'agent-preset', 'create', 'Helper\tOne', '--handle', 'preset-helper', '--adapter', 'fake',
+      '--policy', 'workspace-write', '--json',
+    ]);
+    expect(created.error).toBeUndefined();
+    const preset = JSON.parse(created.stdout[0]!) as Record<string, unknown>;
+    expect(preset).toMatchObject({ label: 'Helper\tOne', handle: 'preset-helper', adapter: 'fake', policy: 'workspace-write' });
+    expect(preset).not.toHaveProperty('acp_launch');
+
+    const presetId = String(preset.id);
+    const listed = await invoke(['agent-preset', 'list', '--json']);
+    expect(JSON.parse(listed.stdout[0]!)).toEqual([expect.objectContaining({ id: presetId })]);
+
+    const updated = await invoke([
+      'agent-preset', 'update', presetId, '--label', 'Helper Two', '--handle', 'preset-helper-2',
+      '--adapter', 'fake', '--json',
+    ]);
+    expect(updated.error).toBeUndefined();
+    expect(JSON.parse(updated.stdout[0]!)).toMatchObject({ id: presetId, label: 'Helper Two', handle: 'preset-helper-2' });
+    expect(JSON.parse(updated.stdout[0]!)).not.toHaveProperty('policy');
+
+    const roster = await invoke(['default-roster', 'set', presetId, '--json']);
+    expect(JSON.parse(roster.stdout[0]!)).toMatchObject({ id: 'default', preset_ids: [presetId] });
+    const shownRoster = await invoke(['default-roster', 'show']);
+    expect(shownRoster.stdout).toEqual([`0\t${presetId}`]);
+
+    const defaultRoomCwd = join(dir, 'default-room');
+    mkdirSync(defaultRoomCwd);
+    const defaultRoom = await invoke([
+      'channel', 'create', 'Preset Channel', '--owner', 'richard', '--id', 'preset-channel',
+      '--cwd', defaultRoomCwd, '--default-roster', '--json',
+    ]);
+    expect(defaultRoom.error).toBeUndefined();
+    expect(JSON.parse(defaultRoom.stdout[0]!)).toMatchObject({ id: 'preset-channel' });
+    expect(daemon.store.listMembers('preset-channel').map((member) => member.handle)).toContain('preset-helper-2');
+
+    const add = await invoke([
+      'agent', 'add', '--channel', 'eng', '--preset', presetId, '--cwd', presetCwd, '--purpose', 'per-add', '--json',
+    ]);
+    expect(add.error).toBeUndefined();
+    const added = JSON.parse(add.stdout[0]!) as Record<string, unknown>;
+    expect(added).toMatchObject({ handle: 'preset-helper-2', cwd: presetCwd, purpose: 'per-add', policy: 'read-only' });
+    expect(added).not.toHaveProperty('preset_id');
+    expect(added).not.toHaveProperty('session_ref');
+
+    const remoteList: string[] = [];
+    await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'agent-preset', 'list', '--json',
+    ], { stdout: (line) => remoteList.push(line), stderr: () => undefined });
+    expect(JSON.parse(remoteList[0]!)).toEqual([expect.objectContaining({ id: presetId })]);
+
+    const declined = await invoke(['agent-preset', 'delete', presetId], {
+      isTTY: true,
+      confirm: async () => false,
+    });
+    expect(declined.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(declined.stdout).toEqual([]);
+    expect(declined.stderr).toEqual([`Delete agent preset Helper Two (${presetId})? [y/N]`]);
+    expect(daemon.getAgentPreset(presetId)).toBeDefined();
+
+    const cleared = await invoke(['default-roster', 'set', '--json']);
+    expect(JSON.parse(cleared.stdout[0]!)).toMatchObject({ preset_ids: [] });
+    const deleted = await invoke(['agent-preset', 'delete', presetId, '--yes', '--json']);
+    expect(JSON.parse(deleted.stdout[0]!)).toEqual({ id: presetId, deleted: true });
+
+    const orphan = await invoke([
+      'channel', 'create', 'Orphan Starting Option', '--owner', 'richard', '--adapter', 'fake', '--json',
+    ]);
+    expect(orphan.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(daemon.store.getRoom('orphan-starting-option')).toBeUndefined();
+  });
+  // harn:end default-roster-channel-members-are-detached-ordered-snapshots
+  // harn:end management-failures-have-stable-redacted-exits
+  // harn:end management-output-is-json-pure-and-safe
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
+  // harn:end channel-cli-selects-one-initial-agent-mode
+  // harn:end preset-deletion-requires-explicit-confirmation
+  // harn:end structured-preset-and-roster-cli-is-safe-and-ordered
+  // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
+
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-cli-regression
   // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
   // harn:assume agent-remove-requires-explicit-confirmation ref=agent-remove-confirmation-regression
   it('manages agents through the correlated lifecycle family without changing flat commands', async () => {
@@ -1350,7 +1468,7 @@ describe('@codor/cli', () => {
     expect(unresumableRevive.stderr).toEqual([]);
   });
 
-  // harn:end structured-agent-cli-preserves-flat-lifecycle
+  // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
 
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-regression
   it('tails a continuation row without a lifecycle summary, in id order', async () => {
@@ -2021,7 +2139,6 @@ describe('@codor/cli', () => {
   });
   // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
-  // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
   it('normalizes repeatable adapter flags and starts with the configured registry', async () => {
     expect(parseAdapterModules([
       'fixture-harness=./adapter.mjs',
@@ -2087,8 +2204,6 @@ describe('@codor/cli', () => {
     expect(disabled.opts().trustTailscaleServe).toBe(false);
     expect(enabled.opts().trustTailscaleServe).toBe(true);
   });
-  // harn:end adapter-registry-sole-harness-source
-
   it('exposes install as the primary installer command with setup as a working alias', () => {
     const program = createProgram();
     const install = program.commands.find((command) => command.name() === 'install');

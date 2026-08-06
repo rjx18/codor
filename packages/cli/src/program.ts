@@ -3,10 +3,13 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  AcpProviderIdSchema,
+  AgentPresetInputSchema,
   MemberStatusResponseSchema,
   MessageSchema,
   RunSearchHitSchema,
   type AttachLease,
+  type AcpLaunchConfig,
   type Delivery,
   type Member,
   type Message,
@@ -38,19 +41,31 @@ import {
   ManagementError,
   archiveManagedRoom,
   addManagedAgent,
+  addManagedPresetAgent,
   classifyManagementError,
   confirmAgentRemove,
+  confirmAgentPresetDelete,
   confirmArchive,
   createManagedRoom,
+  createManagedAgentPreset,
+  deleteManagedAgentPreset,
+  getManagedDefaultRoster,
+  listManagedAgentPresets,
   listManagedAgents,
   listManagedRooms,
   mutateManagedAgent,
   renameManagedRoom,
   renderAgent,
   renderAgentList,
+  renderAgentPreset,
+  renderAgentPresetList,
+  renderDefaultRoster,
+  renderDeletedPreset,
   renderChannel,
   renderChannelList,
   resolveManagedAgent,
+  setManagedDefaultRoster,
+  updateManagedAgentPreset,
 } from './management.js';
 import { parseMirrorHook } from './mirror.js';
 import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
@@ -577,6 +592,7 @@ export function createProgram(context: CliContext = {}): Command {
       });
     });
 
+  // harn:assume channel-cli-selects-one-initial-agent-mode ref=channel-create-initial-agent-options
   channelManagement
     .command('create')
     .description('create a channel')
@@ -586,6 +602,15 @@ export function createProgram(context: CliContext = {}): Command {
     .option('--id <id>', 'explicit channel id')
     .option('--color <color>', 'channel accent color')
     .option('--cwd <path>', 'channel working directory')
+    .option('--default-roster', 'start the channel with the configured default roster')
+    .option('--starting-agent <handle>', 'start one manually selected agent')
+    .option('--adapter <selector>', 'starting-agent public adapter selector')
+    .option('--starting-name <display-name>', 'starting agent display name')
+    .option('--starting-policy <policy>', 'starting agent permission policy')
+    .option('--starting-model <model>', 'starting agent model override')
+    .option('--starting-thinking <level>', 'starting agent thinking level')
+    .option('--starting-acp-executable <command>', 'custom ACP executable for the starting agent')
+    .option('--starting-acp-arg <arg>', 'literal custom ACP argument (repeatable)', collectString, [])
     .option('--json', 'emit one JSON value')
     .action(async (name: string, options: {
       owner: string;
@@ -593,11 +618,66 @@ export function createProgram(context: CliContext = {}): Command {
       id?: string;
       color?: string;
       cwd?: string;
+      defaultRoster?: boolean;
+      startingAgent?: string;
+      adapter?: string;
+      startingName?: string;
+      startingPolicy?: Policy;
+      startingModel?: string;
+      startingThinking?: ThinkingLevel;
+      startingAcpExecutable?: string;
+      startingAcpArg: string[];
       json?: boolean;
     }) => {
       if (name.length === 0 || options.owner.length === 0) {
         throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'channel name and owner are required');
       }
+      const startingFlags = options.startingAgent !== undefined
+        || options.adapter !== undefined
+        || options.startingName !== undefined
+        || options.startingPolicy !== undefined
+        || options.startingModel !== undefined
+        || options.startingThinking !== undefined
+        || options.startingAcpExecutable !== undefined
+        || options.startingAcpArg.length > 0;
+      if (options.defaultRoster === true && startingFlags) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--default-roster cannot be combined with starting-agent options',
+        );
+      }
+      if (options.startingAgent === undefined && startingFlags) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'starting-agent options require --starting-agent',
+        );
+      }
+      if (options.startingAgent !== undefined && options.adapter === undefined) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--starting-agent requires --adapter',
+        );
+      }
+      const startingAgent = options.startingAgent === undefined
+        ? undefined
+        : (() => {
+            const selector = parsePublicSelector(options.adapter!, {
+              model: options.startingModel,
+              modelLabel: 'starting agent',
+              acpExecutable: options.startingAcpExecutable,
+              acpArg: options.startingAcpArg,
+            });
+            return {
+              harness: selector.harness,
+              handle: options.startingAgent!.replace(/^@/, ''),
+              ...(options.startingName !== undefined && { display_name: options.startingName }),
+              ...(selector.model !== undefined && { model: selector.model }),
+              ...(options.startingThinking !== undefined && { thinking: options.startingThinking }),
+              policy: options.startingPolicy ?? 'read-only',
+              ...(selector.acp_provider !== undefined && { acp_provider: selector.acp_provider }),
+              ...(selector.acp_launch !== undefined && { acp_launch: selector.acp_launch }),
+            };
+          })();
       await withManagementClient(async (client) => {
         const room = await createManagedRoom(client, {
           ...(options.id !== undefined && { id: options.id }),
@@ -608,11 +688,14 @@ export function createProgram(context: CliContext = {}): Command {
           },
           ...(options.color !== undefined && { color: options.color }),
           ...(options.cwd !== undefined && { cwd: options.cwd }),
+          ...(options.defaultRoster === true && { default_roster: true as const }),
+          ...(startingAgent !== undefined && { starting_agent: startingAgent }),
         });
         const rendered = renderChannel(room, options.json === true);
         out(rendered);
       });
     });
+  // harn:end channel-cli-selects-one-initial-agent-mode
 
   channelManagement
     .command('show')
@@ -695,6 +778,235 @@ export function createProgram(context: CliContext = {}): Command {
       await waitForShutdown(running.close);
     });
   // harn:end adapter-registry-sole-harness-source
+function collectString(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+interface PublicSelectorOptions {
+  model?: string;
+  acpExecutable?: string;
+  acpArg?: string[];
+  modelLabel?: string;
+}
+
+/** Convert the CLI's public selector spelling into the existing protocol input. */
+function parsePublicSelector(selector: string, options: PublicSelectorOptions = {}): {
+  harness: string;
+  acp_provider?: string;
+  acp_launch?: AcpLaunchConfig;
+  model?: string;
+} {
+  const normalized = selector.trim();
+  if (normalized === '') {
+    throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'adapter selector is required');
+  }
+  const hasExecutable = options.acpExecutable !== undefined;
+  const args = options.acpArg ?? [];
+  const hasCustomFlags = hasExecutable || args.length > 0;
+  if (normalized === 'acp') {
+    if (options.model !== undefined) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        `${options.modelLabel ?? 'ACP'} does not accept --model`,
+      );
+    }
+    if (!hasExecutable) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        'generic acp requires --acp-executable',
+      );
+    }
+    return { harness: 'acp', acp_launch: { executable: options.acpExecutable!, argv: args } };
+  }
+  if (normalized.startsWith('acp:')) {
+    const provider = normalized.slice('acp:'.length);
+    if (!AcpProviderIdSchema.safeParse(provider).success) {
+      throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'invalid ACP provider selector');
+    }
+    if (hasCustomFlags) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        'named ACP selectors cannot use custom launch flags',
+      );
+    }
+    if (options.model !== undefined) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        `${options.modelLabel ?? 'ACP'} does not accept --model`,
+      );
+    }
+    return { harness: 'acp', acp_provider: provider };
+  }
+  if (hasCustomFlags) {
+    throw new ManagementError(
+      MANAGEMENT_EXIT_CODES.invocation,
+      'custom launch flags require the generic acp selector',
+    );
+  }
+  return { harness: normalized, ...(options.model !== undefined && { model: options.model }) };
+}
+
+interface PresetConfigurationOptions {
+  label: string;
+  handle: string;
+  adapter: string;
+  name?: string;
+  model?: string;
+  thinking?: ThinkingLevel;
+  policy?: Policy;
+  acpExecutable?: string;
+  acpArg?: string[];
+}
+
+function parseAgentPresetInput(options: PresetConfigurationOptions) {
+  const selector = parsePublicSelector(options.adapter, {
+    model: options.model,
+    modelLabel: 'agent preset',
+    acpExecutable: options.acpExecutable,
+    acpArg: options.acpArg,
+  });
+  try {
+    return AgentPresetInputSchema.parse({
+      label: options.label,
+      handle: options.handle.replace(/^@/, ''),
+      ...(options.name !== undefined && { display_name: options.name }),
+      harness: selector.harness,
+      ...(selector.acp_provider !== undefined && { acp_provider: selector.acp_provider }),
+      ...(selector.acp_launch !== undefined && { acp_launch: selector.acp_launch }),
+      ...(selector.model !== undefined && { model: selector.model }),
+      ...(options.thinking !== undefined && { thinking: options.thinking }),
+      ...(options.policy !== undefined && { policy: options.policy }),
+    });
+  } catch (error) {
+    throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'invalid agent preset configuration', { cause: error });
+  }
+}
+
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-command-surface
+const agentPresetManagement = program.command('agent-preset').description('manage reusable agent presets');
+agentPresetManagement
+  .command('list')
+  .description('list agent presets')
+  .option('--json', 'emit one JSON value')
+  .action(async (options: { json?: boolean }) => {
+    await withManagementClient(async (client) => {
+      const presets = await listManagedAgentPresets(client);
+      const rendered = renderAgentPresetList(presets, options.json === true);
+      if (rendered !== '') out(rendered);
+    });
+  });
+
+const addPresetOptions = (command: Command): void => {
+  command
+    .requiredOption('--handle <handle>', 'preset member handle')
+    .requiredOption('--adapter <selector>', 'public adapter selector')
+    .option('--name <display-name>', 'preset display name')
+    .option('--model <model>', 'preset model override')
+    .option('--thinking <level>', 'preset thinking level')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access')
+    .option('--acp-executable <command>', 'custom ACP executable')
+    .option('--acp-arg <arg>', 'literal custom ACP argument (repeatable)', collectString, [])
+    .option('--json', 'emit one JSON value');
+};
+
+const createPreset = agentPresetManagement
+  .command('create')
+  .description('create an agent preset')
+  .argument('<label>', 'preset label');
+addPresetOptions(createPreset);
+createPreset.action(async (label: string, options: {
+  handle: string;
+  adapter: string;
+  name?: string;
+  model?: string;
+  thinking?: ThinkingLevel;
+  policy?: Policy;
+  acpExecutable?: string;
+  acpArg: string[];
+  json?: boolean;
+}) => {
+  const input = parseAgentPresetInput({ ...options, label });
+  await withManagementClient(async (client) => {
+    const preset = await createManagedAgentPreset(client, input);
+    out(renderAgentPreset(preset, options.json === true));
+  });
+});
+
+const updatePreset = agentPresetManagement
+  .command('update')
+  .description('replace an agent preset')
+  .argument('<preset-id>', 'exact preset id')
+  .requiredOption('--label <label>', 'replacement preset label');
+addPresetOptions(updatePreset);
+updatePreset.action(async (presetId: string, options: {
+  label: string;
+  handle: string;
+  adapter: string;
+  name?: string;
+  model?: string;
+  thinking?: ThinkingLevel;
+  policy?: Policy;
+  acpExecutable?: string;
+  acpArg: string[];
+  json?: boolean;
+}) => {
+  const input = parseAgentPresetInput({ ...options, label: options.label });
+  await withManagementClient(async (client) => {
+    const preset = await updateManagedAgentPreset(client, presetId, input);
+    out(renderAgentPreset(preset, options.json === true));
+  });
+});
+
+agentPresetManagement
+  .command('delete')
+  .description('delete an agent preset')
+  .argument('<preset-id>', 'exact preset id')
+  .option('--yes', 'confirm deletion without prompting')
+  .option('--json', 'emit one JSON value')
+  .action(async (presetId: string, options: { yes?: boolean; json?: boolean }) => {
+    const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+    await withManagementClient(async (client) => {
+      const presets = await listManagedAgentPresets(client);
+      const preset = presets.find((candidate) => candidate.id === presetId);
+      if (preset === undefined) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such agent preset ${presetId}`);
+      }
+      await confirmAgentPresetDelete({
+        label: `${preset.label} (${preset.id})`,
+        yes: options.yes === true,
+        json: options.json === true,
+        isTTY,
+        stderr: err,
+        confirm: context.confirm,
+      });
+      const deleted = await deleteManagedAgentPreset(client, preset.id);
+      out(renderDeletedPreset(deleted, options.json === true));
+    });
+  });
+
+const defaultRosterManagement = program.command('default-roster').description('manage the default agent roster');
+defaultRosterManagement
+  .command('show')
+  .description('show the ordered default roster')
+  .option('--json', 'emit one JSON value')
+  .action(async (options: { json?: boolean }) => {
+    await withManagementClient(async (client) => {
+      const roster = await getManagedDefaultRoster(client);
+      const rendered = renderDefaultRoster(roster, options.json === true);
+      if (rendered !== '') out(rendered);
+    });
+  });
+defaultRosterManagement
+  .command('set')
+  .description('replace the ordered default roster')
+  .argument('[preset-id...]', 'preset ids in creation order')
+  .option('--json', 'emit one JSON value')
+  .action(async (presetIds: string[], options: { json?: boolean }) => {
+    await withManagementClient(async (client) => {
+      const roster = await setManagedDefaultRoster(client, presetIds ?? []);
+      out(renderDefaultRoster(roster, options.json === true));
+    });
+  });
 
   // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-command-surface
   // harn:assume public-install-is-the-primary-command-with-setup-alias ref=install-command-alias
@@ -1499,8 +1811,7 @@ export function createProgram(context: CliContext = {}): Command {
       const result = (await postJson('/api/relay/rotate')) as { session_id: string };
       out(`rotated; new session ${result.session_id}`);
     });
-  // harn:assume structured-agent-cli-preserves-flat-lifecycle ref=structured-agent-command-surface
-  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-terminology
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-command-surface
   const agentManagement = program.command('agent').description('manage channel agents');
   agentManagement
     .command('list')
@@ -1518,38 +1829,63 @@ export function createProgram(context: CliContext = {}): Command {
   agentManagement
     .command('add')
     .description('add a channel agent')
-    .argument('<handle>', 'agent handle')
+    .argument('[handle]', 'agent handle; omitted when --preset supplies it')
     .requiredOption('--channel <channel>', 'channel id')
-    .requiredOption('--adapter <adapter>', 'installed public adapter id')
+    .option('--adapter <adapter>', 'installed public adapter id')
+    .option('--preset <preset-id>', 'exact agent preset id')
     .requiredOption('--cwd <path>', 'working directory')
     .option('--name <display-name>', 'agent display name')
     .option('--purpose <purpose>', 'agent purpose')
-    .option('--policy <policy>', 'read-only, workspace-write, or full-access', 'read-only')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access')
     .option('--model <model>', 'model override')
     .option('--thinking <level>', 'thinking level')
     .option('--json', 'emit one JSON value')
-    .action(async (rawHandle: string, options: ChannelOptions & {
-      adapter: string;
+    .action(async (rawHandle: string | undefined, options: ChannelOptions & {
+      adapter?: string;
+      preset?: string;
       cwd: string;
       name?: string;
       purpose?: string;
-      policy: Policy;
+      policy?: Policy;
       model?: string;
       thinking?: ThinkingLevel;
       json?: boolean;
     }) => {
-      const handle = rawHandle.replace(/^@/, '');
+      if ((options.adapter === undefined) === (options.preset === undefined)) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'agent add requires exactly one of --adapter or --preset',
+        );
+      }
+      if (options.preset === undefined && rawHandle === undefined) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'manual agent add requires a handle',
+        );
+      }
+      const handle = rawHandle?.replace(/^@/, '');
       await withManagementClient(async (client) => {
-        const agent = await addManagedAgent(client, options.channel, {
-          adapter: options.adapter,
-          handle,
-          cwd: options.cwd,
-          policy: options.policy,
-          model: options.model,
-          thinking: options.thinking,
-          ...(options.name !== undefined && { display_name: options.name }),
-          ...(options.purpose !== undefined && { purpose: options.purpose }),
-        });
+        const agent = options.preset !== undefined
+          ? await addManagedPresetAgent(client, options.channel, {
+              preset_id: options.preset,
+              ...(handle !== undefined && { handle }),
+              cwd: options.cwd,
+              ...(options.policy !== undefined && { policy: options.policy }),
+              model: options.model,
+              thinking: options.thinking,
+              ...(options.name !== undefined && { display_name: options.name }),
+              ...(options.purpose !== undefined && { purpose: options.purpose }),
+            })
+          : await addManagedAgent(client, options.channel, {
+              adapter: options.adapter!,
+              handle: handle!,
+              cwd: options.cwd,
+              ...(options.policy !== undefined && { policy: options.policy }),
+              model: options.model,
+              thinking: options.thinking,
+              ...(options.name !== undefined && { display_name: options.name }),
+              ...(options.purpose !== undefined && { purpose: options.purpose }),
+            });
         out(renderAgent(agent, options.json === true));
       });
     });
@@ -1668,13 +2004,21 @@ export function createProgram(context: CliContext = {}): Command {
       });
     });
   // harn:end human-facing-surfaces-call-rooms-channels
-  // harn:end structured-agent-cli-preserves-flat-lifecycle
+  // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
   const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
   channelManagement.aliases().splice(0);
   const structuredChannelManagement = program
     .command('channel')
     .description('manage channels');
   for (const command of structuredChannelCommands) structuredChannelManagement.addCommand(command);
+  const topLevelCommands = program.commands as Command[];
+  const phase3Commands = [agentPresetManagement, defaultRosterManagement];
+  for (const command of phase3Commands) {
+    const index = topLevelCommands.indexOf(command);
+    if (index >= 0) topLevelCommands.splice(index, 1);
+  }
+  const serveIndex = topLevelCommands.findIndex((command) => command.name() === 'serve');
+  topLevelCommands.splice(serveIndex < 0 ? topLevelCommands.length : serveIndex, 0, ...phase3Commands);
   const configureCommander = (command: Command): void => {
     command
       .exitOverride()
@@ -1715,7 +2059,7 @@ function isCommanderFailure(error: unknown): error is CommanderFailure {
     && typeof candidate.message === 'string';
 }
 
-function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' | undefined {
+function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' | 'agent-preset' | 'default-roster' | undefined {
   const args = argv.slice(2);
   const optionsWithValues = new Set(['--data-dir', '--url', '--token']);
   for (let index = 0; index < args.length; index += 1) {
@@ -1726,7 +2070,9 @@ function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' 
     }
     if ([...optionsWithValues].some((option) => argument.startsWith(`${option}=`))) continue;
     if (argument.startsWith('-')) return undefined;
-    return argument === 'channel' || argument === 'agent' ? argument : undefined;
+    return argument === 'channel' || argument === 'agent' || argument === 'agent-preset' || argument === 'default-roster'
+      ? argument
+      : undefined;
   }
   return undefined;
 }

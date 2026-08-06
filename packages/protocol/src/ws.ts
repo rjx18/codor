@@ -18,6 +18,13 @@ import {
   RoomSchema,
   RoomSupportSchema,
 } from './room.js';
+import {
+  AgentPresetIdSchema,
+  AgentPresetInputSchema,
+  AgentPresetPublicSchema,
+  DefaultRosterInputSchema,
+  DefaultRosterSchema,
+} from './agent-presets.js';
 
 // ── client → server ────────────────────────────────────────────────────────
 
@@ -92,6 +99,51 @@ export const CreateRoomFrameSchema = z.object({
 });
 export type CreateRoomFrame = z.infer<typeof CreateRoomFrameSchema>;
 
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-protocol
+/** Global preset and roster management stays on the same authenticated socket
+ * as room management. Every request carries an opaque correlation ref. */
+export const ListAgentPresetsFrameSchema = z.object({
+  type: z.literal('list_agent_presets'),
+  ref: ManagementRefSchema,
+}).strict();
+export type ListAgentPresetsFrame = z.infer<typeof ListAgentPresetsFrameSchema>;
+
+export const CreateAgentPresetFrameSchema = z.object({
+  type: z.literal('create_agent_preset'),
+  ref: ManagementRefSchema,
+  input: AgentPresetInputSchema,
+}).strict();
+export type CreateAgentPresetFrame = z.infer<typeof CreateAgentPresetFrameSchema>;
+
+export const UpdateAgentPresetFrameSchema = z.object({
+  type: z.literal('update_agent_preset'),
+  ref: ManagementRefSchema,
+  preset_id: AgentPresetIdSchema,
+  input: AgentPresetInputSchema,
+}).strict();
+export type UpdateAgentPresetFrame = z.infer<typeof UpdateAgentPresetFrameSchema>;
+
+export const DeleteAgentPresetFrameSchema = z.object({
+  type: z.literal('delete_agent_preset'),
+  ref: ManagementRefSchema,
+  preset_id: AgentPresetIdSchema,
+}).strict();
+export type DeleteAgentPresetFrame = z.infer<typeof DeleteAgentPresetFrameSchema>;
+
+export const GetDefaultRosterFrameSchema = z.object({
+  type: z.literal('get_default_roster'),
+  ref: ManagementRefSchema,
+}).strict();
+export type GetDefaultRosterFrame = z.infer<typeof GetDefaultRosterFrameSchema>;
+
+export const SetDefaultRosterFrameSchema = z.object({
+  type: z.literal('set_default_roster'),
+  ref: ManagementRefSchema,
+  input: DefaultRosterInputSchema,
+}).strict();
+export type SetDefaultRosterFrame = z.infer<typeof SetDefaultRosterFrameSchema>;
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli
+
 // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
 /** Room-scoped structured agent discovery. The ref is required so the CLI can
  * distinguish the authoritative snapshot from ordinary member fanout. */
@@ -102,22 +154,38 @@ export const ListAgentsFrameSchema = z.object({
 }).strict();
 export type ListAgentsFrame = z.infer<typeof ListAgentsFrameSchema>;
 
-/** Public structured agent creation. The daemon resolves `adapter` through its
- * installed catalog; private ACP launch material is intentionally not a wire
- * field. */
+/** Public structured agent creation. The daemon resolves either `adapter` or a
+ * durable `preset_id` through its installed catalog; private ACP launch material
+ * is intentionally not a wire field. */
 export const AddAgentFrameSchema = z.object({
   type: z.literal('add_agent'),
   room: RoomIdSchema,
   ref: ManagementRefSchema,
-  adapter: z.string().trim().min(1).max(128),
-  handle: AssignableHandleSchema,
+  adapter: z.string().trim().min(1).max(128).optional(),
+  preset_id: AgentPresetIdSchema.optional(),
+  handle: AssignableHandleSchema.optional(),
   cwd: z.string().min(1),
   policy: PolicySchema.optional(),
   model: z.string().min(1).optional(),
   thinking: ThinkingLevelSchema.optional(),
   display_name: z.string().optional(),
   purpose: z.string().optional(),
-}).strict();
+}).strict().superRefine((frame, ctx) => {
+  const hasAdapter = frame.adapter !== undefined;
+  const hasPreset = frame.preset_id !== undefined;
+  if (hasAdapter === hasPreset) {
+    ctx.addIssue({
+      code: 'custom', path: ['adapter'],
+      message: 'agent add requires exactly one of adapter or preset_id',
+    });
+  }
+  if (!hasPreset && frame.handle === undefined) {
+    ctx.addIssue({
+      code: 'custom', path: ['handle'],
+      message: 'manual agent add requires a handle',
+    });
+  }
+});
 export type AddAgentFrame = z.infer<typeof AddAgentFrameSchema>;
 // harn:end agent-management-correlates-safe-member-results
 
@@ -166,11 +234,11 @@ export const ActSchema = z.discriminatedUnion('act', [
     act: z.literal('spawn'),
     harness: z.string().min(1),
     handle: AssignableHandleSchema,
-    // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-contract
+    // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-display-name-contract
     // A reusable preset may carry a display name. Keep it bounded and optional so
     // older/manual clients retain the handle-derived default.
     display_name: z.string().trim().min(1).max(120).optional(),
-    // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+    // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
     cwd: z.string().min(1),
     model: z.string().optional(),
     policy: z.string().optional(),
@@ -310,6 +378,12 @@ export type MirrorSessionEndFrame = z.infer<typeof MirrorSessionEndFrameSchema>;
 export const ClientFrameSchema = z.discriminatedUnion('type', [
   ListRoomsFrameSchema,
   CreateRoomFrameSchema,
+  ListAgentPresetsFrameSchema,
+  CreateAgentPresetFrameSchema,
+  UpdateAgentPresetFrameSchema,
+  DeleteAgentPresetFrameSchema,
+  GetDefaultRosterFrameSchema,
+  SetDefaultRosterFrameSchema,
   ListAgentsFrameSchema,
   AddAgentFrameSchema,
   SubscribeFrameSchema,
@@ -360,6 +434,29 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
     room_seqs: z.record(RoomIdSchema, SeqSchema).optional(),
   }),
   // harn:end list-rooms-reply-carries-per-room-seq
+  // harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-protocol
+  z.object({
+    type: z.literal('agent_presets'),
+    presets: z.array(AgentPresetPublicSchema),
+    ref: ManagementRefSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('agent_preset'),
+    preset: AgentPresetPublicSchema,
+    ref: ManagementRefSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('agent_preset_deleted'),
+    id: AgentPresetIdSchema,
+    deleted: z.literal(true),
+    ref: ManagementRefSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('default_roster'),
+    roster: DefaultRosterSchema,
+    ref: ManagementRefSchema,
+  }).strict(),
+  // harn:end agent-preset-management-is-authorized-across-rest-and-cli
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
   z.object({ type: z.literal('self'), member_id: MemberIdSchema, room: RoomIdSchema.optional() }),
   // harn:end multiplexed-subscriptions-identify-their-room

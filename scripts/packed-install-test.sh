@@ -225,8 +225,64 @@ docker run --rm --network none \
     # harn:end management-failures-have-stable-redacted-exits
     # harn:end structured-channel-cli-preserves-flat-listing
 
-    # harn:assume agent-add-selects-one-public-adapter ref=agent-add-packed-smoke
-    # harn:assume structured-agent-cli-preserves-flat-lifecycle ref=structured-agent-packed-smoke
+    # harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-packed-smoke
+    # harn:assume channel-cli-selects-one-initial-agent-mode ref=channel-create-initial-agent-packed-smoke
+    PRESET_CWD=/proof/preset-cwd
+    mkdir -p "$PRESET_CWD"
+    PRESET_JSON="$($BIN --data-dir "$DATA" agent-preset create "Packed Helper" \
+      --handle packed-helper --adapter housecat --policy workspace-write --json)"
+    grep -Fq '"adapter":"housecat"' <<<"$PRESET_JSON"
+    if grep -Eq 'acp_launch|executable|argv|PROOF_TOKEN|0123456789abcdef' <<<"$PRESET_JSON"; then
+      printf "packed preset output leaked launch material or credentials\n" >&2
+      exit 1
+    fi
+    PRESET_ID="$(PRESET_JSON="$PRESET_JSON" node --input-type=module -e \
+      "console.log(JSON.parse(process.env.PRESET_JSON).id)")"
+    UPDATED_PRESET="$($BIN --data-dir "$DATA" agent-preset update "$PRESET_ID" \
+      --label "Packed Helper Updated" --handle packed-helper-updated --adapter housecat --json)"
+    grep -Fq '"label":"Packed Helper Updated"' <<<"$UPDATED_PRESET"
+    if grep -Fq '"policy"' <<<"$UPDATED_PRESET"; then
+      printf "packed preset full replacement retained an omitted policy\n" >&2
+      exit 1
+    fi
+    ROSTER_JSON="$($BIN --data-dir "$DATA" default-roster set "$PRESET_ID" --json)"
+    grep -Fq "\"preset_ids\":[\"$PRESET_ID\"]" <<<"$ROSTER_JSON"
+    [[ "$($BIN --data-dir "$DATA" default-roster show)" == $'0\t'"$PRESET_ID" ]]
+    ROSTER_CHANNEL="$($BIN --data-dir "$DATA" channel create "Packed Roster" --owner proof \
+      --id packed-roster --cwd "$PRESET_CWD" --default-roster --json)"
+    grep -Fq '"id":"packed-roster"' <<<"$ROSTER_CHANNEL"
+    grep -Fq '"handle":"packed-helper-updated"' \
+      <<<"$($BIN --data-dir "$DATA" agent list --channel packed-roster --json)"
+    PRESET_AGENT="$($BIN --data-dir "$DATA" agent add --channel fresh --preset "$PRESET_ID" \
+      --cwd "$PRESET_CWD" --purpose packed-preset-add --json)"
+    grep -Fq '"handle":"packed-helper-updated"' <<<"$PRESET_AGENT"
+    grep -Fq '"purpose":"packed-preset-add"' <<<"$PRESET_AGENT"
+    if grep -Eq 'preset_id|session_ref|acp_launch|executable|argv|PROOF_TOKEN|0123456789abcdef' <<<"$PRESET_AGENT"; then
+      printf "packed preset add leaked source or launch material\n" >&2
+      exit 1
+    fi
+    set +e
+    REFERENCED_PRESET="$($BIN --data-dir "$DATA" agent-preset delete "$PRESET_ID" --json 2>/proof/preset-delete.out)"
+    REFERENCED_STATUS=$?
+    set -e
+    [[ "$REFERENCED_STATUS" -eq 6 ]]
+    [[ -z "$REFERENCED_PRESET" ]]
+    [[ "$(wc -l </proof/preset-delete.out)" -eq 1 ]]
+    grep -Fq 'referenced' /proof/preset-delete.out
+    ROSTER_CLEAR="$($BIN --data-dir "$DATA" default-roster set --json)"
+    grep -Fq '"preset_ids":[]' <<<"$ROSTER_CLEAR"
+    DELETED_PRESET="$($BIN --data-dir "$DATA" agent-preset delete "$PRESET_ID" --yes --json)"
+    grep -Fq "\"id\":\"$PRESET_ID\"" <<<"$DELETED_PRESET"
+    grep -Fq '"deleted":true' <<<"$DELETED_PRESET"
+    if grep -Eq 'PROOF_TOKEN|0123456789abcdef|acp_launch|executable|argv' <<<"$DELETED_PRESET"; then
+      printf "packed preset delete output leaked secret material\n" >&2
+      exit 1
+    fi
+    # harn:end channel-cli-selects-one-initial-agent-mode
+    # harn:end structured-preset-and-roster-cli-is-safe-and-ordered
+
+    # harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-packed-smoke
+    # harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-packed-smoke
     # harn:assume agent-management-does-not-invent-work ref=agent-management-packed-no-turn
     AGENT_CWD=/proof/agent-cwd
     mkdir -p "$AGENT_CWD"
@@ -261,8 +317,8 @@ docker run --rm --network none \
       exit 1
     fi
     # harn:end agent-management-does-not-invent-work
-    # harn:end structured-agent-cli-preserves-flat-lifecycle
-    # harn:end agent-add-selects-one-public-adapter
+    # harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
+    # harn:end agent-add-selects-public-adapter-or-detached-preset
 
     node --input-type=module -e "
       const origin = 'http://127.0.0.1:${PORT}';

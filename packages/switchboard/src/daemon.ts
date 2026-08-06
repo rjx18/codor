@@ -1311,7 +1311,7 @@ export class Daemon {
   // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
   // harn:end adapters-own-their-model-catalog
 
-  // harn:assume agent-add-selects-one-public-adapter ref=agent-add-catalog-resolution
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-catalog-resolution
   /** Resolve the one safe adapter identity accepted by structured agent add.
    * The catalog is the only public source of selection truth. Generic ACP is
    * deliberately excluded here because it needs private executable/argv
@@ -1335,7 +1335,7 @@ export class Daemon {
       ...(entry.acp_provider !== undefined && { acp_provider: entry.acp_provider }),
     };
   }
-  // harn:end agent-add-selects-one-public-adapter
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
 
   // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-runtime
   /**
@@ -1652,6 +1652,59 @@ export class Daemon {
     return member;
   }
   // harn:end working-directories-validated-before-spawn
+
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-preset-snapshot
+  /**
+   * Read and validate one preset at the moment of add, then detach its concrete
+   * configuration through the ordinary spawn lifecycle. The preset id is not
+   * persisted on the member and private ACP launch material never leaves this
+   * daemon method.
+   */
+  spawnMemberFromPreset(
+    room: string,
+    presetId: string,
+    opts: {
+      cwd: string;
+      handle?: string;
+      display_name?: string;
+      policy?: string;
+      model?: string;
+      thinking?: Session['thinking'];
+      purpose?: string;
+    },
+  ): Member {
+    const preset = this.store.getAgentPreset(presetId);
+    if (preset === undefined) throw new AgentPresetNotFoundError(presetId);
+    const validated = this.validateAgentPreset({
+      label: preset.label,
+      handle: preset.handle,
+      display_name: preset.display_name,
+      harness: preset.harness,
+      model: preset.model,
+      thinking: preset.thinking,
+      policy: preset.policy,
+      acp_provider: preset.acp_provider,
+      acp_launch: preset.acp_launch,
+    });
+    if (validated.harness === 'acp' && opts.model !== undefined) {
+      throw new Error('ACP preset agents do not accept a client-selected model');
+    }
+    return this.spawnMember(room, {
+      harness: validated.harness,
+      handle: opts.handle ?? validated.handle,
+      display_name: opts.display_name ?? validated.display_name,
+      cwd: opts.cwd,
+      policy: opts.policy ?? validated.policy ?? 'read-only',
+      model: opts.model ?? validated.model,
+      thinking: opts.thinking ?? validated.thinking,
+      purpose: opts.purpose,
+      // A named provider remains a public selector and is resolved privately by
+      // spawnMember. A custom launch is passed only inside the daemon.
+      acp_provider: validated.acp_provider,
+      acp_launch: validated.acp_launch,
+    });
+  }
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
 
   // harn:assume room-home-single-authority ref=remote-run-home-finalization
   spawnRemoteMember(

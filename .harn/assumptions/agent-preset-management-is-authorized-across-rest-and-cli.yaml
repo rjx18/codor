@@ -1,0 +1,23 @@
+id: agent-preset-management-is-authorized-across-rest-and-cli
+hash: a-72b907be4336
+title: Preset and default-roster management shares one authorized daemon contract
+state: active
+statement: Every network read or mutation of individual presets or the default
+  roster must require the existing global manage_agents capability and reject
+  anonymous, observer, member, and agent principals; browser callers must retain
+  the accepted relayFetch-backed REST endpoints while structured CLI callers use
+  correlated safe-result WebSocket frames over the protected local socket/named
+  pipe or an explicit URL and bearer, and both ingresses must call the same
+  validating daemon and atomic Store methods without SQLite access, alternate
+  authorization, relay records, cloud/account synchronization, or a new
+  credential system, because topology may select an ingress but may not change
+  authority, validation, persistence, or local-only ownership.
+depends_on:
+  - individual-agent-presets-are-versioned-local-state
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+  - roles-gate-human-acts-not-agents
+  - agent-network-authority-is-narrow
+  - management-frames-correlate-one-result
+  - unix-socket-same-protocol
+  - hosted-computer-sessions-keep-state-isolated
+created_by: cli-management-phase3-agent-presets-default-roster

@@ -15,6 +15,8 @@ import {
   AcpProviderIdSchema,
   AgentPresetIdSchema,
   AgentPresetInputSchema,
+  type AgentPreset,
+  type AgentPresetPublic,
   ClientFrameSchema,
   CreateRoomRequestSchema,
   DefaultRosterInputSchema,
@@ -127,6 +129,31 @@ type AuthPrincipal =
   | { kind: 'human'; memberId: string }
   | { kind: 'browser'; deviceId: string }
   | { kind: 'agent'; memberId: string; room: string };
+
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-safe-schema
+/** Project only the selector/configuration fields safe for CLI automation. */
+function projectAgentPreset(preset: AgentPreset): AgentPresetPublic {
+  const customAcp = preset.harness === 'acp'
+    && preset.acp_provider === undefined
+    && preset.acp_launch !== undefined;
+  return {
+    id: preset.id,
+    schema_version: preset.schema_version,
+    created_ts: preset.created_ts,
+    updated_ts: preset.updated_ts,
+    label: preset.label,
+    handle: preset.handle,
+    ...(preset.display_name !== undefined && { display_name: preset.display_name }),
+    adapter: preset.harness === 'acp' && preset.acp_provider !== undefined
+      ? `acp:${preset.acp_provider}`
+      : preset.harness,
+    ...(preset.model !== undefined && { model: preset.model }),
+    ...(preset.thinking !== undefined && { thinking: preset.thinking }),
+    ...(preset.policy !== undefined && { policy: preset.policy }),
+    ...(customAcp && { custom_acp: true as const }),
+  };
+}
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
 
 const PAIRING_CODE_ATTEMPTS = 5;
 const PAIRING_CODE_WINDOW_MS = 60_000;
@@ -765,7 +792,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
 
-  // harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-boundary
+  // harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-rest-boundary
   const sendAgentPresetError = (reply: FastifyReply, error: unknown) => {
     if (error instanceof AgentPresetNotFoundError) {
       return reply.code(404).send({ error: error.message });
@@ -855,7 +882,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return sendAgentPresetError(reply, error);
     }
   });
-  // harn:end agent-preset-management-is-authorized-and-transport-neutral
+  // harn:end agent-preset-management-is-authorized-across-rest-and-cli
 
   // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary
   app.get('/api/local/dirs', (req, reply) => {
@@ -1599,7 +1626,52 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           });
         }
         try {
-          if (frame.type === 'mirror_turn') {
+          // harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-dispatch
+          if (frame.type === 'list_agent_presets') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            send({
+              type: 'agent_presets',
+              ref: frame.ref,
+              presets: daemon.listAgentPresets().map(projectAgentPreset),
+            });
+          } else if (frame.type === 'create_agent_preset') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const preset = daemon.createAgentPreset(frame.input);
+            send({ type: 'agent_preset', ref: frame.ref, preset: projectAgentPreset(preset) });
+          } else if (frame.type === 'update_agent_preset') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const preset = daemon.updateAgentPreset(frame.preset_id, frame.input);
+            send({ type: 'agent_preset', ref: frame.ref, preset: projectAgentPreset(preset) });
+          } else if (frame.type === 'delete_agent_preset') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            daemon.deleteAgentPreset(frame.preset_id);
+            send({
+              type: 'agent_preset_deleted',
+              ref: frame.ref,
+              id: frame.preset_id,
+              deleted: true,
+            });
+          } else if (frame.type === 'get_default_roster') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            send({ type: 'default_roster', ref: frame.ref, roster: daemon.getDefaultRoster() });
+          } else if (frame.type === 'set_default_roster') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const roster = daemon.replaceDefaultRoster(frame.input);
+            send({ type: 'default_roster', ref: frame.ref, roster });
+          // harn:end agent-preset-management-is-authorized-across-rest-and-cli
+          } else if (frame.type === 'mirror_turn') {
             const joined = daemon.store.findMemberBySessionRef(frame.harness, frame.session_ref);
             if (!joined) throw new Error(`no mirrored member for ${frame.harness} session ${frame.session_ref}`);
             assertRoomCapability(principal, joined.room, 'mirror_turn');
@@ -1632,18 +1704,31 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           } else if (frame.type === 'add_agent') {
             assertRoomCapability(principal, frame.room, 'manage_agents');
-            const adapter = daemon.resolvePublicAgentAdapter(frame.adapter);
-            const member = daemon.spawnMember(frame.room, {
-              harness: adapter.harness,
-              handle: frame.handle,
-              cwd: frame.cwd,
-              policy: frame.policy ?? 'read-only',
-              model: frame.model,
-              thinking: frame.thinking,
-              display_name: frame.display_name,
-              purpose: frame.purpose,
-              acp_provider: adapter.acp_provider,
-            });
+            // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-catalog-resolution
+            const member = frame.preset_id !== undefined
+              ? daemon.spawnMemberFromPreset(frame.room, frame.preset_id, {
+                  handle: frame.handle,
+                  cwd: frame.cwd,
+                  policy: frame.policy,
+                  model: frame.model,
+                  thinking: frame.thinking,
+                  display_name: frame.display_name,
+                  purpose: frame.purpose,
+                })
+              : (() => {
+                  const adapter = daemon.resolvePublicAgentAdapter(frame.adapter!);
+                  return daemon.spawnMember(frame.room, {
+                    harness: adapter.harness,
+                    handle: frame.handle!,
+                    cwd: frame.cwd,
+                    policy: frame.policy ?? 'read-only',
+                    model: frame.model,
+                    thinking: frame.thinking,
+                    display_name: frame.display_name,
+                    purpose: frame.purpose,
+                    acp_provider: adapter.acp_provider,
+                  });
+                })();
             sendManagedMember(frame.room, member, frame.ref);
           // harn:end agent-management-correlates-safe-member-results
           } else if (frame.type === 'list_rooms') {
@@ -1923,9 +2008,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               daemon.spawnMember(frame.room, {
                 harness: act.harness,
                 handle: act.handle,
-                // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-dispatch
+                // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-display-name-dispatch
                 display_name: act.display_name,
-                // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+                // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
                 cwd: act.cwd,
                 policy: act.policy,
                 model: act.model,

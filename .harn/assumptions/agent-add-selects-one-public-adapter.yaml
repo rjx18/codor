@@ -1,7 +1,7 @@
 id: agent-add-selects-one-public-adapter
 hash: a-9855ae8d2fa2
 title: Agent add selects one canonical public adapter without launch leakage
-state: active
+state: retired
 statement: Structured agent add must resolve one exact current public adapter
   catalog id server-side, admit installed native and loaded configured adapters
   or a detected named ACP provider, default policy to read-only, validate
@@ -17,3 +17,4 @@ depends_on:
   - canonical-spawn-controls-enforced
   - working-directories-validated-before-spawn
 created_by: cli-management-phase2-agent-lifecycle
+retired_by: cli-management-phase3-agent-presets-default-roster

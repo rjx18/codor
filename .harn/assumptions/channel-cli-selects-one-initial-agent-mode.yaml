@@ -1,0 +1,22 @@
+id: channel-cli-selects-one-initial-agent-mode
+hash: a-32dcc43fe154
+title: Channel create selects no agents, one starting agent, or the default roster
+state: active
+statement: Structured channel create must accept either the literal
+  default-roster selection or one complete manual Starting agent form but never
+  both, reject orphaned or incompatible starting flags before transport, map
+  public native/named/custom ACP selector data into the existing concrete
+  request with safe read-only default and literal shell-free argv, and otherwise
+  preserve omission, room output, ordered full preflight, detached snapshots,
+  empty-roster behavior, and member-local runtime failure recovery without
+  returning private launch or member state, because CLI selection is only a safe
+  front end to the already-accepted channel creation lifecycle.
+depends_on:
+  - default-roster-channel-selection-is-exclusive-and-preflighted
+  - default-roster-channel-members-are-detached-ordered-snapshots
+  - initial-roster-runtime-failures-are-member-local-and-actionable
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+  - acp-launch-is-structured-authorized-and-bounded
+  - structured-channel-cli-preserves-flat-listing
+  - management-output-is-json-pure-and-safe
+created_by: cli-management-phase3-agent-presets-default-roster

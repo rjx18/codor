@@ -1,0 +1,18 @@
+id: structured-agent-cli-preserves-flat-lifecycle-and-presets
+hash: a-f0837399d54c
+title: Structured agent and preset commands coexist with flat lifecycle commands
+state: active
+statement: The CLI must retain exactly list, add, configure, rename, pause,
+  revive, and remove under singular `agent`, add only the Phase 3 optional
+  preset selection to add, and expose separate singular `agent-preset` CRUD and
+  `default-roster` show/set families, while flat spawn, members, join, adopt,
+  attach, revive, channels, and all existing structured syntax and behavior
+  remain compatible and no worktree or later-phase surface appears, because
+  management automation is additive and existing operator scripts cannot be
+  migrated implicitly.
+depends_on:
+  - agent-management-correlates-safe-member-results
+  - agent-add-selects-public-adapter-or-detached-preset
+  - member-env-selects-narrow-cli-identity
+  - agent-preset-management-is-authorized-across-rest-and-cli
+created_by: cli-management-phase3-agent-presets-default-roster

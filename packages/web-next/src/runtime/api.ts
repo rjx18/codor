@@ -201,7 +201,7 @@ export async function refreshUsage(options: ApiOptions): Promise<{ outcome: Usag
 }
 // harn:end model-catalogs-reach-a-browser-that-arrives-early
 
-// harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-boundary
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-rest-boundary
 export async function fetchAgentPresets(options: ApiOptions): Promise<AgentPreset[]> {
   const body = await fetchJson<{ presets: unknown }>('/api/agent-presets', options);
   return AgentPresetSchema.array().parse(body.presets);
@@ -254,7 +254,7 @@ export async function replaceDefaultRoster(
   );
   return body.roster;
 }
-// harn:end agent-preset-management-is-authorized-and-transport-neutral
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli
 
 export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
   const body = await fetchJson<{ rooms: Room[] }>('/api/rooms', options);

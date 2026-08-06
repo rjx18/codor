@@ -752,7 +752,7 @@ describe('spawn control vocabularies', () => {
   // harn:end harness-declares-supported-thinking-levels
 });
 
-// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-regression
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-display-name-regression
 describe('preset display names on ordinary spawn acts', () => {
   it('accepts a bounded optional display name and keeps omission compatible', () => {
     expect(ActSchema.parse({
@@ -770,7 +770,7 @@ describe('preset display names on ordinary spawn acts', () => {
     }).success).toBe(false);
   });
 });
-// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
 
 // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
 describe('named ACP provider identity and one-of selection', () => {
@@ -1067,7 +1067,7 @@ describe('WS client frames', () => {
   // harn:end management-frames-correlate-one-result
 
   // harn:assume agent-management-correlates-safe-member-results ref=agent-management-protocol-regression
-  // harn:assume agent-add-selects-one-public-adapter ref=agent-add-protocol
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-protocol
   it('accepts correlated agent management frames without a private launch escape hatch', () => {
     const add = {
       type: 'add_agent' as const,
@@ -1101,7 +1101,7 @@ describe('WS client frames', () => {
       type: 'member', seq: 1, room: 'eng', member, ref: 'agent-add-1',
     })).toMatchObject({ type: 'member', room: 'eng', ref: 'agent-add-1' });
   });
-  // harn:end agent-add-selects-one-public-adapter
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
   // harn:end agent-management-correlates-safe-member-results
 
   // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol-regression

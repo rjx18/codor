@@ -1,7 +1,7 @@
 id: structured-agent-cli-preserves-flat-lifecycle
 hash: a-ebbe0a20e24b
 title: Structured agent commands coexist with flat lifecycle commands
-state: active
+state: retired
 statement: The CLI must expose exactly list, add, configure, rename, pause,
   revive, and remove under a separate singular `agent` family using
   authenticated switchboard contracts, while flat spawn, members, join, adopt,
@@ -13,3 +13,4 @@ depends_on:
   - agent-add-selects-one-public-adapter
   - member-env-selects-narrow-cli-identity
 created_by: cli-management-phase2-agent-lifecycle
+retired_by: cli-management-phase3-agent-presets-default-roster

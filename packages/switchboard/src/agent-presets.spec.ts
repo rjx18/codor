@@ -449,7 +449,7 @@ describe('default roster room creation', () => {
 // harn:end default-roster-channel-members-are-detached-ordered-snapshots
 // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
 
-// harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-regression
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-rest-regression
 describe('agent preset REST authorization and behavior', () => {
   let daemon: Daemon;
   let server: RunningServer;
@@ -645,4 +645,4 @@ describe('agent preset REST authorization and behavior', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 });
-// harn:end agent-preset-management-is-authorized-and-transport-neutral
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli

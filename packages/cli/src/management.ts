@@ -2,8 +2,11 @@ import { createInterface } from 'node:readline/promises';
 import { randomUUID } from 'node:crypto';
 
 import type {
+  AgentPresetInput,
+  AgentPresetPublic,
   Act,
   CreateRoomRequest,
+  DefaultRoster,
   Member,
   Policy,
   Room,
@@ -48,17 +51,17 @@ export function classifyManagementError(error: unknown): ManagementError {
   let code: number = MANAGEMENT_EXIT_CODES.transport;
   const schemaFailure = (error instanceof Error && error.name === 'ZodError')
     || (typeof error === 'object' && error !== null && Array.isArray((error as { issues?: unknown }).issues));
-  if (/no such (?:room|channel|agent(?: member)?)|not found|does not exist/.test(lower)) {
+  if (/no such (?:room|channel|agent(?: member)?|agent preset)|(?:agent )?preset [^ ]+ (?:not found|does not exist)|(?:missing|references missing).*agent preset|not found|does not exist/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.notFound;
   } else if (
     schemaFailure
-    || /--url|--token|argument|option|invalid frame|zoderror|invalid input|must be|does not support .*thinking|valid (?:levels|policies)|working directory/.test(lower)
+    || /--url|--token|--acp-|argument|option|invalid frame|zoderror|invalid input|invalid (?:agent )?preset|must be|expected|does not support .*thinking|does not accept|valid (?:levels|policies)|working directory/.test(lower)
   ) {
     code = MANAGEMENT_EXIT_CODES.invocation;
   } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (
-    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume/.test(lower)
+    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc/.test(lower)
   ) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {
@@ -72,10 +75,19 @@ export function classifyManagementError(error: unknown): ManagementError {
 
 function selectedSecrets(argv: readonly string[] = process.argv, env: NodeJS.ProcessEnv = process.env): string[] {
   const values = [env.CODOR_TOKEN, env.CODOR_MEMBER_TOKEN];
+  const valueFlags = new Set([
+    '--acp-executable', '--acp-arg', '--starting-acp-executable', '--starting-acp-arg',
+  ]);
   for (let i = 0; i < argv.length; i += 1) {
     const argument = argv[i]!;
     if (argument === '--token' && argv[i + 1] !== undefined) values.push(argv[i + 1]);
     else if (argument.startsWith('--token=')) values.push(argument.slice('--token='.length));
+    else if (valueFlags.has(argument) && argv[i + 1] !== undefined) values.push(argv[i + 1]);
+    else {
+      for (const flag of valueFlags) {
+        if (argument.startsWith(`${flag}=`)) values.push(argument.slice(flag.length + 1));
+      }
+    }
   }
   return [...new Set(values.filter((value): value is string => value !== undefined && value !== ''))]
     .sort((a, b) => b.length - a.length);
@@ -264,6 +276,79 @@ export function renderAgent(member: Member, json: boolean): string {
 }
 // harn:end agent-management-correlates-safe-member-results
 
+// harn:assume management-output-is-json-pure-and-safe ref=management-safe-output
+export interface DeletedPresetProjection {
+  id: string;
+  deleted: true;
+}
+
+function projectPreset(preset: AgentPresetPublic): AgentPresetPublic {
+  return { ...preset };
+}
+
+function sortedPresets(presets: readonly AgentPresetPublic[]): AgentPresetPublic[] {
+  return presets
+    .map(projectPreset)
+    .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
+}
+
+const presetHumanFields = (preset: AgentPresetPublic): [string, string][] => [
+  ['id', preset.id],
+  ['schema_version', String(preset.schema_version)],
+  ['created_ts', preset.created_ts],
+  ['updated_ts', preset.updated_ts],
+  ['label', preset.label],
+  ['handle', preset.handle],
+  ['display_name', preset.display_name ?? ''],
+  ['adapter', preset.adapter],
+  ['model', preset.model ?? ''],
+  ['thinking', preset.thinking ?? ''],
+  ['policy', preset.policy ?? ''],
+  ['custom_acp', preset.custom_acp === true ? 'true' : ''],
+];
+
+export function renderAgentPresetList(
+  presets: readonly AgentPresetPublic[],
+  json: boolean,
+): string {
+  const sorted = sortedPresets(presets);
+  if (json) return JSON.stringify(sorted);
+  return sorted.map((preset) => [
+    preset.id,
+    preset.label,
+    preset.handle,
+    preset.display_name ?? '',
+    preset.adapter,
+    preset.model ?? '',
+    preset.thinking ?? '',
+    preset.policy ?? '',
+    preset.custom_acp === true ? 'true' : '',
+    preset.created_ts,
+    preset.updated_ts,
+  ].map(encodeHumanCell).join('\t')).join('\n');
+}
+
+export function renderAgentPreset(preset: AgentPresetPublic, json: boolean): string {
+  if (json) return JSON.stringify(projectPreset(preset));
+  return presetHumanFields(preset)
+    .map(([key, value]) => `${key}\t${encodeHumanCell(value)}`)
+    .join('\n');
+}
+
+export function renderDeletedPreset(result: DeletedPresetProjection, json: boolean): string {
+  return json
+    ? JSON.stringify(result)
+    : `id\t${encodeHumanCell(result.id)}\ndeleted\ttrue`;
+}
+
+export function renderDefaultRoster(roster: DefaultRoster, json: boolean): string {
+  if (json) return JSON.stringify(roster);
+  return roster.preset_ids
+    .map((presetId, ordinal) => `${String(ordinal)}\t${encodeHumanCell(presetId)}`)
+    .join('\n');
+}
+// harn:end management-output-is-json-pure-and-safe
+
 // harn:assume management-frames-correlate-one-result ref=management-correlation-client
 /**
  * Complete only on the matching authoritative frame. A ProtocolClient may
@@ -339,6 +424,121 @@ export async function archiveManagedRoom(client: ProtocolClient, room: string): 
     throw classifyManagementError(error);
   }
 }
+
+// harn:assume management-frames-correlate-one-result ref=management-correlation-client
+export async function listManagedAgentPresets(client: ProtocolClient): Promise<AgentPresetPublic[]> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'list_agent_presets', ref });
+    const response = await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'agent_presets' }> =>
+      frame.type === 'agent_presets');
+    return sortedPresets(response.presets);
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function createManagedAgentPreset(
+  client: ProtocolClient,
+  input: AgentPresetInput,
+): Promise<AgentPresetPublic> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'create_agent_preset', ref, input });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'agent_preset' }> =>
+      frame.type === 'agent_preset')).preset;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function updateManagedAgentPreset(
+  client: ProtocolClient,
+  presetId: string,
+  input: AgentPresetInput,
+): Promise<AgentPresetPublic> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'update_agent_preset', ref, preset_id: presetId, input });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'agent_preset' }> =>
+      frame.type === 'agent_preset')).preset;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function deleteManagedAgentPreset(
+  client: ProtocolClient,
+  presetId: string,
+): Promise<DeletedPresetProjection> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'delete_agent_preset', ref, preset_id: presetId });
+    const result = await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'agent_preset_deleted' }> =>
+      frame.type === 'agent_preset_deleted');
+    return { id: result.id, deleted: result.deleted };
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function getManagedDefaultRoster(client: ProtocolClient): Promise<DefaultRoster> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'get_default_roster', ref });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'default_roster' }> =>
+      frame.type === 'default_roster')).roster;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function setManagedDefaultRoster(
+  client: ProtocolClient,
+  presetIds: readonly string[],
+): Promise<DefaultRoster> {
+  try {
+    if (new Set(presetIds).size !== presetIds.length) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.conflict,
+        'default roster preset ids must be unique',
+      );
+    }
+    const ref = randomUUID();
+    client.send({ type: 'set_default_roster', ref, input: { preset_ids: [...presetIds] } });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'default_roster' }> =>
+      frame.type === 'default_roster')).roster;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export interface AddManagedPresetAgentRequest {
+  preset_id: string;
+  handle?: string;
+  cwd: string;
+  policy?: Policy;
+  model?: string;
+  thinking?: ThinkingLevel;
+  display_name?: string;
+  purpose?: string;
+}
+
+export async function addManagedPresetAgent(
+  client: ProtocolClient,
+  room: string,
+  request: AddManagedPresetAgentRequest,
+): Promise<Member> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'add_agent', room, ref, ...request });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'member' }> =>
+      frame.type === 'member')).member;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+// harn:end management-frames-correlate-one-result
 
 // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-client
 export interface AddManagedAgentRequest {
@@ -423,7 +623,7 @@ export interface ConfirmationOptions {
   isTTY: boolean;
   stderr: (line: string) => void;
   confirm?: (prompt: string) => Promise<string | boolean>;
-  action?: 'archive' | 'remove';
+  action?: 'archive' | 'remove' | 'delete-preset';
 }
 
 // harn:assume agent-remove-requires-explicit-confirmation ref=management-agent-remove-confirmation
@@ -431,16 +631,21 @@ export async function confirmManagementAction(options: ConfirmationOptions): Pro
   if (options.yes === true) return;
   const action = options.action ?? 'archive';
   if (options.json === true || !options.isTTY) {
+    const message = action === 'archive'
+      ? 'channel archive requires --yes in noninteractive or JSON mode'
+      : action === 'remove'
+        ? 'agent removal requires --yes in noninteractive or JSON mode'
+        : 'agent preset deletion requires --yes in noninteractive or JSON mode';
     throw new ManagementError(
       MANAGEMENT_EXIT_CODES.invocation,
-      action === 'archive'
-        ? 'channel archive requires --yes in noninteractive or JSON mode'
-        : 'agent removal requires --yes in noninteractive or JSON mode',
+      message,
     );
   }
   const prompt = action === 'archive'
     ? `Archive channel ${options.label}? [y/N]`
-    : `Remove agent ${options.label}? [y/N]`;
+    : action === 'remove'
+      ? `Remove agent ${options.label}? [y/N]`
+      : `Delete agent preset ${options.label}? [y/N]`;
   let answer: string | boolean;
   if (options.confirm !== undefined) {
     options.stderr(prompt);
@@ -457,7 +662,11 @@ export async function confirmManagementAction(options: ConfirmationOptions): Pro
   if (!accepted) {
     throw new ManagementError(
       MANAGEMENT_EXIT_CODES.invocation,
-      action === 'archive' ? 'channel archive cancelled' : 'agent removal cancelled',
+      action === 'archive'
+        ? 'channel archive cancelled'
+        : action === 'remove'
+          ? 'agent removal cancelled'
+          : 'agent preset deletion cancelled',
     );
   }
 }
@@ -469,5 +678,9 @@ export async function confirmArchive(options: ConfirmationOptions): Promise<void
 
 export async function confirmAgentRemove(options: ConfirmationOptions): Promise<void> {
   return confirmManagementAction({ ...options, action: 'remove' });
+}
+
+export async function confirmAgentPresetDelete(options: ConfirmationOptions): Promise<void> {
+  return confirmManagementAction({ ...options, action: 'delete-preset' });
 }
 // harn:end channel-archive-requires-explicit-confirmation

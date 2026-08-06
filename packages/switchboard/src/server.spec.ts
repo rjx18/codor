@@ -346,7 +346,7 @@ describe('correlated channel management over WebSocket', () => {
 // harn:end management-frames-correlate-one-result
 
 // harn:assume agent-management-correlates-safe-member-results ref=agent-management-server-regression
-// harn:assume agent-add-selects-one-public-adapter ref=agent-add-server-regression
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-server-regression
 // harn:assume agent-pause-refuses-active-turn ref=agent-pause-server-regression
 // harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
 // harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
@@ -458,7 +458,7 @@ describe('correlated agent management over WebSocket', () => {
 // harn:end agent-network-authority-is-narrow
 // harn:end roles-gate-human-acts-not-agents
 // harn:end agent-pause-refuses-active-turn
-// harn:end agent-add-selects-one-public-adapter
+// harn:end agent-add-selects-public-adapter-or-detached-preset
 // harn:end agent-management-correlates-safe-member-results
 
 // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=own-queued-sync-regression
@@ -3564,7 +3564,7 @@ describe('named ACP providers over REST', () => {
   // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 });
 
-// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-server-regression
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-server-regression
 describe('ordinary WebSocket spawn display names', () => {
   it('atomically persists a supplied name, defaults omission, and rejects a member principal', async () => {
     const ownerClient = await connect();
@@ -3608,7 +3608,7 @@ describe('ordinary WebSocket spawn display names', () => {
     memberClient.ws.close();
   });
 });
-// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
 
 describe('universal pairing mint (relay-enabled routes)', () => {
   it('serves the dual-door offer from /api/pairing/offers and maps /api/relay/pair to the code line', async () => {

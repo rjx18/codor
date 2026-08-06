@@ -122,7 +122,7 @@ const resultMessageFor = (root: Message) => daemon.store.getMessage(
   root.run?.result_message_id ?? root.id,
 )!;
 
-// harn:assume agent-add-selects-one-public-adapter ref=daemon-spawn-control-regression
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=daemon-spawn-control-regression
 // harn:assume agent-pause-refuses-active-turn ref=agent-pause-daemon-regression
 // harn:assume agent-management-does-not-invent-work ref=agent-management-no-work-regression
 describe('structured agent lifecycle guards', () => {
@@ -192,7 +192,7 @@ describe('structured agent lifecycle guards', () => {
 
 // harn:end agent-management-does-not-invent-work
 // harn:end agent-pause-refuses-active-turn
-// harn:end agent-add-selects-one-public-adapter
+// harn:end agent-add-selects-public-adapter-or-detached-preset
 
 // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-regression
 // harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=aggregate-routing-regression
