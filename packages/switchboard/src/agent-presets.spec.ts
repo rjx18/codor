@@ -413,9 +413,14 @@ describe('default roster room creation', () => {
     }));
     daemon.replaceDefaultRoster({ preset_ids: presets.map((preset) => preset.id) });
     const originalSpawn = fake.spawn.bind(fake);
+    const successfulSessions: ReturnType<FakeAdapter['spawn']>[] = [];
     const spawn = vi.spyOn(fake, 'spawn');
     spawn.mockImplementationOnce(() => { throw new Error('first runtime failed'); });
-    spawn.mockImplementation((opts) => originalSpawn(opts));
+    spawn.mockImplementation((opts) => {
+      const session = originalSpawn(opts);
+      successfulSessions.push(session);
+      return session;
+    });
 
     const created = daemon.createRoom({
       id: 'partial-roster', name: 'Partial Roster', owner: { handle: 'owner', display_name: 'Owner' },
@@ -431,6 +436,235 @@ describe('default roster room creation', () => {
       .toContain('remove it and spawn a replacement');
     expect(daemon.store.getAgentRuntimeConfig('partial-roster', created.initialAgents[0]!.id))
       .toEqual({});
+
+    // harn:assume initial-roster-runtime-failures-are-member-local-and-actionable ref=initial-agent-runtime-isolation-regression
+    expect(successfulSessions).toHaveLength(2);
+    expect(successfulSessions[0]).not.toBe(successfulSessions[1]);
+    expect(successfulSessions[0]!.env?.CODOR_MEMBER_TOKEN)
+      .toBeDefined();
+    expect(successfulSessions[1]!.env?.CODOR_MEMBER_TOKEN)
+      .toBeDefined();
+    expect(successfulSessions[0]!.env?.CODOR_MEMBER_TOKEN)
+      .not.toBe(successfulSessions[1]!.env?.CODOR_MEMBER_TOKEN);
+    expect(successfulSessions[0]!.env?.CODOR_CHANNEL).toBe('partial-roster');
+    expect(successfulSessions[1]!.env?.CODOR_CHANNEL).toBe('partial-roster');
+    expect(successfulSessions[0]!.env?.CODOR_MEMBER_ID)
+      .toBe(created.initialAgents[1]!.id);
+    expect(successfulSessions[1]!.env?.CODOR_MEMBER_ID)
+      .toBe(created.initialAgents[2]!.id);
+    expect(daemon.authenticateAgentToken(successfulSessions[0]!.env!.CODOR_MEMBER_TOKEN!))
+      .toMatchObject({ room: 'partial-roster', member: { id: created.initialAgents[1]!.id } });
+    expect(daemon.authenticateAgentToken(successfulSessions[1]!.env!.CODOR_MEMBER_TOKEN!))
+      .toMatchObject({ room: 'partial-roster', member: { id: created.initialAgents[2]!.id } });
+    expect(JSON.stringify(daemon.store.listMembers('partial-roster')))
+      .not.toContain(successfulSessions[0]!.env!.CODOR_MEMBER_TOKEN!);
+    expect(JSON.stringify(daemon.store.listMembers('partial-roster')))
+      .not.toContain(successfulSessions[1]!.env!.CODOR_MEMBER_TOKEN!);
+    // The thrown first activation never returned a Session, received a token, or
+    // gained a credential hash; its durable identity remains the only dead row.
+    expect(created.initialAgents[0]!.state).toBe('dead');
+    // harn:end initial-roster-runtime-failures-are-member-local-and-actionable
+    // harn:assume agent-member-credentials-stay-secret ref=initial-agent-credential-isolation-regression
+    expect(successfulSessions.map((session) => session.env?.CODOR_MEMBER_TOKEN))
+      .toEqual(expect.arrayContaining([expect.any(String), expect.any(String)]));
+    // harn:end agent-member-credentials-stay-secret
+  });
+
+  // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-default-recipient-regression
+  // harn:assume default-recipient-fallback-chain ref=default-roster-default-recipient-regression
+  it('keeps roster-created default-recipient behavior honest', async () => {
+    const first = daemon.createAgentPreset({
+      label: 'First default', handle: 'first-default', harness: 'fake',
+    });
+    const second = daemon.createAgentPreset({
+      label: 'Second default', handle: 'second-default', harness: 'fake',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+
+    const multi = daemon.createRoom({
+      id: 'multi-default', name: 'Multi Default',
+      owner: { handle: 'multi-owner', display_name: 'Multi Owner' },
+      default_roster: true,
+    });
+    expect(multi.room.config.starting_agent_handle).toBeUndefined();
+    const suppressPump = vi.spyOn(daemon, 'maybeStartTurn').mockResolvedValue();
+    const commentary = daemon.postHumanMessage('multi-default', 'fresh roster commentary');
+    expect(daemon.store.listDeliveries('multi-default', { state: 'queued' })
+      .filter((delivery) => delivery.message_id === commentary.id)).toEqual([]);
+
+    const sole = daemon.createAgentPreset({
+      label: 'Sole default', handle: 'sole-default', harness: 'fake',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [sole.id] });
+    const single = daemon.createRoom({
+      id: 'single-default', name: 'Single Default',
+      owner: { handle: 'single-owner', display_name: 'Single Owner' },
+      default_roster: true,
+    });
+    expect(single.room.config.starting_agent_handle).toBeUndefined();
+    const fallback = daemon.postHumanMessage('single-default', 'sole live fallback');
+    expect(daemon.store.listDeliveries('single-default', { recipient: single.initialAgents[0]!.id }))
+      .toContainEqual(expect.objectContaining({ message_id: fallback.id, state: 'queued' }));
+    suppressPump.mockRestore();
+
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+    fake.enqueue({ kind: 'complete', final_text: '@multi-owner established first default' });
+    const latest = daemon.createRoom({
+      id: 'latest-default', name: 'Latest Default',
+      owner: { handle: 'latest-owner', display_name: 'Latest Owner' },
+      default_roster: true,
+    });
+    daemon.postHumanMessage('latest-default', '@first-default establish the latest default');
+    await daemon.settle();
+    expect(daemon.store.latestFinalizedAgentAuthor('latest-default'))
+      .toBe(latest.initialAgents[0]!.id);
+    const established = daemon.postHumanMessage('latest-default', 'use established default');
+    expect(daemon.store.listDeliveries('latest-default', { recipient: latest.initialAgents[0]!.id }))
+      .toContainEqual(expect.objectContaining({ message_id: established.id }));
+    expect(daemon.store.listDeliveries('latest-default', { recipient: latest.initialAgents[1]!.id }))
+      .not.toContainEqual(expect.objectContaining({ message_id: established.id }));
+  });
+  // harn:end default-recipient-fallback-chain
+  // harn:end default-roster-channel-members-are-detached-ordered-snapshots
+
+  it('rejects persisted duplicate, reserved, stale, and catalog-drifted rosters before mutation', async () => {
+    type Scenario = {
+      name: string;
+      install: (store: Store) => { fallback: string; roster: string[] };
+      corrupt: (db: Database.Database, roster: string[]) => void;
+      available?: (executable: string) => boolean;
+      recover: (available: ReturnType<typeof vi.fn>) => void;
+    };
+    const scenarios: Scenario[] = [
+      {
+        name: 'duplicate-handle',
+        install: (store) => {
+          const fallback = store.createAgentPreset({
+            label: 'Fallback', handle: 'duplicate-fallback', harness: 'fake',
+          });
+          const first = store.createAgentPreset({
+            label: 'First', handle: 'duplicate-first', harness: 'fake',
+          });
+          const second = store.createAgentPreset({
+            label: 'Second', handle: 'duplicate-second', harness: 'fake',
+          });
+          return { fallback: fallback.id, roster: [first.id, second.id] };
+        },
+        corrupt: (db, roster) => {
+          const firstHandle = db.prepare('SELECT handle FROM agent_presets WHERE id = ?')
+            .get(roster[0]) as { handle: string };
+          db.prepare('UPDATE agent_presets SET handle = ? WHERE id = ?')
+            .run(firstHandle.handle, roster[1]);
+        },
+        recover: () => {},
+      },
+      {
+        name: 'reserved-preset',
+        install: (store) => {
+          const fallback = store.createAgentPreset({
+            label: 'Fallback', handle: 'reserved-fallback', harness: 'fake',
+          });
+          const reserved = store.createAgentPreset({
+            label: 'Reserved', handle: 'reserved-target', harness: 'fake',
+          });
+          return { fallback: fallback.id, roster: [reserved.id] };
+        },
+        corrupt: (db, roster) => {
+          db.prepare('UPDATE agent_presets SET handle = ? WHERE id = ?')
+            .run('switchboard', roster[0]);
+        },
+        recover: () => {},
+      },
+      {
+        name: 'missing-reference',
+        install: (store) => {
+          const fallback = store.createAgentPreset({
+            label: 'Fallback', handle: 'missing-fallback', harness: 'fake',
+          });
+          const stale = store.createAgentPreset({
+            label: 'Stale', handle: 'missing-target', harness: 'fake',
+          });
+          return { fallback: fallback.id, roster: [stale.id] };
+        },
+        corrupt: (db, roster) => {
+          db.pragma('foreign_keys = OFF');
+          db.prepare('UPDATE default_roster_items SET preset_id = ? WHERE preset_id = ?')
+            .run('01ARZ3NDEKTSV4RRFFQ69G5FAV', roster[0]);
+          db.pragma('foreign_keys = ON');
+        },
+        recover: () => {},
+      },
+      {
+        name: 'catalog-drift',
+        install: (store) => {
+          const fallback = store.createAgentPreset({
+            label: 'Fallback', handle: 'catalog-fallback', harness: 'fake',
+          });
+          const named = store.createAgentPreset({
+            label: 'Named ACP', handle: 'catalog-target', harness: 'acp', acp_provider: 'kimi',
+          });
+          return { fallback: fallback.id, roster: [named.id] };
+        },
+        corrupt: () => {},
+        available: (executable) => executable !== 'kimi',
+        recover: (available) => available.mockReturnValue(true),
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const dbPath = join(dir, `${scenario.name}.sqlite`);
+      const setup = new Store(dbPath);
+      const seeded = scenario.install(setup);
+      setup.replaceDefaultRoster({ preset_ids: seeded.roster });
+      setup.close();
+
+      const corrupted = new Database(dbPath);
+      scenario.corrupt(corrupted, seeded.roster);
+      corrupted.pragma('foreign_keys = ON');
+      expect(corrupted.pragma('foreign_keys', { simple: true })).toBe(1);
+      corrupted.close();
+
+      const available = vi.fn(scenario.available ?? (() => true));
+      const caseFake = new FakeAdapter('fake');
+      Object.assign(caseFake, { executable: 'fake' });
+      const caseAcp = Object.assign(new FakeAdapter('acp'), { configurable: true });
+      const caseDaemon = new Daemon({
+        dbPath,
+        blobRoot: join(dir, `${scenario.name}-blobs`),
+        adapters: [caseFake, caseAcp],
+        homeDir: dir,
+        executableOnPath: available,
+        discoverModels: false,
+      });
+      const fakeSpawn = vi.spyOn(caseFake, 'spawn');
+      const acpSpawn = vi.spyOn(caseAcp, 'spawn');
+      const roomId = `${scenario.name}-invalid`;
+      try {
+        expect(() => caseDaemon.createRoom({
+          id: roomId,
+          name: `${scenario.name} invalid`,
+          owner: { handle: `${scenario.name}-owner`, display_name: 'Owner' },
+          default_roster: true,
+        })).toThrow();
+        expect(fakeSpawn).not.toHaveBeenCalled();
+        expect(acpSpawn).not.toHaveBeenCalled();
+        expect(caseDaemon.store.getRoom(roomId)).toBeUndefined();
+        expect(caseDaemon.store.listMembers(roomId)).toEqual([]);
+        expect(caseDaemon.store.listMessages(roomId)).toEqual([]);
+
+        scenario.recover(available);
+        caseDaemon.replaceDefaultRoster({ preset_ids: [seeded.fallback] });
+        const valid = caseDaemon.createRoom({
+          id: `${scenario.name}-valid`,
+          name: `${scenario.name} valid`,
+          owner: { handle: `${scenario.name}-valid-owner`, display_name: 'Valid Owner' },
+          default_roster: true,
+        });
+        expect(valid.initialAgents).toHaveLength(1);
+      } finally {
+        await caseDaemon.close();
+      }
+    }
   });
 
   it('accepts an empty selected roster without inventing a starting agent', () => {
@@ -646,3 +880,214 @@ describe('agent preset REST authorization and behavior', () => {
   });
 });
 // harn:end agent-preset-management-is-authorized-and-transport-neutral
+
+// harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-rest-regression
+// harn:assume channel-creation-derived-and-seeded ref=default-roster-create-rest-regression
+// harn:assume roles-gate-human-acts-not-agents ref=default-roster-create-role-regression
+// harn:assume agent-network-authority-is-narrow ref=default-roster-create-agent-denial-regression
+describe('default roster create REST boundary', () => {
+  let daemon: Daemon;
+  let server: RunningServer;
+  let fake: FakeAdapter;
+  let crypto: CryptoVault;
+  let browser: CryptoVault;
+  let browserToken: string;
+  let browserDeviceId: string;
+  let agentToken: string;
+  let available: ReturnType<typeof vi.fn>;
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'codor-default-roster-rest-'));
+    available = vi.fn((executable: string) => executable !== 'missing');
+    fake = new FakeAdapter('fake');
+    Object.assign(fake, { executable: 'fake' });
+    const acp = Object.assign(new FakeAdapter('acp'), { configurable: true });
+    daemon = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters: [fake, acp],
+      homeDir: dir,
+      executableOnPath: available,
+      discoverModels: false,
+    });
+    daemon.createRoom({
+      id: 'rest-base', name: 'REST Base', owner: { handle: 'rest-owner', display_name: 'REST Owner' },
+    });
+    const admin = daemon.store.addMember('rest-base', {
+      kind: 'human', handle: 'rest-admin', display_name: 'REST Admin', role: 'admin',
+    });
+    const member = daemon.store.addMember('rest-base', {
+      kind: 'human', handle: 'rest-member', display_name: 'REST Member', role: 'member',
+    });
+    const observer = daemon.store.addMember('rest-base', {
+      kind: 'human', handle: 'rest-observer', display_name: 'REST Observer', role: 'observer',
+    });
+
+    crypto = new CryptoVault(join(dir, 'crypto'));
+    browser = new CryptoVault(join(dir, 'browser'));
+    const browserPeer = crypto.keys.enrollPeer({
+      ...browser.keys.publicIdentity(), kind: 'device', label: 'roster browser',
+    });
+    crypto.roomKeys.enrollPeer(browserPeer);
+    browserDeviceId = browserPeer.device_id;
+    browserToken = crypto.browserSessions.issue(browserDeviceId).access_token;
+
+    let session: ReturnType<FakeAdapter['spawn']> | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawn = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts) => {
+      session = originalSpawn(opts);
+      return session;
+    });
+    daemon.spawnMember('rest-base', { harness: 'fake', handle: 'rest-agent', cwd: dir });
+    spawn.mockRestore();
+    const capturedToken = session?.env?.CODOR_MEMBER_TOKEN;
+    if (capturedToken === undefined) throw new Error('roster REST agent credential was not issued');
+    agentToken = capturedToken;
+
+    server = await startServer({
+      daemon,
+      token: 'owner-token',
+      principals: [
+        { token: 'admin-token', member_id: admin.id },
+        { token: 'member-token', member_id: member.id },
+        { token: 'observer-token', member_id: observer.id },
+      ],
+      crypto,
+    });
+  });
+
+  afterEach(async () => {
+    if (server !== undefined) await server.close();
+    if (browser !== undefined) browser.close();
+    if (crypto !== undefined) crypto.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const inject = (token: string | undefined, payload: unknown) => server.app.inject({
+    method: 'POST',
+    url: '/api/rooms',
+    headers: {
+      ...(token !== undefined && { authorization: `Bearer ${token}` }),
+      'content-type': 'application/json',
+    },
+    payload,
+  });
+
+  it('admits owner and browser roster creates, denies every lower principal, and preserves legacy requests', async () => {
+    const custom = daemon.createAgentPreset({
+      ...customAcpInput, handle: 'rest-custom-roster',
+    });
+    const named = daemon.createAgentPreset({
+      label: 'REST named', handle: 'rest-named-roster', harness: 'acp', acp_provider: 'kimi',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [custom.id] });
+
+    const ownerResponse = await inject('owner-token', {
+      id: 'rest-owner-roster', name: 'REST Owner Roster',
+      owner: { handle: 'rest-owner-roster-human', display_name: 'Owner' },
+      default_roster: true,
+    });
+    expect(ownerResponse.statusCode).toBe(200);
+    const ownerText = ownerResponse.body;
+    expect(ownerText).not.toContain(process.execPath);
+    expect(ownerText).not.toContain('--acp');
+    expect(ownerText).not.toContain('CODOR_MEMBER_TOKEN');
+    expect(ownerText).not.toContain('acp_launch');
+    expect(ownerText).not.toContain('session_lifecycle');
+
+    const browserResponse = await inject(browserToken, {
+      id: 'rest-browser-roster', name: 'REST Browser Roster',
+      owner: { handle: 'rest-browser-roster-human', display_name: 'Browser Owner' },
+      default_roster: true,
+    });
+    expect(browserResponse.statusCode).toBe(200);
+    const browserBody = browserResponse.json() as {
+      room: { id: string };
+      room_key?: { room: string; generation: number; sealed_key: string };
+    };
+    expect(browserBody.room_key).toMatchObject({
+      room: browserBody.room.id, generation: 1, sealed_key: expect.any(String),
+    });
+    expect(browserResponse.body).not.toContain(process.execPath);
+    expect(browserResponse.body).not.toContain('--acp');
+    expect(browserResponse.body).not.toContain('CODOR_MEMBER_TOKEN');
+    expect(browserResponse.body).not.toContain('acp_launch');
+    expect(browserResponse.body).not.toContain('session_lifecycle');
+
+    const denied = [
+      ['admin-token', 403, 'admin'],
+      ['member-token', 403, 'member'],
+      ['observer-token', 403, 'observer'],
+      [agentToken, 403, 'agent'],
+      [undefined, 401, 'anonymous'],
+    ] as const;
+    for (const [token, status, principal] of denied) {
+      const id = `rest-denied-${principal}`;
+      const response = await inject(token, {
+        id, name: `Denied ${principal}`,
+        owner: { handle: `${principal}-owner`, display_name: 'Denied Owner' },
+        default_roster: true,
+      });
+      expect(response.statusCode).toBe(status);
+      expect(daemon.store.getRoom(id)).toBeUndefined();
+      expect(response.body).not.toContain(process.execPath);
+      expect(response.body).not.toContain('CODOR_MEMBER_TOKEN');
+    }
+
+    available.mockImplementation((executable: string) => executable !== 'kimi');
+    daemon.replaceDefaultRoster({ preset_ids: [named.id] });
+    const invalidId = 'rest-invalid-roster';
+    const invalid = await inject('owner-token', {
+      id: invalidId, name: 'Invalid REST Roster',
+      owner: { handle: 'invalid-rest-owner', display_name: 'Invalid Owner' },
+      default_roster: true,
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.body).not.toContain(process.execPath);
+    expect(invalid.body).not.toContain('--acp');
+    expect(invalid.body).not.toContain('CODOR_MEMBER_TOKEN');
+    expect(invalid.body).not.toContain('session_lifecycle');
+    expect(daemon.store.getRoom(invalidId)).toBeUndefined();
+    expect(crypto.roomKeys.sealedFor(browserDeviceId))
+      .not.toContainEqual(expect.objectContaining({ room: invalidId }));
+
+    available.mockReturnValue(true);
+    const legacy = await inject('owner-token', {
+      id: 'rest-legacy-omitted', name: 'REST Legacy Omitted',
+      owner: { handle: 'legacy-omitted-owner', display_name: 'Legacy Owner' },
+    });
+    expect(legacy.statusCode).toBe(200);
+    const starting = await inject('owner-token', {
+      id: 'rest-legacy-starting', name: 'REST Legacy Starting',
+      owner: { handle: 'legacy-starting-owner', display_name: 'Legacy Owner' },
+      starting_agent: { harness: 'fake', handle: 'legacy-starting-agent' },
+    });
+    expect(starting.statusCode).toBe(200);
+    expect(daemon.store.getRoom('rest-legacy-starting')?.config.starting_agent_handle)
+      .toBe('legacy-starting-agent');
+  });
+  // harn:assume browser-created-channel-delivers-its-room-key ref=default-roster-browser-key-regression
+  it('does not create a room key when roster preflight rejects a request', async () => {
+    const named = daemon.createAgentPreset({
+      label: 'Unavailable REST named', handle: 'rest-unavailable-named',
+      harness: 'acp', acp_provider: 'kimi',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [named.id] });
+    available.mockImplementation((executable: string) => executable !== 'kimi');
+    const id = 'rest-browser-invalid';
+    const response = await inject(browserToken, {
+      id, name: 'Browser Invalid Roster',
+      owner: { handle: 'browser-invalid-owner', display_name: 'Browser Owner' },
+      default_roster: true,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(daemon.store.getRoom(id)).toBeUndefined();
+    expect(crypto.roomKeys.sealedFor(browserDeviceId))
+      .not.toContainEqual(expect.objectContaining({ room: id }));
+  });
+  // harn:end browser-created-channel-delivers-its-room-key
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end roles-gate-human-acts-not-agents
+// harn:end channel-creation-derived-and-seeded
+// harn:end default-roster-channel-selection-is-exclusive-and-preflighted

@@ -138,6 +138,73 @@ describe('actionable REST errors', () => {
 });
 // harn:end starting-agent-name-derives-one-valid-identity-v6
 
+// harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-rest-regression
+describe('roster room creation transport parity', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setRelayTransport(undefined);
+  });
+
+  const respond = (body: unknown): Response =>
+    ({ ok: true, status: 200, json: () => Promise.resolve(body) }) as unknown as Response;
+
+  it('keeps the typed selector, bearer, and legacy body identical across native and relay transport', async () => {
+    const room = { id: 'transport-roster', name: 'Transport Roster' };
+    const rosterRequest = {
+      name: 'Transport Roster',
+      owner: { handle: 'transport-owner', display_name: 'Transport Owner' },
+      default_roster: true as const,
+    };
+    const nativeFetch = vi.fn(() => Promise.resolve(respond({ room })));
+    vi.stubGlobal('fetch', nativeFetch);
+
+    await createRoom(rosterRequest, {
+      token: 'native-token', origin: 'https://switchboard.example',
+    });
+    expect(nativeFetch).toHaveBeenCalledWith(
+      'https://switchboard.example/api/rooms',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer native-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(rosterRequest),
+      }),
+    );
+
+    const relayFetch = vi.fn(() => Promise.resolve(respond({ room })));
+    setRelayTransport({ origin: 'https://relay.example', fetch: relayFetch });
+    await createRoom(rosterRequest, {
+      token: 'relay-token', origin: 'https://relay.example',
+    });
+    expect(relayFetch).toHaveBeenCalledWith(
+      '/api/rooms',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer relay-token',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(rosterRequest),
+      }),
+    );
+
+    setRelayTransport(undefined);
+    const legacyRequest = {
+      name: 'Legacy Transport',
+      owner: { handle: 'legacy-transport-owner', display_name: 'Legacy Owner' },
+    };
+    await createRoom(legacyRequest, {
+      token: 'native-token', origin: 'https://switchboard.example',
+    });
+    const legacyCall = nativeFetch.mock.calls[1] as unknown as
+      [unknown, { body?: unknown }?] | undefined;
+    expect(legacyCall?.[1]?.body).toBe(JSON.stringify(legacyRequest));
+  });
+});
+// harn:end default-roster-channel-selection-is-exclusive-and-preflighted
+
 describe('agent preset runtime API', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
