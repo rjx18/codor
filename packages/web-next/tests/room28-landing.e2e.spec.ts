@@ -18,7 +18,9 @@ test.describe('local setup landing', () => {
     const landing = page.getByTestId('landing-page');
     await expect(landing).toBeVisible();
     await expect(landing.locator('.nx-setup-step')).toHaveCount(2);
-    await expect(landing).toContainText('npx @richhardry/codor setup');
+    // harn:assume unpaired-root-explains-primary-install-and-hosted-access ref=landing-primary-install-regression
+    await expect(landing).toContainText('npx @richhardry/codor install');
+    // harn:end unpaired-root-explains-primary-install-and-hosted-access
     await expect(landing).toContainText('localhost');
     await expect(landing).toContainText('Tailscale');
 

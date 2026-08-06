@@ -1,7 +1,7 @@
 id: unpaired-root-explains-local-and-hosted-access
 hash: a-8be099670993
 title: The unpaired root explains local and hosted access in two truthful steps
-state: active
+state: retired
 statement: An unpaired visit to / must present exactly two primary setup
   steps—run npx @richhardry/codor setup, then enter the single-use
   eight-character pairing code—and describe access truthfully, naming localhost
@@ -19,3 +19,4 @@ depends_on:
   - brand-wordmark-uses-self-hosted-bitcount
   - relay-worker-stays-blind
 created_by: relay-p7-landing
+retired_by: landing-primary-install-command

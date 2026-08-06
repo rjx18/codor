@@ -1,0 +1,19 @@
+id: unpaired-root-explains-primary-install-and-hosted-access
+hash: a-c319aa07cb93
+title: The unpaired root presents the primary install command and every access path
+state: active
+statement: >
+  An unpaired visit to / must present exactly two primary setup steps—run `npx
+  @richhardry/codor install`, then enter the single-use eight-character pairing
+  code—and describe access truthfully, naming localhost and private Tailscale as
+  self-hosted paths plus codor.app through the blind relay that holds no keys
+  and cannot read channel content; the code control must retain paste, keyboard,
+  prefill, busy/error, and phone-width behavior, because the first product
+  contact must use the canonical installer and explain every real access path.
+depends_on:
+  - public-npx-install-is-primary-install
+  - pairing-code-enrollment-surfaces
+  - pairing-codes-are-short-single-use-grants
+  - brand-wordmark-uses-self-hosted-bitcount
+  - relay-worker-stays-blind
+created_by: landing-primary-install-command

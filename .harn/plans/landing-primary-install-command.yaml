@@ -1,0 +1,70 @@
+id: landing-primary-install-command
+title: Show the primary npx install command on the Codor homepage
+notes: >
+  The CLI deliberately keeps `setup` as a compatible alias, but `install` is the
+  approved primary public command everywhere else. Replace the stale homepage
+  command and its landing contract with `npx @richhardry/codor install`, without
+  changing pairing, relay, or setup behavior.
+assumptions:
+  retire:
+    - id: unpaired-root-explains-local-and-hosted-access
+      reason: >
+        Its statement requires the backward-compatible setup alias on the
+        homepage, contradicting the active install-primary documentation
+        contract. Replace it with the same landing behavior using install.
+  create:
+    - id: unpaired-root-explains-primary-install-and-hosted-access
+      title: The unpaired root presents the primary install command and every access
+        path
+      statement: >
+        An unpaired visit to / must present exactly two primary setup steps—run
+        `npx @richhardry/codor install`, then enter the single-use
+        eight-character pairing code—and describe access truthfully, naming
+        localhost and private Tailscale as self-hosted paths plus codor.app
+        through the blind relay that holds no keys and cannot read channel
+        content; the code control must retain paste, keyboard, prefill,
+        busy/error, and phone-width behavior, because the first product contact
+        must use the canonical installer and explain every real access path.
+      reason: >
+        Aligns the homepage with the shipped primary installer while preserving
+        the approved two-step pairing and privacy journey.
+      depends_on:
+        - public-npx-install-is-primary-install
+        - pairing-code-enrollment-surfaces
+        - pairing-codes-are-short-single-use-grants
+        - brand-wordmark-uses-self-hosted-bitcount
+        - relay-worker-stays-blind
+  reviewed:
+    - id: public-npx-install-is-primary-install
+      outcome: unchanged
+      reason: >
+        Install remains the primary public command and setup remains a working
+        compatibility alias; only the stale homepage copy is being aligned.
+anchors:
+  unpaired-root-explains-local-and-hosted-access:
+    landing-access-truth-audit:
+      action: remove
+      reason: Re-anchor the landing audit to the install-primary replacement.
+  unpaired-root-explains-primary-install-and-hosted-access:
+    landing-primary-install-command:
+      action: change
+      reason: Render and copy the canonical npx install command.
+    landing-primary-install-regression:
+      action: change
+      reason: Prove the visible homepage command is the canonical installer.
+    landing-access-truth-audit:
+      action: change
+      reason: Enforce install plus the unchanged access and relay privacy claims.
+files:
+  - .harn/plans/landing-primary-install-command.yaml
+  - .harn/assumptions/unpaired-root-explains-primary-install-and-hosted-access.yaml
+  - packages/web-next/src/surfaces/LandingPage.tsx
+  - packages/web-next/tests/room28-landing.e2e.spec.ts
+  - scripts/release-audit.mjs
+verification: >
+  Lock on clean main; pass the landing browser suite, web-next units and build,
+  release audit, Harn checks, and git diff checks; commit and push to main, wait
+  for the production deployment, then verify codor.app shows and copies the
+  canonical command.
+applied:
+  applied_at: 2026-08-06T03:36:36.908Z

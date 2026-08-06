@@ -107,9 +107,9 @@ const landingSource = await readFile(new URL('../packages/web-next/src/surfaces/
 const firstChannelSource = await readFile(new URL('../packages/web-next/src/surfaces/NoChannels.tsx', import.meta.url), 'utf8');
 const agentControlsSource = await readFile(new URL('../packages/web-next/src/room/AgentControls.tsx', import.meta.url), 'utf8');
 
-// harn:assume unpaired-root-explains-local-and-hosted-access ref=landing-access-truth-audit
+// harn:assume unpaired-root-explains-primary-install-and-hosted-access ref=landing-access-truth-audit
 assert.equal((landingSource.match(/className="nx-setup-step"/g) ?? []).length, 2, 'landing setup must have exactly two steps');
-assert.match(landingSource, /npx @richhardry\/codor setup/);
+assert.match(landingSource, /npx @richhardry\/codor install/);
 assert.match(landingSource, /localhost/);
 assert.match(landingSource, /Tailscale/);
 // The blind relay is implemented, so the landing must name the hosted third
@@ -120,7 +120,7 @@ assert.match(landingSource, /Tailscale/);
 assert.match(landingSource, /codor\.app/, 'landing must name the hosted codor.app access path');
 assert.match(landingSource, /never receives your channel keys/, 'landing must state the relay never receives channel keys');
 assert.match(landingSource, /Relay sees ciphertext only/, 'landing must state the relay sees ciphertext only');
-// harn:end unpaired-root-explains-local-and-hosted-access
+// harn:end unpaired-root-explains-primary-install-and-hosted-access
 
 // harn:assume landing-demo-settles-without-playback-controls ref=landing-motion-release-audit
 assert.match(landingSource, /prefers-reduced-motion: reduce/);

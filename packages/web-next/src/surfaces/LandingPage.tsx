@@ -46,7 +46,9 @@ import { relayUrlConfigured } from '@runtime/relay-mode.js';
 
 import { PairingCodeInput } from './PairingCodeInput.js';
 
-const INSTALL_COMMAND = 'npx @richhardry/codor setup';
+// harn:assume unpaired-root-explains-primary-install-and-hosted-access ref=landing-primary-install-command
+const INSTALL_COMMAND = 'npx @richhardry/codor install';
+// harn:end unpaired-root-explains-primary-install-and-hosted-access
 const DEMO_INTERVAL_MS = 1_180;
 const FINAL_PHASE = 38;
 
