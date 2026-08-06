@@ -193,4 +193,16 @@ describe('agent preset runtime API', () => {
       expect.objectContaining({ headers: { authorization: 'Bearer hosted-token' } }),
     );
   });
+
+  it('rejects malformed preset list and addressed responses at the runtime boundary', async () => {
+    const fetch = vi.fn((url: string) => Promise.resolve(
+      respond(url.endsWith('/api/agent-presets') ? { presets: [{ ...preset, schema_version: 99 }] } : {
+        preset: { ...preset, label: '' },
+      }),
+    ));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(fetchAgentPresets({ token: 'secret' })).rejects.toThrow();
+    await expect(fetchAgentPreset(preset.id, { token: 'secret' })).rejects.toThrow();
+  });
 });

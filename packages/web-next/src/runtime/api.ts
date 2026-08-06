@@ -12,6 +12,7 @@ import type {
   Room,
   WireEvent,
 } from '@codor/protocol';
+import { AgentPresetSchema } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
 import { relayFetch } from './relay-transport.js';
@@ -202,16 +203,16 @@ export async function refreshUsage(options: ApiOptions): Promise<{ outcome: Usag
 
 // harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-boundary
 export async function fetchAgentPresets(options: ApiOptions): Promise<AgentPreset[]> {
-  const body = await fetchJson<{ presets: AgentPreset[] }>('/api/agent-presets', options);
-  return body.presets;
+  const body = await fetchJson<{ presets: unknown }>('/api/agent-presets', options);
+  return AgentPresetSchema.array().parse(body.presets);
 }
 
 export async function fetchAgentPreset(id: string, options: ApiOptions): Promise<AgentPreset> {
-  const body = await fetchJson<{ preset: AgentPreset }>(
+  const body = await fetchJson<{ preset: unknown }>(
     `/api/agent-presets/${encodeURIComponent(id)}`,
     options,
   );
-  return body.preset;
+  return AgentPresetSchema.parse(body.preset);
 }
 
 export async function createAgentPreset(

@@ -739,6 +739,26 @@ describe('spawn control vocabularies', () => {
   // harn:end harness-declares-supported-thinking-levels
 });
 
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-regression
+describe('preset display names on ordinary spawn acts', () => {
+  it('accepts a bounded optional display name and keeps omission compatible', () => {
+    expect(ActSchema.parse({
+      act: 'spawn', harness: 'fake', handle: 'scout', cwd: '/work',
+      display_name: 'Review Scout',
+    })).toMatchObject({ display_name: 'Review Scout' });
+    expect(ActSchema.parse({
+      act: 'spawn', harness: 'fake', handle: 'scout', cwd: '/work',
+    })).not.toHaveProperty('display_name');
+  });
+
+  it.each(['', ' '.repeat(4), 'x'.repeat(121)])('rejects an invalid display name %j', (display_name) => {
+    expect(ActSchema.safeParse({
+      act: 'spawn', harness: 'fake', handle: 'scout', cwd: '/work', display_name,
+    }).success).toBe(false);
+  });
+});
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+
 // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
 describe('named ACP provider identity and one-of selection', () => {
   const base = {

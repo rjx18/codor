@@ -1817,6 +1817,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               daemon.spawnMember(frame.room, {
                 harness: act.harness,
                 handle: act.handle,
+                // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-dispatch
+                display_name: act.display_name,
+                // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
                 cwd: act.cwd,
                 policy: act.policy,
                 model: act.model,

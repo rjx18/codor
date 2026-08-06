@@ -12,6 +12,7 @@
  */
 import { Ban, LoaderCircle, Lock, PencilLine, RefreshCw, Zap } from 'lucide-react';
 import { useState } from 'react';
+import type { AgentPreset } from '@codor/protocol';
 
 import { ThinkingSlider } from './ThinkingSlider.js';
 import {
@@ -171,6 +172,11 @@ export function AgentIdentityControls(props: {
 export function RolePresetControls(props: {
   onApply: (preset: SpawnPreset) => void;
   idPrefix?: string;
+  customPresets?: readonly AgentPreset[];
+  customLoading?: boolean;
+  customError?: string;
+  customBusyId?: string;
+  onApplyCustom?: (preset: AgentPreset) => void;
 }) {
   const id = props.idPrefix ?? 'agent';
   return (
@@ -188,7 +194,27 @@ export function RolePresetControls(props: {
             {preset.label}
           </button>
         ))}
+        {props.customPresets?.map((preset) => (
+          <button
+            key={preset.id}
+            type="button"
+            className="nx-tile nx-preset nx-custom-preset"
+            data-testid={`${id}-preset-${preset.id}`}
+            aria-label={`${preset.label} preset`}
+            disabled={props.customBusyId !== undefined}
+            aria-busy={props.customBusyId === preset.id}
+            onClick={() => { props.onApplyCustom?.(preset); }}
+          >
+            {preset.label}
+          </button>
+        ))}
       </div>
+      {props.customLoading && (
+        <p className="nx-field-note" role="status" data-testid={`${id}-preset-loading`}>Loading saved presets…</p>
+      )}
+      {props.customError !== undefined && (
+        <p className="nx-field-note is-error" role="alert" data-testid={`${id}-preset-error`}>{props.customError}</p>
+      )}
     </div>
   );
 }

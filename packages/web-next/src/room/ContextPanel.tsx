@@ -1,4 +1,4 @@
-import type { AgentLimit, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
+import type { AgentLimit, AgentPreset, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
 import {
   Bot,
   ChevronRight,
@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
+import { artifactUrl, fetchAgentPreset, fetchAgentPresets, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
 import { formatAttachmentSize, isImageAttachment, useAttachmentDownload, useAttachmentObjectUrl } from './attachments.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
@@ -29,6 +29,7 @@ import {
   DEFAULT_POLICY,
   type AgentConfig,
   type SpawnSpec,
+  applyAgentPreset,
   buildSpawnSpec,
   applyPreset,
   asPolicy,
@@ -198,14 +199,16 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             disabled={usageBusy}
             onClick={refreshUsageLimits}
           />
-          <IconButton
-            icon={Plus}
-            label="Spawn agent"
-            size="sm"
-            variant="quiet"
-            data-testid="spawn-agent"
-            onClick={() => setSpawning(true)}
-          />
+          {canManage && (
+            <IconButton
+              icon={Plus}
+              label="Spawn agent"
+              size="sm"
+              variant="quiet"
+              data-testid="spawn-agent"
+              onClick={() => setSpawning(true)}
+            />
+          )}
         </div>
       </div>
       {usageError !== undefined && (
@@ -924,6 +927,11 @@ function SpawnDialog(props: {
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
   const [handle, setHandle] = useState('');
+  const [agentPresets, setAgentPresets] = useState<AgentPreset[]>([]);
+  const [presetLoading, setPresetLoading] = useState(true);
+  const [presetError, setPresetError] = useState<string>();
+  const [presetBusyId, setPresetBusyId] = useState<string>();
+  const presetRequest = useRef(0);
   // The operator should not retype the project path on every spawn. "Use current
   // directory" is on by default and inherits the channel's folder; turning it
   // off reveals the picker, pre-seeded with that same directory to edit from.
@@ -941,6 +949,60 @@ function SpawnDialog(props: {
   // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
   // `advanced`, so healing and adapter lookups must see the combined list.
   const all = [...props.adapters, ...props.advanced];
+
+  // Saved presets are intentionally read on every dialog mount. The list is only
+  // a set of labels; selection performs its own addressed read below so edits and
+  // deletion between these two requests cannot silently produce an old draft.
+  useEffect(() => {
+    let active = true;
+    setPresetLoading(true);
+    setPresetError(undefined);
+    void fetchAgentPresets({ token: props.token() })
+      .then((presets) => {
+        if (!active) return;
+        setAgentPresets(presets);
+        setPresetLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setAgentPresets([]);
+        setPresetLoading(false);
+        setPresetError(error instanceof Error ? error.message : 'Could not load saved presets.');
+      });
+    return () => {
+      active = false;
+      presetRequest.current += 1;
+    };
+  }, [props.token]);
+
+  const selectAgentPreset = (listed: AgentPreset): void => {
+    const request = ++presetRequest.current;
+    setPresetBusyId(listed.id);
+    setPresetError(undefined);
+    void fetchAgentPreset(listed.id, { token: props.token() })
+      .then((preset) => {
+        if (request !== presetRequest.current) return;
+        const applied = applyAgentPreset({
+          preset,
+          config: { ...config, harness },
+          adapters: all,
+          members: props.members,
+        });
+        if (!applied.ok) throw new Error(applied.message);
+        // Commit the complete result only after every field has validated. A
+        // failed/stale selection therefore cannot partially change the draft.
+        setConfig(applied.config);
+        setHandle(applied.handle);
+      })
+      .catch((error: unknown) => {
+        if (request !== presetRequest.current) return;
+        setPresetError(error instanceof Error ? error.message : 'Could not apply saved preset.');
+      })
+      .finally(() => {
+        if (request === presetRequest.current) setPresetBusyId(undefined);
+      });
+  };
+
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
   const harness = effectiveHarness(config.harness, all);
@@ -1016,6 +1078,17 @@ function SpawnDialog(props: {
             data-testid="spawn-handle"
           />
         </label>
+        <label className="nx-field">
+          <span className="nx-label">Display name <span className="nx-opt">· optional</span></span>
+          <input
+            className="nx-input"
+            value={config.displayName ?? ''}
+            maxLength={120}
+            onChange={(event) => { setConfig({ ...config, displayName: event.target.value }); }}
+            placeholder="Shown in the member list"
+            data-testid="spawn-display-name"
+          />
+        </label>
         {ownerClash && (
           <p className="nx-field-error" role="alert" data-testid="spawn-owner-clash">
             @{derived} is already in use by the channel owner.
@@ -1042,6 +1115,11 @@ function SpawnDialog(props: {
         </div>
         <RolePresetControls
           idPrefix="spawn"
+          customPresets={agentPresets}
+          customLoading={presetLoading}
+          customError={presetError}
+          customBusyId={presetBusyId}
+          onApplyCustom={selectAgentPreset}
           onApply={(preset) => {
             const applied = applyPreset({
               preset,
