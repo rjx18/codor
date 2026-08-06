@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRoom, fetchAdapters, refreshAdapters } from './api.js';
+import { createRoom, fetchAdapters, fetchRoutingCatalog, refreshAdapters } from './api.js';
 
 // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
 describe('adapter listing', () => {
@@ -100,3 +100,47 @@ describe('actionable REST errors', () => {
   });
 });
 // harn:end starting-agent-name-derives-one-valid-identity-v6
+
+// harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-client-regression
+describe('qualified target catalog client', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('fetches the path-free catalog with the bearer token and validates its projection', async () => {
+    const catalog = {
+      room: 'eng',
+      targets: [{
+        worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+        conversation_id: 'wt-review',
+        alias: 'review',
+        primary: false,
+        lifecycle: 'active',
+        members: [{ member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ', handle: 'coder', kind: 'agent' }],
+      }],
+      tombstones: [],
+    };
+    const fetch = vi.fn(() => Promise.resolve({
+      ok: true, status: 200, json: () => Promise.resolve(catalog),
+    } as unknown as Response));
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(fetchRoutingCatalog('eng', { token: 'secret', origin: 'https://switchboard.test' }))
+      .resolves.toEqual(catalog);
+    expect(fetch).toHaveBeenCalledWith('https://switchboard.test/api/rooms/eng/routing-targets', {
+      headers: { authorization: 'Bearer secret' },
+    });
+  });
+
+  it('preserves an actionable server refusal and rejects malformed catalog data', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({
+      ok: false, status: 403, json: () => Promise.resolve({ error: 'forbidden: agent cannot use worktree management' }),
+    } as unknown as Response));
+    await expect(fetchRoutingCatalog('eng', { token: 'agent-token' }))
+      .rejects.toThrow('forbidden: agent cannot use worktree management');
+
+    vi.stubGlobal('fetch', () => Promise.resolve({
+      ok: true, status: 200, json: () => Promise.resolve({ room: 'eng', targets: [{ path: '/tmp/leak' }], tombstones: [] }),
+    } as unknown as Response));
+    await expect(fetchRoutingCatalog('eng', { token: 'secret' })).rejects.toThrow();
+  });
+});
+// harn:end qualified-completion-lists-registered-targets-only

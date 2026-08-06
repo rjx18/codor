@@ -1,8 +1,9 @@
-import type { Member } from '@codor/protocol';
+import { parseBody, type Member, type WorktreeRoutingCatalog, type WorktreeRoutingMember, type WorktreeRoutingTarget } from '@codor/protocol';
 import { ArrowUp, AtSign, Mic, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
+import { fetchRoutingCatalog } from '@runtime/api.js';
 
 import { useIsMobile } from '../app/session.js';
 import { effectiveDefaultRecipient, roomSlice, useClientStore } from '../app/store.js';
@@ -41,6 +42,59 @@ function mentionQuery(draft: string, caret: number): { start: number; query: str
   if (!/^[a-z0-9_-]*$/i.test(query)) return undefined;
   return { start: at, query };
 }
+
+export interface QualifiedMentionQuery {
+  start: number;
+  aliasQuery: string;
+  handleQuery: string;
+}
+
+export function qualifiedMentionQuery(draft: string, caret: number): QualifiedMentionQuery | undefined {
+  const upToCaret = draft.slice(0, caret);
+  const match = /(^|[\s(])~([a-z0-9._-]*):@([a-z0-9-]*)$/i.exec(upToCaret);
+  if (!match) return undefined;
+  return {
+    start: match.index + match[1]!.length,
+    aliasQuery: match[2]!,
+    handleQuery: match[3]!,
+  };
+}
+
+export interface QualifiedCompletion {
+  target: WorktreeRoutingTarget;
+  member: WorktreeRoutingMember;
+}
+
+// harn:assume qualified-completion-lists-registered-targets-only ref=qualified-composer-completion
+/** Pure completion/filtering keeps keyboard and pointer insertion on one path. */
+export function qualifiedCompletionCandidates(
+  catalog: WorktreeRoutingCatalog,
+  query: QualifiedMentionQuery,
+): QualifiedCompletion[] {
+  const aliasQuery = query.aliasQuery.toLowerCase();
+  const handleQuery = query.handleQuery.toLowerCase();
+  return catalog.targets
+    .filter((target) => target.alias.startsWith(aliasQuery))
+    .flatMap((target) => target.members
+      .filter((member) => (member.kind === 'human' || member.kind === 'agent')
+        && member.handle.startsWith(handleQuery))
+      .map((member) => ({ target, member })))
+    .slice(0, 8);
+}
+
+export function insertQualifiedMentionText(
+  value: string,
+  query: QualifiedMentionQuery,
+  completion: QualifiedCompletion,
+  caret: number,
+): { text: string; caret: number } {
+  const token = `~${completion.target.alias}:@${completion.member.handle}`;
+  return {
+    text: `${value.slice(0, query.start)}${token} ${value.slice(caret)}`,
+    caret: query.start + token.length + 1,
+  };
+}
+// harn:end qualified-completion-lists-registered-targets-only
 
 /** The spoken-message body: mention prefix (omitted when unaddressed — never a
  *  dangling `@`), then the plain newline-joined transcript. No marker glyphs —
@@ -86,6 +140,9 @@ export function Composer(props: { room: string; token: () => string; connection:
   const fileRef = useRef<HTMLInputElement>(null);
   const seededRef = useRef(false);
   const pendingCaretRef = useRef<number>();
+  const [routingCatalog, setRoutingCatalog] = useState<WorktreeRoutingCatalog>();
+  const [qualifiedMention, setQualifiedMention] = useState<QualifiedMentionQuery>();
+  const [pendingSend, setPendingSend] = useState<{ body: string; afterId: number; errorCount: number }>();
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [takes, setTakes] = useState<DictationTake[]>([]);
@@ -135,10 +192,61 @@ export function Composer(props: { room: string; token: () => string; connection:
       .slice(0, 6);
   }, [mention, roster]);
 
+  const qualifiedMentionables = useMemo<QualifiedCompletion[]>(() => (
+    qualifiedMention === undefined || routingCatalog === undefined
+      ? []
+      : qualifiedCompletionCandidates(routingCatalog, qualifiedMention)
+  ), [qualifiedMention, routingCatalog]);
+
   const defaultRecipient = useMemo(
     () => effectiveDefaultRecipient(slice),
     [slice],
   );
+
+  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-client
+  // Completion receives a path-free persisted projection. A missing/non-Git
+  // catalog is an ordinary empty completion set, never a discovery trigger.
+  useEffect(() => {
+    let live = true;
+    setRoutingCatalog(undefined);
+    void fetchRoutingCatalog(props.room, { token: props.token() })
+      .then((catalog) => { if (live) setRoutingCatalog(catalog); })
+      .catch(() => {
+        if (live) setRoutingCatalog({ room: props.room, targets: [], tombstones: [] });
+      });
+    return () => { live = false; };
+  }, [props.room, props.token]);
+  // harn:end qualified-completion-lists-registered-targets-only
+
+  // harn:assume invalid-qualified-targets-never-fallback ref=qualified-composer-refusal
+  // Keep a post draft until the own-message echo commits or the existing error
+  // frame arrives. A lifecycle race therefore remains visible and retryable.
+  useEffect(() => {
+    if (pendingSend === undefined) return;
+    const committed = Object.values(slice.messages).some((message) =>
+      message.id > pendingSend.afterId
+      && message.author === slice.selfMemberId
+      && message.kind === 'chat'
+      && message.body === pendingSend.body);
+    if (committed) {
+      setPendingSend(undefined);
+      if ((areaRef.current?.value ?? draft) === pendingSend.body) {
+        setDraft('');
+        setReplyTo(undefined);
+        setPending([]);
+        seededRef.current = false;
+        setMention(undefined);
+        setQualifiedMention(undefined);
+        requestAnimationFrame(autoGrow);
+      }
+      return;
+    }
+    if (slice.errors.length > pendingSend.errorCount) {
+      setHint(slice.errors.at(-1) ?? 'Message was refused');
+      setPendingSend(undefined);
+    }
+  }, [draft, pendingSend, slice.errors, slice.messages, slice.selfMemberId]);
+  // harn:end invalid-qualified-targets-never-fallback
 
   // Until the operator edits, the seeded draft follows hydration as the latest
   // agent chain becomes known. The first manual change locks that draft.
@@ -272,7 +380,9 @@ export function Composer(props: { room: string; token: () => string; connection:
   const refreshMention = (): void => {
     const node = areaRef.current;
     if (!node) return;
-    setMention(mentionQuery(node.value, node.selectionStart ?? node.value.length));
+    const caret = node.selectionStart ?? node.value.length;
+    setQualifiedMention(qualifiedMentionQuery(node.value, caret));
+    setMention(mentionQuery(node.value, caret));
     setHighlighted(0);
   };
 
@@ -285,6 +395,22 @@ export function Composer(props: { room: string; token: () => string; connection:
     setDraft(next);
     setMention(undefined);
     pendingCaretRef.current = mention.start + member.handle.length + 2;
+  };
+
+  const insertQualifiedMention = (
+    completion: QualifiedCompletion,
+    query = qualifiedMention,
+  ): void => {
+    if (query === undefined) return;
+    seededRef.current = true;
+    const node = areaRef.current;
+    const value = node?.value ?? draft;
+    const caret = node?.selectionStart ?? value.length;
+    const next = insertQualifiedMentionText(value, query, completion, caret);
+    setDraft(next.text);
+    setMention(undefined);
+    setQualifiedMention(undefined);
+    pendingCaretRef.current = next.caret;
   };
 
   const closeDictation = (): void => {
@@ -515,8 +641,17 @@ export function Composer(props: { room: string; token: () => string; connection:
     // so an overwritten seeded @mention can never be submitted from a stale
     // closure.
     const body = (areaRef.current?.value ?? draft).trim();
-    if (!connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
-    const addressed = roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
+    if (pendingSend !== undefined || !connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
+    const parsed = parseBody(body, roster, {
+      qualifiedTargets: routingCatalog,
+    });
+    if ((parsed.qualified_issues?.length ?? 0) > 0) {
+      setHint(parsed.qualified_issues!.map((issue) =>
+        `${issue.token}: ${issue.reason.replaceAll('-', ' ')}`).join('; '));
+      return;
+    }
+    const addressed = parsed.mentions.length > 0
+      || roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
     if (!addressed && roster.some((m) => m.kind === 'agent')) {
       setHint(
         defaultRecipient
@@ -529,13 +664,9 @@ export function Composer(props: { room: string; token: () => string; connection:
       ...(replyTo !== undefined && { replyTo }),
       ...(pending.length > 0 && { attachments: pending.map((attachment) => attachment.id) }),
     });
-    setDraft('');
-    setReplyTo(undefined);
-    setPending([]);
+    const afterId = Math.max(0, ...Object.keys(slice.messages).map(Number));
+    setPendingSend({ body, afterId, errorCount: slice.errors.length });
     setHint(undefined);
-    seededRef.current = false; // the next draft re-seeds its recipient
-    setMention(undefined);
-    requestAnimationFrame(autoGrow);
   };
 
   return (
@@ -590,7 +721,29 @@ export function Composer(props: { room: string; token: () => string; connection:
       )}
       {panelOpen ? dictationPanel : (
       <div className="nx-composer-bar">
-        {mention && mentionables.length > 0 && (
+        {qualifiedMention !== undefined && qualifiedMentionables.length > 0 && (
+          <ul className="nx-mentions" role="listbox" aria-label="Mention a worktree member" data-testid="qualified-mention-popover">
+            {qualifiedMentionables.map((completion, index) => (
+              <li key={`${completion.target.worktree_id}:${completion.member.member_id}`} role="presentation">
+                <button
+                  role="option"
+                  aria-selected={index === highlighted}
+                  className={`nx-mention ${index === highlighted ? 'is-active' : ''}`}
+                  onMouseEnter={() => setHighlighted(index)}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    insertQualifiedMention(completion);
+                  }}
+                >
+                  <Chip name={completion.member.handle} accent="indigo" size={24} />
+                  <span className="nx-mention-handle">~{completion.target.alias}:@{completion.member.handle}</span>
+                  <span className="nx-mention-kind">{completion.member.kind}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {qualifiedMention === undefined && mention && mentionables.length > 0 && (
           <ul className="nx-mentions" role="listbox" aria-label="Mention someone" data-testid="mention-popover">
             {mentionables.map((member, index) => (
               // The li is presentational: a listbox's only permitted children
@@ -650,6 +803,35 @@ export function Composer(props: { room: string; token: () => string; connection:
             // switch), so React's `mention`/`mentionables` state may describe an
             // earlier draft. Re-read the action edge before deciding whether
             // Enter selects a name or submits the completed message.
+            const liveQualified = qualifiedMentionQuery(
+              event.currentTarget.value,
+              event.currentTarget.selectionStart ?? event.currentTarget.value.length,
+            );
+            const liveQualifiedMentionables = liveQualified === undefined || routingCatalog === undefined
+              ? []
+              : qualifiedCompletionCandidates(routingCatalog, liveQualified);
+            if (liveQualified && liveQualifiedMentionables.length > 0) {
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                event.preventDefault();
+                setHighlighted((prior) => {
+                  const delta = event.key === 'ArrowDown' ? 1 : -1;
+                  return (prior + delta + liveQualifiedMentionables.length) % liveQualifiedMentionables.length;
+                });
+                return;
+              }
+              if (event.key === 'Enter' || event.key === 'Tab') {
+                event.preventDefault();
+                insertQualifiedMention(
+                  liveQualifiedMentionables[highlighted] ?? liveQualifiedMentionables[0]!,
+                  liveQualified,
+                );
+                return;
+              }
+              if (event.key === 'Escape') {
+                setQualifiedMention(undefined);
+                return;
+              }
+            }
             const liveMention = mentionQuery(
               event.currentTarget.value,
               event.currentTarget.selectionStart ?? event.currentTarget.value.length,

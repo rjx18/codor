@@ -126,7 +126,13 @@ type AuthPrincipal =
   | { kind: 'owner' }
   | { kind: 'human'; memberId: string }
   | { kind: 'browser'; deviceId: string }
-  | { kind: 'agent'; memberId: string; room: string };
+  | {
+      kind: 'agent';
+      memberId: string;
+      room: string;
+      homeRoom: string;
+      invocation?: { originRoom: string; targetRoom: string };
+    };
 
 const PAIRING_CODE_ATTEMPTS = 5;
 const PAIRING_CODE_WINDOW_MS = 60_000;
@@ -255,7 +261,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // harn:assume agent-member-credentials-stay-secret ref=agent-principal-resolution
     const agent = daemon.authenticateAgentToken(candidate);
     return agent
-      ? { kind: 'agent', memberId: agent.member.id, room: agent.room }
+      ? {
+          kind: 'agent',
+          memberId: agent.member.id,
+          room: agent.room,
+          homeRoom: agent.homeRoom,
+          ...(agent.invocation !== undefined && {
+            invocation: {
+              originRoom: agent.invocation.originRoom,
+              targetRoom: agent.invocation.targetRoom,
+            },
+          }),
+        }
       : undefined;
     // harn:end agent-member-credentials-stay-secret
   };
@@ -274,14 +291,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   const memberForRoom = (principal: AuthPrincipal, room: string): Member => {
     if (principal.kind === 'owner' || principal.kind === 'browser') return daemon.ownerOf(room);
-    if (principal.kind === 'agent' && principal.room !== room) {
+    if (principal.kind === 'agent'
+      && principal.room !== room
+      && principal.homeRoom !== room) {
       throw new Error(`forbidden: agent credential belongs to room ${principal.room}`);
     }
-    const member = daemon.store.getMember(room, principal.memberId);
+    const member = principal.kind === 'agent'
+      ? daemon.agentMemberForRoom(principal.room, principal.memberId)
+      : daemon.store.getMember(room, principal.memberId);
     if (member?.kind !== principal.kind) {
       throw new Error(`principal is not a ${principal.kind} member of this room`);
     }
     return member;
+  };
+
+  // A long-lived target session may reconnect through its home selector while
+  // one durable cross-origin invocation is active. The credential remains
+  // bounded to that single origin; it never gains a general room selector.
+  const effectiveAgentRoom = (principal: AuthPrincipal, requestedRoom: string): string => {
+    if (principal.kind !== 'agent' || principal.invocation === undefined) return requestedRoom;
+    return requestedRoom === principal.homeRoom || requestedRoom === principal.invocation.originRoom
+      ? principal.invocation.originRoom
+      : requestedRoom;
   };
 
   const memberForGlobal = (principal: AuthPrincipal): Member | undefined => {
@@ -1021,6 +1052,23 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.get('/api/rooms/:room/worktrees/discover', listWorktreeRoute);
   // harn:end worktree-discovery-never-registers-candidates
 
+  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-rest
+  /** Human-only, path-free routing projection; this never invokes Git discovery. */
+  const routingCatalogRoute = (req: FastifyRequest, reply: FastifyReply): void => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      void reply.send(daemon.routingCatalog(room));
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.get('/api/rooms/:room/routing-targets', routingCatalogRoute);
+  app.get('/api/rooms/:room/worktrees/routing-targets', routingCatalogRoute);
+  // harn:end qualified-completion-lists-registered-targets-only
+
   // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
   const worktreeLifecycleResponse = (
     principal: AuthPrincipal,
@@ -1685,6 +1733,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             }
             // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
             const actor = assertRoomCapability(principal, frame.room, 'read');
+            const room = effectiveAgentRoom(principal, frame.room);
             // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             const roomAddressed = frame.room_addressed === true;
             // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
@@ -1695,14 +1744,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               roomAddressed,
               ...(supportMemberId !== undefined && { memberId: supportMemberId }),
             };
-            subscriptions.get(socket)!.set(frame.room, subscription);
+            subscriptions.get(socket)!.set(room, subscription);
             // harn:end room-support-is-bounded-recipient-scoped-state
-            const address = roomAddressed ? { room: frame.room } : {};
+            const address = roomAddressed ? { room } : {};
             // harn:end multiplexed-subscriptions-identify-their-room
             // The bound is the subscriber's own: passed straight through, honoured
             // only on a cold subscribe, and scoped to this actor so their unread
             // deliveries' messages ride along. Omit it and the replay is today's.
-            const sync = daemon.sync(frame.room, frame.since_seq, {
+            const sync = daemon.sync(room, frame.since_seq, {
               hydrateLimit: frame.hydrate_limit,
               subscriber: actor.id,
               strictTail: roomAddressed,
@@ -1723,7 +1772,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                   ...sync.inbox
                     .filter((delivery) => delivery.recipient === actor.id)
                     .map((delivery) => [delivery.id, delivery] as const),
-                  ...daemon.store.listDeliveries(frame.room, {
+                  ...daemon.store.listDeliveries(room, {
                     recipient: actor.id,
                     state: 'queued',
                   }).map((delivery) => [delivery.id, delivery] as const),
@@ -1749,9 +1798,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           } else if (frame.type === 'post') {
             const actor = assertRoomCapability(principal, frame.room, 'post');
+            const room = effectiveAgentRoom(principal, frame.room);
             if (principal.kind === 'agent') {
               daemon.postAgentMessage(
-                frame.room,
+                room,
                 actor.id,
                 frame.body,
                 frame.reply_to,
@@ -1774,9 +1824,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           } else if (frame.type === 'act') {
             const act = frame.act;
             const actor = assertRoomCapability(principal, frame.room, act.act);
+            const room = effectiveAgentRoom(principal, frame.room);
             if (act.act === 'answer_interaction') {
               void daemon
-                .answerInteraction(frame.room, act.interaction_id, act.answer, actor.id)
+                .answerInteraction(room, act.interaction_id, act.answer, actor.id)
                 .catch((error: unknown) =>
                   send({ type: 'error', message: String(error), ref: 'answer_interaction' }),
                 );
@@ -1854,21 +1905,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             // harn:end human-room-read-cursors-are-durable-and-monotonic
             // harn:assume live-delivery-consumption-is-idempotent ref=consume-act-dispatch
             else if (act.act === 'consume_delivery') {
-              const consumed = daemon.consumeDelivery(frame.room, act.delivery_id, actor.id);
+              const consumed = daemon.consumeDelivery(room, act.delivery_id, actor.id);
               send({ type: 'consume_result', ...consumed });
             }
             // harn:end live-delivery-consumption-is-idempotent
             // harn:assume live-agent-waits-are-transient ref=wait-act-dispatch
             else if (act.act === 'wait_begin') {
               if (principal.kind !== 'agent') throw new Error('forbidden: waits require an agent credential');
-              daemon.beginWait(frame.room, actor.id, {
+              daemon.beginWait(room, actor.id, {
                 reason: act.reason,
                 peers: act.peers,
                 until_ts: act.until_ts,
               });
             } else if (act.act === 'wait_end') {
               if (principal.kind !== 'agent') throw new Error('forbidden: waits require an agent credential');
-              daemon.endWait(frame.room, actor.id);
+              daemon.endWait(room, actor.id);
             }
             // harn:end live-agent-waits-are-transient
             else if (act.act === 'spawn') {

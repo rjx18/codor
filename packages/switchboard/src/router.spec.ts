@@ -30,6 +30,28 @@ const pausedAgent = member({ id: id('EEE'), kind: 'agent', handle: 'napper', sta
 const extension = member({ id: id('FFF'), kind: 'extension', handle: 'claude-ext-7adw', parent: claude.id });
 const system = member({ id: id('GGG'), kind: 'system', handle: 'switchboard' });
 const bridge = member({ id: id('HHH'), kind: 'bridge', handle: 'slack-bridge' });
+const childCodex = member({ id: id('IJK'), kind: 'agent', handle: 'codex', state: 'idle' });
+const childRichard = member({ id: id('LMN'), kind: 'human', handle: 'richard', role: 'owner' });
+
+const qualifiedCatalog = {
+  room: 'eng',
+  targets: [
+    {
+      worktree_id: id('TAR'),
+      conversation_id: 'wt-review',
+      alias: 'review',
+      primary: false,
+      lifecycle: 'active' as const,
+      members: [
+        { member_id: childCodex.id, handle: childCodex.handle, kind: 'agent' as const },
+        { member_id: childRichard.id, handle: childRichard.handle, kind: 'human' as const },
+      ],
+    },
+  ],
+  tombstones: [{
+    worktree_id: id('OLD'), conversation_id: 'wt-old', alias: 'old-review', lifecycle: 'removed' as const,
+  }],
+};
 
 const ROSTER = [richard, codex, claude, deadAgent, pausedAgent, extension, system, bridge];
 
@@ -129,6 +151,41 @@ describe('parseBody grammar', () => {
     expect(parsed.unresolved).toEqual(unresolved);
   });
 });
+
+// harn:assume qualified-member-target-identity-is-durable ref=qualified-body-grammar-regression
+describe('qualified body grammar', () => {
+  it('resolves main grammar before local mentions and preserves stable offsets', () => {
+    const body = '`~review:@codex` ~review:@codex then @codex';
+    const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+    expect(parsed.qualified).toHaveLength(1);
+    expect(parsed.mentions).toHaveLength(2);
+    expect(parsed.qualified?.[0]).toMatchObject({
+      member_id: childCodex.id,
+      target: { worktree_id: qualifiedCatalog.targets[0]!.worktree_id, conversation_id: 'wt-review' },
+    });
+    expect(body.slice(parsed.qualified![0]!.start, parsed.qualified![0]!.end)).toBe('~review:@codex');
+    expect(parsed.mentions[1]).not.toHaveProperty('target');
+    expect(parsed.unresolved).toEqual([]);
+  });
+
+  it('reports unknown, removed, malformed, and unavailable selectors without local fallback', () => {
+    const unknown = parseBody('~missing:@codex', ROSTER, { qualifiedTargets: qualifiedCatalog });
+    expect(unknown.qualified).toEqual([]);
+    expect(unknown.qualified_issues?.[0]).toMatchObject({ reason: 'unknown-worktree' });
+
+    const removed = parseBody('~old-review:@codex', ROSTER, { qualifiedTargets: qualifiedCatalog });
+    expect(removed.qualified_issues?.[0]).toMatchObject({ reason: 'removed-worktree' });
+
+    const malformed = parseBody('~Review:@codex', ROSTER, { qualifiedTargets: qualifiedCatalog });
+    expect(malformed.qualified_issues?.[0]).toMatchObject({ reason: 'malformed' });
+    expect(malformed.mentions).toEqual([]);
+
+    const unavailable = parseBody('~review:@codex', ROSTER);
+    expect(unavailable.qualified_issues?.[0]).toMatchObject({ reason: 'catalog-unavailable' });
+    expect(unavailable.mentions).toEqual([]);
+  });
+});
+// harn:end qualified-member-target-identity-is-durable
 
 // ── eligibility gate ────────────────────────────────────────────────────
 
@@ -406,6 +463,48 @@ describe('resolveRecipients', () => {
       expect(resolveRecipients(m, ctx({ author: codex })).misaddressed).toBe(false);
     });
   });
+
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-regression
+  it('resolves equal handles to the persisted target member and keeps local routing separate', () => {
+    const m = msg({ author: richard.id, kind: 'chat', body: '~review:@codex compare with @codex' });
+    const result = resolveRecipients(m, ctx({
+      author: richard,
+      qualifiedTargets: qualifiedCatalog,
+      qualifiedMembers: new Map([[childCodex.id, childCodex]]),
+    }));
+    expect(result.agents.map((agent) => agent.id)).toEqual([childCodex.id, codex.id]);
+    expect(result.agentTargets?.map((target) => target.target?.conversation_id)).toEqual(['wt-review', undefined]);
+    expect(result.agentTargets?.[0]?.target?.handle).toBe('codex');
+    expect(result.commentary).toBe(false);
+  });
+
+  it('strictly refuses an invalid qualified mention instead of falling back to a local agent', () => {
+    const m = msg({ author: richard.id, kind: 'chat', body: '~removed:@codex please continue' });
+    const result = resolveRecipients(m, ctx({
+      author: richard,
+      qualifiedTargets: qualifiedCatalog,
+      qualifiedMembers: new Map([[childCodex.id, childCodex]]),
+    }));
+    expect(result.qualified_refusal).toContain('removed');
+    expect(result.agents).toEqual([]);
+    expect(result.humans).toEqual([]);
+    expect(result.commentary).toBe(true);
+  });
+  // harn:end qualified-member-target-identity-is-durable
+
+  // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal-regression
+  it('does not partially fan out a mixed qualified post', () => {
+    const m = msg({ author: richard.id, kind: 'chat', body: '~review:@codex and ~missing:@codex' });
+    const result = resolveRecipients(m, ctx({
+      author: richard,
+      qualifiedTargets: qualifiedCatalog,
+      qualifiedMembers: new Map([[childCodex.id, childCodex]]),
+    }));
+    expect(result.qualified_refusal).toBeDefined();
+    expect(result.agents).toEqual([]);
+    expect(result.agentTargets).toEqual([]);
+  });
+  // harn:end invalid-qualified-targets-never-fallback
 });
 
 // ── payload goldens ─────────────────────────────────────────────────────

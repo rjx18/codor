@@ -2082,6 +2082,68 @@ describe('WebSocket', () => {
 });
 
 describe('Phase 3 REST boundaries', () => {
+  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-regression
+  it('serves a path-free persisted catalog to humans and denies agent discovery', async () => {
+    const primary = join(dir, 'catalog-repository');
+    const secondary = join(dir, 'catalog-child');
+    const registered = daemon.store.registerWorktree('eng', {
+      common_path: join(primary, '.git'),
+      primary_path: primary,
+      primary_git_admin_id: join(primary, '.git'),
+    }, {
+      path: primary,
+      git_admin_id: join(primary, '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      branch: 'main',
+    }, {
+      path: secondary,
+      git_admin_id: join(primary, '.git', 'worktrees', 'catalog-child'),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: 'feature/catalog-child',
+    }, 'catalog-child', 'adopted');
+    daemon.store.addMember(registered.worktree.conversation_id, {
+      kind: 'agent', handle: 'catalog-agent', display_name: 'Catalog Agent', state: 'idle',
+    });
+
+    const ownerResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(ownerResponse.status).toBe(200);
+    const catalog = await ownerResponse.json() as {
+      room: string;
+      targets: { alias: string; conversation_id: string; members: { handle: string }[] }[];
+      tombstones: unknown[];
+    };
+    expect(catalog.room).toBe('eng');
+    expect(catalog.targets.map((target) => target.alias)).toContain('catalog-child');
+    expect(catalog.targets.find((target) => target.alias === 'catalog-child')?.members)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'catalog-agent' })]));
+    expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
+
+    const memberResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
+      headers: { authorization: `Bearer ${MEMBER_TOKEN}` },
+    });
+    expect(memberResponse.status).toBe(200);
+
+    let session: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+      session = originalSpawn(opts);
+      return session;
+    });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'catalog-local-agent', cwd: testCwd('catalog-agent') });
+    spawnSpy.mockRestore();
+    const agentResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
+      headers: { authorization: `Bearer ${session?.env?.CODOR_MEMBER_TOKEN}` },
+    });
+    expect(agentResponse.status).toBe(403);
+  });
+  // harn:end qualified-completion-lists-registered-targets-only
+
   it('creates derived-id channels with metadata, collision suffixes, and starting agents', async () => {
     const cwd = testCwd('create-project');
     const first = await fetch(`${base}/api/rooms`, {

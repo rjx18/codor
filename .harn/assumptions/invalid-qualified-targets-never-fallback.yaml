@@ -1,0 +1,16 @@
+id: invalid-qualified-targets-never-fallback
+hash: a-931956e72609
+title: Invalid qualified targets refuse visibly without fallback
+state: active
+statement: If any qualified target is malformed, unknown, ambiguous,
+  unregistered, removed, or names an unknown/removed member, the complete post
+  must create no message or delivery and return a specific visible refusal; if
+  the invalidity appears after an accepted post or in final run output, Codor
+  must suppress downstream routing, settle affected durable work without
+  execution or resurrection, and append a visible refusal in the origin while
+  preserving final evidence.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - default-recipient-fallback-chain
+  - worktree-discovery-never-registers-candidates
+created_by: native-worktrees-phase3-qualified-routing-v3

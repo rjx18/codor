@@ -1,0 +1,17 @@
+id: qualified-completion-lists-registered-targets-only
+hash: a-4a395b252bd3
+title: Qualified completion lists only explicitly registered targets
+state: active
+statement: The browser may fetch a read-only path-free routing catalog
+  containing main and active explicitly registered worktrees and their active
+  addressable members, with bounded tombstone selectors only for refusal
+  explanations; completion must distinguish equal handles, insert the complete
+  qualified token, preserve drafts on parser/server refusal, expose no
+  discovery/path/branch/admin data, and leave ordinary local completion and
+  sending unchanged when no secondary is registered.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - invalid-qualified-targets-never-fallback
+  - main-and-direct-conversations-stay-compatible
+  - worktree-discovery-never-registers-candidates
+created_by: native-worktrees-phase3-qualified-routing-v3

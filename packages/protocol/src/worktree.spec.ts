@@ -9,6 +9,7 @@ import {
   WorktreeLifecycleResponseSchema,
   WorktreeListResponseSchema,
   WorktreeRoomKeySchema,
+  WorktreeRoutingCatalogSchema,
 } from './worktree.js';
 
 const repository = {
@@ -123,3 +124,47 @@ describe('discovery contract', () => {
   });
 });
 // harn:end worktree-discovery-never-registers-candidates
+
+// harn:assume qualified-member-target-identity-is-durable ref=qualified-member-target-protocol-regression
+describe('qualified routing projection protocol', () => {
+  it('accepts stable main and secondary targets while excluding filesystem metadata', () => {
+    const catalog = WorktreeRoutingCatalogSchema.parse({
+      room: repository.room,
+      targets: [
+        {
+          worktree_id: '01J00000000000000000000000',
+          conversation_id: repository.room,
+          alias: 'main',
+          primary: true,
+          lifecycle: 'active',
+          members: [{
+            member_id: '01J00000000000000000000002',
+            handle: 'richard',
+            kind: 'human',
+          }],
+        },
+        {
+          worktree_id: worktree.id,
+          conversation_id: worktree.conversation_id,
+          alias: worktree.alias,
+          primary: false,
+          lifecycle: 'active',
+          members: [{
+            member_id: '01J00000000000000000000003',
+            handle: 'richard',
+            kind: 'human',
+          }],
+        },
+      ],
+      tombstones: [{
+        worktree_id: '01J00000000000000000000004',
+        conversation_id: 'wt-removed',
+        alias: 'old-review',
+        lifecycle: 'removed',
+      }],
+    });
+    expect(catalog.targets.map((target) => target.alias)).toEqual(['main', 'review-a']);
+    expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
+  });
+});
+// harn:end qualified-member-target-identity-is-durable

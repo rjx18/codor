@@ -36,6 +36,8 @@ import type {
   WorktreeAdoptRequest,
   WorktreeCreateRequest,
   WorktreeListResponse,
+  ScopedMemberTarget,
+  WorktreeRoutingCatalog,
 } from '@codor/protocol';
 
 import {
@@ -85,6 +87,7 @@ import {
   parseBody,
   type PayloadContext,
   resolveRecipients,
+  type RoutedRecipient,
   type ResolvedRef,
 } from './router.js';
 import {
@@ -489,6 +492,24 @@ export class Daemon {
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
   private readonly sessions = new Map<string, Session>();
+  // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-resolution
+  /** One target member's session may speak for only one origin at a time. */
+  private readonly activeInvocations = new Map<string, {
+    originRoom: string;
+    targetRoom: string;
+    target: ScopedMemberTarget;
+  }>();
+  // harn:end agent-authority-follows-one-active-invocation
+
+  private activeInvocationForMember(memberId: string): {
+    originRoom: string;
+    targetRoom: string;
+    target: ScopedMemberTarget;
+  } | null | undefined {
+    const durable = this.store.listActiveInvocations(memberId);
+    if (durable.length > 1) return null;
+    return durable[0] ?? this.activeInvocations.get(memberId);
+  }
   /**
    * Members whose settings changed and whose cached session is therefore out of date.
    *
@@ -624,14 +645,19 @@ export class Daemon {
   }
 
   // harn:assume agent-member-credentials-stay-secret ref=member-session-environment
-  private issueMemberCredential(room: string, member: Member, session: Session): void {
+  private issueMemberCredential(
+    room: string,
+    member: Member,
+    session: Session,
+    channelRoom = room,
+  ): void {
     const token = randomBytes(32).toString('base64url');
     const credentialHash = createHash('sha256').update(token).digest('hex');
     this.store.setAgentCredentialHash(room, member.id, credentialHash);
     session.env = {
       ...session.env,
       CODOR_SOCKET: this.socketPath,
-      CODOR_CHANNEL: room,
+      CODOR_CHANNEL: channelRoom,
       CODOR_MEMBER_ID: member.id,
       CODOR_MEMBER_TOKEN: token,
       // harn:assume member-session-masks-operator-token ref=member-token-environment-mask
@@ -640,12 +666,38 @@ export class Daemon {
     };
   }
 
-  authenticateAgentToken(token: string): { room: string; member: Member } | undefined {
+  authenticateAgentToken(token: string): {
+    room: string;
+    homeRoom: string;
+    member: Member;
+    invocation?: { originRoom: string; targetRoom: string; target: ScopedMemberTarget };
+  } | undefined {
     if (token === '') return undefined;
     const credentialHash = createHash('sha256').update(token).digest('hex');
-    return this.store.findAgentByCredentialHash(credentialHash);
+    const found = this.store.findAgentByCredentialHash(credentialHash);
+    if (found === undefined) return undefined;
+    const invocation = this.activeInvocationForMember(found.member.id);
+    if (invocation === null) return undefined;
+    return {
+      room: invocation?.originRoom ?? found.room,
+      homeRoom: found.room,
+      member: invocation === undefined
+        ? found.member
+        : this.store.getMember(invocation.targetRoom, found.member.id) ?? found.member,
+      ...(invocation !== undefined && { invocation }),
+    };
   }
   // harn:end agent-member-credentials-stay-secret
+
+  // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-authorization
+  /** Resolve the only room an agent credential may post into during a turn. */
+  agentMemberForRoom(room: string, memberId: string): Member | undefined {
+    const invocation = this.activeInvocationForMember(memberId);
+    if (invocation === null) return undefined;
+    if (invocation?.originRoom === room) return this.store.getMember(invocation.targetRoom, memberId);
+    return this.store.getMember(room, memberId);
+  }
+  // harn:end agent-authority-follows-one-active-invocation
 
   async close(options: { force?: boolean } = {}): Promise<void> {
     if (this.closed) return;
@@ -2470,12 +2522,25 @@ export class Daemon {
     interim = false,
     attachments?: Attachment[],
     voice?: VoiceNote,
+    routing?: { executionRoom?: string; authorTarget?: ScopedMemberTarget },
   ): Message {
-    const parsed = parseBody(body, this.store.listMembers(room));
+    const executionRoom = routing?.executionRoom ?? room;
+    const routingState = this.routingState(room);
+    const parsed = parseBody(body, this.store.listMembers(executionRoom), {
+      qualifiedTargets: routingState.catalog,
+    });
+    // harn:assume invalid-qualified-targets-never-fallback ref=qualified-post-error-boundary
+    if ((parsed.qualified_issues?.length ?? 0) > 0) {
+      throw new Error(
+        `qualified target refused: ${parsed.qualified_issues!.map((issue) => issue.token).join(', ')}`,
+      );
+    }
+    // harn:end invalid-qualified-targets-never-fallback
     // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-ingress
     const committed = this.store.commitRoutedMessage(room, {
       message: {
         author: authorId,
+        author_target: routing?.authorTarget,
         kind: 'chat',
         body,
         mentions: parsed.mentions,
@@ -2492,6 +2557,7 @@ export class Daemon {
         undefined,
         awaitingReply,
         !interim,
+        executionRoom,
       ).plan,
     });
     this.emitMessage(room, committed.message);
@@ -2521,17 +2587,40 @@ export class Daemon {
     replyTo?: number,
     awaitingReply = false,
   ): Message {
-    const author = this.store.getMember(room, memberId);
+    const invocation = this.activeInvocationForMember(memberId);
+    if (invocation === null) {
+      throw new Error('agent invocation is ambiguous; authority is temporarily unavailable');
+    }
+    if (invocation !== undefined && room !== invocation.originRoom) {
+      throw new Error(`agent invocation is authorized only for origin room ${invocation.originRoom}`);
+    }
+    const executionRoom = invocation?.originRoom === room ? invocation.targetRoom : room;
+    const author = this.store.getMember(executionRoom, memberId);
     if (!author || author.kind !== 'agent' || author.removed_ts !== undefined) {
       throw new Error(`no active agent author: ${memberId}`);
     }
     // harn:assume interim-agent-posts-are-nonfinal-routing ref=interim-post-classification
     // A latest running row makes this an interim post. It remains ordinary chat; status
     // derives the live-turn window from timestamps instead of changing Message kind.
-    const currentRun = this.store.listRunMessages(room, { author: memberId, limit: 1 })[0];
+    const currentRun = this.store.listRunMessages(room, { author: memberId, limit: 1 })[0]
+      ?? (executionRoom !== room
+        ? this.store.listRunMessages(executionRoom, { author: memberId, limit: 1 })[0]
+        : undefined);
     if (currentRun?.run?.status === 'running') this.noteRunActivity(room, currentRun.id);
     // harn:end interim-agent-posts-are-nonfinal-routing
-    return this.postChatMessage(room, body, memberId, replyTo, awaitingReply, true);
+    return this.postChatMessage(
+      room,
+      body,
+      memberId,
+      replyTo,
+      awaitingReply,
+      true,
+      undefined,
+      undefined,
+      invocation?.originRoom === room
+        ? { executionRoom, authorTarget: invocation.target }
+        : undefined,
+    );
   }
   // harn:end agent-network-authority-is-narrow
 
@@ -2558,7 +2647,12 @@ export class Daemon {
     },
     now = new Date(),
   ): Member {
-    const member = this.store.getMember(room, memberId);
+    const invocation = this.activeInvocationForMember(memberId);
+    if (invocation === null) throw new Error('agent invocation is ambiguous; authority is temporarily unavailable');
+    const targetRoom = invocation?.originRoom === room
+      ? invocation.targetRoom
+      : room;
+    const member = this.store.getMember(targetRoom, memberId);
     if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
       throw new Error(`no active agent member: ${memberId}`);
     }
@@ -2579,7 +2673,7 @@ export class Daemon {
       throw new Error('wait peers must name at least one other member');
     }
     for (const peerId of peers) {
-      const peer = this.store.getMember(room, peerId);
+      const peer = this.store.getMember(targetRoom, peerId);
       if (!peer || peer.removed_ts !== undefined) throw new Error(`no active wait peer: ${peerId}`);
     }
     const waiting = {
@@ -2603,7 +2697,7 @@ export class Daemon {
     }
     // harn:end same-round-terminal-peers-end-live-waits
     this.noteRunActivity(room, run.id);
-    this.emitMember(room, member);
+    this.emitMember(targetRoom, member);
     const groupContext = this.groupWaits.get(memberId);
     if (groupContext) {
       this.clearSatisfiedGroupWaits(room, groupContext.groupId, groupContext.roundNumber);
@@ -2612,7 +2706,12 @@ export class Daemon {
   }
 
   endWait(room: string, memberId: string): Member {
-    const member = this.store.getMember(room, memberId);
+    const invocation = this.activeInvocationForMember(memberId);
+    if (invocation === null) throw new Error('agent invocation is ambiguous; authority is temporarily unavailable');
+    const targetRoom = invocation?.originRoom === room
+      ? invocation.targetRoom
+      : room;
+    const member = this.store.getMember(targetRoom, memberId);
     if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
       throw new Error(`no active agent member: ${memberId}`);
     }
@@ -2626,7 +2725,7 @@ export class Daemon {
     if (!run) throw new Error(`member @${member.handle} has no running turn to end a wait in`);
     const changed = this.memberWaits.delete(memberId);
     this.groupWaits.delete(memberId);
-    if (changed) this.emitMember(room, member);
+    if (changed) this.emitMember(targetRoom, member);
     return member;
   }
   // harn:end live-agent-waits-are-transient
@@ -2782,13 +2881,81 @@ export class Daemon {
 
   // ── routing / fanout ──────────────────────────────────────────────────
 
+  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog
+  /** The catalog is a projection of persisted registry rows; it never calls Git. */
+  routingCatalog(room: string): WorktreeRoutingCatalog {
+    return this.store.routingCatalog(room);
+  }
+
+  private routingState(room: string): {
+    catalog: WorktreeRoutingCatalog;
+    members: Map<string, Member>;
+  } {
+    const catalog = this.routingCatalog(room);
+    const members = new Map<string, Member>();
+    for (const target of catalog.targets) {
+      for (const member of this.store.listMembers(target.conversation_id)) {
+        if (member.kind === 'human' || member.kind === 'agent') members.set(member.id, member);
+      }
+    }
+    return { catalog, members };
+  }
+
+  private targetForMember(originRoom: string, executionRoom: string, member: Member): ScopedMemberTarget | undefined {
+    const root = this.store.rootRoomId(originRoom) ?? originRoom;
+    if (executionRoom === root || member.kind !== 'agent') return undefined;
+    const worktree = this.store.getWorktreeByConversation(root, executionRoom);
+    if (worktree?.lifecycle !== 'active') return undefined;
+    return {
+      worktree_id: worktree.id,
+      conversation_id: worktree.conversation_id,
+      member_id: member.id,
+      alias: worktree.alias,
+      handle: member.handle,
+    };
+  }
+
+  private targetMember(delivery: Delivery, originRoom: string): {
+    room: string;
+    member: Member;
+    target?: ScopedMemberTarget;
+  } | undefined {
+    if (delivery.target !== undefined) {
+      const member = this.store.getMember(delivery.target.conversation_id, delivery.target.member_id);
+      return member === undefined
+        ? undefined
+        : { room: delivery.target.conversation_id, member, target: delivery.target };
+    }
+    const member = this.store.getMember(originRoom, delivery.recipient);
+    return member === undefined ? undefined : { room: originRoom, member };
+  }
+
+  // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal
+  /** Settle a target that changed after posting; never re-resolve or fall back. */
+  private refuseQualifiedDelivery(room: string, delivery: Delivery, reason: string): void {
+    if (delivery.group_id !== undefined) this.skipUnavailableGroupDelivery(room, delivery);
+    else this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
+    const settled = this.store.getDelivery(room, delivery.id);
+    if (settled !== undefined) this.emitInbox(room, settled);
+    this.postSystemMessage(room, `qualified target refused: ${reason}`);
+  }
+  // harn:end invalid-qualified-targets-never-fallback
+
+  // harn:end qualified-completion-lists-registered-targets-only
+
   private latestFinalizedAgentAuthor(room: string): string | undefined {
     return this.store.latestFinalizedAgentAuthor(room);
   }
 
   private dispatchCreatedDeliveries(room: string, created: Delivery[]): void {
     for (const delivery of created) {
-      const recipient = this.store.getMember(room, delivery.recipient);
+      if (delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target)) {
+        this.refuseQualifiedDelivery(room, delivery, `target ${delivery.target.alias}:@${delivery.target.handle} is no longer active`);
+        continue;
+      }
+      const located = this.targetMember(delivery, room);
+      const recipient = located?.member;
+      const targetRoom = located?.room ?? room;
       // harn:assume agent-delivery-lifecycle-streams-v2 ref=delivery-created-emit
       // Agent recipients stream their queued frame too — a connected client's
       // seen tick starts honest instead of waiting for a reconnect snapshot.
@@ -2801,7 +2968,7 @@ export class Daemon {
         ) {
           this.skipUnavailableGroupDelivery(room, delivery);
         } else {
-          this.dispatchAgentDelivery(room, delivery, recipient);
+          this.dispatchAgentDelivery(room, delivery, recipient, targetRoom);
         }
       }
     }
@@ -2821,14 +2988,20 @@ export class Daemon {
         : `spend brake at $${(meter?.cost_usd ?? 0).toFixed(2)}`;
   }
 
-  private dispatchAgentDelivery(room: string, delivery: Delivery, recipient: Member): void {
-    const reason = this.deliveryBrakeReason(room, delivery);
+  private dispatchAgentDelivery(
+    room: string,
+    delivery: Delivery,
+    recipient: Member,
+    targetRoom = room,
+  ): void {
+    const reason = this.deliveryBrakeReason(targetRoom, delivery);
     if (reason) {
       this.holdDelivery(room, delivery.id, reason);
       return;
     }
     const adapter = recipient.harness === undefined ? undefined : this.adapters.get(recipient.harness);
     if (
+      targetRoom === room &&
       delivery.group_id === undefined &&
       recipient.custody === 'owned' &&
       !this.isRemoteMember(recipient) &&
@@ -2840,12 +3013,12 @@ export class Daemon {
       this.scheduleAgentSteering(room, delivery, recipient, adapter);
       return;
     }
-    this.queueAgentDelivery(room, recipient);
+    this.queueAgentDelivery(room, recipient, targetRoom);
   }
   // harn:end agent-chains-uninterrupted-by-default
 
   // harn:assume mirrored-deliveries-queue ref=mirrored-custody-hold
-  private queueAgentDelivery(room: string, recipient: Member): void {
+  private queueAgentDelivery(room: string, recipient: Member, targetRoom = room): void {
     const mirrored = recipient.custody === 'mirrored';
     const remoteUnreachable = this.isRemoteMember(recipient) &&
       !this.residency?.isReachable(recipient.host);
@@ -2858,15 +3031,12 @@ export class Daemon {
       recipient.state === 'dead' ||
       recipient.state === 'custody_uncertain';
     // harn:end inflight-member-state-survives-new-delivery
-    const member = this.store.updateMember(room, recipient.id, {
+    const member = this.store.updateMember(targetRoom, recipient.id, {
       state: preservesState ? recipient.state : remoteUnreachable ? 'unreachable' : 'queued',
     });
-    this.emitMember(room, member);
+    this.emitMember(targetRoom, member);
     if (mirrored) {
-      const queued = this.store.listDeliveries(room, {
-        recipient: recipient.id,
-        state: 'queued',
-      }).length;
+      const queued = this.store.listDeliveriesForTarget(targetRoom, recipient.id, { state: 'queued' }).length;
       if (queued === 1) {
         this.postSystemMessage(
           room,
@@ -2876,7 +3046,7 @@ export class Daemon {
       return;
     }
     if (remoteUnreachable) return;
-    this.track(this.maybeStartTurn(room, recipient.id));
+    this.track(this.maybeStartTurn(targetRoom, recipient.id));
   }
   // harn:end mirrored-deliveries-queue
 
@@ -2968,27 +3138,58 @@ export class Daemon {
     triggerAuthor?: string,
     agentHop?: number,
     awaitingReply = false,
+    executionRoom = room,
   ) {
-    const members = this.store.listMembers(room);
-    const author = members.find((m) => m.id === message.author);
+    const originMembers = this.store.listMembers(room);
+    const members = this.store.listMembers(executionRoom);
+    const routingState = this.routingState(room);
+    const author = members.find((m) => m.id === message.author)
+      ?? originMembers.find((m) => m.id === message.author);
     const result = resolveRecipients(message, {
       members,
       author,
       repliedTo: message.reply_to !== undefined ? this.store.getMessage(room, message.reply_to) : undefined,
-      latestFinalizedAgentAuthor: this.latestFinalizedAgentAuthor(room),
-      roomConfig: this.store.getRoom(room)!.config,
+      latestFinalizedAgentAuthor: this.latestFinalizedAgentAuthor(executionRoom),
+      roomConfig: this.store.getRoom(executionRoom)!.config,
       triggerAuthor,
+      qualifiedTargets: routingState.catalog,
+      qualifiedMembers: routingState.members,
     });
-    const recipients = [...result.agents, ...result.humans];
+    const agentTargets: RoutedRecipient[] = result.agentTargets
+      ?? result.agents.map((member) => ({ member }));
+    const humanTargets: RoutedRecipient[] = result.humanTargets
+      ?? result.humans.map((member) => ({ member }));
+    const recipients = [...agentTargets, ...humanTargets];
     const fanout: FanoutDelivery[] = [
-      ...result.humans.map((human) => ({ recipient: human.id, state: 'consumed' as const })),
-      ...result.agents.map((agent) => ({
-        recipient: agent.id,
+      ...humanTargets.map(({ member, target }) => ({
+        recipient: member.id,
+        state: 'consumed' as const,
+        ...(target !== undefined && { target }),
+      })),
+      ...agentTargets.map(({ member, target }) => ({
+        recipient: member.id,
         state: 'queued' as const,
-        payload_snapshot: this.snapshotPayload(room, message, agent, recipients, awaitingReply),
+        ...(target !== undefined
+          ? { target }
+          : (() => {
+              const scoped = this.targetForMember(room, executionRoom, member);
+              return scoped === undefined ? {} : { target: scoped };
+            })()),
+        payload_snapshot: this.snapshotPayload(
+          room,
+          message,
+          member,
+          recipients,
+          awaitingReply,
+          executionRoom,
+          target,
+        ),
         hop_count: agentHop ?? (author?.kind === 'agent' ? 1 : 0),
       })),
     ];
+    // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal
+    if (result.qualified_refusal !== undefined) return { result, fanout: [] };
+    // harn:end invalid-qualified-targets-never-fallback
     return { result, fanout };
   }
 
@@ -2999,13 +3200,25 @@ export class Daemon {
     agentHop?: number,
     awaitingReply = false,
     allowGroup = true,
+    executionRoom = room,
   ): { result: ReturnType<typeof resolveRecipients>; plan: RoutedMessagePlan } {
-    const planned = this.planFanout(room, message, triggerAuthor, agentHop, awaitingReply);
+    const planned = this.planFanout(
+      room,
+      message,
+      triggerAuthor,
+      agentHop,
+      awaitingReply,
+      executionRoom,
+    );
     const base: RoutedMessagePlan = {
       fanout: planned.fanout,
       ...(planned.result.misaddressed && { markMisaddressed: true }),
     };
-    if (!allowGroup || planned.result.agents.length < 2) {
+    if (
+      !allowGroup
+      || planned.result.agents.length < 2
+      || planned.fanout.some((delivery) => delivery.target !== undefined)
+    ) {
       return { result: planned.result, plan: base };
     }
 
@@ -3022,9 +3235,9 @@ export class Daemon {
       plan: {
         ...base,
         fanout: planned.fanout.filter((delivery) => humanIds.has(delivery.recipient)),
-        collaboration: {
-          groupId,
-          participants: planned.result.agents.map((agent) => ({
+          collaboration: {
+            groupId,
+            participants: planned.result.agents.map((agent) => ({
             memberId: agent.id,
             payloadSnapshot: this.groupPayloadSnapshot(
               composeGroupRoundPayload(context, agent.handle),
@@ -3096,20 +3309,26 @@ export class Daemon {
     room: string,
     message: Message,
     recipient: Member,
-    recipients: Member[],
+    recipients: RoutedRecipient[],
     awaitingReply = false,
+    executionRoom = room,
+    _recipientTarget?: ScopedMemberTarget,
   ): string {
-    const author = this.store.getMember(room, message.author)!;
-    const recipientIds = new Set(recipients.map((member) => member.id));
+    const author = this.store.getMember(executionRoom, message.author)
+      ?? this.store.getMember(room, message.author);
+    if (author === undefined) throw new Error(`message #${message.id} has no author`);
+    const recipientIds = new Set(recipients.map(({ member }) => member.id));
     const toHandles = [
       ...new Set(
         message.mentions
           .filter((span) => recipientIds.has(span.member_id))
-          .map((span) => this.store.getMember(room, span.member_id)?.handle)
+          .map((span) => span.target?.handle
+            ?? this.store.getMember(executionRoom, span.member_id)?.handle
+            ?? this.store.getMember(room, span.member_id)?.handle)
           .filter((handle): handle is string => handle !== undefined),
       ),
     ];
-    if (toHandles.length === 0) toHandles.push(...recipients.map((member) => member.handle));
+    if (toHandles.length === 0) toHandles.push(...recipients.map(({ member }) => member.handle));
     const refs: ResolvedRef[] = message.refs
       .map((id) => this.store.getMessage(room, id))
       .filter((ref): ref is Message => ref !== undefined)
@@ -3126,6 +3345,7 @@ export class Daemon {
         message,
         authorHandle: author.handle,
         authorKind: author.kind,
+        ...(message.author_target !== undefined && { authorTarget: message.author_target }),
         toHandles,
         refs,
         ledgerRefs,
@@ -3165,6 +3385,7 @@ export class Daemon {
     if (this.isRemoteMember(member) && !this.residency?.isReachable(member.host)) {
       return { refusal: `member @${member.handle} resident switchboard is unreachable` };
     }
+    if (member.removed_ts !== undefined) return { refusal: `member @${member.handle} is removed` };
     if (member.state === 'paused' || member.state === 'dead' || member.state === 'custody_uncertain') {
       return { refusal: `member @${member.handle} is ${member.state}` };
     }
@@ -3197,17 +3418,27 @@ export class Daemon {
   }
 
   async maybeStartTurn(room: string, memberId: string): Promise<void> {
+    const queued = this.store.listDeliveriesForTarget(room, memberId, { state: 'queued' })
+      .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
+    const invalid = queued.find((delivery) =>
+      delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target));
+    if (invalid !== undefined) {
+      this.refuseQualifiedDelivery(invalid.room, invalid, 'registered target was removed or unregistered');
+      return;
+    }
     const eligible = this.turnStartEligibility(room, memberId);
     if (!eligible.member) return; // holds its queue; the room shows the backlog
     const member = eligible.member;
-    const queued = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' })
-      .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
     if (queued.length === 0) return;
     if (!this.ensureCopilotVscodeSessionAdmission(room, member)) return;
     // harn:assume grouped-deliveries-have-an-isolated-batch-class ref=group-batch-pump-integration
-    const selected = selectDeliveryBatchPrefix(queued);
+    const originRoom = queued[0]!.room;
+    // Batching never crosses an origin/routing context: the target member is
+    // global, but each payload remains attached to its own conversation.
+    const sameOrigin = queued.filter((delivery) => delivery.room === originRoom);
+    const selected = selectDeliveryBatchPrefix(sameOrigin);
     const batch = this.applyTurnStartBrakes(
-      room,
+      originRoom,
       selected,
       selected[0]?.group_id !== undefined,
     );
@@ -3219,7 +3450,7 @@ export class Daemon {
     }
     this.inflight.add(memberId);
     try {
-      await this.runTurn(room, member, batch);
+      await this.runTurn(originRoom, room, member, batch);
     } finally {
       this.inflight.delete(memberId);
     }
@@ -3228,13 +3459,24 @@ export class Daemon {
   // harn:end brakes-rechecked-at-turn-start
   // harn:end one-inflight-turn-per-member
 
-  private async runTurn(room: string, member: Member, batch: Delivery[], reuseRunMsg?: Message): Promise<void> {
+  private async runTurn(
+    room: string,
+    targetRoom: string,
+    member: Member,
+    batch: Delivery[],
+    reuseRunMsg?: Message,
+  ): Promise<void> {
     // harn:assume turns-reuse-one-root-and-append-output-messages ref=run-message-lifecycle
     // Exactly one lifecycle root owns the turn, its input custody, and journal.
     // A crash retry reuses it; only later visible stretches may append rows.
     const originalStates = new Map(batch.map((delivery) => [delivery.id, delivery.state]));
+    // harn:assume cross-worktree-runtime-stays-target-local ref=cross-worktree-runtime-target
+    const invocationTarget = batch.find((delivery) => delivery.target !== undefined)?.target
+      ?? this.targetForMember(room, targetRoom, member);
     const started = this.store.beginTurn(room, {
       memberId: member.id,
+      targetRoom,
+      ...(invocationTarget !== undefined && { authorTarget: invocationTarget }),
       deliveryIds: batch.map((delivery) => delivery.id),
       startedTs: new Date().toISOString(),
       model: member.model,
@@ -3246,14 +3488,23 @@ export class Daemon {
     // was removed, or the work was taken by something else. There is nothing to say, and
     // an empty run message would be a defect of its own. Idle the member and stop.
     if (!started) {
-      const current = this.store.getMember(room, member.id);
+      const current = this.store.getMember(targetRoom, member.id);
       if (current !== undefined && current.state === 'queued') {
-        this.emitMember(room, this.store.updateMember(room, member.id, { state: 'idle' }));
+        this.emitMember(targetRoom, this.store.updateMember(targetRoom, member.id, { state: 'idle' }));
       }
       return;
     }
     // harn:end only-an-admissible-delivery-becomes-delivering
     const runMsg = started.runMessage;
+    if (invocationTarget !== undefined && targetRoom !== room) {
+      // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-resolution
+      this.activeInvocations.set(member.id, {
+        originRoom: room,
+        targetRoom,
+        target: invocationTarget,
+      });
+      // harn:end agent-authority-follows-one-active-invocation
+    }
     this.emitMessage(room, runMsg);
     this.noteRunActivity(room, runMsg.id);
     // harn:end turns-reuse-one-root-and-append-output-messages
@@ -3282,12 +3533,16 @@ export class Daemon {
     }
     // harn:end agent-delivery-lifecycle-streams-v2
 
-    const payload = this.composeBatchPayload(room, member, bound);
-    this.emitMember(room, this.store.updateMember(room, member.id, { state: 'running' }));
+    const payload = this.composeBatchPayload(room, targetRoom, member, bound);
+    this.emitMember(targetRoom, this.store.updateMember(targetRoom, member.id, { state: 'running' }));
 
     const remote = this.isRemoteMember(member);
     const adapter = remote ? undefined : this.requireAdapter(member.harness!);
-    const session = remote ? undefined : this.sessionFor(room, member);
+    const session = remote ? undefined : this.sessionFor(targetRoom, member);
+    if (!remote && invocationTarget !== undefined && targetRoom !== room) {
+      this.issueMemberCredential(targetRoom, member, session!, room);
+    }
+    // harn:end cross-worktree-runtime-stays-target-local
     let completion: TurnCompletion | undefined;
     let toolCalls = 0;
     const pendingExtensionDescriptions: string[] = [];
@@ -3304,11 +3559,11 @@ export class Daemon {
           }, {
             lastEventIndex: this.blobs.read(room, runMsg.run!.events_ref).length - 1,
             onSessionRef: (sessionRef) => {
-              const persisted = this.store.getMember(room, member.id);
+              const persisted = this.store.getMember(targetRoom, member.id);
               if (persisted?.session_ref === sessionRef) return;
               this.emitMember(
                 room,
-                this.store.updateMember(room, member.id, { session_ref: sessionRef }),
+                this.store.updateMember(targetRoom, member.id, { session_ref: sessionRef }),
               );
             },
           })
@@ -3338,20 +3593,20 @@ export class Daemon {
           // harn:end run-events-merge-by-journal-index
         },
         onSessionRef: (sessionRef) => {
-          const persisted = this.store.getMember(room, member.id);
+          const persisted = this.store.getMember(targetRoom, member.id);
           if (persisted?.session_ref === sessionRef) return;
           this.emitMember(
-            room,
-            this.store.updateMember(room, member.id, { session_ref: sessionRef }),
+            targetRoom,
+            this.store.updateMember(targetRoom, member.id, { session_ref: sessionRef }),
           );
         },
         onSessionLifecycle: (support) => {
-          this.store.setAgentSessionLifecycle(room, member.id, support);
+          this.store.setAgentSessionLifecycle(targetRoom, member.id, support);
         },
         onSessionRuntime: ({ session_ref, lifecycle }) => {
           this.emitMember(
-            room,
-            this.store.setAgentSessionRuntime(room, member.id, session_ref, lifecycle),
+            targetRoom,
+            this.store.setAgentSessionRuntime(targetRoom, member.id, session_ref, lifecycle),
           );
         },
         // harn:end attempt-start-evidence-persisted
@@ -3371,29 +3626,29 @@ export class Daemon {
           if (description !== undefined) pendingExtensionDescriptions.push(description);
         } else if (event.type === 'extension.started') {
           journalEvent = this.startExtension(
-            room,
+            targetRoom,
             member,
             event,
             pendingExtensionDescriptions.shift(),
           );
         } else if (event.type === 'extension.ended') {
-          journalEvent = this.endExtension(room, member, event);
+          journalEvent = this.endExtension(targetRoom, member, event);
         }
         // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
         // Live usage is member runtime state: broadcast it, but do not append it
         // to the durable run journal or change log.
         if (event.type === 'usage_updated') {
-          const current = this.store.getMember(room, member.id);
+          const current = this.store.getMember(targetRoom, member.id);
           if (current === undefined || current.model !== member.model || current.removed_ts !== undefined) continue;
-          this.landContextWindow(room, member.id, event.usage);
+          this.landContextWindow(targetRoom, member.id, event.usage);
           // Keyed by bare member id like every sibling per-member map (ULIDs
           // never repeat, so no cross-room collision). Skip the re-broadcast
           // when the snapshot is unchanged — a full member frame per identical
           // usage report is pure fanout waste.
           if (!isDeepStrictEqual(this.lastUsage.get(member.id), event.usage)) {
             this.lastUsage.set(member.id, { ...event.usage });
-            const current = this.store.getMember(room, member.id);
-            if (current !== undefined) this.emitMember(room, current);
+            const current = this.store.getMember(targetRoom, member.id);
+            if (current !== undefined) this.emitMember(targetRoom, current);
           }
           continue;
         }
@@ -3402,7 +3657,7 @@ export class Daemon {
         // Limits are member status, not run content: land the harness's report
         // on the member row and stream the member frame — nothing is journaled.
         if (event.type === 'run.limits') {
-          this.landMemberLimits(room, member.id, event.limits);
+          this.landMemberLimits(targetRoom, member.id, event.limits);
           continue;
         }
         // harn:end agent-usage-limits-reported-not-guessed
@@ -3411,15 +3666,15 @@ export class Daemon {
         // member row and stream the member frame only when it changed. Intercept
         // before journal assignment — never write a run event or run_event frame.
         if (event.type === 'run.tasks') {
-          const updated = this.store.applyMemberTaskUpdate(room, member.id, event.update);
-          if (updated !== undefined) this.emitMember(room, updated);
+          const updated = this.store.applyMemberTaskUpdate(targetRoom, member.id, event.update);
+          if (updated !== undefined) this.emitMember(targetRoom, updated);
           continue;
         }
         // harn:end member-task-projection-is-durable-and-session-scoped
         if (journalEvent.type === 'run.completed' && member.harness === 'acp') {
           const baseline = session?.acp_usage_baseline;
           if (baseline !== undefined) {
-            this.store.stageAgentUsageBaseline(room, member.id, runMsg.id, baseline);
+            this.store.stageAgentUsageBaseline(targetRoom, member.id, runMsg.id, baseline);
           }
         }
         // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-engine
@@ -3462,14 +3717,20 @@ export class Daemon {
         // harn:end compaction-timeline-items-are-durable-run-evidence
         // harn:end run-events-merge-by-journal-index
         if (event.type === 'ask.raised' || event.type === 'approval.raised') {
-          this.handleInteractionRaised(room, member, event.card, event.type === 'ask.raised' ? 'ask' : 'approval');
+          this.handleInteractionRaised(
+            room,
+            member,
+            event.card,
+            event.type === 'ask.raised' ? 'ask' : 'approval',
+            targetRoom,
+          );
         } else if (journalEvent.type === 'run.completed') {
           // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-runtime-registry
           if (journalEvent.agent_usage !== undefined) {
-            const current = this.store.getMember(room, member.id);
+            const current = this.store.getMember(targetRoom, member.id);
             if (current !== undefined && current.model === member.model && current.removed_ts === undefined) {
               this.lastUsage.set(member.id, { ...journalEvent.agent_usage });
-              this.landContextWindow(room, member.id, journalEvent.agent_usage);
+              this.landContextWindow(targetRoom, member.id, journalEvent.agent_usage);
             }
           }
           // harn:end last-agent-usage-is-transient-and-seeded
@@ -3497,13 +3758,13 @@ export class Daemon {
           journalEvent.item.type === 'compaction' &&
           journalEvent.item.status === 'completed'
         ) {
-          this.markBriefingForReinjection(room, member.id);
+          this.markBriefingForReinjection(targetRoom, member.id);
         }
         // harn:end compaction-reinjects-codor-briefing
       }
     } catch (error) {
       if (error instanceof RemoteAttemptAmbiguousError) {
-        this.holdAmbiguousTurn(room, member, bound, runMsg.id, 'resident reported ambiguous');
+        this.holdAmbiguousTurn(room, member, bound, runMsg.id, 'resident reported ambiguous', targetRoom);
         return;
       }
       // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
@@ -3516,9 +3777,9 @@ export class Daemon {
 
     if (
       session?.session_ref !== undefined &&
-      session.session_ref !== this.store.getMember(room, member.id)?.session_ref
+      session.session_ref !== this.store.getMember(targetRoom, member.id)?.session_ref
     ) {
-      this.emitMember(room, this.store.updateMember(room, member.id, { session_ref: session.session_ref }));
+      this.emitMember(targetRoom, this.store.updateMember(targetRoom, member.id, { session_ref: session.session_ref }));
     }
 
     // harn:assume operator-interrupt-not-failure ref=interrupt-failure-classification
@@ -3548,20 +3809,33 @@ export class Daemon {
     if (!lifecycleSettlement && this.normalFinalizationIsIllegal(room, bound)) {
       // Known-settled work never attempts normal completion: completeTurn would
       // roll back anyway, and for a closed group it might not even refuse.
-      this.reconcileFailedFinalization(
-        room,
-        member.id,
-        runMsg.id,
-        bound,
-        finalCompletion,
-        new Error('its collaboration work was already settled'),
-      );
+      try {
+        this.reconcileFailedFinalization(
+          room,
+          targetRoom,
+          member.id,
+          runMsg.id,
+          bound,
+          finalCompletion,
+          new Error('its collaboration work was already settled'),
+        );
+      } finally {
+        if (invocationTarget !== undefined && targetRoom !== room) {
+          this.activeInvocations.delete(member.id);
+          if (session !== undefined) this.issueMemberCredential(targetRoom, member, session, targetRoom);
+        }
+      }
       return;
     }
     try {
-      this.finalizeTurn(room, member.id, runMsg.id, finalCompletion, bound, toolCalls);
+      this.finalizeTurn(room, targetRoom, member.id, runMsg.id, finalCompletion, bound, toolCalls);
     } catch (error) {
-      this.reconcileFailedFinalization(room, member.id, runMsg.id, bound, finalCompletion, error);
+      this.reconcileFailedFinalization(room, targetRoom, member.id, runMsg.id, bound, finalCompletion, error);
+    } finally {
+      if (invocationTarget !== undefined && targetRoom !== room) {
+        this.activeInvocations.delete(member.id);
+        if (session !== undefined) this.issueMemberCredential(targetRoom, member, session, targetRoom);
+      }
     }
     // harn:end failed-finalization-reconciles-at-runtime
   }
@@ -3574,6 +3848,7 @@ export class Daemon {
    */
   private reconcileFailedFinalization(
     room: string,
+    targetRoom: string,
     memberId: string,
     runMsgId: number,
     batch: Delivery[],
@@ -3593,8 +3868,9 @@ export class Daemon {
     const repaired = this.store.repairFailedFinalization(room, {
       runMsgId,
       memberId,
+      targetRoom,
       deliveryIds: batch.map((delivery) => delivery.id),
-      outputs: this.outputPatches(room, runMsg, projection, false, false),
+      outputs: this.outputPatches(room, runMsg, projection, false, false, targetRoom),
       error: `finalization could not commit: ${detail}`,
       endedTs: new Date().toISOString(),
       model: repairModel,
@@ -3619,15 +3895,15 @@ export class Daemon {
       throw error instanceof Error ? error : new Error(detail);
     }
     for (const output of repaired.outputMessages ?? []) this.emitMessage(room, output);
-    if (repaired.member !== undefined) this.emitMember(room, repaired.member);
+    if (repaired.member !== undefined) this.emitMember(targetRoom, repaired.member);
     if (repaired.meter !== undefined) {
-      this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: repaired.meter });
+      this.emit(targetRoom, { type: 'meter', seq: this.store.currentSeq(targetRoom), meter: repaired.meter });
     }
     for (const delivery of repaired.deliveries) this.emitInbox(room, delivery);
     if (repaired.notice !== undefined) this.emitMessage(room, repaired.notice);
     this.memberWaits.delete(memberId);
     this.groupWaits.delete(memberId);
-    this.retireTerminalRunRuntime(room, memberId, runMsgId);
+    this.retireTerminalRunRuntime(room, memberId, runMsgId, targetRoom);
   }
   // harn:assume collaboration-lifecycle-interruption-is-nonterminal ref=lifecycle-collaboration-finalization
   /**
@@ -3637,6 +3913,7 @@ export class Daemon {
    */
   private settleLifecycleInterruptedTurn(
     room: string,
+    targetRoom: string,
     memberId: string,
     runMsgId: number,
     batch: Delivery[],
@@ -3644,7 +3921,7 @@ export class Daemon {
     endedTs: string,
     preserveOtherActiveTurn = false,
   ): void {
-    const current = this.store.getMember(room, memberId);
+    const current = this.store.getMember(targetRoom, memberId);
     const usage = messagePatch.run?.usage;
     const accounting = accountRunUsage(messagePatch.run ?? {}, usage);
     const runMsg = this.store.getMessage(room, runMsgId);
@@ -3653,8 +3930,9 @@ export class Daemon {
       runMsgId,
       this.blobs.read(room, runMsg.run.events_ref),
     );
-    const outputs = this.outputPatches(room, runMsg, projection, false, false);
+    const outputs = this.outputPatches(room, runMsg, projection, false, false, targetRoom);
     const settlement = this.store.settleLifecycleInterruption(room, {
+      targetRoom,
       runMsgId,
       memberId,
       deliveryIds: batch.map((delivery) => delivery.id),
@@ -3685,8 +3963,8 @@ export class Daemon {
       this.groupWaits.delete(memberId);
     }
     for (const output of settlement.outputMessages) this.emitMessage(room, output);
-    this.emitMember(room, settlement.member);
-    this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: settlement.meter });
+    this.emitMember(targetRoom, settlement.member);
+    this.emit(targetRoom, { type: 'meter', seq: this.store.currentSeq(targetRoom), meter: settlement.meter });
     for (const delivery of [...settlement.requeued, ...settlement.settled]) {
       this.emitInbox(room, delivery);
     }
@@ -3706,7 +3984,7 @@ export class Daemon {
     if (preserveOtherActiveTurn) {
       this.runActivity.delete(`${room}:${runMsgId}`);
     } else {
-      this.retireTerminalRunRuntime(room, memberId, runMsgId);
+      this.retireTerminalRunRuntime(room, memberId, runMsgId, targetRoom);
     }
   }
   // harn:end collaboration-lifecycle-interruption-is-nonterminal
@@ -3727,24 +4005,34 @@ export class Daemon {
   // harn:end failed-finalization-reconciles-at-runtime
 
   /** Clear transient evidence that must not outlive any terminalized attempt. */
-  private retireTerminalRunRuntime(room: string, memberId: string, runMsgId: number): void {
+  private retireTerminalRunRuntime(
+    room: string,
+    memberId: string,
+    runMsgId: number,
+    targetRoom = room,
+  ): void {
     this.runActivity.delete(`${room}:${runMsgId}`);
-    for (const extension of this.store.listMembers(room)) {
+    for (const extension of this.store.listMembers(targetRoom)) {
       if (extension.kind !== 'extension' || extension.parent !== memberId || extension.state !== 'running') continue;
-      this.emitMember(room, this.store.updateMember(room, extension.id, { state: 'dead' }));
+      this.emitMember(targetRoom, this.store.updateMember(targetRoom, extension.id, { state: 'dead' }));
     }
   }
 
-  private composeBatchPayload(room: string, recipient: Member, batch: Delivery[]): string {
+  private composeBatchPayload(
+    room: string,
+    targetRoom: string,
+    recipient: Member,
+    batch: Delivery[],
+  ): string {
     const payloads: string[] = [];
     for (const delivery of batch) {
       const encoded = this.store.getDeliveryPayloadSnapshot(room, delivery.id);
-      const fresh = this.store.getMember(room, recipient.id)!;
+      const fresh = this.store.getMember(targetRoom, recipient.id)!;
       const needsConventions = !fresh.conventions_sent || fresh.misaddressed;
       const needsRoster = fresh.roster_stale;
       // harn:assume grouped-deliveries-retain-agent-briefings ref=grouped-delivery-briefing
       const roster = needsRoster
-        ? this.store.listMembers(room).map((member) => ({
+        ? this.store.listMembers(targetRoom).map((member) => ({
             handle: member.handle,
             kind: member.kind,
             ...(member.purpose !== undefined && { purpose: member.purpose }),
@@ -3763,11 +4051,11 @@ export class Daemon {
         const candidate = JSON.parse(encoded) as DeliveryPayloadSnapshot | GroupDeliveryPayloadSnapshot;
         if ('kind' in candidate && candidate.kind === 'group') {
           payloads.push(candidate.payload + composeDeliveryBriefing({ roster, conventions }));
-          if (needsRoster) this.store.clearAgentRosterStale(room, recipient.id);
+            if (needsRoster) this.store.clearAgentRosterStale(targetRoom, recipient.id);
           if (needsConventions) {
             this.emitMember(
-              room,
-              this.store.updateMember(room, recipient.id, {
+              targetRoom,
+              this.store.updateMember(targetRoom, recipient.id, {
                 conventions_sent: true,
                 misaddressed: false,
               }),
@@ -3784,7 +4072,9 @@ export class Daemon {
               room,
               this.store.getMessage(room, delivery.message_id)!,
               recipient,
-              [recipient],
+              [{ member: recipient }],
+              false,
+              targetRoom,
             ),
           ) as DeliveryPayloadSnapshot);
       const ctx: PayloadContext = {
@@ -3798,11 +4088,11 @@ export class Daemon {
           : undefined,
       };
       payloads.push(composePayload(ctx, snapshot.you));
-      if (needsRoster) this.store.clearAgentRosterStale(room, recipient.id);
+      if (needsRoster) this.store.clearAgentRosterStale(targetRoom, recipient.id);
       if (needsConventions) {
         this.emitMember(
-          room,
-          this.store.updateMember(room, recipient.id, { conventions_sent: true, misaddressed: false }),
+          targetRoom,
+          this.store.updateMember(targetRoom, recipient.id, { conventions_sent: true, misaddressed: false }),
         );
       }
     }
@@ -3819,8 +4109,10 @@ export class Daemon {
     projection: ReturnType<typeof projectContinuationOutputs>,
     ack: boolean,
     retainRootBody = true,
+    executionRoom = room,
   ): TurnOutputPatch[] {
-    const members = this.store.listMembers(room);
+    const members = this.store.listMembers(executionRoom);
+    const qualifiedTargets = this.routingCatalog(room).targets;
     return [...projection.referencedMessageIds]
       .sort((left, right) => left - right)
       .map((id) => {
@@ -3837,7 +4129,7 @@ export class Daemon {
         const rowAck = ack && id === projection.resultMessageId;
         const parsed = rowAck
           ? { mentions: [], refs: [], ledger_refs: [] }
-          : parseBody(body, members);
+          : parseBody(body, members, { qualifiedTargets });
         return {
           id,
           body,
@@ -3858,6 +4150,7 @@ export class Daemon {
    */
   private finalizeTurn(
     room: string,
+    targetRoom: string,
     memberId: string,
     runMsgId: number,
     completion: TurnCompletion,
@@ -3867,7 +4160,7 @@ export class Daemon {
     const runMsg = this.store.getMessage(room, runMsgId)!;
     // Durably snapshot the files this run produced for the Preview feed; a no-op
     // when it produced no eligible file. Routing below is unaffected.
-    this.snapshotProducedArtifacts(room, memberId, runMsgId);
+    this.snapshotProducedArtifacts(targetRoom, memberId, runMsgId);
     // harn:assume failed-run-details-never-route-as-replies ref=failed-run-finalization
     // harn:assume run-failure-evidence-is-surfaced ref=interrupted-error-evidence
     const failed = completion.status === 'failed';
@@ -3875,7 +4168,7 @@ export class Daemon {
     // This marker is deliberately narrower than failed: only the explicit
     // copilot-vscode classification keeps the member available. Its run still
     // has failed evidence, an empty body, and no reply fanout.
-    const recoverableFailure = this.store.getMember(room, memberId)?.harness === 'copilot-vscode'
+    const recoverableFailure = this.store.getMember(targetRoom, memberId)?.harness === 'copilot-vscode'
       && completion.recoverable === true;
     // harn:end vscode-copilot-recoverable-native-failure-preserves-context
     // The `?? completion.final_text` arm is LOAD-BEARING: codex/gemini/opencode/
@@ -3907,11 +4200,13 @@ export class Daemon {
     const ack = completion.status === 'completed' && body.trim() === '<ACK_OK>';
     const parsed = failed || ack
       ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
-      : parseBody(body, this.store.listMembers(room));
+      : parseBody(body, this.store.listMembers(targetRoom), {
+          qualifiedTargets: this.routingCatalog(room),
+        });
     const endedTs = new Date().toISOString();
     const resolvedModel = completion.model ?? runMsg.run!.model;
     const accounting = accountRunUsage({ ...runMsg.run!, model: resolvedModel }, completion.usage);
-    const outputPatches = this.outputPatches(room, runMsg, projection, ack, !failed);
+    const outputPatches = this.outputPatches(room, runMsg, projection, ack, !failed, targetRoom);
     const resultMessageId = projection.resultMessageId;
     const messagePatch = {
       body: projection.bodies.get(runMsgId) ?? '',
@@ -3945,7 +4240,7 @@ export class Daemon {
     // and re-queueing afterwards is exactly what resurrected #598 into #599.
     // Operator Stop never reaches here: it is not marked as lifecycle.
     if (completion.status === 'interrupted' && this.lifecycleInterrupts.has(memberId)) {
-      this.settleLifecycleInterruptedTurn(room, memberId, runMsgId, batch, messagePatch, endedTs);
+      this.settleLifecycleInterruptedTurn(room, targetRoom, memberId, runMsgId, batch, messagePatch, endedTs);
       return;
     }
     // harn:end collaboration-lifecycle-interruption-is-nonterminal
@@ -3979,6 +4274,7 @@ export class Daemon {
       onwardHopCount,
       false,
       groupedDelivery === undefined,
+      targetRoom,
     );
     const humanIds = new Set(planned.result.humans.map((human) => human.id));
     const fanout = groupedDelivery === undefined
@@ -3987,6 +4283,7 @@ export class Daemon {
     const day = new Date().toISOString().slice(0, 10);
     const completed = this.store.completeTurn(room, {
       runMsgId,
+      targetRoom,
       message: messagePatch,
       outputs: outputPatches,
       resultMessageId,
@@ -3996,9 +4293,9 @@ export class Daemon {
         state:
           completion.status === 'failed' && !recoverableFailure
             ? 'dead'
-            : this.store.getMember(room, memberId)?.state === 'dead'
+            : this.store.getMember(targetRoom, memberId)?.state === 'dead'
               ? 'dead'
-              : this.store.getMember(room, memberId)?.state === 'paused'
+              : this.store.getMember(targetRoom, memberId)?.state === 'paused'
                 ? 'paused'
                 : 'idle',
         ...(planned.result.misaddressed && { misaddressed: true }),
@@ -4030,7 +4327,7 @@ export class Daemon {
     this.groupWaits.delete(memberId);
     // harn:end live-agent-waits-are-transient
     for (const output of completed.outputMessages) this.emitMessage(room, output);
-    this.emitMember(room, completed.member);
+    this.emitMember(targetRoom, completed.member);
     // harn:assume agent-delivery-lifecycle-streams-v2 ref=delivery-consumed-emit
     // The turn just consumed its inputs — stream the settled rows so seen
     // ticks flip without a reconnect.
@@ -4040,13 +4337,16 @@ export class Daemon {
     }
     // harn:end agent-delivery-lifecycle-streams-v2
     // harn:assume extensions-retire-with-parent-run ref=parent-finalization-extension-sweep
-    for (const extension of this.store.listMembers(room)) {
+    for (const extension of this.store.listMembers(targetRoom)) {
       if (extension.kind !== 'extension' || extension.parent !== memberId || extension.state !== 'running') continue;
-      this.emitMember(room, this.store.updateMember(room, extension.id, { state: 'dead' }));
+      this.emitMember(targetRoom, this.store.updateMember(targetRoom, extension.id, { state: 'dead' }));
     }
     // harn:end extensions-retire-with-parent-run
-    this.emit(room, { type: 'meter', seq: this.store.currentSeq(room), meter: completed.meter });
+    this.emit(targetRoom, { type: 'meter', seq: this.store.currentSeq(targetRoom), meter: completed.meter });
     this.dispatchCreatedDeliveries(room, completed.deliveries);
+    if (planned.result.qualified_refusal !== undefined) {
+      this.postSystemMessage(room, planned.result.qualified_refusal);
+    }
     if (groupedDelivery?.group_id !== undefined && groupedDelivery.group_round !== undefined) {
       this.clearSatisfiedGroupWaits(room, groupedDelivery.group_id, groupedDelivery.group_round);
       this.advanceCollaborationRound(room, groupedDelivery.group_id, groupedDelivery.group_round);
@@ -4194,7 +4494,13 @@ export class Daemon {
   }
   // harn:end approval-deliveries-project-resolution-separately
 
-  private handleInteractionRaised(room: string, member: Member, card: AskCard, kind: 'ask' | 'approval'): void {
+  private handleInteractionRaised(
+    room: string,
+    member: Member,
+    card: AskCard,
+    kind: 'ask' | 'approval',
+    targetRoom = room,
+  ): void {
     const key = interactionKey(kind, card);
     const open = this.store
       .listInteractions(room)
@@ -4210,7 +4516,7 @@ export class Daemon {
       if (updated.state === 'answered') {
         if (updated.kind === 'ask') {
           // Idempotent replay of the persisted answer (P0.2 fixtures).
-          void this.deliverAnswer(room, updated).catch(() => undefined);
+          void this.deliverAnswer(room, updated, targetRoom).catch(() => undefined);
         } else {
           // NEVER auto-resend an approval: orphan it and raise a fresh card.
           this.orphanInteraction(room, updated);
@@ -4218,15 +4524,21 @@ export class Daemon {
             room,
             `approval card #${updated.message_id} expired (answered before a restart; approvals are never auto-resent)`,
           );
-          this.createInteraction(room, member, card, kind);
+          this.createInteraction(room, member, card, kind, targetRoom);
         }
       }
       return;
     }
-    this.createInteraction(room, member, card, kind);
+    this.createInteraction(room, member, card, kind, targetRoom);
   }
 
-  private createInteraction(room: string, member: Member, card: AskCard, kind: 'ask' | 'approval'): void {
+  private createInteraction(
+    room: string,
+    member: Member,
+    card: AskCard,
+    kind: 'ask' | 'approval',
+    targetRoom = room,
+  ): void {
     const cardMsg = this.store.postMessage(room, {
       author: member.id,
       kind,
@@ -4256,7 +4568,7 @@ export class Daemon {
       });
       this.emitInbox(room, delivery);
     }
-    this.emitMember(room, this.store.updateMember(room, member.id, { state: 'awaiting_input' }));
+    this.emitMember(targetRoom, this.store.updateMember(targetRoom, member.id, { state: 'awaiting_input' }));
   }
 
   /**
@@ -4314,8 +4626,19 @@ export class Daemon {
     await this.deliverAnswer(room, answered);
   }
 
-  private async deliverAnswer(room: string, interaction: PendingInteraction): Promise<void> {
-    const member = this.store.getMember(room, interaction.member_id);
+  private async deliverAnswer(
+    room: string,
+    interaction: PendingInteraction,
+    targetRoom?: string,
+  ): Promise<void> {
+    const invocation = this.activeInvocationForMember(interaction.member_id);
+    if (invocation === null) {
+      throw new Error('agent invocation is ambiguous; authority is temporarily unavailable');
+    }
+    const executionRoom = targetRoom ?? (invocation?.originRoom === room
+      ? invocation.targetRoom
+      : room);
+    const member = this.store.getMember(executionRoom, interaction.member_id);
     const session = member ? this.sessions.get(member.id) : undefined;
     if (!member || !session) {
       throw new Error('interaction answer persisted but its adapter turn is not in flight');
@@ -4327,9 +4650,9 @@ export class Daemon {
     );
     this.store.upsertInteraction({ ...interaction, state: 'acked' });
     // harn:assume interaction-ack-preserves-finalized-member-state ref=interaction-ack-member-transition
-    const current = this.store.getMember(room, member.id);
+    const current = this.store.getMember(executionRoom, member.id);
     if (current?.state === 'awaiting_input') {
-      this.emitMember(room, this.store.updateMember(room, member.id, { state: 'running' }));
+      this.emitMember(executionRoom, this.store.updateMember(executionRoom, member.id, { state: 'running' }));
     }
     // harn:end interaction-ack-preserves-finalized-member-state
   }
@@ -4381,15 +4704,34 @@ export class Daemon {
           for (const d of group) this.store.updateDelivery(room.id, d.id, { state: 'consumed' });
           continue;
         }
+        const targetRoom = runMsg.author_target?.conversation_id
+          ?? group.find((delivery) => delivery.target !== undefined)?.target?.conversation_id
+          ?? room.id;
         const events = this.blobs.read(room.id, runMsg.run.events_ref);
         const completed = events.find((e): e is Extract<WireEvent, { type: 'run.completed' }> => e.type === 'run.completed');
-        const member = this.store.getMember(room.id, runMsg.author)!;
+        const member = this.store.getMember(targetRoom, runMsg.author);
+        if (member === undefined) {
+          this.holdAmbiguousTurn(
+            room.id,
+            this.store.getMember(room.id, runMsg.author) ?? {
+              id: runMsg.author,
+              kind: 'agent',
+              handle: runMsg.author,
+              display_name: runMsg.author,
+            } as Member,
+            group,
+            runMsgId,
+            'target member is no longer registered',
+            targetRoom,
+          );
+          continue;
+        }
         if (this.isRemoteMember(member)) {
           if (!this.residency?.isReachable(member.host)) {
             if (member.state !== 'unreachable') {
               this.emitMember(
-                room.id,
-                this.store.updateMember(room.id, member.id, { state: 'unreachable' }),
+                targetRoom,
+                this.store.updateMember(targetRoom, member.id, { state: 'unreachable' }),
               );
             }
             continue;
@@ -4397,7 +4739,7 @@ export class Daemon {
           if (!this.inflight.has(member.id)) {
             this.inflight.add(member.id);
             this.track(
-              this.runTurn(room.id, member, group, runMsg)
+              this.runTurn(room.id, targetRoom, member, group, runMsg)
                 .finally(() => this.inflight.delete(member.id)),
             );
           }
@@ -4425,6 +4767,7 @@ export class Daemon {
           if (this.normalFinalizationIsIllegal(room.id, group)) {
             this.reconcileFailedFinalization(
               room.id,
+              targetRoom,
               member.id,
               runMsgId,
               group,
@@ -4444,6 +4787,7 @@ export class Daemon {
           try {
             this.finalizeTurn(
               room.id,
+              targetRoom,
               member.id,
               runMsgId,
               // harn:assume failed-run-details-never-route-as-replies ref=failed-run-recovery
@@ -4455,6 +4799,7 @@ export class Daemon {
           } catch (error) {
             this.reconcileFailedFinalization(
               room.id,
+              targetRoom,
               member.id,
               runMsgId,
               group,
@@ -4464,7 +4809,7 @@ export class Daemon {
           }
           this.orphanLeftoverInteractions(room.id, member.id);
         } else if (processAlive) {
-          this.holdAmbiguousTurn(room.id, member, group, runMsgId, 'its adapter process may still be alive');
+          this.holdAmbiguousTurn(room.id, member, group, runMsgId, 'its adapter process may still be alive', targetRoom);
         } else if (blockedInteractions.length > 0 && group.every((d) => d.attempt_count <= 2)) {
           // Crashed while BLOCKED on an ask/approval: re-deliver so the
           // session can re-raise — the raise handler re-correlates the card
@@ -4472,9 +4817,9 @@ export class Daemon {
           // orphans answered approvals. The retried turn may block again on
           // a human, so it is TRACKED, never awaited; whatever never
           // re-raised is orphaned once the turn finalizes.
-          const refusal = this.retryTurn(room.id, member, group, runMsg, true);
+          const refusal = this.retryTurn(room.id, member, group, runMsg, true, targetRoom);
           if (refusal && !refusal.alreadyHeld) {
-            this.holdAmbiguousTurn(room.id, member, group, runMsgId, refusal.reason);
+            this.holdAmbiguousTurn(room.id, member, group, runMsgId, refusal.reason, targetRoom);
           }
         } else if (
           events.length === 0 &&
@@ -4482,13 +4827,13 @@ export class Daemon {
           group.every((d) => d.attempt_count <= 1)
         ) {
           // Provably never started → retry once, REUSING the run message.
-          const refusal = this.retryTurn(room.id, member, group, runMsg, false);
+          const refusal = this.retryTurn(room.id, member, group, runMsg, false, targetRoom);
           if (refusal && !refusal.alreadyHeld) {
-            this.holdAmbiguousTurn(room.id, member, group, runMsgId, refusal.reason);
+            this.holdAmbiguousTurn(room.id, member, group, runMsgId, refusal.reason, targetRoom);
           }
         } else {
           // Ambiguous → held + system message; operator decides.
-          this.holdAmbiguousTurn(room.id, member, group, runMsgId);
+          this.holdAmbiguousTurn(room.id, member, group, runMsgId, undefined, targetRoom);
         }
       }
       // harn:assume lifecycle-retries-only-live-collaboration-work ref=recovery-requeue-contract
@@ -4505,9 +4850,13 @@ export class Daemon {
         const bound = this.boundLifecycleDeliveries(room.id, runMsg.id);
         if (bound.length === 0) continue;
         const endedTs = new Date().toISOString();
+        const targetRoom = runMsg.author_target?.conversation_id
+          ?? bound.find((delivery) => delivery.target !== undefined)?.target?.conversation_id
+          ?? room.id;
         this.runActivity.delete(`${room.id}:${runMsg.id}`);
         this.settleLifecycleInterruptedTurn(
           room.id,
+          targetRoom,
           runMsg.author,
           runMsg.id,
           bound,
@@ -4591,6 +4940,7 @@ export class Daemon {
     group: Delivery[],
     runMsgId: number,
     detail?: string,
+    targetRoom = room,
   ): void {
     for (const delivery of group) this.store.updateDelivery(room, delivery.id, { state: 'held' });
     this.postSystemMessage(
@@ -4599,7 +4949,7 @@ export class Daemon {
         detail ? `; ${detail}` : ''
       }) — release_hold to retry or redeliver`,
     );
-    const current = this.store.getMember(room, member.id);
+    const current = this.store.getMember(targetRoom, member.id);
     // harn:assume live-agent-waits-are-transient ref=wait-clears-on-turn-end
     this.memberWaits.delete(member.id);
     this.groupWaits.delete(member.id);
@@ -4610,7 +4960,7 @@ export class Daemon {
       current.state !== 'dead' &&
       current.state !== 'custody_uncertain'
     ) {
-      this.emitMember(room, this.store.updateMember(room, member.id, { state: 'idle' }));
+      this.emitMember(targetRoom, this.store.updateMember(targetRoom, member.id, { state: 'idle' }));
     }
     this.orphanLeftoverInteractions(room, member.id);
   }
@@ -4622,8 +4972,9 @@ export class Daemon {
     group: Delivery[],
     runMsg: Message,
     orphanAfter: boolean,
+    targetRoom = room,
   ): RetryTurnRefusal | undefined {
-    const eligible = this.turnStartEligibility(room, member.id);
+    const eligible = this.turnStartEligibility(targetRoom, member.id);
     if (!eligible.member) {
       return {
         reason: eligible.refusal ?? `member @${member.handle} cannot start a turn`,
@@ -4635,7 +4986,7 @@ export class Daemon {
       return { reason: 'delivery batch was held by current room brakes', alreadyHeld: true };
     }
     this.inflight.add(eligible.member.id);
-    const turn = this.runTurn(room, eligible.member, runnable, runMsg)
+    const turn = this.runTurn(room, targetRoom, eligible.member, runnable, runMsg)
       .finally(() => this.inflight.delete(eligible.member!.id))
       .then(() => {
         if (orphanAfter) this.orphanLeftoverInteractions(room, eligible.member!.id);
@@ -4663,6 +5014,7 @@ export class Daemon {
   redeliver(room: string, deliveryId: string): void {
     const delivery = this.store.getDelivery(room, deliveryId);
     if (!delivery) throw new Error(`no such delivery ${deliveryId}`);
+    const targetRoom = delivery.target?.conversation_id ?? room;
     const abandonedRunId = delivery.run_msg_id;
     this.releasedDeliveries.delete(deliveryId);
     const updated = this.store.updateDelivery(room, deliveryId, {
@@ -4695,7 +5047,7 @@ export class Daemon {
       }
     }
     this.emitInbox(room, updated);
-    this.track(this.maybeStartTurn(room, delivery.recipient));
+    this.track(this.maybeStartTurn(targetRoom, delivery.recipient));
   }
   // harn:end redeliver-interrupts-stranded-run
 
@@ -4732,8 +5084,9 @@ export class Daemon {
       throw new Error('nothing to retry: the run has no surviving instructions to re-deliver');
     }
     // A failed run killed its agent; bring it back so the re-queue can run.
-    const agent = this.store.getMember(room, message.author);
-    if (agent?.kind === 'agent' && agent.state === 'dead') this.reviveMember(room, agent.id);
+    const targetRoom = message.author_target?.conversation_id ?? room;
+    const agent = this.store.getMember(targetRoom, message.author);
+    if (agent?.kind === 'agent' && agent.state === 'dead') this.reviveMember(targetRoom, agent.id);
     for (const delivery of survivors) this.redeliver(room, delivery.id);
   }
   // harn:end retried-runs-revive-and-redeliver
@@ -4741,19 +5094,20 @@ export class Daemon {
   releaseHold(room: string, deliveryId: string): void {
     const delivery = this.store.getDelivery(room, deliveryId);
     if (!delivery || delivery.state !== 'held') throw new Error(`delivery ${deliveryId} is not held`);
+    const targetRoom = delivery.target?.conversation_id ?? room;
     const attemptProcess = this.store.getDeliveryAttemptProcess(room, deliveryId);
     if (attemptProcess && this.processAlive(attemptProcess)) {
       throw new Error(`delivery ${deliveryId} cannot be released while its adapter process is alive`);
     }
     if (delivery.run_msg_id !== undefined) {
       const runMsg = this.store.getMessage(room, delivery.run_msg_id);
-      const member = this.store.getMember(room, delivery.recipient);
+      const member = this.store.getMember(targetRoom, delivery.recipient);
       if (runMsg?.run?.status === 'running' && member?.kind === 'agent') {
         const group = this.store
           .listDeliveries(room, { recipient: member.id, state: 'held' })
           .filter((candidate) => candidate.run_msg_id === runMsg.id);
         for (const candidate of group) this.releasedDeliveries.add(candidate.id);
-        const refusal = this.retryTurn(room, member, group, runMsg, false);
+        const refusal = this.retryTurn(room, member, group, runMsg, false, targetRoom);
         if (refusal) {
           for (const candidate of group) this.releasedDeliveries.delete(candidate.id);
           throw new Error(`delivery ${deliveryId} cannot be released: ${refusal.reason}`);
@@ -4764,7 +5118,7 @@ export class Daemon {
     this.releasedDeliveries.add(deliveryId);
     const updated = this.store.updateDelivery(room, deliveryId, { state: 'queued' });
     this.emitInbox(room, updated);
-    this.track(this.maybeStartTurn(room, delivery.recipient));
+    this.track(this.maybeStartTurn(targetRoom, delivery.recipient));
   }
 
   /** Operator hold: parks a queued delivery until release_hold (also the brake hook). */

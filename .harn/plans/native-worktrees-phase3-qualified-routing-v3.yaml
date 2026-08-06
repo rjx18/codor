@@ -1,5 +1,6 @@
 id: native-worktrees-phase3-qualified-routing-v3
-title: Native worktrees Phase 3 v3 - qualified routing with complete admission accounting
+title: Native worktrees Phase 3 v3 - qualified routing with complete admission
+  accounting
 notes: >-
   Implement only Phase 3 of .codor/PHASED-PLAN.md. Extend the one shared body
   grammar with the exact qualified form ~<worktree-alias>:@<handle>, including
@@ -20,16 +21,16 @@ notes: >-
   globally stable member id, plus bounded alias/handle display snapshots only
   where transcript attribution needs them. Omitted scope remains the additive
   legacy/local representation. Validate paired fields and identity agreement at
-  every wire and store boundary. Alias, branch, and path observations may
-  change after resolution without retargeting an already accepted delivery;
-  routing and recovery use the persisted ids, never mutable alias, branch, path,
-  cwd inference, or a fresh Git call. Re-resolve lifecycle before turn admission
-  so a worktree/member removed or unregistered after posting is not executed;
+  every wire and store boundary. Alias, branch, and path observations may change
+  after resolution without retargeting an already accepted delivery; routing and
+  recovery use the persisted ids, never mutable alias, branch, path, cwd
+  inference, or a fresh Git call. Re-resolve lifecycle before turn admission so
+  a worktree/member removed or unregistered after posting is not executed;
   settle that delivery and any collaboration participant without resurrection
   and append a visible refusal in the origin conversation.
 
-  Treat origin conversation and execution worktree as separate coordinates.
-  The chat message, delivery, run root/continuations, refs, pending interactions,
+  Treat origin conversation and execution worktree as separate coordinates. The
+  chat message, delivery, run root/continuations, refs, pending interactions,
   collaboration state, interim posts, final reply, refusal notice, and live
   frames remain in the origin conversation only. The target member row, cwd,
   native session/session_ref, credential hash and raw session token, adapter
@@ -44,8 +45,8 @@ notes: >-
 
   Keep one cached native session and one inflight turn per globally stable
   target member. Queue work for that member across every origin conversation in
-  a deterministic durable order, batch or steer only deliveries sharing the
-  same origin/routing context, and drain the next origin after the current turn
+  a deterministic durable order, batch or steer only deliveries sharing the same
+  origin/routing context, and drain the next origin after the current turn
   settles. Never steer a different origin into an active turn. Crash recovery,
   collaboration barriers, skips, retries, and finalization must derive the
   target scope from the durable delivery and keep their writes on the correct
@@ -58,8 +59,8 @@ notes: >-
   the member's home conversation. While exactly one durable delivering run for
   that member exists in another origin, the server maps either the home selector
   or that exact origin selector to the active origin for the small existing
-  agent capability matrix, overlays only the authenticated self identity in
-  that agent's hydration, and rejects every other room and every management act.
+  agent capability matrix, overlays only the authenticated self identity in that
+  agent's hydration, and rejects every other room and every management act.
   Multiple candidate invocations fail closed. After the attempt settles or is
   reconciled, the same credential returns to its home conversation. Do not put
   an operator token in the session, mint a cross-worktree token, broaden the
@@ -80,13 +81,14 @@ notes: >-
   current draft seeding, local completion, validation, voice, and send behavior.
 
   This phase does not add group/worktree navigation, child switching, unread UI,
-  Create/Find/adopt/remove UI, preset or default-roster behavior, roster cloning,
-  alias-edit UI, lifecycle mutation, branch deletion, multi-repository routing,
-  or relay/cloud protocol changes. Existing worktree lifecycle methods stay
-  roster-neutral. Every Git-backed daemon/server acceptance fixture must create
-  its own mkdtemp repository and worktrees; tests and verification must compare
-  the real repository's worktree path/branch inventory before and after and must
-  never create, move, rename, unregister, remove, or modify a real user worktree.
+  Create/Find/adopt/remove UI, preset or default-roster behavior, roster
+  cloning, alias-edit UI, lifecycle mutation, branch deletion, multi-repository
+  routing, or relay/cloud protocol changes. Existing worktree lifecycle methods
+  stay roster-neutral. Every Git-backed daemon/server acceptance fixture must
+  create its own mkdtemp repository and worktrees; tests and verification must
+  compare the real repository's worktree path/branch inventory before and after
+  and must never create, move, rename, unregister, remove, or modify a real user
+  worktree.
 
   Replacement-lock scope note: v1 correctly identified the product and file
   boundary but under-accounted existing anchors inside the shared daemon
@@ -97,13 +99,13 @@ notes: >-
   anchored regions necessarily receive explicit origin/target coordinates. It
   also changes the conversation-root-query anchor instead of incorrectly keeping
   its enclosing server region. No preserved implementation patch is part of this
-  clean lock; Luna may reapply it only after v3 is locked and must still complete
-  every declared regression anchor before committing.
+  clean lock; Luna may reapply it only after v3 is locked and must still
+  complete every declared regression anchor before committing.
 
   V3 replacement note: the completed v2 implementation and regression diff
   demonstrated one final direct touch inside the existing
-  turn-start-with-nothing-admissible daemon block. V3 changes only that anchor in
-  addition to v2. The invariant remains unchanged: if no scoped delivery is
+  turn-start-with-nothing-admissible daemon block. V3 changes only that anchor
+  in addition to v2. The invariant remains unchanged: if no scoped delivery is
   admissible, no run or attempt is created and the explicit target-home member
   returns to idle. No preserved implementation patch is part of this clean lock,
   and the product scope, twenty-file boundary, assumptions, exclusions, and
@@ -116,9 +118,9 @@ assumptions:
         persisted registered-worktree catalog to exactly one active worktree and
         active addressable member, and the accepted mention and delivery must
         persist the stable worktree id, conversation id, and member id so later
-        alias, branch, or path changes and restart cannot retarget it; unqualified
-        handles remain limited to the execution worktree roster and qualified
-        inner handles are never scanned again as local mentions.
+        alias, branch, or path changes and restart cannot retarget it;
+        unqualified handles remain limited to the execution worktree roster and
+        qualified inner handles are never scanned again as local mentions.
       reason: Mutable Git and display metadata cannot safely identify the agent whose
         isolated runtime is authorized to execute a cross-worktree request.
       depends_on:
@@ -131,10 +133,10 @@ assumptions:
       statement: If any qualified target is malformed, unknown, ambiguous,
         unregistered, removed, or names an unknown/removed member, the complete
         post must create no message or delivery and return a specific visible
-        refusal; if the invalidity appears after an accepted post or in final run
-        output, Codor must suppress downstream routing, settle affected durable
-        work without execution or resurrection, and append a visible refusal in
-        the origin while preserving final evidence.
+        refusal; if the invalidity appears after an accepted post or in final
+        run output, Codor must suppress downstream routing, settle affected
+        durable work without execution or resurrection, and append a visible
+        refusal in the origin while preserving final evidence.
       reason: Partial routing or default fallback would silently send instructions to
         a different agent than the operator named.
       depends_on:
@@ -188,13 +190,15 @@ assumptions:
     - id: agent-authority-follows-one-active-invocation
       title: Agent authority follows exactly one durable active invocation
       statement: An agent credential must authorize only its home conversation while
-        idle and only one effective origin conversation while exactly one durable
-        delivering run invokes it cross-worktree; the home selector may map to
-        that origin for the long-lived session CLI, but every other conversation,
-        member, inbox, global operation, and management act remains forbidden,
-        multiple active candidates fail closed, and recovery restores home scope.
+        idle and only one effective origin conversation while exactly one
+        durable delivering run invokes it cross-worktree; the home selector may
+        map to that origin for the long-lived session CLI, but every other
+        conversation, member, inbox, global operation, and management act
+        remains forbidden, multiple active candidates fail closed, and recovery
+        restores home scope.
       reason: Interim posts and waits must land with the invocation without rotating
-        credentials, respawning the target session, or broadening agent authority.
+        credentials, respawning the target session, or broadening agent
+        authority.
       depends_on:
         - cross-worktree-runtime-stays-target-local
         - agent-network-authority-is-narrow
@@ -224,12 +228,13 @@ assumptions:
     - id: lifecycle-retries-only-live-collaboration-work
       outcome: unchanged
       reason: Lifecycle retry eligibility still requires the exact open origin
-        participant, round, group, and durable target attempt, with terminal work
-        fenced rather than resurrected.
+        participant, round, group, and durable target attempt, with terminal
+        work fenced rather than resurrected.
     - id: agent-chains-uninterrupted-by-default
       outcome: unchanged
       reason: Qualified agent hops keep the existing durable count and run without
-        holds unless the target execution conversation explicitly enables a brake.
+        holds unless the target execution conversation explicitly enables a
+        brake.
     - id: mirrored-deliveries-queue
       outcome: unchanged
       reason: A mirrored target keeps every origin delivery durable and never receives
@@ -241,11 +246,13 @@ assumptions:
     - id: brakes-rechecked-at-turn-start
       outcome: unchanged
       reason: A queued cross-origin hop is re-evaluated against current target
-        execution-room brakes at admission, including one-shot release semantics.
+        execution-room brakes at admission, including one-shot release
+        semantics.
     - id: turns-reuse-one-root-and-append-output-messages
       outcome: unchanged
       reason: The origin owns exactly one lifecycle root and its continuations for a
-        target attempt; recovery cannot allocate a duplicate root in either room.
+        target attempt; recovery cannot allocate a duplicate root in either
+        room.
     - id: attempt-start-evidence-persisted
       outcome: unchanged
       reason: Process and session evidence remains attached durably to the origin
@@ -285,8 +292,8 @@ assumptions:
         answer with stable target-author attribution.
     - id: interaction-ack-preserves-finalized-member-state
       outcome: unchanged
-      reason: A late interaction acknowledgement cannot reopen the target member
-        after its origin run already finalized.
+      reason: A late interaction acknowledgement cannot reopen the target member after
+        its origin run already finalized.
     - id: redeliver-interrupts-stranded-run
       outcome: unchanged
       reason: Redelivery retires the exact stranded origin run before a scoped target
@@ -297,13 +304,13 @@ assumptions:
         author when required, and requeues only surviving bound deliveries.
     - id: human-room-read-cursors-are-durable-and-monotonic
       outcome: unchanged
-      reason: Cross-worktree output advances and marks read only in the human's
-        origin conversation; target runtime changes never alter that cursor.
+      reason: Cross-worktree output advances and marks read only in the human's origin
+        conversation; target runtime changes never alter that cursor.
     - id: room-support-is-bounded-recipient-scoped-state
       outcome: unchanged
       reason: Origin viewers receive only origin-scoped run, inbox, and interaction
-        support; foreign target runtime state is resolved for attribution without
-        leaking another room snapshot.
+        support; foreign target runtime state is resolved for attribution
+        without leaking another room snapshot.
     - id: awaiting-reply-marker-is-delivery-context
       outcome: unchanged
       reason: Awaiting-reply remains immutable origin delivery metadata and changes
@@ -332,8 +339,8 @@ assumptions:
     - id: mention-spans-survive-renames
       outcome: unchanged
       reason: Every mention still stores stable member identity and byte offsets;
-        qualified spans add stable worktree/conversation scope rather than mutable
-        selector-only identity.
+        qualified spans add stable worktree/conversation scope rather than
+        mutable selector-only identity.
     - id: extensions-not-addressable-v1
       outcome: unchanged
       reason: Extension members remain excluded from local and qualified catalogs.
@@ -392,7 +399,8 @@ assumptions:
     - id: delivery-attempt-wal-reconcile
       outcome: unchanged
       reason: Recovery continues deriving truth from durable delivering/run state and
-        now also uses the persisted target scope rather than origin-roster lookup.
+        now also uses the persisted target scope rather than origin-roster
+        lookup.
     - id: eligible-multi-agent-routing-starts-one-group
       outcome: unchanged
       reason: Multiple valid scoped agent recipients still create one origin-local
@@ -407,8 +415,8 @@ assumptions:
         origin-owned journal and never put event payloads in SQLite.
     - id: attach-custody-lease-tracks-child-pid
       outcome: unchanged
-      reason: Cross-worktree admission uses the target member's existing custody
-        lease and does not change its PID or release semantics.
+      reason: Cross-worktree admission uses the target member's existing custody lease
+        and does not change its PID or release semantics.
     - id: substantive-output-messages-drive-unread
       outcome: unchanged
       reason: Only substantive origin output advances origin activity/unread; target
@@ -456,8 +464,8 @@ assumptions:
     - id: agent-network-authority-is-narrow
       outcome: unchanged
       reason: The principal remains exactly one member and one effective conversation
-        under the same small matrix; active invocation resolution chooses that one
-        conversation and rejects all others.
+        under the same small matrix; active invocation resolution chooses that
+        one conversation and rejects all others.
     - id: member-session-masks-operator-token
       outcome: unchanged
       reason: Cross-worktree execution continues masking CODOR_TOKEN with the member
@@ -493,7 +501,8 @@ assumptions:
     - id: child-conversation-state-is-room-isolated
       outcome: unchanged
       reason: Cross routing adds an explicit target coordinate but leaves every
-        conversation's transcript, ids, cursors, files, keys, and summaries isolated.
+        conversation's transcript, ids, cursors, files, keys, and summaries
+        isolated.
     - id: child-members-own-isolated-runtime
       outcome: unchanged
       reason: Equal handles remain distinct stable members with separate runtime and
@@ -505,12 +514,13 @@ assumptions:
     - id: child-home-authority-survives-residency
       outcome: unchanged
       reason: Resident execution continues carrying the origin room in the existing
-        request while home finalization uses the durable target identity; no relay
-        protocol source changes are authorized.
+        request while home finalization uses the durable target identity; no
+        relay protocol source changes are authorized.
     - id: worktree-management-is-human-admin-only
       outcome: unchanged
       reason: The new catalog is read-only and path-free; agents remain denied and all
-        adoption/creation/unregister/removal acts retain human-admin authorization.
+        adoption/creation/unregister/removal acts retain human-admin
+        authorization.
     - id: roster-briefing-refreshes-on-membership
       outcome: unchanged
       reason: Target sessions receive their own current roster plus bounded qualified
@@ -593,8 +603,8 @@ anchors:
     cross-worktree-origin-transaction:
       action: change
       reason: Keep post, turn start/finalization, continuation, interaction,
-        collaboration, refusal, and fanout writes in the origin transaction while
-        applying target runtime updates deliberately.
+        collaboration, refusal, and fanout writes in the origin transaction
+        while applying target runtime updates deliberately.
     cross-worktree-origin-regression:
       action: change
       reason: Prove interim/final/reply/refusal placement only in origin, stable
@@ -623,7 +633,8 @@ anchors:
     cross-worktree-runtime-regression:
       action: change
       reason: In disposable repositories prove equal handles have isolated cwd,
-        session_ref, token/hash, cache, tasks, waits, usage/meter, and restart state.
+        session_ref, token/hash, cache, tasks, waits, usage/meter, and restart
+        state.
   target-member-turns-serialize-across-origins:
     cross-origin-delivery-queue:
       action: change
@@ -650,8 +661,8 @@ anchors:
     agent-active-invocation-regression:
       action: change
       reason: Prove idle home access, active origin post/wait/consume/status/search,
-        home/other denial during invocation, ambiguity denial, settlement/restart
-        restoration, and credential isolation.
+        home/other denial during invocation, ambiguity denial,
+        settlement/restart restoration, and credential isolation.
   qualified-completion-lists-registered-targets-only:
     qualified-target-catalog:
       action: change
@@ -663,7 +674,8 @@ anchors:
     qualified-target-catalog-regression:
       action: change
       reason: Prove only adopted/created active scopes complete, tombstones explain
-        refusal, discoveries and paths never appear, and ordinary rooms are empty.
+        refusal, discoveries and paths never appear, and ordinary rooms are
+        empty.
     qualified-target-catalog-client:
       action: change
       reason: Fetch and validate the routing catalog through the existing relay-aware
@@ -986,7 +998,8 @@ anchors:
     attach-lease-store:
       action: change
       reason: Account for the enclosing schema range; attach leases are semantically
-        unchanged and cross-worktree execution still uses the target member lease.
+        unchanged and cross-worktree execution still uses the target member
+        lease.
   substantive-output-messages-drive-unread:
     message-activity-storage:
       action: change
@@ -1129,8 +1142,8 @@ anchors:
   only-an-admissible-delivery-becomes-delivering:
     turn-admission-guard:
       action: change
-      reason: Validate scoped queued or reused deliveries atomically without
-        admitting consumed, held, or inactive targets.
+      reason: Validate scoped queued or reused deliveries atomically without admitting
+        consumed, held, or inactive targets.
     turn-start-with-nothing-admissible:
       action: change
       reason: Return the explicit target-home member to idle when the origin batch
@@ -1156,8 +1169,8 @@ files:
   - packages/web-next/src/room/Composer.spec.tsx
   - packages/web-next/src/room/Transcript.tsx
   - packages/web-next/src/room/Transcript.spec.tsx
-verification: Run harn find --plan native-worktrees-phase3-qualified-routing-v3 and
-  harn check native-worktrees-phase3-qualified-routing-v3; run pnpm --filter
+verification: Run harn find --plan native-worktrees-phase3-qualified-routing-v3
+  and harn check native-worktrees-phase3-qualified-routing-v3; run pnpm --filter
   @codor/protocol test, pnpm --filter @codor/switchboard test, and pnpm --filter
   @codor/web-next test. Run pnpm --filter '@codor/switchboard...' build and pnpm
   --filter '@codor/web-next...' build. The protocol suites must cover the shared
@@ -1170,10 +1183,12 @@ verification: Run harn find --plan native-worktrees-phase3-qualified-routing-v3 
   authorization, and queued/delivering restart recovery. Web suites must cover
   accessible local/qualified completion, identical handles, full-token
   insertion, shared-parser refusal, draft preservation through post errors,
-  scoped author rendering, and the unchanged ordinary room. Capture
-  `git worktree list --porcelain` path/branch mapping for the real repository
-  before and after all tests/builds and require an exact match; no test or
-  verification command may create, move, rename, unregister, remove, or modify
-  a real user worktree. Stage only the locked plan and its twenty declared
-  files, run harn check --staged, let the Harn hook apply the plan and generate
-  assumption truth, and create exactly one Phase 3 implementation commit.
+  scoped author rendering, and the unchanged ordinary room. Capture `git
+  worktree list --porcelain` path/branch mapping for the real repository before
+  and after all tests/builds and require an exact match; no test or verification
+  command may create, move, rename, unregister, remove, or modify a real user
+  worktree. Stage only the locked plan and its twenty declared files, run harn
+  check --staged, let the Harn hook apply the plan and generate assumption
+  truth, and create exactly one Phase 3 implementation commit.
+applied:
+  applied_at: 2026-08-06T11:28:05.833Z

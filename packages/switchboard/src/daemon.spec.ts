@@ -7881,3 +7881,124 @@ describe('registered child conversations own isolated agent runtime', () => {
   });
 });
 // harn:end child-members-own-isolated-runtime
+
+const registerQualifiedFixture = (alias: string, childName: string) => {
+  const result = daemon.store.registerWorktree(
+    'eng',
+    {
+      common_path: join(dir, 'qualified-repository', '.git'),
+      primary_path: join(dir, 'qualified-repository'),
+      primary_git_admin_id: join(dir, 'qualified-repository', '.git'),
+    },
+    {
+      path: join(dir, 'qualified-repository'),
+      git_admin_id: join(dir, 'qualified-repository', '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      branch: 'main',
+    },
+    {
+      path: join(dir, childName),
+      git_admin_id: join(dir, 'qualified-repository', '.git', 'worktrees', childName),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: `feature/${childName}`,
+    },
+    alias,
+    'adopted',
+  );
+  return result.worktree;
+};
+
+// harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-turn-orchestration-regression
+// harn:assume cross-worktree-runtime-stays-target-local ref=cross-worktree-runtime-regression
+// harn:assume target-member-turns-serialize-across-origins ref=cross-origin-turn-scheduler-regression
+describe('qualified target orchestration', () => {
+  it('keeps foreign output in the origin, runs the target home, and serializes origins', async () => {
+    const targetWorktree = registerQualifiedFixture('target-a', 'target-a');
+    const originWorktree = registerQualifiedFixture('origin-b', 'origin-b');
+    const targetRoom = targetWorktree.conversation_id;
+    const originRoom = originWorktree.conversation_id;
+    let targetSession: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+      targetSession = originalSpawn(opts);
+      return targetSession;
+    });
+    const target = daemon.spawnMember(targetRoom, {
+      harness: 'fake', handle: 'same-target', cwd: testCwd('qualified-target-home'),
+    });
+    spawnSpy.mockRestore();
+    const targetToken = targetSession?.env?.CODOR_MEMBER_TOKEN;
+    if (!targetSession || !targetToken) throw new Error('target fixture did not receive a session token');
+
+    fake.enqueue(
+      { kind: 'complete', final_text: 'first target answer', delay_ms: 35 },
+      { kind: 'complete', final_text: 'second target answer' },
+    );
+    const first = daemon.postHumanMessage('eng', '~target-a:@same-target first request');
+    await until(() => fake.deliveries.length === 1 ? true : undefined);
+    expect(targetSession.env?.CODOR_CHANNEL).toBe('eng');
+    const activeTargetToken = targetSession.env?.CODOR_MEMBER_TOKEN;
+    expect(activeTargetToken).toBeDefined();
+    expect(daemon.authenticateAgentToken(activeTargetToken!)).toMatchObject({
+      room: 'eng', homeRoom: targetRoom, member: { id: target.id },
+      invocation: { originRoom: 'eng', targetRoom },
+    });
+    expect(fake.deliveries[0]?.cwd).toBe(testCwd('qualified-target-home'));
+    expect(fake.deliveries[0]?.payload).toContain('channel=eng');
+
+    const second = daemon.postHumanMessage(originRoom, '~target-a:@same-target second request');
+    expect(second.room).toBe(originRoom);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(2);
+    expect(fake.maxConcurrent).toBe(1);
+    expect(fake.steers).toHaveLength(0);
+    expect(fake.deliveries.map((delivery) => delivery.payload.match(/channel=([^ ]+)/)?.[1]))
+      .toEqual(['eng', originRoom]);
+    expect(targetSession.env?.CODOR_CHANNEL).toBe(targetRoom);
+    expect(daemon.authenticateAgentToken(activeTargetToken!)).toBeUndefined();
+
+    const firstRun = daemon.store.listRunMessages('eng', { author: target.id, limit: 10 })[0]!;
+    expect(firstRun.author_target).toMatchObject({
+      worktree_id: targetWorktree.id,
+      conversation_id: targetRoom,
+      member_id: target.id,
+      alias: 'target-a',
+      handle: 'same-target',
+    });
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('first target answer');
+    expect(daemon.store.listMessages(originRoom).map((message) => message.body))
+      .toContain('second target answer');
+    expect(daemon.store.listMessages(targetRoom).map((message) => message.body))
+      .not.toContain('first target answer');
+    expect(daemon.store.listMessages(targetRoom).map((message) => message.body))
+      .not.toContain('second target answer');
+    expect(first.body).toBe('~target-a:@same-target first request');
+  });
+});
+// harn:end target-member-turns-serialize-across-origins
+// harn:end cross-worktree-runtime-stays-target-local
+// harn:end cross-worktree-output-stays-in-origin
+
+// harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal-regression
+// harn:assume invalid-qualified-targets-never-fallback ref=qualified-post-error-regression
+describe('qualified refusal boundary', () => {
+  it('refuses an unknown target before allocating an origin message or starting a local fallback', () => {
+    const local = spawnAgent('local-fallback');
+    const messagesBefore = daemon.store.listMessages('eng').length;
+    const deliveriesBefore = daemon.store.listDeliveries('eng').length;
+    expect(() => daemon.postHumanMessage('eng', '~missing:@local-fallback do not reroute'))
+      .toThrow(/qualified target refused/);
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(daemon.store.listDeliveries('eng')).toHaveLength(deliveriesBefore);
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+  });
+});
+// harn:end invalid-qualified-targets-never-fallback
+// harn:end invalid-qualified-targets-never-fallback

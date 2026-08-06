@@ -286,6 +286,194 @@ describe('child conversation inherited identities and cursors', () => {
 // harn:end child-conversation-state-is-room-isolated
 // harn:end child-conversation-state-is-room-isolated
 
+// harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-store-regression
+describe('qualified routing store projection', () => {
+  it('projects active scopes and tombstones from persisted rows without paths', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    const first = store.routingCatalog('eng');
+    expect(first.room).toBe('eng');
+    expect(first.targets.map((target) => target.alias)).toEqual(['main', 'child']);
+    const target = first.targets.find((candidate) => candidate.alias === 'child')!;
+    expect(target.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ member_id: childAgent.id, handle: 'coder', kind: 'agent' }),
+    ]));
+    expect(JSON.stringify(first)).not.toMatch(/path|branch|git_admin/i);
+
+    const refreshed = store.refreshWorktreeObservation('eng', registered.worktree.id, {
+      ...secondary, path: join(dir, 'moved-child'), branch: 'feature/moved-child',
+    });
+    expect(refreshed.id).toBe(registered.worktree.id);
+    expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === 'child')?.worktree_id)
+      .toBe(registered.worktree.id);
+
+    const tombstone = store.unregisterWorktree('eng', registered.worktree.id);
+    expect(store.routingCatalog('eng').targets.map((candidate) => candidate.alias)).toEqual(['main']);
+    expect(store.routingCatalog('eng').tombstones).toEqual([
+      expect.objectContaining({ alias: 'child', lifecycle: 'unregistered' }),
+    ]);
+    expect(tombstone.conversation_id).toBe(child);
+  });
+});
+// harn:end qualified-member-target-identity-is-durable
+
+// harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-origin-regression
+describe('qualified origin storage', () => {
+  it('round-trips scoped authors and deliveries while keeping transcripts room-local', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'created');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id,
+      conversation_id: child,
+      member_id: childAgent.id,
+      alias: registered.worktree.alias,
+      handle: childAgent.handle,
+    } as const;
+    const origin = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '~child:@coder check this',
+    });
+    const attributed = store.postMessage('eng', {
+      author: childAgent.id, author_target: target, kind: 'chat', body: 'child answer',
+    });
+    const delivery = store.createDelivery('eng', {
+      message_id: origin.id, recipient: childAgent.id, target,
+    });
+    expect(attributed.author_target).toEqual(target);
+    expect(delivery.target).toEqual(target);
+    expect(store.listMessages('eng').map((message) => message.body)).toEqual([
+      '~child:@coder check this', 'child answer',
+    ]);
+    expect(store.listMessages(child)).toEqual([]);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMessage('eng', attributed.id)?.author_target).toEqual(target);
+    expect(store.getDelivery('eng', delivery.id)?.target).toEqual(target);
+    expect(store.listDeliveriesForTarget(child, childAgent.id).map((item) => item.id)).toEqual([delivery.id]);
+  });
+});
+// harn:end cross-worktree-output-stays-in-origin
+
+// harn:assume target-member-turns-serialize-across-origins ref=cross-origin-turn-scheduler
+describe('cross-origin target queue', () => {
+  it('orders qualified deliveries by one durable queue across visible origins', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: childAgent.handle,
+    } as const;
+    const first = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'first' });
+    const second = store.postMessage('ops', { author: owner.id, kind: 'chat', body: 'second' });
+    const firstDelivery = store.createDelivery('eng', {
+      message_id: first.id, recipient: childAgent.id, target,
+    });
+    const secondDelivery = store.createDelivery('ops', {
+      message_id: second.id, recipient: childAgent.id, target,
+    });
+    expect(store.listDeliveriesForTarget(child, childAgent.id).map((item) => item.id))
+      .toEqual([firstDelivery.id, secondDelivery.id]);
+    expect(store.listDeliveries('eng', { recipient: childAgent.id })).toEqual([firstDelivery]);
+  });
+});
+// harn:end target-member-turns-serialize-across-origins
+
+// harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-regression
+describe('durable active invocation lookup', () => {
+  it('finds one target invocation and fails closed when two origins are active', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'created');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: childAgent.handle,
+    } as const;
+    const first = store.postMessage('eng', {
+      author: childAgent.id, author_target: target, kind: 'run', body: '',
+      run: { status: 'running', started_ts: '2026-08-06T00:00:00.000Z', tool_calls: 0, events_ref: 'runs/1.jsonl' },
+    });
+    const firstDelivery = store.createDelivery('eng', {
+      message_id: first.id, recipient: childAgent.id, target,
+    });
+    store.updateDelivery('eng', firstDelivery.id, { state: 'delivering', run_msg_id: first.id });
+    expect(store.listActiveInvocations(childAgent.id)).toEqual([{
+      originRoom: 'eng', targetRoom: child, target,
+    }]);
+
+    const second = store.postMessage('ops', {
+      author: childAgent.id, author_target: target, kind: 'run', body: '',
+      run: { status: 'running', started_ts: '2026-08-06T00:00:01.000Z', tool_calls: 0, events_ref: 'runs/2.jsonl' },
+    });
+    const secondDelivery = store.createDelivery('ops', {
+      message_id: second.id, recipient: childAgent.id, target,
+    });
+    store.updateDelivery('ops', secondDelivery.id, { state: 'delivering', run_msg_id: second.id });
+    expect(store.listActiveInvocations(childAgent.id)).toHaveLength(2);
+  });
+});
+// harn:end agent-authority-follows-one-active-invocation
+
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'codor-store-'));
   store = new Store(join(dir, 'test.sqlite'));

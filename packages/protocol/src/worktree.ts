@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-import { RoomIdSchema, TimestampSchema } from './ids.js';
+import { HandleSchema, MemberKindSchema } from './member.js';
+import { MemberIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
 
 // harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-contract
 /** A worktree/repository id is a Codor identity, not a Git branch or path. */
@@ -34,6 +35,59 @@ export const WorktreeAvailabilitySchema = z.enum(['available', 'missing', 'locke
 export type WorktreeSource = z.infer<typeof WorktreeSourceSchema>;
 export type WorktreeLifecycle = z.infer<typeof WorktreeLifecycleSchema>;
 export type WorktreeAvailability = z.infer<typeof WorktreeAvailabilitySchema>;
+
+// harn:assume qualified-member-target-identity-is-durable ref=qualified-member-target-protocol
+/**
+ * A qualified route carries only stable Codor identities and bounded display
+ * snapshots. It deliberately contains no path, branch, or Git administrative
+ * identifier: routing never performs discovery and never exposes filesystem
+ * state to a conversation.
+ */
+export const ScopedMemberTargetSchema = z.object({
+  worktree_id: WorktreeIdSchema,
+  conversation_id: RoomIdSchema,
+  member_id: MemberIdSchema,
+  alias: WorktreeAliasSchema,
+  handle: HandleSchema,
+});
+export type ScopedMemberTarget = z.infer<typeof ScopedMemberTargetSchema>;
+
+/** Safe member identity used by qualified completion and the routing parser. */
+export const WorktreeRoutingMemberSchema = z.object({
+  member_id: MemberIdSchema,
+  handle: HandleSchema,
+  kind: MemberKindSchema,
+  display_name: z.string().optional(),
+  purpose: z.string().optional(),
+});
+export type WorktreeRoutingMember = z.infer<typeof WorktreeRoutingMemberSchema>;
+
+/** One registered worktree's path-free qualified-routing projection. */
+export const WorktreeRoutingTargetSchema = z.object({
+  worktree_id: WorktreeIdSchema,
+  conversation_id: RoomIdSchema,
+  alias: WorktreeAliasSchema,
+  primary: z.boolean(),
+  lifecycle: z.literal('active'),
+  members: z.array(WorktreeRoutingMemberSchema),
+});
+export type WorktreeRoutingTarget = z.infer<typeof WorktreeRoutingTargetSchema>;
+
+export const WorktreeRoutingTombstoneSchema = z.object({
+  worktree_id: WorktreeIdSchema,
+  conversation_id: RoomIdSchema,
+  alias: WorktreeAliasSchema,
+  lifecycle: z.enum(['unregistered', 'removed']),
+});
+export type WorktreeRoutingTombstone = z.infer<typeof WorktreeRoutingTombstoneSchema>;
+
+export const WorktreeRoutingCatalogSchema = z.object({
+  room: RoomIdSchema,
+  targets: z.array(WorktreeRoutingTargetSchema),
+  tombstones: z.array(WorktreeRoutingTombstoneSchema),
+});
+export type WorktreeRoutingCatalog = z.infer<typeof WorktreeRoutingCatalogSchema>;
+// harn:end qualified-member-target-protocol
 
 const CommitHashSchema = z.string().regex(/^[0-9a-f]{40}$/i);
 

@@ -8,6 +8,7 @@ import type {
   Room,
   WireEvent,
 } from '@codor/protocol';
+import { WorktreeRoutingCatalogSchema, type WorktreeRoutingCatalog } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
 import { relayFetch } from './relay-transport.js';
@@ -292,6 +293,20 @@ export async function fetchMemberDetails(
   );
   return body.members;
 }
+
+// harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-client
+/** Fetch only the path-free persisted routing projection used by completion. */
+export async function fetchRoutingCatalog(
+  room: string,
+  options: ApiOptions,
+): Promise<WorktreeRoutingCatalog> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/routing-targets`,
+    options,
+  );
+  return WorktreeRoutingCatalogSchema.parse(body);
+}
+// harn:end qualified-completion-lists-registered-targets-only
 
 export async function fetchMessageHistory(
   room: string,

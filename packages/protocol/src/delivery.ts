@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
+import { ScopedMemberTargetSchema } from './worktree.js';
 
 /**
  * Per-member FIFO inbox record. Exactly-once-or-held (PROTOCOL §3):
@@ -21,6 +22,10 @@ export const DeliverySchema = z.object({
   room: RoomIdSchema,
   message_id: MessageIdSchema, // the routed message
   recipient: MemberIdSchema,
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-delivery-target-schema
+  /** Execution identity for a delivery whose visible origin is another room. */
+  target: ScopedMemberTargetSchema.optional(),
+  // harn:end qualified-member-target-identity-is-durable
   state: DeliveryStateSchema,
   hop_count: z.number().int().nonnegative().optional(),
   attempt_count: z.number().int().nonnegative().default(0),
@@ -41,6 +46,13 @@ export const DeliverySchema = z.object({
   // harn:end collaboration-groups-are-durable-state
   ts: TimestampSchema,
 }).superRefine((delivery, ctx) => {
+  if (delivery.target !== undefined && delivery.target.member_id !== delivery.recipient) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['target', 'member_id'],
+      message: 'qualified delivery target must match recipient',
+    });
+  }
   if ((delivery.group_id === undefined) !== (delivery.group_round === undefined)) {
     ctx.addIssue({
       code: 'custom',
