@@ -1928,7 +1928,6 @@ export class Store {
   }
   // harn:end registered-worktrees-materialize-stable-conversations
 
-  // harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
   /** Return the room's repository projection without creating one as a side effect. */
   getRepository(room: string): RepositoryRecord | undefined {
     const row = this.db
@@ -1960,8 +1959,7 @@ export class Store {
     ).get(room, conversationId) as WorktreeRow | undefined;
     return row === undefined ? undefined : worktreeFromRow(row);
   }
-
-  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-store-query
   /** Read-only, path-free projection for qualified routing and completion. */
   routingCatalog(room: string): WorktreeRoutingCatalog {
     const root = this.rootRoomId(room) ?? room;
@@ -1991,7 +1989,9 @@ export class Store {
             member_id: member.id,
             handle: member.handle,
             kind: member.kind,
-          })),
+          }))
+          .sort((left, right) => left.member_id.localeCompare(right.member_id))
+          .slice(0, 256),
       }));
     const tombstones = registered
       .filter((worktree) => worktree.lifecycle !== 'active' && worktree.conversation_id !== undefined)
@@ -2001,21 +2001,29 @@ export class Store {
         alias: worktree.alias,
         lifecycle: worktree.lifecycle,
       }));
-    // harn:end qualified-member-target-identity-is-durable
     return WorktreeRoutingCatalogSchema.parse({ room: root, targets, tombstones });
   }
 
-  private routingTargetRecord(target: ScopedMemberTarget): {
+  private routingTargetRecord(target: ScopedMemberTarget, originRoom = target.conversation_id): {
     root: string;
     worktree: RegisteredWorktree;
     member: Member;
   } | undefined {
     const root = this.rootRoomId(target.conversation_id) ?? target.conversation_id;
+    const originRoot = this.rootRoomId(originRoom) ?? originRoom;
+    const originRepository = this.getRepository(originRoot);
+    const targetRepository = this.getRepository(root);
+    if (
+      originRepository === undefined
+      || targetRepository === undefined
+      || originRepository.id !== targetRepository.id
+    ) return undefined;
     const worktree = this.getWorktreeByConversation(root, target.conversation_id);
     if (
       worktree === undefined
       || worktree.id !== target.worktree_id
       || worktree.room !== root
+      || worktree.repository_id !== targetRepository.id
       || worktree.conversation_id !== target.conversation_id
       || worktree.alias !== target.alias
     ) return undefined;
@@ -2029,12 +2037,13 @@ export class Store {
   }
 
   /** Re-check a persisted qualified target immediately before execution. */
-  routingTargetIsActive(target: ScopedMemberTarget): boolean {
-    const located = this.routingTargetRecord(target);
+  routingTargetIsActive(target: ScopedMemberTarget, originRoom = target.conversation_id): boolean {
+    const located = this.routingTargetRecord(target, originRoom);
     return located !== undefined
       && located.worktree.lifecycle === 'active'
       && located.member.removed_ts === undefined;
   }
+  // harn:end qualified-member-target-identity-is-durable
 
   getWorktreeByGitAdmin(
     room: string,
@@ -2359,8 +2368,6 @@ export class Store {
       id,
     );
   }
-  // harn:end registered-worktree-identities-are-durable
-
   updateRoomConfig(room: string, patch: Partial<RoomConfig>): Room {
     return this.db.transaction(() => {
       const current = this.getRoom(room);
@@ -3634,7 +3641,7 @@ export class Store {
       // A stored target is an execution identity, not a hint. Validate the
       // complete stable tuple while the delivery is still new; stale queued
       // rows are settled by the daemon and never silently re-resolved.
-      if (delivery.target !== undefined && !this.routingTargetIsActive(delivery.target)) {
+      if (delivery.target !== undefined && !this.routingTargetIsActive(delivery.target, room)) {
         throw new Error(
           `qualified delivery target is not active: ${delivery.target.alias}:@${delivery.target.handle}`,
         );
@@ -3694,6 +3701,7 @@ export class Store {
       return validated;
     })();
   }
+  // harn:end collaboration-groups-are-durable-state
 
   updateDelivery(
     room: string,
@@ -3883,6 +3891,7 @@ export class Store {
       for (const delivery of this.listDeliveries(room.id, { state: 'delivering' })) {
         const target = delivery.target;
         if (target === undefined || target.member_id !== memberId || delivery.run_msg_id === undefined) continue;
+        if (!this.routingTargetIsActive(target, room.id)) continue;
         const run = this.getMessage(room.id, delivery.run_msg_id);
         if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
         const key = `${room.id}:${run.id}:${target.worktree_id}:${target.conversation_id}:${target.member_id}`;
@@ -3950,7 +3959,7 @@ export class Store {
         })
         .filter((delivery) =>
           delivery.state !== 'consumed' &&
-          (delivery.target === undefined || this.routingTargetIsActive(delivery.target)) &&
+          (delivery.target === undefined || this.routingTargetIsActive(delivery.target, room)) &&
           (delivery.state === 'queued' || boundToReusedRun(delivery)),
         );
 
@@ -3963,7 +3972,7 @@ export class Store {
         .listDeliveriesForTarget(targetRoom, opts.memberId, { state: 'delivering' })
         .some((delivery) => {
           if (delivery.run_msg_id === undefined) return false;
-          const run = this.getMessage(room, delivery.run_msg_id);
+          const run = this.getMessage(delivery.room, delivery.run_msg_id);
           return run?.kind === 'run' && run.run?.status === 'running';
         });
       if (ownsUnresolvedAttempt) return undefined;

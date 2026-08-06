@@ -207,5 +207,26 @@ describe('qualified routing projection protocol', () => {
     expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
   });
 
+  it('rejects an unbounded removed-member projection', () => {
+    const members = Array.from({ length: 257 }, (_, index) => ({
+      member_id: `01J000000000000000000${String(index + 100).padStart(5, '0')}`,
+      handle: `old-${String(index)}`,
+      kind: 'agent' as const,
+    }));
+    expect(WorktreeRoutingCatalogSchema.safeParse({
+      room: repository.room,
+      targets: [{
+        worktree_id: '01J00000000000000000000007',
+        conversation_id: repository.room,
+        alias: 'main',
+        primary: true,
+        lifecycle: 'active' as const,
+        members: [],
+        removed_members: members,
+      }],
+      tombstones: [],
+    }).success).toBe(false);
+  });
+
 });
 // harn:end qualified-member-target-identity-is-durable

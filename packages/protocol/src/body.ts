@@ -105,31 +105,27 @@ export function parseBody(
   const occupied: { start: number; end: number }[] = [];
   const targets = targetList(options.qualifiedTargets);
   const catalog = targetCatalog(options.qualifiedTargets);
-  // Scan the whole suspicious token once. A prefix-only regex lets malformed
-  // suffixes (`~main:@codex.foo`, `~main: @codex`) escape and then be parsed as
-  // local mentions. The candidate owns the complete non-space token; a small
-  // punctuation suffix is left outside the span so ordinary prose remains
-  // byte-compatible.
-  const candidateRe = /(^|[^\w`])~[^\s`]+/g;
+  // Scan only tokens that actually attempt the qualified grammar. A broad
+  // `~...` scan turns ordinary prose (`~5`, `~/tmp`, `~approximately`) into a
+  // refusal. The candidate still owns the complete selector/colon/handle form,
+  // including malformed spacing and boundary variants, so an inner @handle can
+  // never leak into local routing.
+  const candidateRe = /~[ \t]*([^:\s`]+)[ \t]*:[ \t]*@[^\s`]+/g;
   const validPrefixRe = /^~([a-z0-9][a-z0-9._-]*):@([a-z0-9][a-z0-9-]*)/;
-  const malformedPartsRe = /^~([^:\s]+):\s*@([^\s]*)/;
+  const malformedPartsRe = /^~[ \t]*([^:\s`]+)[ \t]*:[ \t]*@([^\s`]*)/;
   const punctuationOnly = /^[.,!?;:)\]}]*$/;
   for (const match of coded.matchAll(candidateRe)) {
-    const start = match.index + match[1]!.length;
-    let candidateEnd = start + match[0]!.length - match[1]!.length;
-    // Whitespace in a qualified selector is malformed, but it still belongs
-    // to the qualified token and must hide the inner local mention.
-    const spacedHandle = coded.slice(candidateEnd).match(/^\s+@[^\s`]+/);
-    if (coded[candidateEnd - 1] === ':' && spacedHandle !== null) {
-      candidateEnd += spacedHandle[0].length;
-    }
+    const start = match.index;
+    const candidateEnd = start + match[0]!.length;
     const candidate = coded.slice(start, candidateEnd);
     const valid = validPrefixRe.exec(candidate);
     let end = candidateEnd;
     let selector = '';
     let handle = '';
     let malformed = false;
-    if (valid !== null && punctuationOnly.test(candidate.slice(valid[0].length))) {
+    const preceding = coded[start - 1];
+    const hasValidBoundary = preceding === undefined || !/[\w@`]/.test(preceding);
+    if (valid !== null && hasValidBoundary && punctuationOnly.test(candidate.slice(valid[0].length))) {
       end = start + valid[0].length;
       selector = valid[1]!;
       handle = valid[2]!;

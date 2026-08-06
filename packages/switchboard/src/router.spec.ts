@@ -207,6 +207,26 @@ describe('qualified body grammar', () => {
     }
   });
 
+  it('leaves ordinary tilde prose outside qualified-token ownership', () => {
+    for (const body of ['wait ~5 minutes', 'copy ~/tmp into the fixture', 'that is ~approximately right']) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified).toBeUndefined();
+      expect(parsed.qualified_issues).toBeUndefined();
+      expect(parsed.mentions).toEqual([]);
+    }
+  });
+
+  it('owns malformed boundaries and spacing through the complete inner handle', () => {
+    for (const body of ['x~review:@codex', '~review :@codex', '~ review:@codex', '~review: @codex']) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified).toEqual([]);
+      expect(parsed.mentions).toEqual([]);
+      expect(parsed.qualified_issues).toEqual([
+        expect.objectContaining({ reason: 'malformed', selector: 'review', handle: 'codex' }),
+      ]);
+    }
+  });
+
   it('distinguishes ambiguous targets and removed members', () => {
     const ambiguous = parseBody('~review:@codex', ROSTER, {
       qualifiedTargets: {
@@ -394,12 +414,55 @@ describe('resolveRecipients', () => {
       expect(result.commentary).toBe(false);
     });
 
-    it('a still-running agent never counts — daemon supplies only finalized authors', () => {
+  it('a still-running agent never counts — daemon supplies only finalized authors', () => {
       // codex is mid-run; the latest FINALIZED author is claude even though
       // codex posted (a running placeholder) more recently.
       const m = msg({ author: richard.id, kind: 'chat', body: 'and now?' });
       const result = resolveRecipients(m, ctx({ author: richard, latestFinalizedAgentAuthor: claude.id }));
       expect(result.agents.map((a) => a.handle)).toEqual(['claude']);
+    });
+
+    it('keeps an active foreign reply author scoped instead of using a local default', () => {
+      const target = qualifiedCatalog.targets[0]!;
+      const replyTarget = {
+        worktree_id: target.worktree_id,
+        conversation_id: target.conversation_id,
+        member_id: childCodex.id,
+        alias: target.alias,
+        handle: childCodex.handle,
+      };
+      const result = resolveRecipients(msg({
+        author: richard.id, kind: 'chat', body: 'continue this thread',
+      }), ctx({
+        author: richard,
+        roomConfig: RoomConfigSchema.parse({ starting_agent_handle: 'claude' }),
+        qualifiedTargets: qualifiedCatalog,
+        replyAuthor: { member: childCodex, target: replyTarget },
+        replyTarget,
+      }));
+      expect(result.agents).toEqual([childCodex]);
+      expect(result.agentTargets?.[0]?.target).toEqual(replyTarget);
+    });
+
+    it('refuses a stale foreign reply scope without choosing an unrelated local agent', () => {
+      const target = qualifiedCatalog.targets[0]!;
+      const replyTarget = {
+        worktree_id: target.worktree_id,
+        conversation_id: target.conversation_id,
+        member_id: childCodex.id,
+        alias: 'gone',
+        handle: childCodex.handle,
+      };
+      const result = resolveRecipients(msg({
+        author: richard.id, kind: 'chat', body: 'do not drift locally',
+      }), ctx({
+        author: richard,
+        qualifiedTargets: qualifiedCatalog,
+        replyTarget,
+      }));
+      expect(result.qualified_refusal).toContain('stale scoped reply');
+      expect(result.agents).toEqual([]);
+      expect(result.commentary).toBe(true);
     });
 
     it('fresh human messages prefer the configured live starting agent', () => {

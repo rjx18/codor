@@ -78,6 +78,7 @@ export interface GroupRoundPayloadContext {
   root: {
     messageId: number;
     authorHandle: string;
+    authorTarget?: ScopedMemberTarget;
     body: string;
   };
   refs?: {
@@ -135,7 +136,7 @@ export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: str
   let payload =
     `[codor group=${ctx.groupId} round=${ctx.roundNumber} channel=${ctx.room}\n` +
     ` root=#${ctx.root.messageId} - you=@${you}]\n\n` +
-    `--- group request #${ctx.root.messageId} - @${ctx.root.authorHandle} ---\n` +
+    `--- group request #${ctx.root.messageId} - ${memberLabel(ctx.root.authorHandle, ctx.root.authorTarget)} ---\n` +
     `${ctx.root.body}\n` +
     '--- end group request ---\n';
 

@@ -508,7 +508,16 @@ export class Daemon {
   } | null | undefined {
     const durable = this.store.listActiveInvocations(memberId);
     if (durable.length > 1) return null;
-    return durable[0] ?? this.activeInvocations.get(memberId);
+    const inMemory = this.activeInvocations.get(memberId);
+    if (
+      durable.length === 0
+      && inMemory !== undefined
+      && !this.store.routingTargetIsActive(inMemory.target, inMemory.originRoom)
+    ) {
+      this.activeInvocations.delete(memberId);
+      return undefined;
+    }
+    return durable[0] ?? inMemory;
   }
   /**
    * Members whose settings changed and whose cached session is therefore out of date.
@@ -3156,13 +3165,26 @@ export class Daemon {
     const routingState = this.routingState(room);
     const author = members.find((m) => m.id === message.author)
       ?? originMembers.find((m) => m.id === message.author);
+    const repliedTo = message.reply_to === undefined
+      ? undefined
+      : this.store.getMessage(room, message.reply_to);
+    const replyTarget = repliedTo?.author_target;
+    const replyAuthor = replyTarget !== undefined
+      && this.store.routingTargetIsActive(replyTarget, room)
+      ? (() => {
+          const member = this.store.getMember(replyTarget.conversation_id, replyTarget.member_id);
+          return member === undefined ? undefined : { member, target: replyTarget } satisfies RoutedRecipient;
+        })()
+      : undefined;
     const result = resolveRecipients(message, {
       members,
       author,
-      repliedTo: message.reply_to !== undefined ? this.store.getMessage(room, message.reply_to) : undefined,
+      repliedTo,
       latestFinalizedAgentAuthor: this.latestFinalizedAgentAuthor(executionRoom),
       roomConfig: this.store.getRoom(executionRoom)!.config,
       triggerAuthor,
+      replyAuthor,
+      replyTarget,
       qualifiedTargets: routingState.catalog,
       qualifiedMembers: routingState.members,
     });
@@ -3267,7 +3289,9 @@ export class Daemon {
     groupId: string,
     roundNumber: number,
   ): GroupRoundPayloadContext {
-    const author = this.store.getMember(room, root.author);
+    const author = root.author_target === undefined
+      ? this.store.getMember(room, root.author)
+      : this.store.getMember(root.author_target.conversation_id, root.author);
     if (!author) throw new Error(`group root #${root.id} has no author`);
     return {
       groupId,
@@ -3276,6 +3300,7 @@ export class Daemon {
       root: {
         messageId: root.id,
         authorHandle: author.handle,
+        ...(root.author_target !== undefined && { authorTarget: root.author_target }),
         body: root.body,
       },
       refs: root.refs
@@ -4410,6 +4435,7 @@ export class Daemon {
     const results: NonNullable<GroupRoundPayloadContext['results']> = [];
     const nextMembers: RoutedRecipient[] = [];
     const seen = new Set<string>();
+    const invalidQualifiedIssues: string[] = [];
     const routingState = this.routingState(room);
     for (const participant of projection.participants) {
       const participantDelivery = projection.deliveries.find(
@@ -4429,12 +4455,15 @@ export class Daemon {
       const aggregateParsed = parseBody(aggregateBody, this.store.listMembers(executionRoom), {
         qualifiedTargets: routingState.catalog,
       });
+      for (const issue of aggregateParsed.qualified_issues ?? []) {
+        invalidQualifiedIssues.push(`${issue.token} (${issue.reason})`);
+      }
       const status = participant.terminal_status === 'completed' && resultAck
         ? 'acknowledged'
         : participant.terminal_status!;
       results.push({
         ordinal: participant.ordinal,
-        memberHandle: member?.handle ?? participant.member_id,
+        memberHandle: member?.handle ?? participantDelivery?.target?.handle ?? participant.member_id,
         ...(participantDelivery?.target !== undefined && { memberTarget: participantDelivery.target }),
         status,
         ...(result !== undefined && !resultAck && {
@@ -4459,6 +4488,7 @@ export class Daemon {
           recipient.removed_ts !== undefined
         ) continue;
         const target = mention.target ?? this.targetForMember(room, executionRoom, recipient);
+        if (target !== undefined && !this.store.routingTargetIsActive(target, room)) continue;
         if (
           recipient.id === participant.member_id
           && target?.worktree_id === participantDelivery?.target?.worktree_id
@@ -4468,6 +4498,28 @@ export class Daemon {
         seen.add(identity);
         nextMembers.push({ member: recipient, ...(target !== undefined && { target }) });
       }
+    }
+
+    if (invalidQualifiedIssues.length > 0) {
+      const release = this.store.releaseCollaborationRound(room, {
+        groupId,
+        roundNumber,
+        releasedTs: new Date().toISOString(),
+        nextParticipants: [],
+      });
+      if (release.status === 'closed') {
+        const uniqueIssues = [...new Set(invalidQualifiedIssues)];
+        const existingRefusal = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER })
+          .some((message) => message.kind === 'system' && uniqueIssues
+            .every((issue) => message.body.includes(issue.split(' (', 1)[0]!)));
+        if (!existingRefusal) {
+          this.postSystemMessage(
+            room,
+            `qualified target refused in collaboration result: ${uniqueIssues.join(', ')}`,
+          );
+        }
+      }
+      return;
     }
 
     const context: GroupRoundPayloadContext = {
@@ -4749,7 +4801,49 @@ export class Daemon {
         }
       }
       // harn:end copilot-vscode-boot-admission-fails-closed-without-live-cache
-      const delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
+      let delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
+      // A durable target is revalidated before recovery decides whether a run
+      // may be retried. Invalid scoped rows are settled in their origin room;
+      // they must not keep a stale run eligible for adapter execution.
+      const staleDeliveries = delivering.filter((delivery) =>
+        delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, delivery.room));
+      for (const delivery of staleDeliveries) {
+        this.refuseQualifiedDelivery(
+          room.id,
+          delivery,
+          `registered target ${delivery.target!.alias}:@${delivery.target!.handle} is no longer valid`,
+        );
+      }
+      if (staleDeliveries.length > 0) {
+        const staleRunIds = new Set(
+          staleDeliveries
+            .map((delivery) => delivery.run_msg_id)
+            .filter((runId): runId is number => runId !== undefined),
+        );
+        for (const runMsgId of staleRunIds) {
+          const stillDelivering = this.store.listDeliveries(room.id, { state: 'delivering' })
+            .some((delivery) => delivery.run_msg_id === runMsgId);
+          if (stillDelivering) continue;
+          const run = this.store.getMessage(room.id, runMsgId);
+          if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
+          const interrupted = this.store.updateMessage(room.id, run.id, {
+            body: '',
+            mentions: [],
+            refs: [],
+            ledger_refs: [],
+            run: {
+              ...run.run,
+              status: 'interrupted',
+              ended_ts: new Date().toISOString(),
+              stalled_since: undefined,
+              final_text: undefined,
+            },
+          });
+          this.runActivity.delete(`${room.id}:${run.id}`);
+          this.emitMessage(room.id, interrupted);
+        }
+        delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
+      }
       const byRunMsg = new Map<number, Delivery[]>();
       for (const delivery of delivering) {
         if (delivery.run_msg_id === undefined) continue;
@@ -4961,12 +5055,23 @@ export class Daemon {
         )) {
           if (participant.terminal_status !== undefined) continue;
           const delivery = this.store.getDelivery(room, participant.delivery_id);
+          if (
+            delivery?.target !== undefined
+            && !this.store.routingTargetIsActive(delivery.target, delivery.room)
+          ) {
+            this.refuseQualifiedDelivery(
+              room,
+              delivery,
+              `registered target ${delivery.target.alias}:@${delivery.target.handle} is no longer valid`,
+            );
+            continue;
+          }
           const member = delivery === undefined
             ? this.store.getMember(room, participant.member_id)
             : this.targetMember(delivery, room)?.member;
           const result = delivery?.run_msg_id === undefined
             ? undefined
-            : this.store.getMessage(room, delivery.run_msg_id);
+            : this.store.getMessage(delivery.room, delivery.run_msg_id);
           if (result?.run && result.run.status !== 'running') {
             this.store.recoverCollaborationParticipantTerminal(room, {
               deliveryId: participant.delivery_id,
@@ -5038,6 +5143,19 @@ export class Daemon {
     orphanAfter: boolean,
     targetRoom = room,
   ): RetryTurnRefusal | undefined {
+    const stale = group.filter((delivery) =>
+      delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room));
+    for (const delivery of stale) {
+      this.refuseQualifiedDelivery(
+        room,
+        delivery,
+        `registered target ${delivery.target!.alias}:@${delivery.target!.handle} is no longer valid`,
+      );
+    }
+    group = group.filter((delivery) => !stale.some((candidate) => candidate.id === delivery.id));
+    if (group.length === 0) {
+      return { reason: 'all scoped retry targets are stale', alreadyHeld: true };
+    }
     const eligible = this.turnStartEligibility(targetRoom, member.id);
     if (!eligible.member) {
       return {
@@ -5158,6 +5276,17 @@ export class Daemon {
   releaseHold(room: string, deliveryId: string): void {
     const delivery = this.store.getDelivery(room, deliveryId);
     if (!delivery || delivery.state !== 'held') throw new Error(`delivery ${deliveryId} is not held`);
+    if (
+      delivery.target !== undefined
+      && !this.store.routingTargetIsActive(delivery.target, room)
+    ) {
+      this.refuseQualifiedDelivery(
+        room,
+        delivery,
+        `registered target ${delivery.target.alias}:@${delivery.target.handle} is no longer valid`,
+      );
+      return;
+    }
     const targetRoom = delivery.target?.conversation_id ?? room;
     const attemptProcess = this.store.getDeliveryAttemptProcess(room, deliveryId);
     if (attemptProcess && this.processAlive(attemptProcess)) {

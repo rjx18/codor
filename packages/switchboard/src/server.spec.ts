@@ -641,6 +641,9 @@ it('maps an active target session across home and origin selectors without widen
   const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'active-target' });
   const child = adopted.worktree.conversation_id;
   const { agent, token: initialToken, session } = spawnAgentWithToken('active-target-agent', child);
+  const sibling = daemon.spawnMember(child, {
+    harness: 'fake', handle: 'target-sibling', cwd: testCwd('target-sibling'),
+  });
   const unrelated = spawnAgentWithToken('unrelated-origin-agent').agent;
   daemon.pauseMember('eng', unrelated.id);
   daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' } });
@@ -695,6 +698,13 @@ it('maps an active target session across home and origin selectors without widen
     .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
   expect(await nextFrame('home sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng'))
     .toMatchObject({ type: 'sync_complete', room: 'eng' });
+  const homeTargetMembers = client.frames.filter(
+    (frame): frame is Extract<ServerFrame, { type: 'member' }> =>
+      frame.type === 'member' && frame.room === 'eng' && frame.member.id === agent.id,
+  );
+  expect(homeTargetMembers).toHaveLength(1);
+  expect(client.frames.some((frame) => frame.type === 'member' && frame.member.id === sibling.id))
+    .toBe(false);
 
   daemon.postHumanMessage('eng', '@unrelated-origin-agent unrelated pending work');
   client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));

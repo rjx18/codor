@@ -114,6 +114,36 @@ describe('qualified composer completion', () => {
 
 // harn:assume invalid-qualified-targets-never-fallback ref=qualified-composer-refusal-regression
 describe('qualified composer refusal', () => {
+  it.each(['wait ~5 minutes', '~/tmp is a path', '~approximately done'])
+    ('leaves ordinary tilde prose routable (%s)', (draft) => {
+      const parsed = parseBody(draft, [], {
+        qualifiedTargets: { room: 'eng', targets: [], tombstones: [] },
+      });
+      expect(parsed.qualified).toBeUndefined();
+      expect(parsed.qualified_issues).toBeUndefined();
+      expect(parsed.mentions).toEqual([]);
+    });
+
+  it.each([
+    'x~review:@codex',
+    '~review :@codex',
+    '~ review:@codex',
+    '~review: @codex',
+  ])('owns malformed scoped syntax without leaking the inner mention (%s)', (draft) => {
+    const parsed = parseBody(draft, [{
+      id: '01J00000000000000000000010', kind: 'agent', handle: 'codex',
+      display_name: 'Codex', state: 'idle', custody: 'owned',
+      conventions_sent: false, misaddressed: false, roster_stale: true,
+    }], {
+      qualifiedTargets: { room: 'eng', targets: [], tombstones: [] },
+    });
+    expect(parsed.mentions).toEqual([]);
+    expect(parsed.qualified).toEqual([]);
+    expect(parsed.qualified_issues).toEqual([
+      expect.objectContaining({ reason: 'malformed' }),
+    ]);
+  });
+
   it('keeps an unknown scoped target as a structured issue for inline draft feedback', () => {
     const parsed = parseBody('~missing:@coder keep this draft', [], {
       qualifiedTargets: { room: 'eng', targets: [], tombstones: [] },

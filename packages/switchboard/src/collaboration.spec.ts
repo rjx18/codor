@@ -142,11 +142,16 @@ describe('group round payload composition', () => {
     };
     const payload = composeGroupRoundPayload({
       ...context,
+      root: {
+        ...context.root,
+        authorTarget: target,
+      },
       results: [
         { ordinal: 0, memberHandle: 'alpha', memberTarget: target, status: 'completed', body: 'scoped result' },
         { ordinal: 1, memberHandle: 'beta', memberTarget: target, status: 'acknowledged' },
       ],
     }, 'gamma');
+    expect(payload).toContain('--- group request #4 - ~review:@richard ---');
     expect(payload).toContain('~review:@alpha - completed');
     expect(payload).toContain('[~review:@beta acknowledged; no substantive response.]');
     expect(payload).toContain('[group routing: all participants in this round run independently.');

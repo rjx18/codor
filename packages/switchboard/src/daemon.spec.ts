@@ -8004,6 +8004,55 @@ describe('qualified target orchestration', () => {
     await daemon.settle();
   });
 
+  it('starts an origin-owned group from a foreign author with mixed target scopes', async () => {
+    const authorWorktree = registerQualifiedFixture('foreign-author', 'foreign-author');
+    const peerWorktree = registerQualifiedFixture('foreign-peer', 'foreign-peer');
+    const author = daemon.spawnMember(authorWorktree.conversation_id, {
+      harness: 'fake', handle: 'foreign-author', cwd: testCwd('foreign-author'),
+    });
+    const localTarget = daemon.spawnMember(authorWorktree.conversation_id, {
+      harness: 'fake', handle: 'author-peer', cwd: testCwd('author-peer'),
+    });
+    const foreignTarget = daemon.spawnMember(peerWorktree.conversation_id, {
+      harness: 'fake', handle: 'foreign-peer', cwd: testCwd('foreign-peer'),
+    });
+    daemon.pauseMember(authorWorktree.conversation_id, localTarget.id);
+    daemon.pauseMember(peerWorktree.conversation_id, foreignTarget.id);
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@author-peer ~foreign-peer:@foreign-peer compare the two scopes',
+    });
+
+    daemon.postHumanMessage('eng', '~foreign-author:@foreign-author produce a scoped group');
+    await daemon.settle();
+
+    const result = runMessages().find((message) => message.author === author.id)!;
+    const group = daemon.store.getCollaborationGroupByRoot('eng', result.id)!;
+    const participants = daemon.store.listCollaborationParticipants('eng', group.id, 1);
+    expect(group.room).toBe('eng');
+    expect(daemon.store.getMessage('eng', result.id)?.author_target).toMatchObject({
+      worktree_id: authorWorktree.id,
+      conversation_id: authorWorktree.conversation_id,
+      alias: 'foreign-author',
+      member_id: author.id,
+    });
+    expect(participants.map((participant) => participant.member_id)).toEqual([
+      localTarget.id, foreignTarget.id,
+    ]);
+    const deliveries = participants.map((participant) =>
+      daemon.store.getDelivery('eng', participant.delivery_id)!);
+    expect(deliveries.map((delivery) => delivery.target?.alias)).toEqual([
+      'foreign-author', 'foreign-peer',
+    ]);
+    const payloads = deliveries.map((delivery) =>
+      JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', delivery.id)!).payload as string);
+    expect(payloads[0]).toContain(`group request #${String(result.id)} - ~foreign-author:@foreign-author`);
+    expect(payloads[0]).toContain('@author-peer');
+    expect(payloads[0]).toContain('~foreign-peer:@foreign-peer');
+    expect(payloads[0]).toContain('[group routing:');
+    expect(payloads[1]).toBe(payloads[0].replace('you=@author-peer', 'you=@foreign-peer'));
+  });
+
   it('routes a child-origin onward mention to the registered main target', async () => {
     const targetWorktree = registerQualifiedFixture('child-origin', 'child-origin');
     const childRoom = targetWorktree.conversation_id;
@@ -8028,6 +8077,114 @@ describe('qualified target orchestration', () => {
     expect(daemon.store.listDeliveries('eng', { recipient: main.id })).toEqual([]);
     expect(remote.kind).toBe('agent');
     await daemon.settle();
+  });
+
+  it('settles a queued target after unregister without fallback or adapter execution', async () => {
+    const worktree = registerQualifiedFixture('stale-queued', 'stale-queued');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'stale-queued-agent', cwd: testCwd('stale-queued-agent'),
+    });
+    daemon.pauseMember(worktree.conversation_id, target.id);
+    const root = daemon.postHumanMessage('eng', '~stale-queued:@stale-queued-agent queued once');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === root.id)!;
+    expect(delivery.state).toBe('queued');
+
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:10:00.000Z');
+    await daemon.maybeStartTurn(worktree.conversation_id, target.id);
+
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(runMessages().some((message) => message.author === target.id)).toBe(false);
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listMessages('eng').some((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toBe(true);
+  });
+
+  it('refuses a held target after unregister instead of releasing it to a fallback', () => {
+    const worktree = registerQualifiedFixture('stale-held', 'stale-held');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'stale-held-agent', cwd: testCwd('stale-held-agent'),
+    });
+    daemon.pauseMember(worktree.conversation_id, target.id);
+    const root = daemon.postHumanMessage('eng', '~stale-held:@stale-held-agent hold once');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === root.id)!;
+    daemon.holdDelivery('eng', delivery.id, 'test hold');
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:11:00.000Z');
+
+    daemon.releaseHold('eng', delivery.id);
+
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('settles a recovered delivering target before restart can re-run it', async () => {
+    const worktree = registerQualifiedFixture('stale-recovered', 'stale-recovered');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'stale-recovered-agent', cwd: testCwd('stale-recovered-agent'),
+    });
+    const owner = daemon.ownerOf('eng');
+    const trigger = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '~stale-recovered:@stale-recovered-agent recover once',
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id, recipient: target.id,
+      target: {
+        worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+        member_id: target.id, alias: 'stale-recovered', handle: target.handle,
+      },
+    });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id,
+      author_target: delivery.target,
+      kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:12:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:13:00.000Z');
+
+    daemon.store.close();
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listMessages('eng').some((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toBe(true);
+  });
+
+  it('closes a group atomically when one result contains invalid qualified intent', async () => {
+    const alpha = spawnAgent('atomic-invalid-alpha');
+    const beta = spawnAgent('atomic-invalid-beta');
+    const gamma = spawnAgent('atomic-invalid-gamma');
+    daemon.pauseMember('eng', gamma.id);
+    fake.enqueue(
+      { kind: 'complete', final_text: '~missing:@atomic-invalid-gamma and @atomic-invalid-gamma' },
+      { kind: 'complete', final_text: '@atomic-invalid-gamma valid sibling intent' },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng', '@atomic-invalid-alpha @atomic-invalid-beta compare atomically',
+    );
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    expect(group.state).toBe('completed');
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .every((participant) => participant.terminal_status !== undefined)).toBe(true);
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
   });
 });
 // harn:end target-member-turns-serialize-across-origins

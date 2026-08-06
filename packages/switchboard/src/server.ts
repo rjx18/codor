@@ -307,6 +307,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return member;
   };
 
+  // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-server
   // A long-lived target session may reconnect through its home selector while
   // one durable cross-origin invocation is active. The credential remains
   // bounded to that single origin; it never gains a general room selector.
@@ -316,6 +317,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ? principal.invocation.originRoom
       : requestedRoom;
   };
+  // harn:end agent-authority-follows-one-active-invocation
 
   const memberForGlobal = (principal: AuthPrincipal): Member | undefined => {
     if (principal.kind === 'owner' || principal.kind === 'browser') return undefined;
@@ -1751,7 +1753,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
             const actor = assertRoomCapability(principal, frame.room, 'read');
             const room = effectiveAgentRoom(principal, frame.room);
-            // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
+  // harn:assume cross-worktree-runtime-stays-target-local ref=cross-worktree-runtime-live-frame
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             const roomAddressed = frame.room_addressed === true;
             // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
             const supportMemberId = roomAddressed && actor.kind === 'human'
@@ -1786,12 +1789,20 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               strictTail: roomAddressed,
               supportFor: supportMemberId,
             });
+            const targetSelf = principal.kind === 'agent'
+              && principal.invocation !== undefined
+              && principal.invocation.originRoom === room
+              ? daemon.store.getMember(principal.invocation.targetRoom, principal.memberId)
+              : undefined;
             const hydrationCursor = frame.since_seq;
             // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             send({ type: 'self', member_id: actor.id, ...address });
             send({ type: 'room', seq: hydrationCursor, room: sync.room });
             for (const member of sync.members) {
               send({ type: 'member', seq: hydrationCursor, member, ...address });
+            }
+            if (targetSelf !== undefined && !sync.members.some((member) => member.id === targetSelf.id)) {
+              send({ type: 'member', seq: hydrationCursor, member: targetSelf, ...address });
             }
             // harn:end multiplexed-subscriptions-identify-their-room
             for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
@@ -1850,6 +1861,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 voice: frame.voice,
               });
             }
+            // harn:end cross-worktree-runtime-stays-target-local
           } else if (frame.type === 'act') {
             const act = frame.act;
             const actor = assertRoomCapability(principal, frame.room, act.act);

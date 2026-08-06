@@ -80,6 +80,10 @@ export interface RoutingContext extends EligibilityContext {
    * run (for a batched turn, the author of the LAST delivery in the batch).
    */
   triggerAuthor?: string | RoutedRecipient;
+  /** Stable scope of the message being replied to, when it is foreign. */
+  replyAuthor?: RoutedRecipient;
+  /** Persisted scope from a replied-to message, even if it is now stale. */
+  replyTarget?: ScopedMemberTarget;
   // harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-resolution
   /** Path-free registered worktree projection used by the shared parser. */
   qualifiedTargets?: readonly WorktreeRoutingTarget[] | WorktreeRoutingCatalog;
@@ -186,6 +190,17 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
   // agent messages default to whoever triggered the run (last delivery of a
   // batch). No candidate → room commentary, delivered to nobody.
   const hasQualifiedIntent = qualifiedMentions.length > 0 || qualifiedIssues.length > 0;
+  if (
+    recipients.length === 0
+    && !hasQualifiedIntent
+    && ctx.replyTarget !== undefined
+    && (
+      ctx.replyAuthor === undefined
+      || !targetCatalogContains(ctx.replyTarget, ctx.qualifiedTargets)
+    )
+  ) {
+    qualified_refusal = `qualified target refused: ${ctx.replyTarget.alias}:@${ctx.replyTarget.handle} (stale scoped reply)`;
+  }
   if (recipients.length === 0 && !hasQualifiedIntent && qualified_refusal === undefined) {
     const authorKind = ctx.author!.kind;
     const trigger = ctx.triggerAuthor;
@@ -196,7 +211,7 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
         : trigger.target === undefined
           ? byId.get(trigger.member.id)
           : targetCatalogContains(trigger.target, ctx.qualifiedTargets)
-            ? qualifiedById.get(trigger.target.member_id)
+            ? trigger.member
             : undefined;
     if (typeof trigger !== 'string' && trigger?.target !== undefined
       && !targetCatalogContains(trigger.target, ctx.qualifiedTargets)) {
@@ -204,16 +219,19 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
     }
     const fallback = authorKind === 'agent'
       ? triggerMember
-      : effectiveDefaultAgent({
+      : (ctx.replyAuthor?.member ?? effectiveDefaultAgent({
           members: ctx.members,
           latestFinalizedAgentId: ctx.latestFinalizedAgentAuthor,
           startingAgentHandle: ctx.roomConfig.starting_agent_handle,
-        });
+        }));
     if (fallback && fallback.id !== message.author && isAddressable(fallback)) {
       recipients.push({
         member: fallback,
-        ...(authorKind === 'agent' && typeof trigger !== 'string' && trigger?.target !== undefined
-          && { target: trigger.target }),
+        ...((authorKind === 'agent' && typeof trigger !== 'string' && trigger?.target !== undefined)
+          ? { target: trigger.target }
+          : (authorKind !== 'agent' && ctx.replyAuthor?.target !== undefined
+            ? { target: ctx.replyAuthor.target }
+            : {})),
       });
     }
   }

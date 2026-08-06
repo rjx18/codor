@@ -135,7 +135,7 @@ export const WorktreeRoutingCatalogSchema = z.object({
   }
 });
 export type WorktreeRoutingCatalog = z.infer<typeof WorktreeRoutingCatalogSchema>;
-// harn:end qualified-member-target-protocol
+// harn:end qualified-member-target-identity-is-durable
 
 const CommitHashSchema = z.string().regex(/^[0-9a-f]{40}$/i);
 
