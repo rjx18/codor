@@ -1,0 +1,225 @@
+id: cli-management-phase1-review-fix-cli-contracts
+title: Correct Phase 1 structured CLI boundaries, exits, and human rendering
+notes: >-
+  This is the bounded review fix for applied Phase 1 plan
+  cli-management-phase1-channels at commit
+  af45a40cd95580c6ac5bc51a2e0fd61807cd0bd3. Independent review confirmed that
+  the protocol, authorization, persistence, correlation, confirmation, build,
+  package suites, and packed runtime pass, but found three CLI contract defects.
+
+  First, the implementation made `channel` an alias of the legacy `channels`
+  command. That makes bare `channel` run the flat listing, exposes the new
+  subcommands under plural `channels`, changes the legacy help/command shape,
+  and leaves no independently registered singular family. Restore `channels` as
+  the exact flat active-channel tab listing and register a separate `channel`
+  parent containing exactly list, create, show, rename, and archive. Bare or
+  malformed singular-family invocations must be invocation failures; do not add
+  aliases, later-phase subcommands, delete, purge, or restore.
+
+  Second, Commander-owned missing-argument, missing-required-option, unknown
+  option, and unknown-subcommand paths currently terminate with exit 1 before
+  the shared management failure contract can run, and local protocol schema
+  validation is classified as transport exit 7. Normalize every structured
+  `channel` invocation/validation failure to exit 2, empty stdout, and exactly
+  one concise redacted stderr line in both source and generated public-package
+  execution. Preserve generic exit 1 and existing behavior for unrelated legacy
+  CLI failures. Keep authentication 3, authorization 4, not-found 5, conflict 6,
+  and transport/protocol 7. Classification must recognize the structural
+  not-found shape before incidental credential words in a valid channel id, so
+  absent channels named `unauthorized`, `bearer`, or `401` remain exit 5. No
+  diagnostic may echo a selected token, bearer value, or token-bearing URL.
+
+  Third, structured human rendering currently writes room name, color, and cwd
+  verbatim. Those protocol-valid values may contain tabs, CR/LF, ESC, or other
+  control characters and can forge extra rows or terminal control sequences.
+  Encode backslash and control characters into deterministic printable escapes
+  before joining human fields, so each list item remains exactly one physical
+  tab-separated line and show remains exactly seven physical fixed-order lines.
+  JSON output must remain one compact value and preserve the original string
+  values when parsed; the legacy `channels` output remains unchanged for
+  compatibility.
+
+  Do not change protocol frames, switchboard authorization, daemon/store archive
+  semantics, SQLite, connection selection, token sources, confirmation rules,
+  source/public wrapper architecture, or packaging composition. Do not implement
+  agent, preset, default-roster, worktree, qualified-posting, cloud, relay, or
+  account behavior. Implement this locked plan in exactly one review-fix commit.
+assumptions:
+  create: []
+  reviewed:
+    - id: structured-channel-cli-preserves-flat-listing
+      outcome: unchanged
+      reason: Separating the singular structured family from the plural flat command
+        restores the already-approved additive boundary instead of changing its
+        command or transport semantics.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: Printable escaping makes the existing fixed human rows deterministic
+        while leaving the safe projection and compact JSON value unchanged.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Parser, local schema, and not-found precedence corrections make all
+        structured failures satisfy the existing exit and redaction contract.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: Archive remains the only destructive Phase 1 command and keeps the same
+        interactive affirmative or unattended --yes gate under the corrected
+        singular family.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: The separately registered family remains channel-named and does not
+        expose protocol room terminology.
+    - id: cli-help-never-renders-selected-bearer
+      outcome: unchanged
+      reason: Targeted parser handling and the separated help surface must continue to
+        use the redacted token default without interpolating selected authority.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: The generated wrapper continues to call exported runCli and the shared
+        formatter; structured parser failures are converted before reaching it.
+    - id: source-cli-installers-remain-idempotent-fallback
+      outcome: unchanged
+      reason: The source entrypoint and installer/shim behavior remain unchanged while
+        runCli returns typed singular-family invocation failures to the wrapper.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: The existing clean packed runtime proof gains one installed malformed
+        structured invocation without changing its build or installation flow.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: Successful parsed commands continue to use the applied correlated
+        management client without any wire or correlation change.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: Separating commands and normalizing parser failures does not alter local
+        socket, explicit URL, token, or member-credential selection.
+  retire: []
+anchors:
+  structured-channel-cli-preserves-flat-listing:
+    structured-channel-command-surface:
+      action: change
+      reason: Restore one untouched flat `channels` action and register one
+        independent singular `channel` parent with exactly the five Phase 1
+        subcommands.
+    structured-channel-rendering:
+      action: change
+      reason: Escape structured human field cells into printable deterministic text
+        while preserving compact JSON values and field order.
+    structured-channel-cli-regression:
+      action: change
+      reason: Prove distinct command registration/help/invocation behavior, exact flat
+        output, safe human rows, JSON preservation, and typed malformed calls.
+    structured-channel-packed-smoke:
+      action: change
+      reason: Retain installed channel management coverage and add a malformed
+        singular-family invocation through the packed public binary.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: change
+      reason: Add one reusable human-cell encoder for backslash, tab, CR/LF, ESC, and
+        remaining control characters before fixed row assembly.
+    management-output-regression:
+      action: change
+      reason: Exercise protocol-valid hostile name, color, and cwd strings and prove
+        fixed physical line counts, no raw controls, and unchanged parsed JSON.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Recognize local schema validation as invocation and prioritize
+        structural not-found evidence over incidental credential-like channel
+        ids.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Keep the existing shared redacted formatter and dynamic exit
+        propagation; runCli will now deliver typed parser errors to this
+        unchanged boundary.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Keep the generated wrapper's shared formatter and exit propagation
+        unchanged.
+    management-error-regression:
+      action: change
+      reason: Prove missing arguments/options, unknown singular commands/options,
+        local schema failures, adversarial missing ids, exact codes, empty
+        stdout, one-line stderr, and redaction.
+    public-cli-failure-regression:
+      action: keep
+      reason: Retain the generated wrapper structure test; installed execution is
+        exercised by the packed regression.
+    packed-management-failure-regression:
+      action: change
+      reason: Assert an installed missing-required-option call exits 2 with empty
+        stdout and exactly one stack-free, secret-free stderr line.
+  channel-archive-requires-explicit-confirmation:
+    channel-archive-command-confirmation:
+      action: change
+      reason: Re-register the unchanged archive confirmation action under the separate
+        singular family.
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Retain accept, decline, unattended, JSON, and --yes proofs after the
+        command boundary is separated.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Register the singular management family explicitly while retaining the
+        plural compatibility command.
+    cli-channel-regression:
+      action: change
+      reason: Pin both top-level command identities and exclude room-named management
+        commands or options.
+  cli-help-never-renders-selected-bearer:
+    redacted-token-option-default:
+      action: keep
+      reason: The global help token default and selection remain unchanged.
+    token-help-redaction-regression:
+      action: change
+      reason: Recheck source help after the separate channel family is registered and
+        ensure no selected bearer is rendered.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: keep
+      reason: The wrapper continues explicit exported runCli delegation.
+  source-cli-installers-remain-idempotent-fallback:
+    per-user-cli-install-script:
+      action: keep
+      reason: The source entrypoint and checkout installer remain unchanged.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Add only the installed structured parser exit/redaction assertion.
+  management-frames-correlate-one-result:
+    management-correlation-client:
+      action: keep
+      reason: Parsed management operations retain the applied correlation loop.
+    management-correlation-cli-regression:
+      action: keep
+      reason: Existing unrelated-frame and correlated-result coverage remains.
+  member-env-selects-narrow-cli-identity:
+    member-connection-options:
+      action: keep
+      reason: Local and explicit connection option selection remains unchanged.
+files:
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - scripts/packed-install-test.sh
+verification: Run focused CLI regressions for management rendering, parser/error
+  handling, command registration, legacy `channels`, URL/token success, archive
+  confirmation, and source failure formatting; then run `pnpm --filter
+  @codor/cli test`, `pnpm --filter '@codor/cli...' build`, and
+  `scripts/packed-install-test.sh`. The tests must execute missing required
+  arguments/options, unknown singular subcommands/options, invalid protocol
+  values, and missing channels named `unauthorized`, `bearer`, and `401`; assert
+  exit 2 or 5 as appropriate, empty stdout, exactly one stderr line, and no raw
+  selected token or stack. They must prove `channels` remains a separate flat
+  active listing, `channel` is a separate five-command family, human list/show
+  output has fixed physical rows with escaped controls, parsed JSON preserves
+  values, and no later-phase command appears. Before the single review-fix
+  commit, run `harn find --plan cli-management-phase1-review-fix-cli-contracts`,
+  `harn check cli-management-phase1-review-fix-cli-contracts`, stage only the
+  declared files plus Harn plan state, and let the pre-commit hook apply and
+  recheck it.
+applied:
+  applied_at: 2026-08-06T08:19:36.985Z

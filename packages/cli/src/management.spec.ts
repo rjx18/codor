@@ -13,6 +13,7 @@ import {
   renderChannelList,
 } from './management.js';
 import type { ProtocolClient } from './connection.js';
+import { runCli } from './program.js';
 
 const room = {
   id: 'eng',
@@ -48,6 +49,41 @@ describe('management output', () => {
       'cwd\t/work/project',
     ].join('\n'));
   });
+
+  it('escapes hostile human cells without changing JSON values', () => {
+    const hostile = {
+      ...room,
+      name: 'Name\trow\r\n\u001b[31m\\tail',
+      config: {
+        ...room.config,
+        color: 'blue\u0001\tgreen',
+        cwd: '/work/\u007fproject',
+      },
+    } satisfies Room;
+    const projected = JSON.parse(renderChannelList([hostile], true)) as Array<{
+      name: string;
+      color?: string;
+      cwd?: string;
+    }>;
+    expect(projected[0]).toMatchObject({
+      name: hostile.name,
+      color: hostile.config.color,
+      cwd: hostile.config.cwd,
+    });
+
+    const rawControl = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/;
+    const list = renderChannelList([hostile], false);
+    expect(list.split('\n')).toHaveLength(1);
+    for (const cell of list.split('\t')) expect(cell).not.toMatch(rawControl);
+    expect(list).toContain('Name\\trow\\r\\n\\x1b[31m\\\\tail');
+
+    const shown = renderChannel(hostile, false);
+    expect(shown.split('\n')).toHaveLength(7);
+    for (const line of shown.split('\n')) {
+      expect(line.split('\t')).toHaveLength(2);
+      expect(line.split('\t')[1]).not.toMatch(rawControl);
+    }
+  });
 });
 // harn:end management-output-is-json-pure-and-safe
 
@@ -71,6 +107,47 @@ describe('management failures', () => {
     expect(cliExitCode(classifyManagementError(new Error('forbidden: admin cannot rename room')))).toBe(
       MANAGEMENT_EXIT_CODES.authorization,
     );
+    for (const id of ['unauthorized', 'bearer', '401']) {
+      expect(cliExitCode(classifyManagementError(new Error(`no such channel ${id}`)))).toBe(
+        MANAGEMENT_EXIT_CODES.notFound,
+      );
+    }
+    const schemaFailure = new Error('Invalid input') as Error & { issues: unknown[] };
+    schemaFailure.name = 'ZodError';
+    schemaFailure.issues = [];
+    expect(cliExitCode(classifyManagementError(schemaFailure))).toBe(MANAGEMENT_EXIT_CODES.invocation);
+  });
+
+  it('normalizes malformed structured invocations to one typed invocation failure', async () => {
+    const invoke = async (args: string[]) => {
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', ...args], {
+          env: {},
+          stdout: () => undefined,
+          stderr: (line) => stderr.push(line),
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { error, stderr };
+    };
+
+    for (const args of [
+      ['channel'],
+      ['channel', 'create'],
+      ['channel', 'create', 'Missing Owner'],
+      ['channel', 'list', '--unknown'],
+      ['channel', 'unknown'],
+    ]) {
+      const result = await invoke(args);
+      expect(result.error).toMatchObject({
+        name: 'ManagementError',
+        exitCode: MANAGEMENT_EXIT_CODES.invocation,
+      });
+      expect(result.stderr).toEqual([]);
+    }
   });
 });
 // harn:end management-failures-have-stable-redacted-exits

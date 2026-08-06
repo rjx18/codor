@@ -168,8 +168,17 @@ describe('@codor/cli', () => {
       'revoke',
       'ledger',
       'relay',
+      'channel',
     ]);
     const program = createProgram();
+    const flatChannels = program.commands.find((command) => command.name() === 'channels');
+    const structuredChannels = program.commands.find((command) => command.name() === 'channel');
+    expect(flatChannels?.aliases()).toEqual([]);
+    expect(flatChannels?.commands).toEqual([]);
+    expect(structuredChannels?.aliases()).toEqual([]);
+    expect(structuredChannels?.commands.map((command) => command.name())).toEqual([
+      'list', 'create', 'show', 'rename', 'archive',
+    ]);
     expect(program.commands.find((command) => command.name() === 'spawn')?.options.map((option) => option.long))
       .toContain('--channel');
     expect(program.commands.flatMap((command) => command.options.map((option) => option.long)))
@@ -1120,6 +1129,20 @@ describe('@codor/cli', () => {
     expect(JSON.parse(listed.stdout[0]!)).toEqual([expect.objectContaining({
       id: 'eng', name: 'Engineering', status: 'active',
     })]);
+
+    for (const id of ['unauthorized', 'bearer', '401']) {
+      const missing = await invoke(['channel', 'show', id]);
+      expect(missing.error).toBeInstanceOf(ManagementError);
+      expect(cliExitCode(missing.error)).toBe(5);
+      expect(missing.stdout).toEqual([]);
+      expect(missing.stderr).toEqual([]);
+    }
+
+    const invalidOwner = await invoke(['channel', 'create', 'Invalid Owner', '--owner', 'bad handle']);
+    expect(invalidOwner.error).toBeInstanceOf(ManagementError);
+    expect(cliExitCode(invalidOwner.error)).toBe(2);
+    expect(invalidOwner.stdout).toEqual([]);
+    expect(invalidOwner.stderr).toEqual([]);
 
     const cwd = join(dir, 'created-cwd');
     mkdirSync(cwd);

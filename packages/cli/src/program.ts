@@ -1491,9 +1491,63 @@ export function createProgram(context: CliContext = {}): Command {
       out(`rotated; new session ${result.session_id}`);
     });
   // harn:end human-facing-surfaces-call-rooms-channels
+  const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
+  channelManagement.aliases().splice(0);
+  const structuredChannelManagement = program
+    .command('channel')
+    .description('manage channels');
+  for (const command of structuredChannelCommands) structuredChannelManagement.addCommand(command);
+  const configureCommander = (command: Command): void => {
+    command
+      .exitOverride()
+      .configureOutput({ writeErr: () => undefined });
+    for (const child of command.commands) configureCommander(child);
+  };
+  configureCommander(program);
   return program;
 }
 
 export async function runCli(argv = process.argv, context: CliContext = {}): Promise<void> {
-  await createProgram(context).parseAsync(argv);
+  try {
+    await createProgram(context).parseAsync(argv);
+  } catch (error) {
+    if (!isCommanderFailure(error)) throw error;
+    if (error.exitCode === 0) return;
+    if (isStructuredChannelInvocation(argv)) {
+      const message = error.code === 'commander.help' ? 'channel requires a subcommand' : error.message;
+      throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, message, { cause: error });
+    }
+    throw error;
+  }
+}
+
+interface CommanderFailure {
+  code: string;
+  exitCode: number;
+  message: string;
+}
+
+function isCommanderFailure(error: unknown): error is CommanderFailure {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as Partial<CommanderFailure>;
+  return typeof candidate.code === 'string'
+    && candidate.code.startsWith('commander.')
+    && typeof candidate.exitCode === 'number'
+    && typeof candidate.message === 'string';
+}
+
+function isStructuredChannelInvocation(argv: readonly string[]): boolean {
+  const args = argv.slice(2);
+  const optionsWithValues = new Set(['--data-dir', '--url', '--token']);
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (optionsWithValues.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if ([...optionsWithValues].some((option) => argument.startsWith(`${option}=`))) continue;
+    if (argument.startsWith('-')) return false;
+    return argument === 'channel';
+  }
+  return false;
 }

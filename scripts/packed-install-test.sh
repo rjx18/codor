@@ -203,6 +203,17 @@ docker run --rm --network none \
       printf "packed management failure leaked a stack or secret\n" >&2
       exit 1
     fi
+    set +e
+    INVALID_CHANNEL="$($BIN --data-dir "$DATA" channel create "Invalid Owner" --owner "bad handle" --json 2>/proof/invalid-channel.out)"
+    INVALID_STATUS=$?
+    set -e
+    [[ "$INVALID_STATUS" -eq 2 ]]
+    [[ -z "$INVALID_CHANNEL" ]]
+    [[ "$(wc -l </proof/invalid-channel.out)" -eq 1 ]]
+    if grep -Eq "[[:space:]]at[[:space:]]|node:internal|Unhandled|PROOF_TOKEN|0123456789abcdef" /proof/invalid-channel.out; then
+      printf "packed invocation failure leaked a stack or secret\n" >&2
+      exit 1
+    fi
     "$BIN" --data-dir "$DATA" channel archive packed --yes --json | grep -Fq '"status":"archived"'
     DEFAULT_CHANNELS="$("$BIN" --data-dir "$DATA" channel list --json)"
     if grep -Fq '"id":"packed"' <<<"$DEFAULT_CHANNELS"; then

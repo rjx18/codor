@@ -38,13 +38,14 @@ export function classifyManagementError(error: unknown): ManagementError {
   const message = errorText(error);
   const lower = message.toLowerCase();
   let code: number = MANAGEMENT_EXIT_CODES.transport;
-  if (/--url|--token|argument|option|invalid frame|zoderror|must be/.test(lower)) {
-    code = MANAGEMENT_EXIT_CODES.invocation;
-  }
-  if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
-    code = MANAGEMENT_EXIT_CODES.authentication;
-  } else if (/no such (?:room|channel)|not found|does not exist/.test(lower)) {
+  const schemaFailure = (error instanceof Error && error.name === 'ZodError')
+    || (typeof error === 'object' && error !== null && Array.isArray((error as { issues?: unknown }).issues));
+  if (/no such (?:room|channel)|not found|does not exist/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.notFound;
+  } else if (schemaFailure || /--url|--token|argument|option|invalid frame|zoderror|invalid input|must be/.test(lower)) {
+    code = MANAGEMENT_EXIT_CODES.invocation;
+  } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
+    code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (/already|archived|conflict|collision|unique constraint|refus/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {
@@ -121,6 +122,21 @@ function sortedChannels(rooms: readonly Room[]): ChannelProjection[] {
 }
 
 // harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-rendering
+function encodeHumanCell(value: string): string {
+  return [...value].map((character) => {
+    const code = character.charCodeAt(0);
+    if (character === '\\') return '\\\\';
+    if (character === '\t') return '\\t';
+    if (character === '\r') return '\\r';
+    if (character === '\n') return '\\n';
+    if (code === 0x1b) return '\\x1b';
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) {
+      return `\\u${code.toString(16).padStart(4, '0')}`;
+    }
+    return character;
+  }).join('');
+}
+
 export function renderChannelList(rooms: readonly Room[], json: boolean): string {
   const channels = sortedChannels(rooms);
   if (json) return JSON.stringify(channels);
@@ -133,7 +149,7 @@ export function renderChannelList(rooms: readonly Room[], json: boolean): string
       channel.archived_ts ?? '',
       channel.color ?? '',
       channel.cwd ?? '',
-    ].join('\t'))
+    ].map(encodeHumanCell).join('\t'))
     .join('\n');
 }
 
@@ -148,7 +164,7 @@ export function renderChannel(room: Room, json: boolean): string {
     ['archived_ts', channel.archived_ts ?? ''],
     ['color', channel.color ?? ''],
     ['cwd', channel.cwd ?? ''],
-  ].map(([key, value]) => `${key}\t${value}`).join('\n');
+  ].map(([key, value]) => `${key}\t${encodeHumanCell(value)}`).join('\n');
 }
 // harn:end structured-channel-cli-preserves-flat-listing
 
