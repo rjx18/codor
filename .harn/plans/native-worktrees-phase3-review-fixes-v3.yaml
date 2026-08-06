@@ -1,0 +1,335 @@
+id: native-worktrees-phase3-review-fixes-v3
+title: Native worktrees Phase 3 review fixes v3 - close remaining scoped lifecycle gaps
+notes: >-
+  Fix only defects found by Sol's independent review of Phase 3 review-fix
+  commit a692926bc71d770a455461e02f277f89893cbb7c. Preserve every prior applied
+  plan and keep this pass inside the Phase 3 qualified-routing contract. The
+  review independently reran 211 protocol tests, 587 focused switchboard tests,
+  and 26 focused web tests; they passed but did not exercise the defects below.
+
+  Correct the shared body scanner so ordinary tilde prose such as `~5`, `~/tmp`,
+  and `~approximately` remains ordinary content, while any token that actually
+  attempts qualified syntax owns its complete inner @handle even when the
+  boundary, colon, or surrounding spacing is malformed. Preserve UTF-16 spans,
+  code-span exclusion, punctuation behavior, and atomic no-fallback refusal.
+
+  Restore the qualified protocol/store Harn delimiters that the prior commits
+  accidentally left removed or misclosed. A nonempty routing catalog must have
+  exactly one primary `main` target at the catalog room, while an empty catalog
+  remains valid for an ordinary or non-Git channel. Project no more than 256
+  deterministic removed-member tombstones per target before schema validation.
+
+  Validate a scoped target against the origin conversation's repository root as
+  well as its worktree id, conversation id, alias, active lifecycle, member id,
+  handle, kind, and active state. Apply that validation to creation, group
+  materialization, admission, active-invocation recovery, queued draining,
+  retry/release paths, and boot reconciliation. A stale or cross-repository row
+  must fail closed, settle without adapter execution or resurrection, preserve
+  run evidence, emit a visible origin refusal, and allow later valid target work
+  to drain.
+
+  Fix the durable unresolved-attempt fence to read each delivering row's own
+  origin room before interpreting its run id. Colliding per-room message ids
+  must neither hide a real active attempt nor invent one from another origin.
+
+  Preserve an active foreign reply author's stable scope when mentionless reply
+  fallback selects that author, and refuse rather than choosing an unrelated
+  local/default agent if the reply scope is stale. Do not change the ordinary
+  local latest-finalized, configured-starting-agent, sole-agent, or agent-trigger
+  precedence.
+
+  Allow a finalized foreign agent message to start one origin-owned multi-agent
+  group without requiring that author in the origin roster. Render that root
+  author and every foreign result with a qualified label. If any completed
+  group result contains invalid qualified intent, suppress the entire next
+  round, append one visible origin refusal, retain all terminal evidence, and
+  close the barrier without partially routing valid sibling mentions.
+
+  During one active cross-origin invocation, home/origin WebSocket hydration
+  must include the origin projection plus exactly the authenticated foreign
+  target member as the self member overlay, never another target-roster member;
+  inbox filtering and live target-only member forwarding remain unchanged.
+
+  Add regressions for ordinary tilde prose, every malformed-spacing/boundary
+  leak, catalog main invariants, tombstone overflow, cross-repository rows,
+  same-id cross-origin fencing, foreign reply fallback and stale refusal,
+  foreign-authored mixed-scope group ingress, atomic invalid group results,
+  stale queued/held/recovered target settlement, and real WebSocket self-member
+  hydration. No test may use or mutate a real user worktree.
+
+  Do not add Phase 4 navigation or lifecycle UI, presets, default-roster
+  cloning, alias editing, relay/residency changes, multi-repository routing, or
+  any Git lifecycle behavior. Do not create, adopt, discover, move, rename,
+  unregister, remove, or modify a real user worktree.
+assumptions:
+  reviewed:
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Qualified syntax must own only attempted scoped tokens and accepted identities must stay same-repository and stable.
+    - id: invalid-qualified-targets-never-fallback
+      outcome: unchanged
+      reason: Malformed, stale, foreign-repository, and group-result targets must refuse atomically and visibly.
+    - id: qualified-completion-lists-registered-targets-only
+      outcome: unchanged
+      reason: Catalogs remain path-free, active-only for completion, and bounded for refusal tombstones.
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: Router and Composer must consume the same corrected qualified-token ownership grammar.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: Existing precedence remains while an explicit active reply author retains its stable scope.
+    - id: cross-worktree-output-stays-in-origin
+      outcome: unchanged
+      reason: Foreign group roots, results, refusals, and recovery evidence remain origin-owned and scoped.
+    - id: cross-worktree-runtime-stays-target-local
+      outcome: unchanged
+      reason: Hydration overlays only the invoked target member and execution never escapes its home runtime.
+    - id: target-member-turns-serialize-across-origins
+      outcome: unchanged
+      reason: Each origin's actual run identity must participate in one durable target-member fence.
+    - id: unresolved-delivery-fences-fresh-member-turns
+      outcome: unchanged
+      reason: A true active attempt fences fresh work without collision across per-room message ids.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: Scoped repository and lifecycle validity remain transaction-time admission requirements.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Boot recovery must settle stale scoped attempts without retrying an invalid target.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: A foreign finalized author may start the same one atomic origin group as a local author.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: Root and result labels stay unambiguous while every recipient receives the same ordered view.
+    - id: group-round-routing-instruction-is-always-on
+      outcome: unchanged
+      reason: Qualified labels must not remove or vary the common routing instruction.
+    - id: collaboration-round-release-is-one-barrier
+      outcome: unchanged
+      reason: Invalid qualified intent suppresses a partial next round and closes one deterministic barrier.
+    - id: open-collaboration-groups-reconcile-without-resurrection
+      outcome: unchanged
+      reason: Stale scoped participants settle during recovery without executing or reopening closed work.
+    - id: agent-authority-follows-one-active-invocation
+      outcome: unchanged
+      reason: Effective-origin hydration identifies exactly the authenticated target self and fails closed on invalid durable scope.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Adding the authenticated member overlay must not expose another member's inbox.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: The hydration correction must not widen room or operation authority.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: The mapped self overlay and live frames retain the effective origin room address.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: Same-repository validation remains inside atomic durable group materialization.
+anchors:
+  qualified-member-target-identity-is-durable:
+    qualified-member-target-protocol:
+      action: change
+      reason: Restore the source delimiter and enforce the nonempty-catalog main relationship.
+    qualified-member-target-protocol-regression:
+      action: change
+      reason: Move prior coverage inside the real anchor and add empty/nonempty main invariants.
+    qualified-body-grammar:
+      action: change
+      reason: Distinguish ordinary tilde prose from attempted qualified syntax and own malformed inner handles completely.
+    qualified-body-grammar-regression:
+      action: change
+      reason: Cover ordinary tildes, malformed boundaries and spacing, Unicode offsets, punctuation, and code spans.
+    qualified-routing-resolution:
+      action: change
+      reason: Retain active reply-author target scope without local fallback.
+    qualified-routing-regression:
+      action: change
+      reason: Prove active and stale scoped reply fallback behavior.
+    qualified-routing-store-query:
+      action: change
+      reason: Bound removed-member projection and validate targets against the origin repository root.
+    qualified-routing-store-regression:
+      action: change
+      reason: Cover 256-plus tombstones, cross-repository refusal, reopen, and active tuples.
+  invalid-qualified-targets-never-fallback:
+    qualified-routing-refusal:
+      action: change
+      reason: Treat malformed boundaries, stale reply scope, group results, and recovered rows as atomic refusals.
+    qualified-routing-refusal-regression:
+      action: change
+      reason: Exercise no-fallback behavior across router and daemon paths.
+    qualified-post-error-regression:
+      action: change
+      reason: Prove ordinary tilde prose posts while attempted malformed scope preserves the draft and creates nothing.
+  qualified-completion-lists-registered-targets-only:
+    qualified-composer-completion-regression:
+      action: change
+      reason: Preserve ordinary non-Git and local completion behavior with empty catalogs.
+    qualified-composer-refusal-regression:
+      action: change
+      reason: Cover ordinary tilde prose and every malformed scoped-token label without clearing the draft.
+  body-parser-shared-across-router-and-web:
+    shared-body-parser:
+      action: change
+      reason: Keep the corrected scanner as the one protocol parser used by router and Composer.
+  default-recipient-fallback-chain:
+    substantive-default-recipient:
+      action: change
+      reason: Prefer an active local-or-scoped reply author before unrelated room defaults while preserving existing precedence otherwise.
+    effective-default-regression:
+      action: change
+      reason: Pin local behavior plus active and stale scoped reply fallback.
+  cross-worktree-output-stays-in-origin:
+    cross-worktree-turn-orchestration:
+      action: change
+      reason: Restore the misclosed store delimiter and preserve scoped origin/run identity through admission and recovery.
+    cross-worktree-turn-orchestration-regression:
+      action: change
+      reason: Cover foreign-authored group roots, reply fallback, invalid results, stale recovery, and restart.
+  cross-worktree-runtime-stays-target-local:
+    cross-worktree-runtime-live-frame:
+      action: change
+      reason: Add the missing source anchor around target-member forwarding and effective-origin self hydration.
+    cross-worktree-runtime-regression:
+      action: change
+      reason: Prove target-only initial member overlay and live runtime frames.
+  target-member-turns-serialize-across-origins:
+    cross-origin-turn-scheduler:
+      action: change
+      reason: Cover same-id origin collisions and later valid queue draining.
+    cross-origin-turn-scheduler-regression:
+      action: change
+      reason: Exercise the complete daemon scheduling path across two origins.
+  unresolved-delivery-fences-fresh-member-turns:
+    durable-delivery-turn-fence:
+      action: change
+      reason: Read the run from each delivery's own origin room.
+    durable-delivery-turn-fence-regression:
+      action: change
+      reason: Prove both false-negative and false-positive per-room run-id collisions.
+  only-an-admissible-delivery-becomes-delivering:
+    turn-admission-guard:
+      action: change
+      reason: Require a same-root active target for fresh and reused admission.
+    turn-start-with-nothing-admissible:
+      action: change
+      reason: Settle/refuse an invalid scoped batch without creating an empty run or stranding later work.
+    turn-admission-regression:
+      action: change
+      reason: Cover queued, held, reused, removed, and cross-repository target rows.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: change
+      reason: Refuse and settle stale scoped delivering attempts before any retry or adapter execution.
+    scoped-boot-reconcile-regression:
+      action: change
+      reason: Add isolated restart coverage for removed, unregistered, and foreign-repository targets.
+  eligible-multi-agent-routing-starts-one-group:
+    multi-agent-group-ingress:
+      action: change
+      reason: Resolve a scoped foreign root author without adding it to the origin roster.
+    multi-agent-group-regression:
+      action: change
+      reason: Run a finalized foreign author into one mixed local/qualified origin group.
+  group-round-payloads-share-one-ordered-view:
+    group-round-payload-composer:
+      action: change
+      reason: Render a foreign root author and foreign results with stable qualified labels.
+    group-round-payload-goldens:
+      action: change
+      reason: Pin byte-identical mixed-scope payloads except for the you field.
+  group-round-routing-instruction-is-always-on:
+    group-routing-instruction:
+      action: change
+      reason: Preserve the enclosing common instruction while adding qualified root labels.
+    group-routing-instruction-regression:
+      action: change
+      reason: Prove cost, wait, and ACK guidance remains present and identical.
+  collaboration-round-release-is-one-barrier:
+    collaboration-barrier-engine:
+      action: change
+      reason: Detect any invalid qualified result before building the union and close without a partial next round.
+    collaboration-barrier-regression:
+      action: change
+      reason: Prove atomic refusal, visible evidence, deterministic closure, and no sibling delivery.
+  open-collaboration-groups-reconcile-without-resurrection:
+    collaboration-reconciliation-engine:
+      action: change
+      reason: Settle stale scoped participants during boot without retrying them.
+    collaboration-reconciliation-regression:
+      action: change
+      reason: Cover removed/unregistered scoped participants across restart.
+  agent-authority-follows-one-active-invocation:
+    agent-active-invocation-resolution:
+      action: change
+      reason: Ignore or settle durable candidates whose target is outside the origin repository or no longer active.
+    agent-active-invocation-server:
+      action: change
+      reason: Restore the missing source anchor and overlay exactly the authenticated target member during mapped hydration.
+    agent-active-invocation-server-regression:
+      action: change
+      reason: Assert self member data, no second target member, target-only inbox, other-room refusal, and home restoration.
+    agent-active-invocation-regression:
+      action: change
+      reason: Prove invalid durable tuples cannot grant effective-origin authority.
+  agent-sync-hydrates-only-own-queued-inbox:
+    agent-own-queued-sync-overlay:
+      action: change
+      reason: Add only the authenticated target member overlay beside its own origin inbox.
+    own-queued-sync-regression:
+      action: change
+      reason: Prove another origin or target member is absent from the hydrated self projection and inbox.
+  agent-network-authority-is-narrow:
+    agent-room-authorization:
+      action: change
+      reason: Keep effective-origin mapping fail-closed when the durable target tuple is stale or foreign.
+    agent-authz-regression:
+      action: change
+      reason: Recheck the existing operation matrix through active, invalid, settled, and recovered scope.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-hydration:
+      action: change
+      reason: Address the foreign self overlay as the effective origin without changing legacy subscriptions.
+    room-addressed-server-regression:
+      action: change
+      reason: Prove room-addressed and legacy hydration remain isolated.
+  collaboration-groups-are-durable-state:
+    collaboration-store-projection:
+      action: change
+      reason: Enforce same-repository target validation within atomic delivery/group creation.
+    collaboration-store-reopen-regression:
+      action: change
+      reason: Prove malformed or cross-repository scoped group rows fail before persistence and reopen.
+files:
+  - packages/protocol/src/body.ts
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/collaboration.ts
+  - packages/switchboard/src/collaboration.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/room/Composer.spec.tsx
+verification: Run harn find --plan native-worktrees-phase3-review-fixes-v3,
+  harn plan check native-worktrees-phase3-review-fixes-v3, and harn check
+  native-worktrees-phase3-review-fixes-v3 before package gates. Run pnpm --filter
+  @codor/protocol test; pnpm --filter @codor/switchboard exec vitest run
+  src/router.spec.ts src/collaboration.spec.ts src/store.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; and pnpm --filter @codor/web-next exec vitest run
+  src/room/Composer.spec.tsx. Then run the complete pnpm --filter
+  @codor/switchboard test twice, pnpm --filter @codor/web-next test, pnpm
+  --filter '@codor/switchboard...' build, and pnpm --filter
+  '@codor/web-next...' build. Capture a normalized git worktree list --porcelain
+  path/branch inventory immediately before all gates and after all gates; require
+  identical bytes, count, and SHA-256. Any Git-backed test must create its own
+  mkdtemp repository and disposable worktrees. No test or command may create,
+  adopt, discover, move, rename, unregister, remove, or modify a real user
+  worktree. Stage only this locked plan and the fourteen declared source/test
+  files, run harn check --staged, let the commit hook apply the plan, and create
+  exactly one review-fix implementation commit.
