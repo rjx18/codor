@@ -932,6 +932,11 @@ function SpawnDialog(props: {
   const [presetError, setPresetError] = useState<string>();
   const [presetBusyId, setPresetBusyId] = useState<string>();
   const presetRequest = useRef(0);
+  const invalidatePresetSelection = useCallback(() => {
+    presetRequest.current += 1;
+    setPresetBusyId(undefined);
+    setPresetError(undefined);
+  }, []);
   // The operator should not retype the project path on every spawn. "Use current
   // directory" is on by default and inherits the channel's folder; turning it
   // off reveals the picker, pre-seeded with that same directory to edit from.
@@ -949,6 +954,19 @@ function SpawnDialog(props: {
   // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
   // `advanced`, so healing and adapter lookups must see the combined list.
   const all = [...props.adapters, ...props.advanced];
+  // A delayed addressed read must resolve against the current draft/catalog/roster,
+  // not the render in which its tile happened to be clicked.
+  const latestConfig = useRef(config);
+  const latestAdapters = useRef(all);
+  const latestMembers = useRef(props.members);
+  latestConfig.current = config;
+  latestAdapters.current = all;
+  latestMembers.current = props.members;
+
+  const updateConfig = useCallback((next: AgentConfig) => {
+    invalidatePresetSelection();
+    setConfig(next);
+  }, [invalidatePresetSelection]);
 
   // Saved presets are intentionally read on every dialog mount. The list is only
   // a set of labels; selection performs its own addressed read below so edits and
@@ -982,11 +1000,19 @@ function SpawnDialog(props: {
     void fetchAgentPreset(listed.id, { token: props.token() })
       .then((preset) => {
         if (request !== presetRequest.current) return;
+        if (preset.id !== listed.id) {
+          throw new Error(`Saved preset response did not match requested preset “${listed.id}”.`);
+        }
+        const currentAdapters = latestAdapters.current;
+        const currentConfig = latestConfig.current;
         const applied = applyAgentPreset({
           preset,
-          config: { ...config, harness },
-          adapters: all,
-          members: props.members,
+          config: {
+            ...currentConfig,
+            harness: effectiveHarness(currentConfig.harness, currentAdapters),
+          },
+          adapters: currentAdapters,
+          members: latestMembers.current,
         });
         if (!applied.ok) throw new Error(applied.message);
         // Commit the complete result only after every field has validated. A
@@ -1021,6 +1047,7 @@ function SpawnDialog(props: {
   const submit = (event: { preventDefault: () => void }) => {
     event.preventDefault();
     if (!canSpawn) return;
+    invalidatePresetSelection();
     props.onSpawn(buildSpawnSpec({
       config: { ...config, harness },
       handle: derived,
@@ -1055,7 +1082,7 @@ function SpawnDialog(props: {
           adapters={props.adapters}
           advanced={props.advanced}
           config={{ ...config, harness }}
-          onChange={setConfig}
+          onChange={updateConfig}
           idPrefix="spawn"
           onRefresh={props.onRefresh}
           refreshing={props.refreshing}
@@ -1072,7 +1099,10 @@ function SpawnDialog(props: {
             value={handle}
             pattern={HANDLE_PATTERN}
             maxLength={31}
-            onChange={(e) => setHandle(e.target.value)}
+            onChange={(e) => {
+              invalidatePresetSelection();
+              setHandle(e.target.value);
+            }}
             placeholder="e.g. scout"
             required
             data-testid="spawn-handle"
@@ -1084,7 +1114,10 @@ function SpawnDialog(props: {
             className="nx-input"
             value={config.displayName ?? ''}
             maxLength={120}
-            onChange={(event) => { setConfig({ ...config, displayName: event.target.value }); }}
+            onChange={(event) => {
+              invalidatePresetSelection();
+              setConfig((current) => ({ ...current, displayName: event.target.value }));
+            }}
             placeholder="Shown in the member list"
             data-testid="spawn-display-name"
           />
@@ -1102,7 +1135,10 @@ function SpawnDialog(props: {
               type="checkbox"
               role="switch"
               checked={useCurrentDir}
-              onChange={(event) => { setUseCurrentDir(event.target.checked); }}
+              onChange={(event) => {
+                invalidatePresetSelection();
+                setUseCurrentDir(event.target.checked);
+              }}
               data-testid="spawn-use-current-dir"
             />
             <span>Use current directory</span>
@@ -1111,7 +1147,15 @@ function SpawnDialog(props: {
             ? inheritedCwd !== '' && (
               <span className="nx-field-note" data-testid="spawn-inherited-cwd">Inherits {inheritedCwd}</span>
             )
-            : <FolderPicker token={props.token} value={pickedCwd} onChange={setPickedCwd} idPrefix="spawn" />}
+            : <FolderPicker
+              token={props.token}
+              value={pickedCwd}
+              onChange={(next) => {
+                invalidatePresetSelection();
+                setPickedCwd(next);
+              }}
+              idPrefix="spawn"
+            />}
         </div>
         <RolePresetControls
           idPrefix="spawn"
@@ -1121,6 +1165,7 @@ function SpawnDialog(props: {
           customBusyId={presetBusyId}
           onApplyCustom={selectAgentPreset}
           onApply={(preset) => {
+            invalidatePresetSelection();
             const applied = applyPreset({
               preset,
               config: { ...config, harness },
@@ -1137,7 +1182,7 @@ function SpawnDialog(props: {
         <AgentControls
           adapters={all}
           config={{ ...config, harness }}
-          onChange={setConfig}
+          onChange={updateConfig}
           hideHarness
           behaviourSection={2}
           permissionsSection={3}
@@ -1150,7 +1195,10 @@ function SpawnDialog(props: {
           <textarea
             value={purpose}
             rows={3}
-            onChange={(e) => setPurpose(e.target.value)}
+            onChange={(e) => {
+              invalidatePresetSelection();
+              setPurpose(e.target.value);
+            }}
             placeholder="What this agent should focus on…"
             data-testid="spawn-purpose"
           />

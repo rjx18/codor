@@ -1,0 +1,88 @@
+id: agent-presets-p2-review-fix-selection-race
+title: Phase 2 review fix - a delayed preset read cannot overwrite a newer Add
+  agent choice
+notes: >-
+  This is a bounded review-fix for the applied Phase 2 commit
+  16019858e373394e7eac32610d55366cf48f7cd9. It does not alter the individual
+  preset schema, persistence, catalog admission, authorization, REST or
+  WebSocket contracts, member creation, styling, or any default-roster/Create
+  Channel/Settings/Phase 3+ behavior.
+
+  Independent review found that the custom-preset addressed GET is guarded only
+  against a second custom selection or dialog unmount. While that read is
+  pending, the built-in Coder/Reviewer/etc shortcuts and every ordinary Add
+  agent field remain usable, but none of those newer actions invalidate the
+  outstanding request. The promise also closes over the draft, adapter catalog,
+  and member list from the render in which the tile was clicked. A delayed
+  successful response can therefore overwrite a newer built-in/manual choice,
+  validate against a superseded catalog, or suffix its handle against stale
+  membership. This violates Phase 2's promised unchanged manual/built-in path,
+  current-catalog validation, all-or-nothing selection, and selection-pending
+  recovery even though the committed browser suite is green: it covers list
+  loading failure but not an in-flight addressed selection superseded by the
+  operator.
+
+  Treat addressed selection as one cancellable draft transaction. A newer custom
+  selection may supersede an older one as today. In addition, any newer built-in
+  choice, manual draft edit, or submission must supersede the pending custom
+  selection immediately: clear its busy state, prevent its eventual success or
+  failure from mutating the draft or surfacing a stale error, and keep the newer
+  operator values intact. Built-in shortcuts and manual controls must stay
+  usable rather than locking the whole dialog during the network read. If no
+  operator action supersedes the selection, apply the addressed response using
+  the latest adapter catalog and live member list available when it resolves, so
+  availability/model/thinking checks and unique-handle derivation cannot use the
+  click-time snapshot. The returned preset id must equal the listed id addressed
+  by the request; a valid but mismatched response is a recoverable
+  malformed-selection error and leaves every draft value unchanged.
+
+  Extend only the focused Phase 2 browser file. Its deterministic delayed-route
+  regressions must prove a built-in choice made while a custom detail read is
+  pending wins after the delayed response is released, representative manual
+  edits and an ordinary submission likewise cannot be overwritten, busy/error
+  state settles, and no stale response sends an extra act. It must also prove a
+  schema-valid response carrying a different preset id is rejected without
+  partial mutation. Retain and rerun the existing native, named ACP, custom ACP,
+  deletion, failure, authorization, keyboard, axe, and narrow-geometry cases.
+assumptions:
+  reviewed:
+    - id: individual-agent-preset-selection-snapshots-one-ordinary-spawn
+      outcome: unchanged
+      reason: The Phase 2 contract already requires an all-or-nothing fresh selection,
+        current catalog checks, unchanged manual/built-in behavior, and
+        recoverable pending/error state; this fix prevents a late addressed
+        response from violating that existing transaction boundary.
+    - id: web-spawn-dialog-exposes-canonical-agent-controls
+      outcome: unchanged
+      reason: The same canonical editable form and one ordinary spawn act remain; a
+        newer operator action now correctly supersedes an older asynchronous
+        preset prefill.
+    - id: one-control-chooses-an-agent-everywhere
+      outcome: unchanged
+      reason: Harness, model, thinking, and policy continue through the shared
+        controls; this fix changes only stale-response coordination around those
+        controls.
+    - id: agent-selection-shows-detected-acp-and-advanced-custom
+      outcome: unchanged
+      reason: Selector mapping and ACP wire compilation do not change; a resolved
+        preset is checked against the latest catalog rather than a closed-over
+        click-time copy.
+files:
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/tests/room37-agent-presets.e2e.spec.ts
+verification: Run pnpm --filter @codor/web-next exec vitest run
+  src/runtime/api.spec.ts src/room/agent-spec.spec.ts; pnpm --filter
+  @codor/protocol test; pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts src/server.spec.ts; pnpm --filter @codor/protocol
+  build; pnpm --filter @codor/switchboard build; pnpm --filter @codor/web-next
+  build; and pnpm --filter @codor/web-next exec playwright test
+  tests/room37-agent-presets.e2e.spec.ts tests/room10-dialogs.e2e.spec.ts with
+  an isolated harness after the required workspace build. Run harn find --plan
+  agent-presets-p2-review-fix-selection-race, harn plan check
+  agent-presets-p2-review-fix-selection-race, harn check
+  agent-presets-p2-review-fix-selection-race, and the staged Harn check/apply
+  gate before one implementation commit. Do not change protocol, switchboard,
+  persistence, REST, styling, fixture seeds, Add agent authorization, default
+  roster expansion, Create Channel, Settings, or Phase 3+ behavior.
+applied:
+  applied_at: 2026-08-06T09:10:40.917Z

@@ -187,6 +187,107 @@ test.describe('Phase 2 individual preset Add agent integration', () => {
     await page.unroute('**/api/adapters');
   });
 
+  test('a built-in choice supersedes a delayed custom selection', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    const tile = dialog.getByRole('button', { name: 'Saved native helper preset' });
+    const id = await presetId(tile);
+    const detailUrl = `${API}/api/agent-presets/${id}`;
+    let release!: () => void;
+    let requestStarted!: () => void;
+    const responseGate = new Promise<void>((resolve) => { release = resolve; });
+    const detailStarted = new Promise<void>((resolve) => { requestStarted = resolve; });
+    await page.route(detailUrl, async (route) => {
+      requestStarted();
+      await responseGate;
+      await route.continue();
+    });
+
+    try {
+      await tile.click();
+      await detailStarted;
+      await expect(tile).toBeDisabled();
+      await dialog.getByTestId('spawn-preset-reviewer').click();
+      await expect(dialog.getByTestId('spawn-handle')).toHaveValue(/reviewer/);
+      await expect(tile).toBeEnabled();
+      release();
+      await expect(dialog.getByTestId('spawn-handle')).toHaveValue(/reviewer/);
+      await expect(dialog.getByTestId('spawn-preset-error')).toHaveCount(0);
+    } finally {
+      release();
+      await page.unroute(detailUrl);
+    }
+  });
+
+  test('manual edits and submission supersede a delayed custom selection without an extra act', async ({ page }) => {
+    const frames = sentFrames(page);
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    const tile = dialog.getByRole('button', { name: 'Saved native helper preset' });
+    const id = await presetId(tile);
+    const detailUrl = `${API}/api/agent-presets/${id}`;
+    let release!: () => void;
+    let requestStarted!: () => void;
+    const responseGate = new Promise<void>((resolve) => { release = resolve; });
+    const detailStarted = new Promise<void>((resolve) => { requestStarted = resolve; });
+    await page.route(detailUrl, async (route) => {
+      requestStarted();
+      await responseGate;
+      await route.continue();
+    });
+
+    try {
+      await tile.click();
+      await detailStarted;
+      await dialog.getByTestId('spawn-handle').fill('manual-race');
+      await dialog.getByTestId('spawn-display-name').fill('Manual Race');
+      await dialog.getByTestId('spawn-purpose').fill('keep manual values');
+      await expect(tile).toBeEnabled();
+      await dialog.getByTestId('spawn-go').click();
+      await expect(page.getByTestId('member-manual-race')).toBeVisible({ timeout: 15_000 });
+      const act = spawnFrameFor(frames, 'manual-race');
+      expect(act).toMatchObject({ handle: 'manual-race', display_name: 'Manual Race', purpose: 'keep manual values' });
+      expect(frames.filter((frame) => frame.includes('"act":"spawn"') && frame.includes('manual-race'))).toHaveLength(1);
+      release();
+      await expect(page.getByTestId('spawn-dialog')).toBeHidden();
+      expect(frames.filter((frame) => frame.includes('"act":"spawn"') && frame.includes('manual-race'))).toHaveLength(1);
+    } finally {
+      release();
+      await page.unroute(detailUrl);
+    }
+  });
+
+  test('a schema-valid mismatched detail response is rejected without partial mutation', async ({ page }) => {
+    await openRoom(page);
+    const dialog = await openSpawn(page);
+    const tile = dialog.getByRole('button', { name: 'Saved native helper preset' });
+    const id = await presetId(tile);
+    const otherId = await presetId(dialog.getByRole('button', { name: 'Model helper preset' }));
+    const otherResponse = await page.request.get(`${API}/api/agent-presets/${otherId}`, {
+      headers: { authorization: 'Bearer next-e2e-token' },
+    });
+    expect(otherResponse.status()).toBe(200);
+    const otherBody = await otherResponse.json() as { preset: Record<string, unknown> };
+    const detailUrl = `${API}/api/agent-presets/${id}`;
+    await page.route(detailUrl, (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ preset: { ...otherBody.preset, id: otherId } }),
+    }));
+
+    try {
+      await dialog.getByTestId('spawn-handle').fill('keep-mismatched');
+      await dialog.getByTestId('spawn-purpose').fill('keep mismatch purpose');
+      await tile.click();
+      await expect(dialog.getByTestId('spawn-preset-error')).toContainText(/did not match requested preset/i);
+      await expect(dialog.getByTestId('spawn-handle')).toHaveValue('keep-mismatched');
+      await expect(dialog.getByTestId('spawn-purpose')).toHaveValue('keep mismatch purpose');
+      await expect(dialog.getByTestId('spawn-display-name')).toHaveValue('');
+    } finally {
+      await page.unroute(detailUrl);
+    }
+  });
+
   test('a selected preset keeps the ordinary spawn failure recovery path', async ({ page }) => {
     await openRoom(page);
     const dialog = await openSpawn(page);
