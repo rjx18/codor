@@ -90,6 +90,7 @@ import {
   type ResolvedRef,
 } from './router.js';
 import {
+  AgentPresetNotFoundError,
   Store,
   type FanoutDelivery,
   type RoutedMessagePlan,
@@ -1136,6 +1137,12 @@ export class Daemon {
     const adapter = validated.harness === 'acp'
       ? this.requireNewAgentAdapter(validated.harness)
       : this.requireInstalledAdapter(validated.harness);
+    if (
+      validated.harness === 'acp'
+      && (adapter as RegisteredHarnessAdapter).configurable !== true
+    ) {
+      throw new Error("harness 'acp' is not registered as configurable");
+    }
 
     // The existing spawn validator remains the single source for canonical policy,
     // thinking, and ACP launch shape. The cwd is deliberately a validation-only value.
@@ -1161,7 +1168,15 @@ export class Daemon {
 
     // This reuses the same frozen provider registry and current PATH detection as
     // ordinary new-agent creation. It resolves no process and has no side effects.
-    if (validated.acp_provider !== undefined) this.resolveAcpLaunch(validated);
+    if (validated.harness === 'acp') {
+      this.resolveAcpLaunch(validated);
+      if (
+        validated.acp_launch !== undefined
+        && !this.executableOnPath(validated.acp_launch.executable)
+      ) {
+        throw new Error('custom ACP executable is not currently installed on the daemon host');
+      }
+    }
     return validated;
   }
 
@@ -1181,7 +1196,7 @@ export class Daemon {
     // Store performs the not-found check before its atomic replacement. Validation
     // still runs before any Store mutation, so a rejected full replacement is a no-op.
     if (this.store.getAgentPreset(id) === undefined) {
-      throw new Error(`no such agent preset: ${id}`);
+      throw new AgentPresetNotFoundError(id);
     }
     return this.store.updateAgentPreset(id, this.validateAgentPreset(input));
   }

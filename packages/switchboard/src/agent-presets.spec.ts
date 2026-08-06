@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,7 +8,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Daemon } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
+import { CryptoVault } from './crypto/pairing.js';
 import {
+  AgentPresetNotFoundError,
   AgentPresetReferenceConflictError,
   Store,
 } from './store.js';
@@ -43,13 +46,25 @@ describe('agent preset Store persistence', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('migrates legacy room state, persists CRUD, and keeps server identity stable', () => {
+  it('migrates a populated pre-feature database, persists CRUD, and keeps identity stable', () => {
     const path = join(dir, 'switchboard.sqlite');
     let store = new Store(path);
     const room = store.createRoom({
       id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
     });
     const originalMembers = store.listMembers('eng');
+
+    store.close();
+    const legacy = new Database(path);
+    legacy.pragma('foreign_keys = ON');
+    legacy.exec(`
+      DROP TABLE default_roster_items;
+      DROP TABLE default_rosters;
+      DROP TABLE agent_presets;
+    `);
+    legacy.close();
+
+    store = new Store(path);
     expect(store.getDefaultRoster()).toMatchObject({
       id: 'default', schema_version: 1, preset_ids: [],
     });
@@ -78,6 +93,13 @@ describe('agent preset Store persistence', () => {
     expect(store.getDefaultRoster().preset_ids).toEqual([custom.id, preset.id]);
     store.replaceDefaultRoster({ preset_ids: [preset.id, custom.id] });
     expect(store.getDefaultRoster().preset_ids).toEqual([preset.id, custom.id]);
+    const rosterBeforeRestart = store.getDefaultRoster();
+    expect(rosterBeforeRestart).toMatchObject({
+      id: 'default', schema_version: 1, preset_ids: [preset.id, custom.id],
+      updated_ts: expect.any(String),
+    });
+    const customBeforeRestart = store.getAgentPreset(custom.id);
+    expect(customBeforeRestart).toBeDefined();
 
     expect(() => store.replaceDefaultRoster({
       preset_ids: [preset.id, '01ARZ3NDEKTSV4RRFFQ69G5FAV'],
@@ -86,8 +108,8 @@ describe('agent preset Store persistence', () => {
 
     store.close();
     store = new Store(path);
-    expect(store.getAgentPreset(custom.id)?.acp_launch).toEqual(customAcpInput.acp_launch);
-    expect(store.getDefaultRoster().preset_ids).toEqual([preset.id, custom.id]);
+    expect(store.getAgentPreset(custom.id)).toEqual(customBeforeRestart);
+    expect(store.getDefaultRoster()).toEqual(rosterBeforeRestart);
     expect(store.getRoom(room.room.id)).toEqual(room.room);
     expect(store.listMembers('eng')).toEqual(originalMembers);
     store.replaceDefaultRoster({ preset_ids: [] });
@@ -109,15 +131,23 @@ describe('default roster ordering', () => {
   });
 
   it('replaces the complete ordered list atomically and rejects duplicate references', () => {
-    const store = new Store(join(dir, 'switchboard.sqlite'));
+    const path = join(dir, 'switchboard.sqlite');
+    let store = new Store(path);
     const first = store.createAgentPreset({ ...nativeInput, handle: 'first-preset', label: 'First' });
     const second = store.createAgentPreset({ ...nativeInput, handle: 'second-preset', label: 'Second' });
 
-    expect(store.replaceDefaultRoster([second.id, first.id]).preset_ids)
+    const ordered = store.replaceDefaultRoster([second.id, first.id]);
+    expect(ordered.preset_ids)
       .toEqual([second.id, first.id]);
+    expect(ordered).toMatchObject({
+      id: 'default', schema_version: 1, updated_ts: expect.any(String),
+    });
     expect(() => store.replaceDefaultRoster({ preset_ids: [first.id, first.id] }))
       .toThrow();
     expect(store.getDefaultRoster().preset_ids).toEqual([second.id, first.id]);
+    store.close();
+    store = new Store(path);
+    expect(store.getDefaultRoster()).toEqual(ordered);
     expect(store.replaceDefaultRoster({ preset_ids: [] }).preset_ids).toEqual([]);
     store.close();
   });
@@ -169,27 +199,43 @@ describe('direct daemon preset validation', () => {
     const fake = new FakeAdapter('fake', { thinking: true });
     const listModels = vi.fn(async () => ({ models: ['fake-model'], source: 'curated' as const }));
     Object.assign(fake, { listModels });
-    const acp = new FakeAdapter('acp');
+    const acp = Object.assign(new FakeAdapter('acp'), { configurable: true });
     const spawn = vi.spyOn(fake, 'spawn');
+    const acpSpawn = vi.spyOn(acp, 'spawn');
+    const executableOnPath = vi.fn((executable: string) =>
+      executable === 'custom-agent' || executable === 'kimi');
     const daemon = new Daemon({
       dbPath: join(dir, 'switchboard.sqlite'),
       blobRoot: join(dir, 'blobs'),
       adapters: [fake, acp],
       homeDir: dir,
       discoverModels: true,
-      executableOnPath: () => true,
+      executableOnPath,
     });
     try {
       await waitFor(() => daemon.registeredAdapters().some((adapter) => adapter.models?.includes('fake-model')));
       const native = daemon.createAgentPreset(nativeInput);
       expect(native.model).toBe('fake-model');
       expect(spawn).not.toHaveBeenCalled();
+      expect(acpSpawn).not.toHaveBeenCalled();
+      const beforeInvalidCreate = daemon.listAgentPresets();
       expect(() => daemon.createAgentPreset({ ...nativeInput, model: 'not-in-catalog' }))
         .toThrow('not currently offered');
+      expect(daemon.listAgentPresets()).toEqual(beforeInvalidCreate);
       expect(() => daemon.createAgentPreset({ ...nativeInput, policy: 'danger' as never }))
         .toThrow();
       expect(() => daemon.createAgentPreset({ ...nativeInput, handle: 'switchboard' }))
         .toThrow();
+
+      const beforeInvalidUpdate = daemon.getAgentPreset(native.id);
+      expect(beforeInvalidUpdate).toBeDefined();
+      expect(() => daemon.updateAgentPreset(native.id, {
+        ...nativeInput, model: 'not-in-catalog', handle: 'should-not-persist',
+      })).toThrow('not currently offered');
+      expect(daemon.getAgentPreset(native.id)).toEqual(beforeInvalidUpdate);
+      expect(() => daemon.updateAgentPreset(
+        '01ARZ3NDEKTSV4RRFFQ69G5FAV', nativeInput,
+      )).toThrow(AgentPresetNotFoundError);
 
       const named = daemon.createAgentPreset({
         label: 'Named ACP', handle: 'named-provider', harness: 'acp', acp_provider: 'kimi',
@@ -197,9 +243,42 @@ describe('direct daemon preset validation', () => {
       expect(named.acp_provider).toBe('kimi');
       const custom = daemon.createAgentPreset({ ...customAcpInput, handle: 'custom-provider' });
       expect(custom.acp_launch).toEqual(customAcpInput.acp_launch);
+      expect(executableOnPath).toHaveBeenCalledWith('custom-agent');
+      expect(acpSpawn).not.toHaveBeenCalled();
+      const beforeUnavailableCustom = daemon.listAgentPresets();
+      expect(() => daemon.createAgentPreset({
+        ...customAcpInput,
+        handle: 'unavailable-custom',
+        acp_launch: { executable: 'missing-custom-agent', argv: ['--acp'] },
+      })).toThrow('not currently installed');
+      expect(daemon.listAgentPresets()).toEqual(beforeUnavailableCustom);
+      executableOnPath.mockImplementation((executable) => executable !== 'kimi');
+      expect(() => daemon.createAgentPreset({
+        label: 'Unavailable named ACP', handle: 'unavailable-named',
+        harness: 'acp', acp_provider: 'kimi',
+      })).toThrow('not currently installed');
+      expect(acpSpawn).not.toHaveBeenCalled();
       expect(() => daemon.createAgentPreset({
         label: 'Missing provider', handle: 'missing-provider', harness: 'acp', acp_provider: 'unknown',
       })).toThrow('unknown ACP provider');
+    } finally {
+      await daemon.close();
+    }
+  });
+
+  it('requires the generic ACP adapter registration to be configurable', async () => {
+    const acp = new FakeAdapter('acp');
+    const daemon = new Daemon({
+      dbPath: join(dir, 'unconfigurable.sqlite'),
+      blobRoot: join(dir, 'unconfigurable-blobs'),
+      adapters: [acp],
+      homeDir: dir,
+      executableOnPath: () => true,
+      discoverModels: false,
+    });
+    try {
+      expect(() => daemon.createAgentPreset(customAcpInput)).toThrow('not registered as configurable');
+      expect(daemon.listAgentPresets()).toEqual([]);
     } finally {
       await daemon.close();
     }
@@ -232,15 +311,20 @@ describe('agent preset REST authorization and behavior', () => {
   let daemon: Daemon;
   let server: RunningServer;
   let fake: FakeAdapter;
+  let crypto: CryptoVault;
+  let browser: CryptoVault;
+  let browserToken: string;
+  let agentToken: string;
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'codor-agent-presets-server-'));
     fake = new FakeAdapter('fake');
+    const acp = Object.assign(new FakeAdapter('acp'), { configurable: true });
     Object.assign(fake, { executable: 'fake' });
     daemon = new Daemon({
       dbPath: join(dir, 'switchboard.sqlite'),
       blobRoot: join(dir, 'blobs'),
-      adapters: [fake],
+      adapters: [fake, acp],
       homeDir: dir,
       executableOnPath: () => true,
       discoverModels: false,
@@ -257,6 +341,28 @@ describe('agent preset REST authorization and behavior', () => {
     const observer = daemon.store.addMember('eng', {
       kind: 'human', handle: 'observer-user', display_name: 'Observer', role: 'observer',
     });
+    crypto = new CryptoVault(join(dir, 'crypto'));
+    browser = new CryptoVault(join(dir, 'browser'));
+    const browserPeer = crypto.keys.enrollPeer({
+      ...browser.keys.publicIdentity(), kind: 'device', label: 'paired browser',
+    });
+    crypto.roomKeys.enrollPeer(browserPeer);
+    browserToken = crypto.browserSessions.issue(browserPeer.device_id).access_token;
+
+    let capturedSession: ReturnType<FakeAdapter['spawn']> | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawn = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts) => {
+      const session = originalSpawn(opts);
+      capturedSession = session;
+      return session;
+    });
+    daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'preset-agent', cwd: dir,
+    });
+    spawn.mockRestore();
+    const capturedAgentToken = capturedSession?.env?.CODOR_MEMBER_TOKEN;
+    if (capturedAgentToken === undefined) throw new Error('agent credential was not issued');
+    agentToken = capturedAgentToken;
     server = await startServer({
       daemon,
       token: 'owner-token',
@@ -265,11 +371,14 @@ describe('agent preset REST authorization and behavior', () => {
         { token: 'member-token', member_id: member.id },
         { token: 'observer-token', member_id: observer.id },
       ],
+      crypto,
     });
   });
 
   afterEach(async () => {
-    await server.close();
+    if (server !== undefined) await server.close();
+    if (browser !== undefined) browser.close();
+    if (crypto !== undefined) crypto.close();
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -284,14 +393,46 @@ describe('agent preset REST authorization and behavior', () => {
       ...(payload !== undefined && { payload }),
     });
 
-  it('requires manage_agents for reads and writes, including custom launch material', async () => {
-    expect((await inject('GET', '/api/agent-presets')).statusCode).toBe(401);
-    for (const token of ['member-token', 'observer-token']) {
-      expect((await inject('GET', '/api/agent-presets', token)).statusCode).toBe(403);
-      expect((await inject('POST', '/api/agent-presets', token, customAcpInput)).statusCode).toBe(403);
+  it('requires manage_agents for the complete principal matrix and protects custom launches', async () => {
+    const custom = await inject('POST', '/api/agent-presets', 'admin-token', customAcpInput);
+    expect(custom.statusCode).toBe(201);
+    const customId = (custom.json().preset as { id: string }).id;
+
+    for (const token of ['owner-token', browserToken, 'admin-token']) {
+      const list = await inject('GET', '/api/agent-presets', token);
+      expect(list.statusCode).toBe(200);
+      expect(list.json().presets).toEqual(expect.arrayContaining([
+        expect.objectContaining({ id: customId, acp_launch: customAcpInput.acp_launch }),
+      ]));
+      expect((await inject('GET', `/api/agent-presets/${customId}`, token)).statusCode).toBe(200);
+      expect((await inject('GET', '/api/default-roster', token)).statusCode).toBe(200);
+      expect((await inject('POST', '/api/agent-presets', token, {
+        ...nativeInput, model: undefined, thinking: undefined,
+      })).statusCode).toBe(201);
+      expect((await inject('PUT', '/api/default-roster', token, {
+        preset_ids: [customId],
+      })).statusCode).toBe(200);
     }
-    expect((await inject('GET', '/api/agent-presets', 'owner-token')).statusCode).toBe(200);
-    expect((await inject('GET', '/api/agent-presets', 'admin-token')).statusCode).toBe(200);
+
+    const deniedTokens: (string | undefined)[] = [
+      undefined, 'member-token', 'observer-token', agentToken,
+    ];
+    for (const token of deniedTokens) {
+      const expected = token === undefined ? 401 : 403;
+      for (const [method, url, payload] of [
+        ['GET', '/api/agent-presets', undefined],
+        ['GET', `/api/agent-presets/${customId}`, undefined],
+        ['GET', '/api/default-roster', undefined],
+        ['POST', '/api/agent-presets', nativeInput],
+        ['PUT', '/api/default-roster', { preset_ids: [] }],
+      ] as const) {
+        const response = await inject(method, url, token, payload);
+        expect(response.statusCode).toBe(expected);
+        if (method === 'GET' && url === '/api/agent-presets') {
+          expect(response.body).not.toContain('custom-agent');
+        }
+      }
+    }
   });
 
   it('supports CRUD, ordered references, explicit conflicts, and strict request errors', async () => {
@@ -313,6 +454,9 @@ describe('agent preset REST authorization and behavior', () => {
     expect(update.statusCode).toBe(200);
     expect(update.json().preset.id).toBe(preset.id);
     expect(update.json().preset.created_ts).toBe(preset.created_ts);
+    expect((await inject('PUT', '/api/agent-presets/01ARZ3NDEKTSV4RRFFQ69G5FAV', 'admin-token', {
+      ...nativeInput, model: undefined, thinking: undefined,
+    })).statusCode).toBe(404);
 
     const roster = await inject('PUT', '/api/default-roster', 'admin-token', {
       preset_ids: [preset.id],
