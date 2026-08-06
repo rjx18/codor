@@ -1247,6 +1247,32 @@ export class Daemon {
   // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
   // harn:end adapters-own-their-model-catalog
 
+  // harn:assume agent-add-selects-one-public-adapter ref=agent-add-catalog-resolution
+  /** Resolve the one safe adapter identity accepted by structured agent add.
+   * The catalog is the only public source of selection truth. Generic ACP is
+   * deliberately excluded here because it needs private executable/argv
+   * material; curated named providers are translated to ACP identity and are
+   * compiled to their private launch only by spawnMember. */
+  resolvePublicAgentAdapter(selector: string): { harness: string; acp_provider?: string } {
+    const entry = this.registeredAdapters().find((candidate) => candidate.id === selector);
+    if (entry === undefined) throw new Error(`unknown adapter '${selector}'`);
+    if (entry.configurable === true || entry.advanced === true) {
+      throw new Error(`adapter '${selector}' requires private custom ACP configuration`);
+    }
+    if (entry.shadowed_by_native !== undefined) {
+      throw new Error(
+        `adapter '${selector}' is shadowed by native adapter '${entry.shadowed_by_native}'`,
+      );
+    }
+    if (!entry.installed) throw new Error(`adapter '${selector}' is not installed on the daemon host`);
+    if (entry.harness === undefined) throw new Error(`adapter '${selector}' has no runtime identity`);
+    return {
+      harness: entry.harness,
+      ...(entry.acp_provider !== undefined && { acp_provider: entry.acp_provider }),
+    };
+  }
+  // harn:end agent-add-selects-one-public-adapter
+
   // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-runtime
   /**
    * Recompute PATH-only detection for every curated named provider. Runs at
@@ -1697,6 +1723,19 @@ export class Daemon {
   }
   // harn:end copilot-vscode-revive-requires-exact-live-cache
 
+  // harn:assume agent-pause-refuses-active-turn ref=agent-pause-state-transition
+  /** Structured revive is compatible with both paused and dead members. The
+   * legacy reviveMember contract remains dead-only for the flat command. */
+  reviveManagedMember(room: string, memberId: string): Member {
+    const existing = this.store.getMember(room, memberId);
+    if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
+    if (existing.removed_ts !== undefined) throw new Error(`member @${existing.handle} was removed`);
+    if (existing.state === 'paused') return this.unpauseMember(room, memberId);
+    if (existing.state === 'dead') return this.reviveMember(room, memberId);
+    throw new Error(`member @${existing.handle} is ${existing.state ?? 'not stopped'}; revive requires paused or dead`);
+  }
+  // harn:end agent-pause-refuses-active-turn
+
   // harn:assume adoption-explicit-or-sessionend ref=mirrored-adoption-transition
   joinMember(
     room: string,
@@ -2077,7 +2116,18 @@ export class Daemon {
   pauseMember(room: string, memberId: string): Member {
     const existing = this.store.getMember(room, memberId);
     if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
+    if (existing.removed_ts !== undefined) throw new Error(`member @${existing.handle} was removed`);
     if (existing.state === 'dead') throw new Error(`member @${existing.handle} is dead; revive it instead`);
+    if (existing.state === 'paused') throw new Error(`member @${existing.handle} is already paused`);
+    if (existing.state === 'custody_uncertain') {
+      throw new Error(`cannot pause @${existing.handle} while custody is uncertain`);
+    }
+    if (existing.state === 'running' || existing.state === 'awaiting_input') {
+      throw new Error(`cannot pause @${existing.handle} during an active turn (${existing.state}); stop the turn first`);
+    }
+    if (existing.state !== 'idle' && existing.state !== 'queued' && existing.state !== 'unreachable') {
+      throw new Error(`cannot pause @${existing.handle} while ${existing.state ?? 'in flight'}`);
+    }
     const member = this.store.updateMember(room, memberId, { state: 'paused' });
     this.emitMember(room, member);
     return member;

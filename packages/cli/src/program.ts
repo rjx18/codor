@@ -10,8 +10,10 @@ import {
   type Delivery,
   type Member,
   type Message,
+  type Policy,
   type RunSearchHit,
   type ServerFrame,
+  type ThinkingLevel,
 } from '@codor/protocol';
 import { Command, Option } from 'commander';
 import {
@@ -35,13 +37,20 @@ import {
   MANAGEMENT_EXIT_CODES,
   ManagementError,
   archiveManagedRoom,
+  addManagedAgent,
   classifyManagementError,
+  confirmAgentRemove,
   confirmArchive,
   createManagedRoom,
+  listManagedAgents,
   listManagedRooms,
+  mutateManagedAgent,
   renameManagedRoom,
+  renderAgent,
+  renderAgentList,
   renderChannel,
   renderChannelList,
+  resolveManagedAgent,
 } from './management.js';
 import { parseMirrorHook } from './mirror.js';
 import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
@@ -1490,6 +1499,175 @@ export function createProgram(context: CliContext = {}): Command {
       const result = (await postJson('/api/relay/rotate')) as { session_id: string };
       out(`rotated; new session ${result.session_id}`);
     });
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle ref=structured-agent-command-surface
+  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-terminology
+  const agentManagement = program.command('agent').description('manage channel agents');
+  agentManagement
+    .command('list')
+    .description('list channel agents')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: ChannelOptions & { json?: boolean }) => {
+      await withManagementClient(async (client) => {
+        const agents = await listManagedAgents(client, options.channel);
+        const rendered = renderAgentList(agents, options.json === true);
+        if (rendered !== '') out(rendered);
+      });
+    });
+
+  agentManagement
+    .command('add')
+    .description('add a channel agent')
+    .argument('<handle>', 'agent handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .requiredOption('--adapter <adapter>', 'installed public adapter id')
+    .requiredOption('--cwd <path>', 'working directory')
+    .option('--name <display-name>', 'agent display name')
+    .option('--purpose <purpose>', 'agent purpose')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access', 'read-only')
+    .option('--model <model>', 'model override')
+    .option('--thinking <level>', 'thinking level')
+    .option('--json', 'emit one JSON value')
+    .action(async (rawHandle: string, options: ChannelOptions & {
+      adapter: string;
+      cwd: string;
+      name?: string;
+      purpose?: string;
+      policy: Policy;
+      model?: string;
+      thinking?: ThinkingLevel;
+      json?: boolean;
+    }) => {
+      const handle = rawHandle.replace(/^@/, '');
+      await withManagementClient(async (client) => {
+        const agent = await addManagedAgent(client, options.channel, {
+          adapter: options.adapter,
+          handle,
+          cwd: options.cwd,
+          policy: options.policy,
+          model: options.model,
+          thinking: options.thinking,
+          ...(options.name !== undefined && { display_name: options.name }),
+          ...(options.purpose !== undefined && { purpose: options.purpose }),
+        });
+        out(renderAgent(agent, options.json === true));
+      });
+    });
+
+  agentManagement
+    .command('configure')
+    .description('configure an existing channel agent')
+    .argument('<agent>', 'agent id or handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--model <model>', 'model override')
+    .option('--clear-model', 'clear the model override')
+    .option('--thinking <level>', 'thinking level')
+    .option('--clear-thinking', 'clear the thinking override')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access')
+    .option('--json', 'emit one JSON value')
+    .action(async (target: string, options: ChannelOptions & {
+      model?: string;
+      clearModel?: boolean;
+      thinking?: ThinkingLevel;
+      clearThinking?: boolean;
+      policy?: Policy;
+      json?: boolean;
+    }) => {
+      const hasModel = options.model !== undefined;
+      const hasThinking = options.thinking !== undefined;
+      if (hasModel && options.clearModel) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, '--model and --clear-model are mutually exclusive');
+      }
+      if (hasThinking && options.clearThinking) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, '--thinking and --clear-thinking are mutually exclusive');
+      }
+      if (!hasModel && !options.clearModel && !hasThinking && !options.clearThinking && options.policy === undefined) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'agent configure requires a setting change');
+      }
+      await withManagementClient(async (client) => {
+        const agent = await resolveManagedAgent(client, options.channel, target);
+        const updated = await mutateManagedAgent(client, options.channel, {
+          act: 'configure',
+          member_id: agent.id,
+          ...((hasModel || options.clearModel) && { model: options.clearModel ? null : options.model }),
+          ...((hasThinking || options.clearThinking) && { thinking: options.clearThinking ? null : options.thinking }),
+          ...(options.policy !== undefined && { policy: options.policy }),
+        });
+        out(renderAgent(updated, options.json === true));
+      });
+    });
+
+  agentManagement
+    .command('rename')
+    .description('rename a channel agent')
+    .argument('<agent>', 'agent id or handle')
+    .argument('<handle>', 'new agent handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--name <display-name>', 'new display name')
+    .option('--json', 'emit one JSON value')
+    .action(async (target: string, rawHandle: string, options: ChannelOptions & {
+      name?: string;
+      json?: boolean;
+    }) => {
+      const handle = rawHandle.replace(/^@/, '');
+      await withManagementClient(async (client) => {
+        const agent = await resolveManagedAgent(client, options.channel, target);
+        const updated = await mutateManagedAgent(client, options.channel, {
+          act: 'rename',
+          member_id: agent.id,
+          handle,
+          ...(options.name !== undefined && { display_name: options.name }),
+        });
+        out(renderAgent(updated, options.json === true));
+      });
+    });
+
+  for (const action of ['pause', 'revive'] as const) {
+    agentManagement
+      .command(action)
+      .description(`${action} a channel agent`)
+      .argument('<agent>', 'agent id or handle')
+      .requiredOption('--channel <channel>', 'channel id')
+      .option('--json', 'emit one JSON value')
+      .action(async (target: string, options: ChannelOptions & { json?: boolean }) => {
+        await withManagementClient(async (client) => {
+          const agent = await resolveManagedAgent(client, options.channel, target);
+          const updated = await mutateManagedAgent(client, options.channel, {
+            act: action,
+            member_id: agent.id,
+          });
+          out(renderAgent(updated, options.json === true));
+        });
+      });
+  }
+
+  agentManagement
+    .command('remove')
+    .description('remove a channel agent')
+    .argument('<agent>', 'agent id or handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--yes', 'confirm removal without prompting')
+    .option('--json', 'emit one JSON value')
+    .action(async (target: string, options: ChannelOptions & { yes?: boolean; json?: boolean }) => {
+      const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      await withManagementClient(async (client) => {
+        const agent = await resolveManagedAgent(client, options.channel, target);
+        await confirmAgentRemove({
+          label: `@${agent.handle} in channel ${options.channel}`,
+          yes: options.yes === true,
+          json: options.json === true,
+          isTTY,
+          stderr: err,
+          confirm: context.confirm,
+        });
+        const removed = await mutateManagedAgent(client, options.channel, {
+          act: 'remove',
+          member_id: agent.id,
+        });
+        out(renderAgent(removed, options.json === true));
+      });
+    });
+  // harn:end structured-agent-cli-preserves-flat-lifecycle
   // harn:end human-facing-surfaces-call-rooms-channels
   const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
   channelManagement.aliases().splice(0);
@@ -1513,8 +1691,9 @@ export async function runCli(argv = process.argv, context: CliContext = {}): Pro
   } catch (error) {
     if (!isCommanderFailure(error)) throw error;
     if (error.exitCode === 0) return;
-    if (isStructuredChannelInvocation(argv)) {
-      const message = error.code === 'commander.help' ? 'channel requires a subcommand' : error.message;
+    const structuredRoot = structuredManagementRoot(argv);
+    if (structuredRoot !== undefined) {
+      const message = error.code === 'commander.help' ? `${structuredRoot} requires a subcommand` : error.message;
       throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, message, { cause: error });
     }
     throw error;
@@ -1536,7 +1715,7 @@ function isCommanderFailure(error: unknown): error is CommanderFailure {
     && typeof candidate.message === 'string';
 }
 
-function isStructuredChannelInvocation(argv: readonly string[]): boolean {
+function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' | undefined {
   const args = argv.slice(2);
   const optionsWithValues = new Set(['--data-dir', '--url', '--token']);
   for (let index = 0; index < args.length; index += 1) {
@@ -1546,8 +1725,8 @@ function isStructuredChannelInvocation(argv: readonly string[]): boolean {
       continue;
     }
     if ([...optionsWithValues].some((option) => argument.startsWith(`${option}=`))) continue;
-    if (argument.startsWith('-')) return false;
-    return argument === 'channel';
+    if (argument.startsWith('-')) return undefined;
+    return argument === 'channel' || argument === 'agent' ? argument : undefined;
   }
-  return false;
+  return undefined;
 }

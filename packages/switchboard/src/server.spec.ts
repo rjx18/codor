@@ -345,6 +345,113 @@ describe('correlated channel management over WebSocket', () => {
 // harn:end channel-archive-is-durable-soft-state
 // harn:end management-frames-correlate-one-result
 
+// harn:assume agent-management-correlates-safe-member-results ref=agent-management-server-regression
+// harn:assume agent-add-selects-one-public-adapter ref=agent-add-server-regression
+// harn:assume agent-pause-refuses-active-turn ref=agent-pause-server-regression
+// harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+// harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+describe('correlated agent management over WebSocket', () => {
+  it('correlates lifecycle results, gates mutations, and keeps admin state inert', async () => {
+    const owner = await connect();
+    const cwd = testCwd('structured-agent');
+    const deliveriesBefore = fake.deliveries.length;
+    owner.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await owner.next((frame) => frame.type === 'sync_complete');
+    owner.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'agent-list-empty' }));
+    expect(await owner.next((frame) => frame.type === 'agents' && frame.ref === 'agent-list-empty'))
+      .toMatchObject({ type: 'agents', room: 'eng', agents: [], ref: 'agent-list-empty' });
+
+    owner.ws.send(JSON.stringify({
+      type: 'add_agent', room: 'eng', ref: 'agent-add', adapter: 'fake',
+      handle: 'worker', cwd, policy: 'read-only',
+    }));
+    const added = await owner.next((frame) => frame.type === 'member' && frame.ref === 'agent-add');
+    expect(added).toMatchObject({ type: 'member', room: 'eng', ref: 'agent-add', member: {
+      kind: 'agent', handle: 'worker', harness: 'fake', state: 'idle', policy: 'read-only',
+    } });
+    if (added.type !== 'member') throw new Error('missing correlated member');
+    const agentId = added.member.id;
+
+    owner.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'agent-list' }));
+    const listed = await owner.next((frame) => frame.type === 'agents' && frame.ref === 'agent-list');
+    expect(listed).toMatchObject({ type: 'agents', agents: [{ id: agentId, handle: 'worker' }] });
+    expect(owner.frames.some((frame) => frame.type === 'member' && frame.ref === undefined)).toBe(true);
+
+    for (const [ref, act, expected] of [
+      ['agent-configure', { act: 'configure', member_id: agentId, model: 'safe-model' }, { model: 'safe-model' }],
+      ['agent-rename', { act: 'rename', member_id: agentId, handle: 'worker-renamed' }, { handle: 'worker-renamed' }],
+      ['agent-pause', { act: 'pause', member_id: agentId }, { state: 'paused' }],
+      ['agent-revive', { act: 'revive', member_id: agentId }, { state: 'idle' }],
+    ] as const) {
+      owner.ws.send(JSON.stringify({ type: 'act', room: 'eng', ref, act }));
+      expect(await owner.next((frame) => frame.type === 'member' && frame.ref === ref))
+        .toMatchObject({ type: 'member', ref, member: expected });
+    }
+
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'member-list' }));
+    expect(await memberClient.next((frame) => frame.type === 'agents' && frame.ref === 'member-list'))
+      .toMatchObject({ type: 'agents', ref: 'member-list' });
+    memberClient.ws.send(JSON.stringify({
+      type: 'add_agent', room: 'eng', ref: 'member-add', adapter: 'fake', handle: 'member-agent', cwd,
+    }));
+    expect(await memberClient.next((frame) => frame.type === 'error' && frame.ref === 'member-add'))
+      .toMatchObject({ type: 'error', ref: 'member-add', message: expect.stringContaining('manage agents') });
+
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    observerClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'observer-pause', act: { act: 'pause', member_id: agentId },
+    }));
+    expect(await observerClient.next((frame) => frame.type === 'error' && frame.ref === 'observer-pause'))
+      .toMatchObject({ type: 'error', ref: 'observer-pause' });
+
+    let agentSession: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+      agentSession = originalSpawn(opts);
+      return agentSession;
+    });
+    const principalAgent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'principal-agent', cwd: testCwd('principal-agent'),
+    });
+    const principalToken = agentSession!.env!.CODOR_MEMBER_TOKEN!;
+    const agentClient = await connectAs(principalToken);
+    agentClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'principal-list' }));
+    expect(await agentClient.next((frame) => frame.type === 'agents' && frame.ref === 'principal-list'))
+      .toMatchObject({ type: 'agents', ref: 'principal-list' });
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
+    agentClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'other', ref: 'cross-room-list' }));
+    expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'cross-room-list'))
+      .toMatchObject({ type: 'error', ref: 'cross-room-list' });
+    agentClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'principal-remove', act: { act: 'remove', member_id: agentId },
+    }));
+    expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'principal-remove'))
+      .toMatchObject({ type: 'error', ref: 'principal-remove' });
+
+    owner.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'agent-remove', act: { act: 'remove', member_id: agentId },
+    }));
+    expect(await owner.next((frame) => frame.type === 'member' && frame.ref === 'agent-remove'))
+      .toMatchObject({ type: 'member', ref: 'agent-remove', member: { removed_ts: expect.any(String), state: 'dead' } });
+    owner.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'agent-list-after-remove' }));
+    expect(await owner.next((frame) => frame.type === 'agents' && frame.ref === 'agent-list-after-remove'))
+      .toMatchObject({ type: 'agents', agents: [{ handle: 'principal-agent' }] });
+    expect(fake.deliveries.length).toBe(deliveriesBefore);
+
+    owner.ws.close();
+    memberClient.ws.close();
+    observerClient.ws.close();
+    agentClient.ws.close();
+    expect(principalAgent.kind).toBe('agent');
+  });
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end roles-gate-human-acts-not-agents
+// harn:end agent-pause-refuses-active-turn
+// harn:end agent-add-selects-one-public-adapter
+// harn:end agent-management-correlates-safe-member-results
+
 // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=own-queued-sync-regression
 describe('agent queued inbox hydration', () => {
   it('sends only the authenticated agent own queued rows and leaves them consumable', async () => {

@@ -1468,6 +1468,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         socket.send(JSON.stringify(frame));
       };
 
+      // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-server
+      const sendManagedMember = (room: string, member: Member, ref: string | undefined): void => {
+        if (ref === undefined) return;
+        send({
+          type: 'member',
+          seq: daemon.store.currentSeq(room),
+          member: daemon.project(room, member),
+          room,
+          ref,
+        });
+      };
+      // harn:end agent-management-correlates-safe-member-results
+
       socket.on('message', (raw: Buffer) => {
         let parsed: unknown;
         try {
@@ -1509,6 +1522,34 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               type: 'mirror_ack',
               adopted: daemon.mirrorSessionEnd(frame.harness, frame.session_ref),
             });
+          // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-server
+          } else if (frame.type === 'list_agents') {
+            assertRoomCapability(principal, frame.room, 'read');
+            const agents = daemon.store.listMembers(frame.room)
+              .filter((member) => member.kind === 'agent' && member.removed_ts === undefined)
+              .sort((left, right) => left.id.localeCompare(right.id));
+            send({
+              type: 'agents',
+              room: frame.room,
+              agents: agents.map((member) => daemon.project(frame.room, member)),
+              ref: frame.ref,
+            });
+          } else if (frame.type === 'add_agent') {
+            assertRoomCapability(principal, frame.room, 'manage_agents');
+            const adapter = daemon.resolvePublicAgentAdapter(frame.adapter);
+            const member = daemon.spawnMember(frame.room, {
+              harness: adapter.harness,
+              handle: frame.handle,
+              cwd: frame.cwd,
+              policy: frame.policy ?? 'read-only',
+              model: frame.model,
+              thinking: frame.thinking,
+              display_name: frame.display_name,
+              purpose: frame.purpose,
+              acp_provider: adapter.acp_provider,
+            });
+            sendManagedMember(frame.room, member, frame.ref);
+          // harn:end agent-management-correlates-safe-member-results
           } else if (frame.type === 'list_rooms') {
             if (principal.kind === 'agent') {
               assertRoomCapability(principal, principal.room, 'read');
@@ -1797,17 +1838,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
               });
             } else if (act.act === 'configure') {
-              daemon.configureMember(
+              const updated = daemon.configureMember(
                 frame.room,
                 act.member_id,
                 { model: act.model, thinking: act.thinking, policy: act.policy },
                 { actor: actor.id },
               );
-            } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
-            else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            } else if (act.act === 'rename') {
+              const updated = daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
+              sendManagedMember(frame.room, updated, frame.ref);
+            } else if (act.act === 'revive') {
+              // The structured ref opts into paused-or-dead revive. The existing
+              // unreferenced flat act remains the dead-only recovery contract.
+              const updated = frame.ref === undefined
+                ? daemon.reviveMember(frame.room, act.member_id)
+                : daemon.reviveManagedMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            }
             else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);
-            else if (act.act === 'remove') daemon.removeMember(frame.room, act.member_id);
-            else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
+            else if (act.act === 'remove') {
+              const updated = daemon.removeMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            }
+            else if (act.act === 'pause') {
+              const updated = daemon.pauseMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            }
             else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
             else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
             // Compaction is a round trip to the engine: report its refusal or

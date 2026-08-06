@@ -1,4 +1,4 @@
-import type { Room, ServerFrame } from '@codor/protocol';
+import type { Member, Room, ServerFrame } from '@codor/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -6,11 +6,15 @@ import {
   ManagementError,
   cliExitCode,
   classifyManagementError,
+  confirmAgentRemove,
   confirmArchive,
   listManagedRooms,
+  listManagedAgents,
   redactDiagnostic,
   renderChannel,
   renderChannelList,
+  renderAgent,
+  renderAgentList,
 } from './management.js';
 import type { ProtocolClient } from './connection.js';
 import { runCli } from './program.js';
@@ -29,6 +33,24 @@ const room = {
     cwd: '/work/project',
   },
 } satisfies Room;
+
+const agent = {
+  id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+  kind: 'agent',
+  handle: 'worker',
+  display_name: 'Worker\t\u001b[31m',
+  purpose: 'safe\npurpose',
+  harness: 'acp',
+  acp_provider: 'kimi',
+  session_ref: 'native-session-secret',
+  cwd: '/work/project',
+  policy: 'read-only',
+  model: 'safe-model',
+  thinking: 'high',
+  host: 'private-host',
+  state: 'idle',
+  custody: 'owned',
+} satisfies Member;
 
 // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
 describe('management output', () => {
@@ -84,6 +106,34 @@ describe('management output', () => {
       expect(line.split('\t')[1]).not.toMatch(rawControl);
     }
   });
+
+  it('projects agents in deterministic order without native identity or control bytes', () => {
+    const other = {
+      ...agent,
+      id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+      handle: 'alpha',
+      display_name: 'Alpha',
+    } satisfies Member;
+    const human = {
+      id: '01C4F6Y9J4QJ5F4KZ5T6X2V3W4',
+      kind: 'human',
+      handle: 'richard',
+      display_name: 'Richard',
+    } satisfies Member;
+    const removed = { ...agent, removed_ts: '2026-08-06T01:00:00.000Z' } satisfies Member;
+
+    const parsed = JSON.parse(renderAgentList([agent, removed, human, other], true)) as Array<Record<string, unknown>>;
+    expect(parsed.map((entry) => entry.handle)).toEqual(['alpha', 'worker']);
+    expect(parsed[1]).toMatchObject({ adapter: 'acp:kimi', purpose: 'safe\npurpose' });
+    expect(parsed[1]).not.toHaveProperty('session_ref');
+    expect(parsed[1]).not.toHaveProperty('host');
+    expect(renderAgent(agent, true)).not.toMatch(/native-session-secret|private-host/);
+
+    const humanRows = renderAgentList([agent], false);
+    expect(humanRows).toContain('Worker\\t\\x1b[31m');
+    expect(humanRows).toContain('safe\\npurpose');
+    expect(humanRows).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  });
 });
 // harn:end management-output-is-json-pure-and-safe
 
@@ -111,7 +161,16 @@ describe('management failures', () => {
       expect(cliExitCode(classifyManagementError(new Error(`no such channel ${id}`)))).toBe(
         MANAGEMENT_EXIT_CODES.notFound,
       );
+      expect(cliExitCode(classifyManagementError(new Error(`no such agent ${id}`)))).toBe(
+        MANAGEMENT_EXIT_CODES.notFound,
+      );
     }
+    expect(cliExitCode(classifyManagementError(new Error("adapter 'missing' is not installed on the daemon host"))))
+      .toBe(MANAGEMENT_EXIT_CODES.conflict);
+    expect(cliExitCode(classifyManagementError(new Error('cannot pause @worker during an active turn; stop the turn first'))))
+      .toBe(MANAGEMENT_EXIT_CODES.conflict);
+    expect(cliExitCode(classifyManagementError(new Error("adapter 'fake' does not support thinking level 'ultra'"))))
+      .toBe(MANAGEMENT_EXIT_CODES.invocation);
     const schemaFailure = new Error('Invalid input') as Error & { issues: unknown[] };
     schemaFailure.name = 'ZodError';
     schemaFailure.issues = [];
@@ -140,6 +199,9 @@ describe('management failures', () => {
       ['channel', 'create', 'Missing Owner'],
       ['channel', 'list', '--unknown'],
       ['channel', 'unknown'],
+      ['agent'],
+      ['agent', 'add'],
+      ['agent', 'list'],
     ]) {
       const result = await invoke(args);
       expect(result.error).toMatchObject({
@@ -154,6 +216,28 @@ describe('management failures', () => {
 
 // harn:assume management-frames-correlate-one-result ref=management-correlation-cli-regression
 describe('management correlation', () => {
+  // harn:assume agent-management-correlates-safe-member-results ref=agent-management-client-regression
+  it('ignores unrelated member traffic until the matching agent snapshot', async () => {
+    const frames: ServerFrame[] = [
+      { type: 'member', seq: 1, room: 'eng', member: agent, ref: 'other-request' },
+    ];
+    const send = vi.fn((frame: { type: string; ref?: string }) => {
+      if (frame.type === 'list_agents' && frame.ref !== undefined) {
+        frames.push({ type: 'agents', room: 'eng', agents: [agent], ref: frame.ref });
+      }
+    });
+    const client = {
+      send,
+      next: async () => frames.shift()!,
+    } as unknown as ProtocolClient;
+
+    const listed = await listManagedAgents(client, 'eng');
+    expect(listed).toEqual([agent]);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'list_agents', room: 'eng', ref: expect.any(String),
+    }));
+  });
+
   it('ignores unrelated results and errors until the matching rooms reply', async () => {
     const frames: ServerFrame[] = [
       { type: 'error', ref: 'other-request', message: 'unrelated failure' },
@@ -174,6 +258,7 @@ describe('management correlation', () => {
       type: 'list_rooms', all: true, ref: expect.any(String),
     }));
   });
+  // harn:end agent-management-correlates-safe-member-results
 });
 // harn:end management-frames-correlate-one-result
 
@@ -197,6 +282,28 @@ describe('archive confirmation', () => {
     });
     await confirmArchive({ label: 'eng', yes: true, isTTY: false, stderr: () => undefined });
     expect(stderr).toEqual(['Archive channel eng? [y/N]', 'Archive channel eng? [y/N]']);
+  });
+
+  it('uses the same explicit confirmation boundary for agent removal', async () => {
+    const stderr: string[] = [];
+    await expect(confirmAgentRemove({
+      label: '@worker in channel eng', isTTY: false, stderr: (line) => stderr.push(line),
+    })).rejects.toMatchObject({
+      exitCode: MANAGEMENT_EXIT_CODES.invocation,
+      message: 'agent removal requires --yes in noninteractive or JSON mode',
+    });
+    await expect(confirmAgentRemove({
+      label: '@worker in channel eng', isTTY: true, stderr: (line) => stderr.push(line),
+      confirm: async () => 'no',
+    })).rejects.toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    await confirmAgentRemove({
+      label: '@worker in channel eng', isTTY: true, stderr: (line) => stderr.push(line),
+      confirm: async () => 'yes',
+    });
+    expect(stderr).toEqual([
+      'Remove agent @worker in channel eng? [y/N]',
+      'Remove agent @worker in channel eng? [y/N]',
+    ]);
   });
 });
 // harn:end channel-archive-requires-explicit-confirmation

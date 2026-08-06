@@ -22,6 +22,7 @@ import WebSocket from 'ws';
 
 import {
   createProgram,
+  MANAGEMENT_EXIT_CODES,
   ManagementError,
   cliExitCode,
   detectSession,
@@ -168,6 +169,7 @@ describe('@codor/cli', () => {
       'revoke',
       'ledger',
       'relay',
+      'agent',
       'channel',
     ]);
     const program = createProgram();
@@ -178,6 +180,11 @@ describe('@codor/cli', () => {
     expect(structuredChannels?.aliases()).toEqual([]);
     expect(structuredChannels?.commands.map((command) => command.name())).toEqual([
       'list', 'create', 'show', 'rename', 'archive',
+    ]);
+    const structuredAgents = program.commands.find((command) => command.name() === 'agent');
+    expect(structuredAgents?.aliases()).toEqual([]);
+    expect(structuredAgents?.commands.map((command) => command.name())).toEqual([
+      'list', 'add', 'configure', 'rename', 'pause', 'revive', 'remove',
     ]);
     expect(program.commands.find((command) => command.name() === 'spawn')?.options.map((option) => option.long))
       .toContain('--channel');
@@ -1225,6 +1232,76 @@ describe('@codor/cli', () => {
   // harn:end management-failures-have-stable-redacted-exits
   // harn:end management-output-is-json-pure-and-safe
   // harn:end structured-channel-cli-preserves-flat-listing
+
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle ref=structured-agent-cli-regression
+  // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
+  // harn:assume agent-remove-requires-explicit-confirmation ref=agent-remove-confirmation-regression
+  it('manages agents through the correlated lifecycle family without changing flat commands', async () => {
+    const invoke = async (args: string[], overrides: { isTTY?: boolean } = {}) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: overrides.isTTY ?? false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const cwd = join(dir, 'managed-agent');
+    mkdirSync(cwd);
+    const added = await invoke([
+      'agent', 'add', '@worker', '--channel', 'eng', '--adapter', 'fake', '--cwd', cwd, '--json',
+    ]);
+    expect(added.error).toBeUndefined();
+    expect(JSON.parse(added.stdout[0]!)).toMatchObject({
+      handle: 'worker', status: 'idle', adapter: 'fake', cwd, policy: 'read-only',
+    });
+
+    const configured = await invoke([
+      'agent', 'configure', 'worker', '--channel', 'eng', '--model', 'safe-model', '--json',
+    ]);
+    expect(configured.error).toBeUndefined();
+    expect(JSON.parse(configured.stdout[0]!)).toMatchObject({ model: 'safe-model' });
+
+    const renamed = await invoke([
+      'agent', 'rename', 'worker', 'worker-renamed', '--channel', 'eng', '--name', 'Worker', '--json',
+    ]);
+    expect(renamed.error).toBeUndefined();
+    expect(JSON.parse(renamed.stdout[0]!)).toMatchObject({ handle: 'worker-renamed', display_name: 'Worker' });
+
+    const paused = await invoke(['agent', 'pause', '@worker-renamed', '--channel', 'eng', '--json']);
+    expect(paused.error).toBeUndefined();
+    expect(JSON.parse(paused.stdout[0]!)).toMatchObject({ status: 'paused' });
+
+    const revived = await invoke(['agent', 'revive', 'worker-renamed', '--channel', 'eng', '--json']);
+    expect(revived.error).toBeUndefined();
+    expect(JSON.parse(revived.stdout[0]!)).toMatchObject({ status: 'idle' });
+
+    const declined = await invoke(['agent', 'remove', 'worker-renamed', '--channel', 'eng']);
+    expect(declined.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(daemon.store.getMemberByHandle('eng', 'worker-renamed')?.removed_ts).toBeUndefined();
+
+    const removed = await invoke(['agent', 'remove', 'worker-renamed', '--channel', 'eng', '--yes', '--json']);
+    expect(removed.error).toBeUndefined();
+    const removedJson = JSON.parse(removed.stdout[0]!);
+    expect(removedJson).toMatchObject({ handle: 'worker-renamed', status: 'dead', removed_ts: expect.any(String) });
+    expect(removedJson).not.toHaveProperty('session_ref');
+    expect(removedJson).not.toHaveProperty('host');
+    expect(removedJson).not.toHaveProperty('acp_launch');
+
+    const listed = await invoke(['agent', 'list', '--channel', 'eng', '--json']);
+    expect(JSON.parse(listed.stdout[0]!)).toEqual([]);
+    expect((await invoke(['channels'])).stdout).toEqual(['eng\tEngineering']);
+  });
+  // harn:end agent-remove-requires-explicit-confirmation
+  // harn:end management-output-is-json-pure-and-safe
+  // harn:end structured-agent-cli-preserves-flat-lifecycle
 
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-regression
   it('tails a continuation row without a lifecycle summary, in id order', async () => {

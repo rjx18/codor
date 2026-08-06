@@ -225,6 +225,45 @@ docker run --rm --network none \
     # harn:end management-failures-have-stable-redacted-exits
     # harn:end structured-channel-cli-preserves-flat-listing
 
+    # harn:assume agent-add-selects-one-public-adapter ref=agent-add-packed-smoke
+    # harn:assume structured-agent-cli-preserves-flat-lifecycle ref=structured-agent-packed-smoke
+    # harn:assume agent-management-does-not-invent-work ref=agent-management-packed-no-turn
+    AGENT_CWD=/proof/agent-cwd
+    mkdir -p "$AGENT_CWD"
+    ADDED_AGENT="$($BIN --data-dir "$DATA" agent add worker --channel fresh --adapter housecat --cwd "$AGENT_CWD" --json)"
+    grep -Fq '"handle":"worker"' <<<"$ADDED_AGENT"
+    grep -Fq '"adapter":"housecat"' <<<"$ADDED_AGENT"
+    grep -Fq '"policy":"read-only"' <<<"$ADDED_AGENT"
+    CONFIGURED_AGENT="$($BIN --data-dir "$DATA" agent configure worker --channel fresh --model packed-model --json)"
+    grep -Fq '"model":"packed-model"' <<<"$CONFIGURED_AGENT"
+    RENAMED_AGENT="$($BIN --data-dir "$DATA" agent rename worker worker-renamed --channel fresh --name 'Packed Worker' --json)"
+    grep -Fq '"handle":"worker-renamed"' <<<"$RENAMED_AGENT"
+    PAUSED_AGENT="$($BIN --data-dir "$DATA" agent pause worker-renamed --channel fresh --json)"
+    grep -Fq '"status":"paused"' <<<"$PAUSED_AGENT"
+    REVIVED_AGENT="$($BIN --data-dir "$DATA" agent revive worker-renamed --channel fresh --json)"
+    grep -Fq '"status":"idle"' <<<"$REVIVED_AGENT"
+    set +e
+    UNCONFIRMED_REMOVE="$($BIN --data-dir "$DATA" agent remove worker-renamed --channel fresh --json 2>/proof/agent-remove.out)"
+    UNCONFIRMED_STATUS=$?
+    set -e
+    [[ "$UNCONFIRMED_STATUS" -eq 2 ]]
+    [[ -z "$UNCONFIRMED_REMOVE" ]]
+    [[ "$(wc -l </proof/agent-remove.out)" -eq 1 ]]
+    REMOVED_AGENT="$($BIN --data-dir "$DATA" agent remove worker-renamed --channel fresh --yes --json)"
+    grep -Fq '"removed_ts"' <<<"$REMOVED_AGENT"
+    if grep -Eq 'session_ref|host|acp_launch|PROOF_TOKEN|0123456789abcdef' <<<"$REMOVED_AGENT"; then
+      printf "packed agent result leaked native identity or credentials\n" >&2
+      exit 1
+    fi
+    [[ "$($BIN --data-dir "$DATA" agent list --channel fresh --json)" == '[]' ]]
+    if grep -Fq 'third-party adapter completed' /proof/daemon.log; then
+      printf "packed agent administration unexpectedly delivered a turn\n" >&2
+      exit 1
+    fi
+    # harn:end agent-management-does-not-invent-work
+    # harn:end structured-agent-cli-preserves-flat-lifecycle
+    # harn:end agent-add-selects-one-public-adapter
+
     node --input-type=module -e "
       const origin = 'http://127.0.0.1:${PORT}';
       const token = process.env.PROOF_TOKEN;

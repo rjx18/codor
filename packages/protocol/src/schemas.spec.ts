@@ -1033,6 +1033,44 @@ describe('WS client frames', () => {
   });
   // harn:end management-frames-correlate-one-result
 
+  // harn:assume agent-management-correlates-safe-member-results ref=agent-management-protocol-regression
+  // harn:assume agent-add-selects-one-public-adapter ref=agent-add-protocol
+  it('accepts correlated agent management frames without a private launch escape hatch', () => {
+    const add = {
+      type: 'add_agent' as const,
+      room: 'eng',
+      ref: 'agent-add-1',
+      adapter: 'housecat',
+      handle: 'worker',
+      cwd: '/work',
+      policy: 'read-only' as const,
+    };
+    expect(ClientFrameSchema.parse({ type: 'list_agents', room: 'eng', ref: 'agent-list-1' }))
+      .toEqual({ type: 'list_agents', room: 'eng', ref: 'agent-list-1' });
+    expect(ClientFrameSchema.parse(add)).toEqual(add);
+    expect(ClientFrameSchema.safeParse({ ...add, acp_launch: { executable: 'sh', argv: [] } }).success)
+      .toBe(false);
+
+    const member = {
+      id: ULID_A,
+      kind: 'agent' as const,
+      handle: 'worker',
+      display_name: 'Worker',
+      harness: 'housecat',
+      cwd: '/work',
+      policy: 'read-only',
+      state: 'idle' as const,
+    };
+    expect(ServerFrameSchema.parse({
+      type: 'agents', room: 'eng', agents: [member], ref: 'agent-list-1',
+    })).toMatchObject({ type: 'agents', room: 'eng', ref: 'agent-list-1' });
+    expect(ServerFrameSchema.parse({
+      type: 'member', seq: 1, room: 'eng', member, ref: 'agent-add-1',
+    })).toMatchObject({ type: 'member', room: 'eng', ref: 'agent-add-1' });
+  });
+  // harn:end agent-add-selects-one-public-adapter
+  // harn:end agent-management-correlates-safe-member-results
+
   // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol-regression
   it('carries soft archive metadata without introducing delete or restore acts', () => {
     const archived = RoomSchema.parse({

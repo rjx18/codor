@@ -1,0 +1,773 @@
+id: cli-management-phase2-agent-lifecycle
+title: Phase 2 structured agent lifecycle commands
+notes: >-
+  Implement only Phase 2 of .codor/PHASED-PLAN.md after accepted Phase 1 commit
+  0330e95a3facc9bbf0aa71fa3562207d05236195. Add a separate singular `agent`
+  family with exactly list, add, configure, rename, pause, revive, and remove,
+  while preserving every existing flat command and its behavior, especially
+  spawn, members, join, adopt, attach, and revive. The structured surface is:
+  `agent list --channel <channel> [--json]`; `agent add <handle> --channel
+  <channel> --adapter <catalog-id> --cwd <path> [--name <display-name>]
+  [--purpose <text>] [--policy <policy>] [--model <model>] [--thinking <level>]
+  [--json]`; `agent configure <agent> --channel <channel> [--model <model> |
+  --clear-model] [--thinking <level> | --clear-thinking] [--policy <policy>]
+  [--json]`; `agent rename <agent> <handle> --channel <channel> [--name
+  <display-name>] [--json]`; `agent pause <agent> --channel <channel> [--json]`;
+  `agent revive <agent> --channel <channel> [--json]`; and `agent remove <agent>
+  --channel <channel> [--yes] [--json]`.
+
+  Every target is resolved inside the explicitly selected channel by exact
+  member id or handle, with an optional leading @ accepted for handles. List
+  returns only active, non-removed agent members (never humans, extensions,
+  bridges, system members, or tombstones), sorted by handle and then stable id.
+  Human list rows and mutation detail fields have fixed tab-separated order and
+  reuse printable control-character escaping. JSON emits exactly one compact
+  value. The safe agent projection is limited to id, handle, display_name,
+  status, public adapter selector, cwd, policy, model, thinking, purpose,
+  custody, and optional removed_ts. It never includes member credentials, bearer
+  values, session_ref, host/native runtime identity, private ACP executable or
+  argv, environment, launches, tasks, limits, or usage records.
+
+  Extend the authenticated WebSocket management contract additively with one
+  correlated room-scoped agent listing request and one correlated add-agent
+  request that accepts a public adapter catalog id, plus optional refs on member
+  results. Every structured request or lifecycle act supplies one opaque unique
+  ref; the switchboard sends one authoritative correlated agents/member result
+  or correlated error, and the client ignores unrelated room/member traffic and
+  differently referenced failures. Existing subscribe, spawn, configure, rename,
+  pause, unpause, revive, remove, and unreferenced member frames remain valid
+  and retain their current behavior.
+
+  Agent add must resolve the exact public selector through the daemon's current
+  canonical adapter catalog on the server. Installed native adapters and loaded
+  third-party adapters use their registered harness id. A detected named ACP
+  selector such as `acp:kimi` resolves only to harness `acp` plus its safe
+  public acp_provider id; the daemon remains the sole component that compiles
+  and persists its private launch. Unknown, unavailable, stale named, or
+  shadowed only-by-metadata selections fail before member persistence. The
+  generic configurable `acp` transport is refused by this CLI phase because
+  Phase 2 exposes no custom executable/argv input. Default omitted policy to the
+  canonical safe `read-only`; validate policy and thinking through protocol and
+  adapter capability rules, normalize cwd through the existing daemon boundary,
+  preserve model/purpose/display-name behavior, and do not expose a harness,
+  session, custom ACP launch, starting-agent, roster, or preset escape hatch.
+
+  Agent configure changes only model, thinking, and policy through the existing
+  durable configure act. It requires at least one change, supports explicit
+  model/thinking clearing, never changes adapter or cwd, preserves the member id
+  and native session, keeps an already-running turn wholly on its starting
+  settings, applies changes to the next turn, and retains the existing room
+  audit message for consequential changes. Rename retains the stable id, mention
+  attribution, uniqueness check, and system notice. Duplicate/reserved handles
+  and invalid or unsupported configuration are refused without partial
+  persistence.
+
+  Pause is a reversible queue hold, not an interrupt. It may transition idle,
+  queued, or unreachable agents to paused and must refuse dead, already-paused,
+  custody-uncertain, running, awaiting-input, or otherwise in-flight agents
+  before changing state; the active-turn diagnostic tells the operator to stop
+  the turn first. Structured revive maps paused to the existing unpause
+  transition and dead to the existing revive transition, refusing every other
+  state. The existing flat revive remains dead-agent-only and unchanged. Revive
+  continues to reattach exactly as the existing adapter/session rules require,
+  and unpause/revive may drain already queued work because that is the requested
+  canonical lifecycle behavior.
+
+  Agent remove reuses the existing single deliberate remove act: after explicit
+  confirmation it may interrupt a running turn, must refuse an active attach
+  lease without partial state, consume queued work, tombstone rather than delete
+  the member, preserve historical attribution, free the handle, and return the
+  safe removed projection. It prompts only on a TTY, sends prompt/diagnostics to
+  stderr, accepts an explicit affirmative answer, and requires --yes for JSON or
+  unattended execution. Decline or missing consent performs no act.
+
+  Listing is allowed to principals with existing room read authority. Add,
+  configure, rename, pause, revive, and remove retain the existing owner/admin
+  role threshold; members and observers are forbidden, and agent credentials are
+  forbidden every mutation and every other channel. Ordinary commands keep using
+  the installed protected local socket or named pipe; explicit URL/token keeps
+  the existing direct transport and credential rules, including never loading
+  the local operator token file for a non-loopback origin. Stable exits remain 2
+  invocation/confirmation/invalid configuration, 3 authentication, 4
+  authorization, 5 missing channel/agent, 6 duplicate/unavailable/state/custody
+  conflict or refusal, and 7 transport/protocol, with one redacted stack-free
+  stderr line and empty stdout on failure.
+
+  These management operations do not synthesize a message, delivery, run, or
+  paid turn. Add creates an idle session only;
+  list/configure/rename/pause/remove never invoke adapter delivery. Structured
+  revive may start only work that was already queued because the existing
+  revive/unpause operation already does so.
+
+  Agent Presets has not been accepted in this worktree, so Phase 2 adds no
+  --preset option and no preset/default-roster command or storage. Explicitly
+  excluded: kill/stop/interrupt/compact/clear-context commands, custom ACP
+  executable or argv input, agent presets, default roster, starting-agent or
+  channel changes, worktrees, qualified posting, hard deletion, direct SQLite,
+  web UI, docs, cloud/account/relay/token work, and any paid-turn trigger beyond
+  draining pre-existing queued work on revive. One implementation commit must
+  consume this plan.
+assumptions:
+  create:
+    - id: agent-management-correlates-safe-member-results
+      title: Agent management completes on one correlated safe member result
+      statement: Every structured agent list, add, configure, rename, pause, revive,
+        and remove operation must carry one opaque unique ref and complete only
+        on its matching authoritative agents/member result or error, while the
+        CLI projects only bounded public agent identity/configuration fields and
+        never prints credentials, private ACP launches, native session
+        references, host runtime identity, or unrelated member traffic, because
+        agent lifecycle automation shares a busy authenticated socket and agent
+        records contain authority and native identity that scripts must not
+        receive accidentally.
+      reason: Phase 1 established correlation and safe output for channels; Phase 2
+        must extend the same boundary to member lifecycle results rather than
+        infer success from ambient subscription fanout.
+      depends_on:
+        - management-frames-correlate-one-result
+        - management-output-is-json-pure-and-safe
+        - agent-member-credentials-stay-secret
+        - durable-agent-runtime-configuration
+    - id: agent-add-selects-one-public-adapter
+      title: Agent add selects one canonical public adapter without launch leakage
+      statement: Structured agent add must resolve one exact current public adapter
+        catalog id server-side, admit installed native and loaded configured
+        adapters or a detected named ACP provider, default policy to read-only,
+        validate cwd/policy/thinking before persistence, and refuse unknown,
+        unavailable, generic custom-ACP, or malformed selection without
+        accepting or revealing executable/argv data, because the daemon registry
+        is the sole truthful adapter source and the CLI must not invent a second
+        catalog or private launch channel.
+      reason: A raw harness string can bypass the selector semantics for detected ACP
+        providers and can become stale relative to daemon-host availability.
+      depends_on:
+        - adapter-registry-sole-harness-source
+        - adapter-catalog-distinguishes-installed-and-configurable
+        - new-agent-requests-require-available-native-or-detected-acp
+        - named-acp-provider-selection-resolves-to-private-structured-launch
+        - canonical-spawn-controls-enforced
+        - working-directories-validated-before-spawn
+    - id: structured-agent-cli-preserves-flat-lifecycle
+      title: Structured agent commands coexist with flat lifecycle commands
+      statement: The CLI must expose exactly list, add, configure, rename, pause,
+        revive, and remove under a separate singular `agent` family using
+        authenticated switchboard contracts, while flat spawn, members, join,
+        adopt, attach, and revive retain their registrations, syntax, output,
+        and behavior and no later-phase command or option appears, because agent
+        automation is additive and existing operator scripts cannot be migrated
+        implicitly.
+      reason: Phase 2 adds structured lifecycle automation but the roadmap explicitly
+        preserves the existing flat operational surface.
+      depends_on:
+        - agent-management-correlates-safe-member-results
+        - agent-add-selects-one-public-adapter
+        - member-env-selects-narrow-cli-identity
+    - id: agent-pause-refuses-active-turn
+      title: Agent pause never relabels an active or uncertain runtime
+      statement: Pausing an agent may place only an idle, queued, or unreachable
+        member into the paused queue-hold state; it must refuse running,
+        awaiting-input, otherwise in-flight, dead, already-paused,
+        custody-uncertain, and removed members before writing state, while the
+        paired structured revive action unpauses paused members, revives dead
+        members through their canonical session path, and refuses every other
+        state, because a pause is not an interrupt and must never make active or
+        uncertain runtime custody look safely dormant.
+      reason: The existing pause method can overwrite a running or custody-uncertain
+        state even though the native turn or process boundary remains live.
+      depends_on:
+        - one-inflight-turn-per-member
+        - custody-uncertain-never-double-writes
+        - copilot-vscode-revive-requires-exact-live-cache
+    - id: agent-management-does-not-invent-work
+      title: Agent management never invents a paid turn
+      statement: Agent list, add, configure, rename, pause, and remove must not
+        synthesize a user message, delivery, run, or adapter delivery, and
+        structured revive may start only already-queued work through the
+        existing revive/unpause behavior, because lifecycle administration must
+        not spend inference or create collaboration work the operator did not
+        request.
+      reason: Adding a member or changing its metadata is administrative state, not an
+        instruction to run the selected provider.
+      depends_on:
+        - one-inflight-turn-per-member
+        - member-config-is-changed-not-respawned
+        - removing-an-agent-is-one-deliberate-step
+    - id: agent-remove-requires-explicit-confirmation
+      title: Agent removal requires interactive consent or unattended yes
+      statement: Structured agent remove must send its tombstoning act only after an
+        explicit affirmative TTY response or --yes, require --yes without a TTY
+        and in JSON mode, keep the prompt off stdout, identify the resolved
+        handle and channel, and leave member/runtime/queue state unchanged on
+        refusal, because removal may interrupt live work, drops queued work, and
+        hides the identity from the active roster even though attribution is
+        retained.
+      reason: The roadmap applies the shared destructive confirmation boundary to
+        member removal, including unattended automation.
+      depends_on:
+        - removing-an-agent-is-one-deliberate-step
+        - management-output-is-json-pure-and-safe
+  reviewed:
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: Optional refs extend to agent list/add and member results; legacy frames
+        remain valid and the client still ignores unrelated refs.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: Agent output reuses compact JSON, fixed human ordering, printable cell
+        escaping, and a narrower safe projection with no authority or native
+        session fields.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Agent validation, missing targets, role refusals, state conflicts, and
+        transport failures map into the existing stable classes and wrappers.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: The confirmation helper may be generalized, but channel archive retains
+        its exact prompt, TTY, JSON, --yes, and refusal behavior.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Existing read and admin lifecycle capabilities gate the new ingress;
+        there is no new role or authorization bypass.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: An agent credential may read the existing roster in its own channel but
+        remains forbidden add and every lifecycle mutation or other channel.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The same additive parsed frames are dispatched on protected local and
+        authenticated URL WebSockets.
+    - id: windows-named-pipe-shares-local-websocket-protocol
+      outcome: unchanged
+      reason: ProtocolClient remains the sole management transport, preserving the
+        tokenless protected named-pipe route.
+    - id: server-token-required
+      outcome: unchanged
+      reason: URL agent management still passes through fail-closed bearer admission;
+        no credential mechanism changes.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: CODOR_MEMBER_TOKEN still wins and CODOR_CHANNEL may not replace Phase
+        2's explicit --channel contract.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: Server-side selector resolution reads the current daemon catalog and
+        never hardcodes built-in or configured adapter ids in the CLI.
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Native/configured availability and generic ACP configurability remain
+        registry-owned; Phase 2 deliberately offers no custom launch input.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Structured add reaches the same pre-persistence availability and named
+        provider checks as REST, Web, and channel starting agents.
+    - id: named-acp-provider-catalog-is-path-detected-and-command-private
+      outcome: unchanged
+      reason: The CLI accepts only the safe public catalog selector and outputs no
+        executable, argv, help-private data, or detection internals.
+    - id: named-acp-provider-selection-resolves-to-private-structured-launch
+      outcome: unchanged
+      reason: "`acp:<id>` is translated server-side to harness acp plus safe provider
+        identity; the daemon alone resolves and persists the exact launch."
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Add/configure reuse PolicySchema, ThinkingLevelSchema, adapter
+        capabilities, and registry validation without new harness-specific
+        strings.
+    - id: harness-declares-supported-thinking-levels
+      outcome: unchanged
+      reason: A requested thinking value is checked against the selected or existing
+        adapter's declared levels, including legacy third-party fallback.
+    - id: harness-declares-what-a-policy-becomes
+      outcome: unchanged
+      reason: Phase 2 accepts only canonical policy ids and does not claim stronger
+        native enforcement than the adapter capability map.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: No model id is hardcoded; model overrides retain existing adapter-owned
+        discovery and server configuration behavior.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Structured configure changes only model/thinking/policy, keeps cwd and
+        adapter fixed, preserves the session, and applies to the next turn.
+    - id: a-permission-change-is-never-silent
+      outcome: unchanged
+      reason: Configuration passes the authenticated actor to the existing audit and
+        mirrored-custody/capability guards.
+    - id: durable-agent-runtime-configuration
+      outcome: unchanged
+      reason: Public configuration fields remain durable while session refs and ACP
+        launch records remain excluded from CLI output.
+    - id: working-directories-validated-before-spawn
+      outcome: unchanged
+      reason: Agent add passes cwd through the existing normalization/existence check
+        before adapter spawn or member persistence.
+    - id: reserved-handles-rejected
+      outcome: unchanged
+      reason: Add and rename retain AssignableHandleSchema and reserved-name refusal.
+    - id: rename-preserves-mention-resolution
+      outcome: unchanged
+      reason: Structured rename invokes the existing stable-id transition and system
+        notice without rewriting mentions.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: Remove still kills before setting removed_ts, excludes the tombstone
+        from active agent list, frees its handle, and never deletes identity.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: One confirmed remove may interrupt a live turn, refuses attach custody,
+        drains queued work, and tombstones in the existing daemon transition.
+    - id: copilot-vscode-revive-requires-exact-live-cache
+      outcome: unchanged
+      reason: Dead-agent structured revive delegates to the same exact cache/session
+        guard; paused revive uses unpause and never fabricates a new session.
+    - id: cli-member-recovery-is-actionable
+      outcome: unchanged
+      reason: The existing flat revive and attach recovery guidance remain registered
+        and unchanged while structured revive adds safe correlated output.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: Spawn/revive may rotate in-memory credentials as before, but agent
+        projections and diagnostics never include raw or hashed credentials.
+    - id: member-session-masks-operator-token
+      outcome: unchanged
+      reason: New sessions continue receiving only their narrow member token in both
+        token environment variables.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: The generated wrapper continues exported runCli delegation and shared
+        one-line error formatting.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: Agent helpers remain inside the existing bundled CLI/protocol/
+        switchboard closure and add no package dependency.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: The existing clean-clone installed runtime proof gains an agent
+        lifecycle smoke without changing its artifact/install guarantees.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: User-facing flags say channel and agent; wire/store implementation may
+        retain room/member terminology.
+  retire: []
+anchors:
+  agent-management-correlates-safe-member-results:
+    agent-management-correlation-protocol:
+      action: change
+      reason: Add bounded correlated list/add frames, agents results, and optional ref
+        on member success without changing legacy frame validity.
+    agent-management-correlation-server:
+      action: change
+      reason: Authorize, project, and return exactly one direct correlated result for
+        agent listing/add and each lifecycle mutation.
+    agent-management-correlation-client:
+      action: change
+      reason: Reuse the shared correlation loop for agents/member success and ignore
+        unrelated member events and differently referenced errors.
+    agent-management-projection:
+      action: change
+      reason: Define deterministic safe agent projection and human/JSON renderers with
+        no session, credential, ACP launch, or host runtime fields.
+    agent-management-protocol-regression:
+      action: change
+      reason: Prove new/legacy shapes, bounded refs, safe add fields, and absence of
+        preset/custom-launch or hard-delete management shapes.
+    agent-management-server-regression:
+      action: change
+      reason: Exercise correlated list and every mutation after unrelated fanout plus
+        matching correlated errors through authenticated WebSockets.
+    agent-management-client-regression:
+      action: change
+      reason: Prove target resolution, ordering, safe rendering, unrelated-event
+        filtering, matching result/error, and field redaction.
+  agent-add-selects-one-public-adapter:
+    agent-add-protocol:
+      action: change
+      reason: Define one public adapter selector and canonical configuration fields,
+        with required cwd/policy and no ACP launch or preset payload.
+    agent-add-catalog-resolution:
+      action: change
+      reason: Resolve the selector against daemon.registeredAdapters, refuse unknown,
+        unavailable, or generic configurable ACP, and pass native/named identity
+        to the existing spawn boundary.
+    agent-add-protocol-regression:
+      action: change
+      reason: Pin policy/thinking/handle validation and reject launch, preset, roster,
+        session, host, and later-phase fields.
+    agent-add-server-regression:
+      action: change
+      reason: Prove installed native/configured and detected named ACP success,
+        pre-persistence refusal cases, read-only default from CLI, and private
+        launch absence.
+    agent-add-cli-regression:
+      action: change
+      reason: Exercise native and safe named selector parsing, canonical
+        configuration, invalid cwd/policy/thinking, and no persistence on
+        failure.
+    agent-add-packed-smoke:
+      action: change
+      reason: Make one harmless executable discoverable to the packaged daemon and
+        prove installed add without delivering a turn.
+  structured-agent-cli-preserves-flat-lifecycle:
+    structured-agent-command-surface:
+      action: change
+      reason: Register the separate seven-command singular family with exact bounded
+        options and no kill, custom ACP, preset, roster, or worktree surface.
+    structured-agent-cli-regression:
+      action: change
+      reason: Exercise all seven commands on local and explicit URL/token transports,
+        pin exact registration, and prove flat lifecycle compatibility.
+    structured-agent-packed-smoke:
+      action: change
+      reason: Run installed list/add/configure/rename/pause/revive/remove while
+        keeping existing packed CLI checks.
+  agent-pause-refuses-active-turn:
+    agent-pause-state-transition:
+      action: change
+      reason: Guard pause before state mutation and retain canonical unpause/dead
+        revive paths for structured revive.
+    agent-pause-daemon-regression:
+      action: change
+      reason: Prove allowed idle/queued/unreachable holds, running/awaiting/inflight
+        and custody/state refusals, no partial write, and queued drain on
+        unpause.
+    agent-pause-server-regression:
+      action: change
+      reason: Prove a correlated active-turn refusal and successful pause/member
+        result over the authenticated socket.
+    agent-pause-cli-regression:
+      action: change
+      reason: Prove state-aware pause/revive mapping and stable conflict exits.
+  agent-management-does-not-invent-work:
+    agent-management-no-work-regression:
+      action: change
+      reason: Count messages, deliveries, runs, and adapter deliveries across the
+        administrative commands and allow only pre-existing queue drain on
+        revive.
+    agent-management-packed-no-turn:
+      action: change
+      reason: Complete the installed lifecycle smoke without posting work to the
+        selected agent.
+  agent-remove-requires-explicit-confirmation:
+    management-agent-remove-confirmation:
+      action: change
+      reason: Generalize the confirmation seam for an agent/channel label while
+        retaining archive's exact behavior.
+    agent-remove-command-confirmation:
+      action: change
+      reason: Resolve the target, require consent before sending remove, and render
+        the correlated tombstone safely.
+    agent-remove-confirmation-regression:
+      action: change
+      reason: Prove TTY yes/decline, non-TTY and JSON --yes requirements, stderr-only
+        prompt, running removal after consent, and zero mutation without it.
+  management-frames-correlate-one-result:
+    management-correlation-protocol:
+      action: change
+      reason: Extend the additive correlation envelope to agent/member frames.
+    management-correlation-server:
+      action: change
+      reason: Echo the exact ref on agent authoritative results and failures.
+    management-correlation-client:
+      action: change
+      reason: Reuse the ref-matching loop for agent operations.
+    management-correlation-protocol-regression:
+      action: change
+      reason: Add legacy-safe agent frame parsing coverage.
+    management-correlation-server-regression:
+      action: change
+      reason: Add unrelated member and correlated agent result/error coverage.
+    management-correlation-cli-regression:
+      action: change
+      reason: Add agent result/error filtering coverage.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: change
+      reason: Add safe public agent projection and reuse printable human cells.
+    management-output-regression:
+      action: change
+      reason: Prove fixed rows, compact JSON, hostile control escaping, and secret/
+        session/ACP/native field absence for every agent command.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Classify agent/configuration/adapter/state/custody errors without
+        weakening existing channel or legacy classifications.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Existing shared source wrapper formatting and exit propagation remain.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Existing generated wrapper behavior remains.
+    management-error-regression:
+      action: change
+      reason: Cover all agent exit classes, parser errors, token URL redaction,
+        stderr-only diagnostics, and adversarial handles.
+    public-cli-failure-regression:
+      action: keep
+      reason: Existing wrapper source regression remains sufficient.
+    packed-management-failure-regression:
+      action: change
+      reason: Add installed agent invocation/conflict redaction and exact status.
+  channel-archive-requires-explicit-confirmation:
+    management-confirmation-helper:
+      action: change
+      reason: Generalize internals for agent removal while preserving archive's public
+        helper and exact prompt/refusal contract.
+    channel-archive-command-confirmation:
+      action: keep
+      reason: Channel archive registration and action remain unchanged.
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Retain all archive cases after the helper generalization.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: keep
+      reason: Existing read/spawn/configure/rename/pause/unpause/revive/remove roles
+        remain.
+    role-matrix-integration:
+      action: change
+      reason: Exercise owner/admin success and member/observer denial at the new agent
+        ingress without changing role thresholds.
+  agent-network-authority-is-narrow:
+    agent-capability-matrix:
+      action: keep
+      reason: Existing room-read allowance and lifecycle mutation exclusions remain.
+    agent-room-authorization:
+      action: change
+      reason: Apply existing room binding to correlated agent list/add dispatch.
+    agent-authz-regression:
+      action: change
+      reason: Prove own-room list visibility plus mutation and cross-room denial with
+        a valid agent credential.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Dispatch the additive agent frames on the shared local/network listener.
+  member-env-selects-narrow-cli-identity:
+    member-connection-options:
+      action: keep
+      reason: Management continues using unchanged ProtocolClient options.
+    member-identity-regression:
+      action: change
+      reason: Prove narrow agent token behavior for list and denied mutation.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: keep
+      reason: Registry definitions/loading remain unchanged.
+    registry-cli-composition:
+      action: change
+      reason: Exercise a configured adapter through structured add without adding a
+        CLI-side adapter list.
+  adapter-catalog-distinguishes-installed-and-configurable:
+    adapter-catalog-daemon:
+      action: keep
+      reason: registeredAdapters remains the authoritative source without shape
+        changes.
+    adapter-catalog-regression:
+      action: change
+      reason: Cover selection behavior through the new ingress.
+  new-agent-requests-require-available-native-or-detected-acp:
+    new-agent-provider-availability-preflight:
+      action: keep
+      reason: Existing daemon persistence preflight remains unchanged.
+    new-agent-provider-availability-regression:
+      action: change
+      reason: Extend unavailable and named-provider cases to structured add.
+  named-acp-provider-catalog-is-path-detected-and-command-private:
+    acp-provider-catalog-runtime:
+      action: keep
+      reason: Provider registry/detection/catalog projection remain unchanged.
+    acp-provider-catalog-rest-regression:
+      action: keep
+      reason: REST catalog behavior remains unchanged.
+  named-acp-provider-selection-resolves-to-private-structured-launch:
+    acp-provider-id-schema:
+      action: keep
+      reason: Safe provider id schema remains unchanged.
+    acp-provider-spawn-act-schema:
+      action: keep
+      reason: Legacy spawn act one-of remains unchanged.
+    acp-provider-spawn-resolution:
+      action: keep
+      reason: Daemon private resolution/persistence remains unchanged.
+    acp-provider-rest-boundary:
+      action: change
+      reason: Reuse safe named-provider translation for the new WebSocket add boundary
+        without exposing private launch data.
+    acp-provider-protocol-regression:
+      action: change
+      reason: Prove add accepts only safe selector identity, never launch material.
+  canonical-spawn-controls-enforced:
+    canonical-policy-thinking-enforcement:
+      action: keep
+      reason: Protocol canonical enums remain unchanged.
+    registry-spawn-control-validation:
+      action: keep
+      reason: Adapter validation implementation remains unchanged.
+    daemon-initial-spawn-validation:
+      action: keep
+      reason: Structured add delegates to the existing validated spawn method.
+    daemon-spawn-control-regression:
+      action: change
+      reason: Add structured ingress configuration coverage.
+  harness-declares-supported-thinking-levels:
+    adapter-thinking-level-contract:
+      action: keep
+      reason: Thinking schema and adapter capability contract remain unchanged.
+    adapter-thinking-level-registry:
+      action: keep
+      reason: Registry validation remains unchanged.
+    protocol-thinking-level-regression:
+      action: change
+      reason: Exercise supported and unsupported levels through add/configure frames.
+  adapters-own-their-model-catalog:
+    adapter-model-catalog-contract:
+      action: keep
+      reason: Model catalog contract remains unchanged and no ids are hardcoded.
+    adapter-model-discovery:
+      action: keep
+      reason: Background discovery remains unchanged.
+  member-config-is-changed-not-respawned:
+    configure-act-contract:
+      action: keep
+      reason: Existing configure wire fields and REST behavior remain unchanged.
+    configure-member-daemon:
+      action: keep
+      reason: Existing durable next-turn transition remains unchanged.
+    configure-member-regression:
+      action: change
+      reason: Exercise structured configuration including active and dead members.
+  a-permission-change-is-never-silent:
+    configure-custody-and-capability-guards:
+      action: keep
+      reason: Existing mirrored/capability checks remain unchanged.
+    configure-audit-message:
+      action: keep
+      reason: Existing actor-attributed audit emission remains unchanged.
+    configure-audit-regression:
+      action: change
+      reason: Prove the authenticated structured actor is retained.
+  working-directories-validated-before-spawn:
+    daemon-cwd-enforcement:
+      action: keep
+      reason: Existing normalization boundary remains the sole cwd validator.
+  reserved-handles-rejected:
+    handle-schema:
+      action: keep
+      reason: Existing assignment schema remains unchanged.
+  rename-preserves-mention-resolution:
+    member-rename-stable-mentions:
+      action: keep
+      reason: Structured rename delegates to the existing stable-id transition.
+  removed-members-remain-attribution-tombstones:
+    remove-act-contract:
+      action: keep
+      reason: Existing remove act remains the wire mutation.
+    member-removal-role-matrix:
+      action: keep
+      reason: Existing admin threshold remains unchanged.
+    member-removal-daemon:
+      action: keep
+      reason: Existing kill-before-tombstone boundary remains unchanged.
+  removing-an-agent-is-one-deliberate-step:
+    remove-live-member:
+      action: keep
+      reason: Running removal continues to interrupt in one confirmed act.
+    remove-drains-queued-work:
+      action: keep
+      reason: Existing queue consumption remains unchanged.
+    remove-member-regression:
+      action: change
+      reason: Exercise the same transition through structured confirmed removal.
+  copilot-vscode-revive-requires-exact-live-cache:
+    revive-native-session:
+      action: keep
+      reason: Dead revive continues through the exact existing session guard.
+    revive-session-regression:
+      action: change
+      reason: Exercise structured dead revive without weakening cache checks.
+  cli-member-recovery-is-actionable:
+    cli-revive-and-attach-surface:
+      action: keep
+      reason: Flat revive and attach commands remain untouched.
+    cli-recovery-regression:
+      action: change
+      reason: Pin exact flat behavior alongside the new structured family.
+  agent-member-credentials-stay-secret:
+    member-session-environment:
+      action: keep
+      reason: Credential issuance/rotation remains unchanged.
+    member-session-environment-regression:
+      action: change
+      reason: Prove structured results contain no raw/hash credential.
+    agent-principal-resolution:
+      action: keep
+      reason: Authentication lookup remains unchanged.
+    agent-principal-resolution-regression:
+      action: change
+      reason: Extend narrow-principal agent management denial coverage.
+  member-session-masks-operator-token:
+    member-token-environment-mask:
+      action: keep
+      reason: New sessions retain the existing operator-token mask.
+    member-token-mask-regression:
+      action: change
+      reason: Retain mask proof for structured-added agents.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Add channel-scoped agent help/options without protocol room language.
+    cli-channel-regression:
+      action: change
+      reason: Pin agent/--channel naming and absence of room-named surface.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: keep
+      reason: Generated public wrapper remains unchanged.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Add bounded installed agent lifecycle and no-turn/redaction proof.
+files:
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - scripts/packed-install-test.sh
+verification: Run `pnpm --filter @codor/protocol test`, `pnpm --filter
+  @codor/switchboard test`, `pnpm --filter @codor/cli test`, `pnpm --filter
+  '@codor/cli...' build`, `pnpm build`, and `scripts/packed-install-test.sh`.
+  Focused protocol/server/CLI tests must cover protected local socket and
+  explicit URL/token; exact ref success/error after unrelated member traffic;
+  owner/admin mutation success; member/observer/agent mutation denial and
+  own-room/cross-room agent reads; native, configured, named ACP, unavailable,
+  unknown, and generic configurable adapter selection; default read-only policy;
+  valid and invalid policy, thinking, model clearing, cwd, handles, and
+  duplicate handles; active and dead configuration semantics/audit; pause
+  allowed states, active-turn and custody/state refusals, paused unpause, dead
+  revive, and queued work drain; confirmed live removal, attach-lease refusal,
+  queue consumption, tombstone, attribution, handle reuse, interactive
+  decline/accept, JSON/non-TTY --yes, and zero mutation without consent; zero
+  new messages/deliveries/runs/adapter deliveries for administrative operations;
+  sorted deterministic human output; one-value JSON; absence of token,
+  credential/hash, session_ref, host, native runtime, ACP
+  executable/argv/launch, task, usage, and limit fields/values; exact stable
+  exits and one-line redacted stderr; exact flat spawn, members, join, adopt,
+  attach, and revive registration/output; and absence of agent preset, roster,
+  worktree, delete, custom-launch, kill, compact, or context commands. The
+  packed proof must make one inert native adapter executable discoverable, run
+  all seven installed commands without posting agent work, verify removed-list
+  filtering and legacy commands, and preserve existing
+  package/browser/API/teardown checks. Before the one implementation commit run
+  `harn find --plan cli-management-phase2-agent-lifecycle`, `harn check
+  cli-management-phase2-agent-lifecycle`, stage only declared files and
+  generated Harn state, and let the pre-commit hook run staged
+  check/apply/staged check.
+applied:
+  applied_at: 2026-08-06T09:30:55.537Z

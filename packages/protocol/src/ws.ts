@@ -92,6 +92,35 @@ export const CreateRoomFrameSchema = z.object({
 });
 export type CreateRoomFrame = z.infer<typeof CreateRoomFrameSchema>;
 
+// harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
+/** Room-scoped structured agent discovery. The ref is required so the CLI can
+ * distinguish the authoritative snapshot from ordinary member fanout. */
+export const ListAgentsFrameSchema = z.object({
+  type: z.literal('list_agents'),
+  room: RoomIdSchema,
+  ref: ManagementRefSchema,
+}).strict();
+export type ListAgentsFrame = z.infer<typeof ListAgentsFrameSchema>;
+
+/** Public structured agent creation. The daemon resolves `adapter` through its
+ * installed catalog; private ACP launch material is intentionally not a wire
+ * field. */
+export const AddAgentFrameSchema = z.object({
+  type: z.literal('add_agent'),
+  room: RoomIdSchema,
+  ref: ManagementRefSchema,
+  adapter: z.string().trim().min(1).max(128),
+  handle: AssignableHandleSchema,
+  cwd: z.string().min(1),
+  policy: PolicySchema.optional(),
+  model: z.string().min(1).optional(),
+  thinking: ThinkingLevelSchema.optional(),
+  display_name: z.string().optional(),
+  purpose: z.string().optional(),
+}).strict();
+export type AddAgentFrame = z.infer<typeof AddAgentFrameSchema>;
+// harn:end agent-management-correlates-safe-member-results
+
 export const ActSchema = z.discriminatedUnion('act', [
   z.object({
     act: z.literal('answer_interaction'),
@@ -276,6 +305,8 @@ export type MirrorSessionEndFrame = z.infer<typeof MirrorSessionEndFrameSchema>;
 export const ClientFrameSchema = z.discriminatedUnion('type', [
   ListRoomsFrameSchema,
   CreateRoomFrameSchema,
+  ListAgentsFrameSchema,
+  AddAgentFrameSchema,
   SubscribeFrameSchema,
   PostFrameSchema,
   ActFrameSchema,
@@ -342,8 +373,24 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
-  z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema, room: RoomIdSchema.optional() }),
+  z.object({
+    type: z.literal('member'),
+    seq: SeqSchema,
+    member: MemberSchema,
+    room: RoomIdSchema.optional(),
+    // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
+    ref: ManagementRefSchema.optional(),
+    // harn:end agent-management-correlates-safe-member-results
+  }),
   // harn:end multiplexed-subscriptions-identify-their-room
+  // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
+  z.object({
+    type: z.literal('agents'),
+    room: RoomIdSchema,
+    agents: z.array(MemberSchema),
+    ref: ManagementRefSchema,
+  }),
+  // harn:end agent-management-correlates-safe-member-results
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),
   // harn:assume live-delivery-consumption-is-idempotent ref=consume-result-frame
   z.object({

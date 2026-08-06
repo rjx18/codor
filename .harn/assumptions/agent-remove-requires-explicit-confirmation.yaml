@@ -1,0 +1,14 @@
+id: agent-remove-requires-explicit-confirmation
+hash: a-b5648796efff
+title: Agent removal requires interactive consent or unattended yes
+state: active
+statement: Structured agent remove must send its tombstoning act only after an
+  explicit affirmative TTY response or --yes, require --yes without a TTY and in
+  JSON mode, keep the prompt off stdout, identify the resolved handle and
+  channel, and leave member/runtime/queue state unchanged on refusal, because
+  removal may interrupt live work, drops queued work, and hides the identity
+  from the active roster even though attribution is retained.
+depends_on:
+  - removing-an-agent-is-one-deliberate-step
+  - management-output-is-json-pure-and-safe
+created_by: cli-management-phase2-agent-lifecycle

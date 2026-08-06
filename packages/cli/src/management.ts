@@ -1,7 +1,15 @@
 import { createInterface } from 'node:readline/promises';
 import { randomUUID } from 'node:crypto';
 
-import type { CreateRoomRequest, Room, ServerFrame } from '@codor/protocol';
+import type {
+  Act,
+  CreateRoomRequest,
+  Member,
+  Policy,
+  Room,
+  ServerFrame,
+  ThinkingLevel,
+} from '@codor/protocol';
 
 import { ProtocolClient } from './connection.js';
 
@@ -40,13 +48,18 @@ export function classifyManagementError(error: unknown): ManagementError {
   let code: number = MANAGEMENT_EXIT_CODES.transport;
   const schemaFailure = (error instanceof Error && error.name === 'ZodError')
     || (typeof error === 'object' && error !== null && Array.isArray((error as { issues?: unknown }).issues));
-  if (/no such (?:room|channel)|not found|does not exist/.test(lower)) {
+  if (/no such (?:room|channel|agent(?: member)?)|not found|does not exist/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.notFound;
-  } else if (schemaFailure || /--url|--token|argument|option|invalid frame|zoderror|invalid input|must be/.test(lower)) {
+  } else if (
+    schemaFailure
+    || /--url|--token|argument|option|invalid frame|zoderror|invalid input|must be|does not support .*thinking|valid (?:levels|policies)|working directory/.test(lower)
+  ) {
     code = MANAGEMENT_EXIT_CODES.invocation;
   } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
-  } else if (/already|archived|conflict|collision|unique constraint|refus/.test(lower)) {
+  } else if (
+    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove/.test(lower)
+  ) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authorization;
@@ -168,6 +181,89 @@ export function renderChannel(room: Room, json: boolean): string {
 }
 // harn:end structured-channel-cli-preserves-flat-listing
 
+// harn:assume agent-management-correlates-safe-member-results ref=agent-management-projection
+export interface AgentProjection {
+  id: string;
+  handle: string;
+  display_name: string;
+  status: string;
+  adapter: string;
+  cwd?: string;
+  policy?: string;
+  model?: string;
+  thinking?: string;
+  purpose?: string;
+  custody?: string;
+  removed_ts?: string;
+}
+
+function projectAgent(member: Member): AgentProjection {
+  const adapter = member.harness === 'acp' && member.acp_provider !== undefined
+    ? `acp:${member.acp_provider}`
+    : member.harness ?? '';
+  return {
+    id: member.id,
+    handle: member.handle,
+    display_name: member.display_name,
+    status: member.state ?? 'unknown',
+    adapter,
+    ...(member.cwd !== undefined && { cwd: member.cwd }),
+    ...(member.policy !== undefined && { policy: member.policy }),
+    ...(member.model !== undefined && { model: member.model }),
+    ...(member.thinking !== undefined && { thinking: member.thinking }),
+    ...(member.purpose !== undefined && { purpose: member.purpose }),
+    ...(member.custody !== undefined && { custody: member.custody }),
+    ...(member.removed_ts !== undefined && { removed_ts: member.removed_ts }),
+  };
+}
+
+function sortedAgents(members: readonly Member[]): AgentProjection[] {
+  return members
+    .filter((member) => member.kind === 'agent' && member.removed_ts === undefined)
+    .map(projectAgent)
+    .sort((left, right) => left.handle.localeCompare(right.handle) || left.id.localeCompare(right.id));
+}
+
+export function renderAgentList(members: readonly Member[], json: boolean): string {
+  const agents = sortedAgents(members);
+  if (json) return JSON.stringify(agents);
+  return agents
+    .map((agent) => [
+      agent.id,
+      agent.handle,
+      agent.display_name,
+      agent.status,
+      agent.adapter,
+      agent.cwd ?? '',
+      agent.policy ?? '',
+      agent.model ?? '',
+      agent.thinking ?? '',
+      agent.purpose ?? '',
+      agent.custody ?? '',
+    ].map(encodeHumanCell).join('\t'))
+    .join('\n');
+}
+
+export function renderAgent(member: Member, json: boolean): string {
+  const agent = projectAgent(member);
+  if (json) return JSON.stringify(agent);
+  return [
+    ['id', agent.id],
+    ['handle', agent.handle],
+    ['display_name', agent.display_name],
+    ['status', agent.status],
+    ['adapter', agent.adapter],
+    ['cwd', agent.cwd ?? ''],
+    ['policy', agent.policy ?? ''],
+    ['model', agent.model ?? ''],
+    ['thinking', agent.thinking ?? ''],
+    ['purpose', agent.purpose ?? ''],
+    ['custody', agent.custody ?? ''],
+    ['removed_ts', agent.removed_ts ?? ''],
+  ].map(([key, value]) => `${key}\t${encodeHumanCell(value)}`).join('\n');
+}
+// harn:end agent-management-correlates-safe-member-results
+
 // harn:assume management-frames-correlate-one-result ref=management-correlation-client
 /**
  * Complete only on the matching authoritative frame. A ProtocolClient may
@@ -244,6 +340,81 @@ export async function archiveManagedRoom(client: ProtocolClient, room: string): 
   }
 }
 
+// harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-client
+export interface AddManagedAgentRequest {
+  adapter: string;
+  handle: string;
+  cwd: string;
+  policy?: Policy;
+  model?: string;
+  thinking?: ThinkingLevel;
+  display_name?: string;
+  purpose?: string;
+}
+
+export async function listManagedAgents(client: ProtocolClient, room: string): Promise<Member[]> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'list_agents', room, ref });
+    const response = await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'agents' }> =>
+      frame.type === 'agents');
+    return response.agents
+      .filter((member) => member.kind === 'agent' && member.removed_ts === undefined)
+      .sort((left, right) => left.handle.localeCompare(right.handle) || left.id.localeCompare(right.id));
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function addManagedAgent(
+  client: ProtocolClient,
+  room: string,
+  request: AddManagedAgentRequest,
+): Promise<Member> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'add_agent', room, ref, ...request });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'member' }> =>
+      frame.type === 'member')).member;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export type ManagedAgentMutation = Extract<
+  Act,
+  { act: 'configure' | 'rename' | 'pause' | 'revive' | 'remove' }
+>;
+
+export async function mutateManagedAgent(
+  client: ProtocolClient,
+  room: string,
+  act: ManagedAgentMutation,
+): Promise<Member> {
+  try {
+    const ref = randomUUID();
+    client.send({ type: 'act', room, ref, act });
+    return (await correlatedManagementFrame(client, ref, (frame): frame is Extract<ServerFrame, { type: 'member' }> =>
+      frame.type === 'member')).member;
+  } catch (error) {
+    throw classifyManagementError(error);
+  }
+}
+
+export async function resolveManagedAgent(
+  client: ProtocolClient,
+  room: string,
+  target: string,
+): Promise<Member> {
+  const wanted = target.replace(/^@/, '');
+  const members = await listManagedAgents(client, room);
+  const found = members.find((member) => member.id === wanted)
+    ?? members.find((member) => member.handle === wanted);
+  if (found === undefined) throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such agent ${target}`);
+  return found;
+}
+// harn:end agent-management-correlates-safe-member-results
+
 // harn:assume channel-archive-requires-explicit-confirmation ref=management-confirmation-helper
 export interface ConfirmationOptions {
   label: string;
@@ -252,17 +423,24 @@ export interface ConfirmationOptions {
   isTTY: boolean;
   stderr: (line: string) => void;
   confirm?: (prompt: string) => Promise<string | boolean>;
+  action?: 'archive' | 'remove';
 }
 
-export async function confirmArchive(options: ConfirmationOptions): Promise<void> {
+// harn:assume agent-remove-requires-explicit-confirmation ref=management-agent-remove-confirmation
+export async function confirmManagementAction(options: ConfirmationOptions): Promise<void> {
   if (options.yes === true) return;
+  const action = options.action ?? 'archive';
   if (options.json === true || !options.isTTY) {
     throw new ManagementError(
       MANAGEMENT_EXIT_CODES.invocation,
-      'channel archive requires --yes in noninteractive or JSON mode',
+      action === 'archive'
+        ? 'channel archive requires --yes in noninteractive or JSON mode'
+        : 'agent removal requires --yes in noninteractive or JSON mode',
     );
   }
-  const prompt = `Archive channel ${options.label}? [y/N]`;
+  const prompt = action === 'archive'
+    ? `Archive channel ${options.label}? [y/N]`
+    : `Remove agent ${options.label}? [y/N]`;
   let answer: string | boolean;
   if (options.confirm !== undefined) {
     options.stderr(prompt);
@@ -277,7 +455,19 @@ export async function confirmArchive(options: ConfirmationOptions): Promise<void
   }
   const accepted = typeof answer === 'boolean' ? answer : /^(?:y|yes)$/i.test(answer.trim());
   if (!accepted) {
-    throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'channel archive cancelled');
+    throw new ManagementError(
+      MANAGEMENT_EXIT_CODES.invocation,
+      action === 'archive' ? 'channel archive cancelled' : 'agent removal cancelled',
+    );
   }
+}
+// harn:end agent-remove-requires-explicit-confirmation
+
+export async function confirmArchive(options: ConfirmationOptions): Promise<void> {
+  return confirmManagementAction({ ...options, action: 'archive' });
+}
+
+export async function confirmAgentRemove(options: ConfirmationOptions): Promise<void> {
+  return confirmManagementAction({ ...options, action: 'remove' });
 }
 // harn:end channel-archive-requires-explicit-confirmation

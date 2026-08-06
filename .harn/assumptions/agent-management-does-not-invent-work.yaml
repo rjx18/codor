@@ -1,0 +1,14 @@
+id: agent-management-does-not-invent-work
+hash: a-ed7b2df09ccb
+title: Agent management never invents a paid turn
+state: active
+statement: Agent list, add, configure, rename, pause, and remove must not
+  synthesize a user message, delivery, run, or adapter delivery, and structured
+  revive may start only already-queued work through the existing revive/unpause
+  behavior, because lifecycle administration must not spend inference or create
+  collaboration work the operator did not request.
+depends_on:
+  - one-inflight-turn-per-member
+  - member-config-is-changed-not-respawned
+  - removing-an-agent-is-one-deliberate-step
+created_by: cli-management-phase2-agent-lifecycle
