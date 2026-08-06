@@ -6,6 +6,8 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 
 import type {
+  AgentPreset,
+  AgentPresetInput,
   AcpLaunchConfig,
   AgentLimit,
   AgentUsage,
@@ -33,9 +35,12 @@ import type {
   VoiceNote,
   WireEvent,
   CreateRoomRequest,
+  DefaultRoster,
+  DefaultRosterInput,
 } from '@codor/protocol';
 
 import {
+  AgentPresetInputSchema,
   AttachmentSchema,
   MemberStatusResponseSchema,
   ProducedArtifactSchema,
@@ -1123,6 +1128,76 @@ export class Daemon {
     if (!owner) throw new Error(`room ${room} has no owner`);
     return owner;
   }
+
+  // harn:assume individual-agent-presets-are-bounded-catalog-validated-configurations ref=individual-agent-preset-catalog-validation
+  /** Validate reusable configuration against the current daemon catalog only. */
+  validateAgentPreset(input: unknown): AgentPresetInput {
+    const validated = AgentPresetInputSchema.parse(input);
+    const adapter = validated.harness === 'acp'
+      ? this.requireNewAgentAdapter(validated.harness)
+      : this.requireInstalledAdapter(validated.harness);
+
+    // The existing spawn validator remains the single source for canonical policy,
+    // thinking, and ACP launch shape. The cwd is deliberately a validation-only value.
+    validateSpawnOptions(adapter, {
+      cwd: this.homeDir,
+      model: validated.model,
+      policy: validated.policy,
+      thinking: validated.thinking,
+      acp_launch: validated.acp_launch,
+    });
+
+    if (validated.model !== undefined) {
+      if (!MODEL_ID.test(validated.model)) {
+        throw new Error(`invalid model id '${validated.model}'`);
+      }
+      const catalog = this.modelCatalogs.get(validated.harness);
+      if (catalog !== undefined && catalog.models.length > 0 && !catalog.models.includes(validated.model)) {
+        throw new Error(
+          `model '${validated.model}' is not currently offered by harness '${validated.harness}'`,
+        );
+      }
+    }
+
+    // This reuses the same frozen provider registry and current PATH detection as
+    // ordinary new-agent creation. It resolves no process and has no side effects.
+    if (validated.acp_provider !== undefined) this.resolveAcpLaunch(validated);
+    return validated;
+  }
+
+  createAgentPreset(input: AgentPresetInput): AgentPreset {
+    return this.store.createAgentPreset(this.validateAgentPreset(input));
+  }
+
+  listAgentPresets(): AgentPreset[] {
+    return this.store.listAgentPresets();
+  }
+
+  getAgentPreset(id: string): AgentPreset | undefined {
+    return this.store.getAgentPreset(id);
+  }
+
+  updateAgentPreset(id: string, input: AgentPresetInput): AgentPreset {
+    // Store performs the not-found check before its atomic replacement. Validation
+    // still runs before any Store mutation, so a rejected full replacement is a no-op.
+    if (this.store.getAgentPreset(id) === undefined) {
+      throw new Error(`no such agent preset: ${id}`);
+    }
+    return this.store.updateAgentPreset(id, this.validateAgentPreset(input));
+  }
+
+  deleteAgentPreset(id: string): void {
+    this.store.deleteAgentPreset(id);
+  }
+
+  getDefaultRoster(): DefaultRoster {
+    return this.store.getDefaultRoster();
+  }
+
+  replaceDefaultRoster(input: DefaultRosterInput | readonly string[]): DefaultRoster {
+    return this.store.replaceDefaultRoster(input);
+  }
+  // harn:end individual-agent-presets-are-bounded-catalog-validated-configurations
 
   // harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery
   /**

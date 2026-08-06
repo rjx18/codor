@@ -1,7 +1,19 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRoom, fetchAdapters, refreshAdapters } from './api.js';
+import {
+  createAgentPreset,
+  createRoom,
+  deleteAgentPreset,
+  fetchAdapters,
+  fetchAgentPreset,
+  fetchAgentPresets,
+  fetchDefaultRoster,
+  refreshAdapters,
+  replaceDefaultRoster,
+  updateAgentPreset,
+} from './api.js';
+import { setRelayTransport } from './relay-transport.js';
 
 // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
 describe('adapter listing', () => {
@@ -100,3 +112,85 @@ describe('actionable REST errors', () => {
   });
 });
 // harn:end starting-agent-name-derives-one-valid-identity-v6
+
+describe('agent preset runtime API', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setRelayTransport(undefined);
+  });
+
+  const preset = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    schema_version: 1,
+    created_ts: '2026-08-06T00:00:00.000Z',
+    updated_ts: '2026-08-06T00:00:00.000Z',
+    label: 'Review helper',
+    handle: 'review-helper',
+    harness: 'codex',
+  };
+  const roster = {
+    id: 'default' as const,
+    schema_version: 1 as const,
+    updated_ts: '2026-08-06T00:00:00.000Z',
+    preset_ids: [preset.id],
+  };
+  const respond = (body: unknown, status = 200): Response =>
+    ({ ok: true, status, json: () => Promise.resolve(body) }) as unknown as Response;
+
+  it('uses native fetch with bearer headers and typed CRUD/order shapes', async () => {
+    const fetch = vi.fn((url: string, init?: RequestInit) => {
+      const method = init?.method ?? 'GET';
+      if (method === 'GET' && url.endsWith('/api/agent-presets')) {
+        return Promise.resolve(respond({ presets: [preset] }));
+      }
+      if (method === 'GET' && url.endsWith(`/api/agent-presets/${preset.id}`)) {
+        return Promise.resolve(respond({ preset }));
+      }
+      if (method === 'GET' && url.endsWith('/api/default-roster')) {
+        return Promise.resolve(respond({ roster }));
+      }
+      if (method === 'POST') return Promise.resolve(respond({ preset }, 201));
+      if (method === 'PUT' && url.endsWith('/api/agent-presets/' + preset.id)) {
+        return Promise.resolve(respond({ preset }));
+      }
+      if (method === 'PUT') return Promise.resolve(respond({ roster }));
+      return Promise.resolve(respond(undefined, 204));
+    });
+    vi.stubGlobal('fetch', fetch);
+
+    expect(await fetchAgentPresets({ token: 'secret' })).toEqual([preset]);
+    expect(await fetchAgentPreset(preset.id, { token: 'secret' })).toEqual(preset);
+    expect(await createAgentPreset({
+      label: preset.label, handle: preset.handle, harness: preset.harness,
+    }, { token: 'secret' })).toEqual(preset);
+    expect(await updateAgentPreset(preset.id, {
+      label: preset.label, handle: preset.handle, harness: preset.harness,
+    }, { token: 'secret' })).toEqual(preset);
+    expect(await fetchDefaultRoster({ token: 'secret' })).toEqual(roster);
+    expect(await replaceDefaultRoster({ preset_ids: roster.preset_ids }, { token: 'secret' }))
+      .toEqual(roster);
+    await deleteAgentPreset(preset.id, { token: 'secret' });
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/agent-presets'),
+      expect.objectContaining({ headers: { authorization: 'Bearer secret' } }),
+    );
+    const put = fetch.mock.calls.find((call) => call[1]?.method === 'PUT');
+    expect(put?.[1]?.headers).toEqual({
+      authorization: 'Bearer secret', 'content-type': 'application/json',
+    });
+  });
+
+  it('routes hosted calls through the active relay transport', async () => {
+    const relayFetch = vi.fn(() => Promise.resolve(respond({ roster })));
+    setRelayTransport({ origin: 'https://relay.example', fetch: relayFetch });
+    const result = await fetchDefaultRoster({
+      token: 'hosted-token', origin: 'https://relay.example',
+    });
+    expect(result).toEqual(roster);
+    expect(relayFetch).toHaveBeenCalledWith(
+      '/api/default-roster',
+      expect.objectContaining({ headers: { authorization: 'Bearer hosted-token' } }),
+    );
+  });
+});

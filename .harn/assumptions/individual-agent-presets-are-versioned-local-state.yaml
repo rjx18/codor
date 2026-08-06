@@ -1,0 +1,16 @@
+id: individual-agent-presets-are-versioned-local-state
+hash: a-dabd131baca6
+title: Individual preset CRUD preserves stable versioned switchboard-local
+  identity across restart
+state: active
+statement: The switchboard Store must migrate old and fresh databases to
+  versioned individual-preset persistence, generate a never-reused stable id on
+  create, list and read validated version-1 rows deterministically, replace
+  configuration while preserving id and created timestamp, and delete only the
+  addressed row; every operation must be atomic and survive reopen without
+  entering a room changelog, relay archive, account, cloud, member, or runtime
+  store, because preset configuration belongs to exactly one local switchboard
+  and later consumers need a stable reference rather than a name-based identity.
+depends_on:
+  - individual-agent-presets-are-bounded-catalog-validated-configurations
+created_by: agent-presets-p1-domain-persistence

@@ -1,0 +1,14 @@
+id: default-roster-is-one-versioned-ordered-preset-reference-group
+hash: a-2bf5ec8b4565
+title: The default roster is one ordered group of individual-preset references
+state: active
+statement: The switchboard must persist exactly one schema-version-1
+  default-roster group with stable id default and an atomically replaced,
+  duplicate-free ordered list of existing individual preset ids; empty is valid,
+  every reference must resolve before any replacement lands, and ordinal order
+  and the group timestamp must survive restart, because the future Create
+  Channel choice represents one complete ordered group and is not itself an
+  individual agent preset or a bag of copied configs.
+depends_on:
+  - individual-agent-presets-are-versioned-local-state
+created_by: agent-presets-p1-domain-persistence

@@ -1,6 +1,10 @@
 import type {
   AdapterCapabilities,
+  AgentPreset,
+  AgentPresetInput,
   CreateRoomRequest,
+  DefaultRoster,
+  DefaultRosterInput,
   Member,
   Message,
   ProducedArtifact,
@@ -146,7 +150,7 @@ async function fetchJson<T>(path: string, options: ApiOptions): Promise<T> {
 
 async function sendJson<T>(
   path: string,
-  method: 'POST' | 'DELETE',
+  method: 'POST' | 'PUT' | 'DELETE',
   body: unknown,
   options: ApiOptions,
 ): Promise<T> {
@@ -195,6 +199,61 @@ export async function refreshUsage(options: ApiOptions): Promise<{ outcome: Usag
   return sendJson<{ outcome: UsageRefreshOutcome }>('/api/usage/refresh', 'POST', undefined, options);
 }
 // harn:end model-catalogs-reach-a-browser-that-arrives-early
+
+// harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-boundary
+export async function fetchAgentPresets(options: ApiOptions): Promise<AgentPreset[]> {
+  const body = await fetchJson<{ presets: AgentPreset[] }>('/api/agent-presets', options);
+  return body.presets;
+}
+
+export async function fetchAgentPreset(id: string, options: ApiOptions): Promise<AgentPreset> {
+  const body = await fetchJson<{ preset: AgentPreset }>(
+    `/api/agent-presets/${encodeURIComponent(id)}`,
+    options,
+  );
+  return body.preset;
+}
+
+export async function createAgentPreset(
+  input: AgentPresetInput,
+  options: ApiOptions,
+): Promise<AgentPreset> {
+  const body = await sendJson<{ preset: AgentPreset }>(
+    '/api/agent-presets', 'POST', input, options,
+  );
+  return body.preset;
+}
+
+export async function updateAgentPreset(
+  id: string,
+  input: AgentPresetInput,
+  options: ApiOptions,
+): Promise<AgentPreset> {
+  const body = await sendJson<{ preset: AgentPreset }>(
+    `/api/agent-presets/${encodeURIComponent(id)}`, 'PUT', input, options,
+  );
+  return body.preset;
+}
+
+export async function deleteAgentPreset(id: string, options: ApiOptions): Promise<void> {
+  await sendJson<void>(`/api/agent-presets/${encodeURIComponent(id)}`, 'DELETE', undefined, options);
+}
+
+export async function fetchDefaultRoster(options: ApiOptions): Promise<DefaultRoster> {
+  const body = await fetchJson<{ roster: DefaultRoster }>('/api/default-roster', options);
+  return body.roster;
+}
+
+export async function replaceDefaultRoster(
+  input: DefaultRosterInput,
+  options: ApiOptions,
+): Promise<DefaultRoster> {
+  const body = await sendJson<{ roster: DefaultRoster }>(
+    '/api/default-roster', 'PUT', input, options,
+  );
+  return body.roster;
+}
+// harn:end agent-preset-management-is-authorized-and-transport-neutral
 
 export async function fetchRooms(options: ApiOptions): Promise<Room[]> {
   const body = await fetchJson<{ rooms: Room[] }>('/api/rooms', options);
