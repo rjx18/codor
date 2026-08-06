@@ -2550,6 +2550,167 @@
   }
 }
 
+/* ── Agent preset and default-roster management ───────────────────────── */
+.nx-settings-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.nx-settings-card-head > div { min-width: 0; }
+.nx-settings-card-head .nx-settings-sub { margin-bottom: 0; }
+.nx-settings-error,
+.nx-roster-choice-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--c-error) 35%, var(--c-line));
+  border-radius: var(--r-control);
+  background: var(--c-error-tint);
+  color: var(--c-error-text);
+  font: var(--t-ui);
+}
+.nx-preset-list,
+.nx-roster-list { display: grid; gap: var(--sp-2); margin: 0; padding: 0; list-style: none; }
+.nx-preset-row,
+.nx-roster-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+}
+.nx-preset-summary,
+.nx-roster-summary { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.nx-preset-summary strong,
+.nx-roster-summary strong { color: var(--c-ink); font: var(--t-ui-strong); overflow-wrap: anywhere; }
+.nx-preset-summary span,
+.nx-roster-summary span { color: var(--c-secondary); font: var(--t-caption); overflow-wrap: anywhere; }
+.nx-preset-summary small { color: var(--c-faded); font: var(--t-caption); }
+.nx-preset-actions,
+.nx-roster-actions { display: flex; align-items: center; gap: var(--sp-1); flex: none; }
+.nx-preset-actions .nx-btn { min-height: 44px; }
+.nx-roster-order {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-full);
+  background: var(--c-muted);
+  color: var(--c-secondary);
+  font: var(--t-caption-strong);
+}
+.nx-roster-row.is-missing { border-color: color-mix(in srgb, var(--c-warn) 45%, var(--c-line)); }
+.nx-roster-row.is-missing .nx-roster-summary strong { color: var(--c-warn-text); }
+.nx-roster-add {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-4);
+}
+.nx-roster-add .nx-field { flex: 1; margin-bottom: 0; }
+.nx-roster-add select { width: 100%; }
+.nx-agent-preset-settings .nx-btn,
+.nx-roster-settings .nx-btn,
+.nx-roster-add > .nx-btn { min-height: 44px; }
+.nx-roster-choice {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+}
+.nx-roster-choice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); }
+.nx-roster-choice-head h3 { margin: 0; font: var(--t-ui-strong); color: var(--c-ink); }
+.nx-roster-reload {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--c-secondary);
+  cursor: pointer;
+}
+.nx-roster-reload:hover { background: var(--c-muted); color: var(--c-ink); }
+.nx-roster-reload:disabled { opacity: 0.45; cursor: not-allowed; }
+.nx-roster-choice-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: 58px;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-surface);
+  color: var(--c-body);
+  text-align: left;
+  cursor: pointer;
+}
+.nx-roster-choice-card:hover,
+.nx-roster-choice-card.is-selected { border-color: var(--c-ink); background: var(--c-muted); }
+.nx-roster-choice-mark {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  border: 2px solid currentcolor;
+  border-radius: var(--r-full);
+}
+.nx-roster-choice-card.is-selected .nx-roster-choice-mark { box-shadow: inset 0 0 0 4px var(--c-surface); background: var(--c-ink); }
+.nx-roster-choice-copy { display: grid; gap: 3px; min-width: 0; flex: 1; }
+.nx-roster-choice-copy strong { font: var(--t-ui-strong); color: var(--c-ink); }
+.nx-roster-choice-copy span { font: var(--t-caption); color: var(--c-secondary); overflow-wrap: anywhere; }
+.nx-roster-choice-card .nx-check { position: static; flex: none; }
+.nx-roster-inconsistent {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--c-warn) 45%, var(--c-line));
+  border-radius: var(--r-control);
+  background: var(--c-warn-tint);
+  color: var(--c-warn-text);
+  font: var(--t-caption);
+}
+.nx-roster-inconsistent strong { font: var(--t-ui-strong); }
+.nx-roster-selected-note {
+  display: grid;
+  gap: 3px;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-muted);
+  color: var(--c-secondary);
+  font: var(--t-caption);
+}
+.nx-roster-selected-note strong { color: var(--c-ink); font: var(--t-ui-strong); }
+
+@media (max-width: 719px) {
+  .nx-settings-card-head { align-items: stretch; flex-direction: column; }
+  .nx-settings-card-head .nx-btn { align-self: flex-start; }
+  .nx-preset-row { align-items: flex-start; flex-direction: column; }
+  .nx-preset-actions { width: 100%; }
+  .nx-preset-actions .nx-btn { flex: 1; }
+  .nx-roster-row { align-items: flex-start; flex-wrap: wrap; }
+  .nx-roster-summary { min-width: calc(100% - 44px); }
+  .nx-roster-actions { width: 100%; justify-content: flex-end; }
+  .nx-roster-actions .nx-iconbtn { width: 44px; height: 44px; }
+  .nx-roster-add { align-items: stretch; flex-direction: column; }
+  .nx-roster-add > .nx-btn { width: 100%; }
+  .nx-settings-error,
+  .nx-roster-choice-error { align-items: stretch; flex-direction: column; }
+  .nx-roster-choice-card { min-height: 64px; }
+}
+
 /* Send is the shared solid IconButton on both surfaces — it inherits theme,
    radius and disabled treatment from the primitive rather than redefining them.
    The only override is a thumb-sized target, applied in two places on purpose:

@@ -5,6 +5,8 @@ import {
   DEFAULT_POLICY,
   POLICIES,
   applyAgentPreset,
+  agentPresetInputFromConfig,
+  agentPresetToConfig,
   type AdapterLike,
   availableAgentHandle,
   buildSpawnSpec,
@@ -100,6 +102,58 @@ const durablePreset = (over: Partial<AgentPreset> = {}): AgentPreset => ({
 });
 
 describe('individual preset snapshots', () => {
+  it('round-trips native, named ACP, and custom ACP editor fields', () => {
+    const native = agentPresetInputFromConfig({
+      label: ' Native helper ', handle: 'native-helper',
+      config: {
+        harness: 'claude-code', model: 'opus', thinking: 'high', policy: 'workspace-write',
+        displayName: ' Native ',
+      },
+      adapters: [claude],
+    });
+    expect(native).toEqual({
+      label: 'Native helper', handle: 'native-helper', display_name: 'Native',
+      harness: 'claude-code', model: 'opus', thinking: 'high', policy: 'workspace-write',
+    });
+    expect(agentPresetToConfig(durablePreset(native))).toMatchObject({
+      harness: 'claude-code', model: 'opus', thinking: 'high',
+      displayName: 'Native', policy: 'workspace-write',
+    });
+
+    const named = agentPresetInputFromConfig({
+      label: 'Kimi helper', handle: 'kimi-helper',
+      config: { ...config(), harness: 'acp:kimi' },
+      adapters: [kimi],
+    });
+    expect(named).toMatchObject({ harness: 'acp', acp_provider: 'kimi' });
+    expect(named).not.toHaveProperty('acp_launch');
+    expect(agentPresetToConfig(durablePreset(named)).harness).toBe('acp:kimi');
+
+    const custom = agentPresetInputFromConfig({
+      label: 'Custom helper', handle: 'custom-helper',
+      config: { ...config(), harness: 'acp', acpExecutable: 'node', acpArgs: 'acp\n--profile=x' },
+      adapters: [acpGeneric],
+    });
+    expect(custom).toMatchObject({
+      harness: 'acp', acp_launch: { executable: 'node', argv: ['acp', '--profile=x'] },
+    });
+    expect(agentPresetToConfig(durablePreset(custom))).toMatchObject({
+      harness: 'acp', acpExecutable: 'node', acpArgs: 'acp\n--profile=x',
+    });
+  });
+
+  it('omits blank optional values and refuses an incomplete custom launch', () => {
+    expect(agentPresetInputFromConfig({
+      label: 'Native', handle: 'native',
+      config: { ...config(), harness: 'claude-code', displayName: '  ', model: '' },
+      adapters: [claude],
+    })).toEqual({ label: 'Native', handle: 'native', harness: 'claude-code', policy: 'read-only' });
+    expect(() => agentPresetInputFromConfig({
+      label: 'Custom', handle: 'custom',
+      config: { ...config(), harness: 'acp' }, adapters: [acpGeneric],
+    })).toThrow(/executable/i);
+  });
+
   it('maps native reusable fields, clears stale ACP values, and suffixes the handle', () => {
     const result = applyAgentPreset({
       preset: durablePreset({
