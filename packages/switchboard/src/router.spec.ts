@@ -184,6 +184,50 @@ describe('qualified body grammar', () => {
     expect(unavailable.qualified_issues?.[0]).toMatchObject({ reason: 'catalog-unavailable' });
     expect(unavailable.mentions).toEqual([]);
   });
+
+  it('keeps UTF-16 spans and the inner handle isolated after non-BMP prefixes', () => {
+    const body = `${'😀'.repeat(4)} ~review:@codex and @codex`;
+    const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+    expect(parsed.qualified).toHaveLength(1);
+    expect(parsed.mentions).toHaveLength(2);
+    expect(body.slice(parsed.qualified![0]!.start, parsed.qualified![0]!.end))
+      .toBe('~review:@codex');
+    expect(parsed.mentions[1]).not.toHaveProperty('target');
+    expect(body.slice(parsed.mentions[1]!.start, parsed.mentions[1]!.end)).toBe('@codex');
+  });
+
+  it('owns malformed suffixes and spaced selectors instead of leaking local mentions', () => {
+    for (const body of ['~review: @codex', '~review:@codex.extra']) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified).toEqual([]);
+      expect(parsed.mentions).toEqual([]);
+      expect(parsed.qualified_issues).toEqual([
+        expect.objectContaining({ reason: 'malformed', handle: expect.stringContaining('codex') }),
+      ]);
+    }
+  });
+
+  it('distinguishes ambiguous targets and removed members', () => {
+    const ambiguous = parseBody('~review:@codex', ROSTER, {
+      qualifiedTargets: {
+        ...qualifiedCatalog,
+        targets: [...qualifiedCatalog.targets, { ...qualifiedCatalog.targets[0]! }],
+      },
+    });
+    expect(ambiguous.qualified_issues?.[0]).toMatchObject({ reason: 'ambiguous-worktree' });
+
+    const removedMember = parseBody('~review:@old-codex', ROSTER, {
+      qualifiedTargets: {
+        ...qualifiedCatalog,
+        targets: [{
+          ...qualifiedCatalog.targets[0]!,
+          removed_members: [{ member_id: id('REM'), handle: 'old-codex', kind: 'agent' as const }],
+        }],
+      },
+    });
+    expect(removedMember.qualified_issues?.[0]).toMatchObject({ reason: 'removed-member' });
+    expect(removedMember.mentions).toEqual([]);
+  });
 });
 // harn:end qualified-member-target-identity-is-durable
 
@@ -503,6 +547,56 @@ describe('resolveRecipients', () => {
     expect(result.qualified_refusal).toBeDefined();
     expect(result.agents).toEqual([]);
     expect(result.agentTargets).toEqual([]);
+  });
+
+  it('refuses a qualified mention when its stable member is absent from the runtime map', () => {
+    const m = msg({ author: richard.id, kind: 'chat', body: '~review:@codex keep scope' });
+    const result = resolveRecipients(m, ctx({
+      author: richard,
+      qualifiedTargets: qualifiedCatalog,
+      qualifiedMembers: new Map(),
+    }));
+    expect(result.qualified_refusal).toContain('target member unavailable');
+    expect(result.agents).toEqual([]);
+    expect(result.humans).toEqual([]);
+    expect(result.commentary).toBe(true);
+  });
+
+  it('carries a valid scoped trigger onward and refuses a stale one without local fallback', () => {
+    const target = qualifiedCatalog.targets[0]!;
+    const scopedTrigger = { member: childCodex, target: {
+      worktree_id: target.worktree_id,
+      conversation_id: target.conversation_id,
+      member_id: childCodex.id,
+      alias: target.alias,
+      handle: childCodex.handle,
+    } };
+    const onward = resolveRecipients(msg({
+      author: claude.id,
+      kind: 'run',
+      body: 'final answer',
+      run: { status: 'completed', started_ts: '2026-07-10T07:00:00.000Z', tool_calls: 0, events_ref: 'runs/14.jsonl' },
+    }), ctx({
+      author: claude,
+      triggerAuthor: scopedTrigger,
+      qualifiedTargets: qualifiedCatalog,
+      qualifiedMembers: new Map([[childCodex.id, childCodex]]),
+    }));
+    expect(onward.agents.map((agent) => agent.id)).toEqual([childCodex.id]);
+    expect(onward.agentTargets?.[0]?.target?.conversation_id).toBe('wt-review');
+
+    const stale = resolveRecipients(msg({
+      author: claude.id, kind: 'run', body: 'do not fall back',
+      run: { status: 'completed', started_ts: '2026-07-10T07:00:00.000Z', tool_calls: 0, events_ref: 'runs/15.jsonl' },
+    }), ctx({
+      author: claude,
+      triggerAuthor: { ...scopedTrigger, target: { ...scopedTrigger.target, alias: 'gone' } },
+      qualifiedTargets: qualifiedCatalog,
+      qualifiedMembers: new Map([[childCodex.id, childCodex]]),
+    }));
+    expect(stale.qualified_refusal).toContain('stale scoped trigger');
+    expect(stale.agents).toEqual([]);
+    expect(stale.commentary).toBe(true);
   });
   // harn:end invalid-qualified-targets-never-fallback
 });

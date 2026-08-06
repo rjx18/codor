@@ -329,6 +329,47 @@ describe('qualified routing store projection', () => {
     ]);
     expect(tombstone.conversation_id).toBe(child);
   });
+
+  it('projects removed members as bounded tombstones and refuses stale scoped rows', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'old-coder', display_name: 'Old Coder', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: 'old-coder',
+    } as const;
+    const message = store.postMessage('eng', {
+      author: store.getMemberByHandle('eng', 'richard')!.id,
+      kind: 'chat',
+      body: 'stale target',
+    });
+
+    store.updateMember(child, childAgent.id, { removed_ts: '2026-08-06T00:10:00.000Z', state: 'dead' });
+    const projected = store.routingCatalog('eng');
+    expect(projected.targets.find((item) => item.alias === 'child')).toMatchObject({
+      removed_members: [{ member_id: childAgent.id, handle: 'old-coder', kind: 'agent' }],
+    });
+    expect(projected.targets.find((item) => item.alias === 'child')?.members)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'old-coder' })]));
+    expect(store.routingTargetIsActive(target)).toBe(false);
+    expect(() => store.createDelivery('eng', {
+      message_id: message.id, recipient: childAgent.id, target,
+    })).toThrow(/qualified delivery target is not active/);
+  });
 });
 // harn:end qualified-member-target-identity-is-durable
 
@@ -380,6 +421,12 @@ describe('qualified origin storage', () => {
     expect(store.getMessage('eng', attributed.id)?.author_target).toEqual(target);
     expect(store.getDelivery('eng', delivery.id)?.target).toEqual(target);
     expect(store.listDeliveriesForTarget(child, childAgent.id).map((item) => item.id)).toEqual([delivery.id]);
+
+    expect(() => store.createDelivery('eng', {
+      message_id: origin.id,
+      recipient: childAgent.id,
+      target: { ...target, handle: 'renamed' },
+    })).toThrow(/qualified delivery target is not active/);
   });
 });
 // harn:end cross-worktree-output-stays-in-origin
@@ -2536,6 +2583,69 @@ describe('collaboration state migration and reopen', () => {
   });
 });
 // harn:end collaboration-groups-are-durable-state
+
+it('keeps target scope in atomic round materialization and idempotent retries', () => {
+  const { owner } = openRoom(store);
+  const alpha = store.addMember('eng', {
+    kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+  });
+  const root = store.postMessage('eng', {
+    author: owner.id, kind: 'chat', body: '@alpha scoped round',
+  });
+  const main: WorktreeObservation = {
+    path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+    availability: 'available', locked: false, branch: 'main',
+  };
+  const secondary: WorktreeObservation = {
+    path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+    availability: 'available', locked: false, branch: 'feature/child',
+  };
+  const registered = store.registerWorktree('eng', {
+    common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+    primary_git_admin_id: main.git_admin_id,
+  }, main, secondary, 'child', 'adopted');
+  const child = registered.worktree.conversation_id;
+  const remote = store.addMember(child, {
+    kind: 'agent', handle: 'remote', display_name: 'Remote', state: 'idle',
+  });
+  const target = {
+    worktree_id: registered.worktree.id, conversation_id: child, member_id: remote.id,
+    alias: 'child', handle: 'remote',
+  } as const;
+  const input = { memberId: remote.id, target, payloadSnapshot: 'remote round' };
+  const localInput = { memberId: alpha.id, payloadSnapshot: 'local round' };
+  const first = store.createCollaborationGroup('eng', {
+    groupId: 'scoped-group', rootMessageId: root.id, participants: [input, localInput],
+  });
+  expect(first.deliveries[0]?.target).toEqual(target);
+  const retry = store.createCollaborationGroup('eng', {
+    groupId: 'different-id-is-ignored', rootMessageId: root.id, participants: [input, localInput],
+  });
+  expect(retry.group.id).toBe('scoped-group');
+  expect(retry.deliveries.map((item) => item.id)).toEqual(first.deliveries.map((item) => item.id));
+
+  store.updateCollaborationParticipant('eng', 'scoped-group', 1, remote.id, {
+    terminal_status: 'completed', result_message_id: root.id, completed_ts: '2026-08-06T00:11:00.000Z',
+  });
+  store.updateCollaborationParticipant('eng', 'scoped-group', 1, localInput.memberId, {
+    terminal_status: 'completed', result_message_id: root.id, completed_ts: '2026-08-06T00:11:00.000Z',
+  });
+  const released = store.releaseCollaborationRound('eng', {
+    groupId: 'scoped-group', roundNumber: 1, releasedTs: '2026-08-06T00:12:00.000Z',
+    nextParticipants: [
+      { ...input, payloadSnapshot: 'remote next round' },
+      { ...localInput, payloadSnapshot: 'local next round' },
+    ],
+  });
+  expect(released.deliveries[0]?.target).toEqual(target);
+  expect(() => store.createCollaborationGroup('eng', {
+    groupId: 'scoped-group', rootMessageId: root.id,
+    participants: [
+      { memberId: remote.id, payloadSnapshot: 'remote round' },
+      localInput,
+    ],
+  })).toThrow(/different participants or payloads/);
+});
 
 // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-regression
 describe('atomic routed collaboration ingress', () => {

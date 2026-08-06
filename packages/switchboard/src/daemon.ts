@@ -2672,8 +2672,21 @@ export class Daemon {
     if (peers.length === 0 || peers.includes(memberId)) {
       throw new Error('wait peers must name at least one other member');
     }
+    // A cross-worktree wait is a property of the visible origin round. Do not
+    // resolve peers from the target member's private roster: they may belong to
+    // different registered targets in the same durable collaboration round.
+    const groupedDelivery = this.store.listDeliveries(room, { recipient: memberId })
+      .find((delivery) => delivery.run_msg_id === run.id && delivery.group_id !== undefined);
+    const groupedParticipants = groupedDelivery?.group_id !== undefined && groupedDelivery.group_round !== undefined
+      ? this.store.listCollaborationParticipants(room, groupedDelivery.group_id, groupedDelivery.group_round)
+      : [];
     for (const peerId of peers) {
-      const peer = this.store.getMember(targetRoom, peerId);
+      const peerDelivery = groupedParticipants
+        .map((participant) => this.store.getDelivery(room, participant.delivery_id))
+        .find((delivery) => delivery?.recipient === peerId);
+      const peer = peerDelivery === undefined
+        ? this.store.getMember(targetRoom, peerId)
+        : this.targetMember(peerDelivery, room)?.member;
       if (!peer || peer.removed_ts !== undefined) throw new Error(`no active wait peer: ${peerId}`);
     }
     const waiting = {
@@ -2684,8 +2697,6 @@ export class Daemon {
     } satisfies NonNullable<Member['waiting']>;
     this.memberWaits.set(memberId, waiting);
     // harn:assume same-round-terminal-peers-end-live-waits ref=collaboration-wait-context
-    const groupedDelivery = this.store.listDeliveries(room, { recipient: memberId })
-      .find((delivery) => delivery.run_msg_id === run.id && delivery.group_id !== undefined);
     if (groupedDelivery?.group_id !== undefined && groupedDelivery.group_round !== undefined) {
       this.groupWaits.set(memberId, {
         room,
@@ -2903,7 +2914,7 @@ export class Daemon {
 
   private targetForMember(originRoom: string, executionRoom: string, member: Member): ScopedMemberTarget | undefined {
     const root = this.store.rootRoomId(originRoom) ?? originRoom;
-    if (executionRoom === root || member.kind !== 'agent') return undefined;
+    if (executionRoom === originRoom || member.kind !== 'agent') return undefined;
     const worktree = this.store.getWorktreeByConversation(root, executionRoom);
     if (worktree?.lifecycle !== 'active') return undefined;
     return {
@@ -3135,7 +3146,7 @@ export class Daemon {
   private planFanout(
     room: string,
     message: Message,
-    triggerAuthor?: string,
+    triggerAuthor?: string | RoutedRecipient,
     agentHop?: number,
     awaitingReply = false,
     executionRoom = room,
@@ -3196,7 +3207,7 @@ export class Daemon {
   private planRoutedMessage(
     room: string,
     message: Message,
-    triggerAuthor?: string,
+    triggerAuthor?: string | RoutedRecipient,
     agentHop?: number,
     awaitingReply = false,
     allowGroup = true,
@@ -3217,7 +3228,6 @@ export class Daemon {
     if (
       !allowGroup
       || planned.result.agents.length < 2
-      || planned.fanout.some((delivery) => delivery.target !== undefined)
     ) {
       return { result: planned.result, plan: base };
     }
@@ -3238,13 +3248,14 @@ export class Daemon {
           collaboration: {
             groupId,
             participants: planned.result.agents.map((agent) => ({
-            memberId: agent.id,
-            payloadSnapshot: this.groupPayloadSnapshot(
-              composeGroupRoundPayload(context, agent.handle),
-            ),
-            state: 'queued',
-            hopCount: agentFanout.get(agent.id)?.hop_count,
-          })),
+              memberId: agent.id,
+              target: agentFanout.get(agent.id)?.target,
+              payloadSnapshot: this.groupPayloadSnapshot(
+                composeGroupRoundPayload(context, agent.handle),
+              ),
+              state: 'queued',
+              hopCount: agentFanout.get(agent.id)?.hop_count,
+            })),
         },
       },
     };
@@ -3397,7 +3408,10 @@ export class Daemon {
   private applyTurnStartBrakes(room: string, batch: Delivery[], atomic: boolean): Delivery[] {
     const braked = batch
       .filter((delivery) => (delivery.hop_count ?? 0) > 0 && !this.releasedDeliveries.has(delivery.id))
-      .map((delivery) => ({ delivery, reason: this.deliveryBrakeReason(room, delivery) }))
+      .map((delivery) => ({
+        delivery,
+        reason: this.deliveryBrakeReason(this.targetMember(delivery, room)?.room ?? room, delivery),
+      }))
       .filter((item): item is { delivery: Delivery; reason: string } => item.reason !== undefined);
     if (braked.length === 0) {
       for (const delivery of batch) this.releasedDeliveries.delete(delivery.id);
@@ -3418,13 +3432,19 @@ export class Daemon {
   }
 
   async maybeStartTurn(room: string, memberId: string): Promise<void> {
-    const queued = this.store.listDeliveriesForTarget(room, memberId, { state: 'queued' })
+    let queued = this.store.listDeliveriesForTarget(room, memberId, { state: 'queued' })
       .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
-    const invalid = queued.find((delivery) =>
+    // Refuse every stale scoped row before selecting a batch. Refusing only
+    // the FIFO head could strand a later valid delivery behind it, and stale
+    // identity must never be re-resolved against the origin roster.
+    const invalid = queued.filter((delivery) =>
       delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target));
-    if (invalid !== undefined) {
-      this.refuseQualifiedDelivery(invalid.room, invalid, 'registered target was removed or unregistered');
-      return;
+    for (const delivery of invalid) {
+      this.refuseQualifiedDelivery(delivery.room, delivery, 'registered target was removed or unregistered');
+    }
+    if (invalid.length > 0) {
+      queued = this.store.listDeliveriesForTarget(room, memberId, { state: 'queued' })
+        .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
     }
     const eligible = this.turnStartEligibility(room, memberId);
     if (!eligible.member) return; // holds its queue; the room shows the backlog
@@ -4257,9 +4277,23 @@ export class Daemon {
       run: messagePatch.run,
     };
     const lastDelivery = batch.at(-1);
-    const triggerAuthor = lastDelivery
-      ? this.store.getMessage(room, lastDelivery.message_id)?.author
+    const triggerMessage = lastDelivery
+      ? this.store.getMessage(room, lastDelivery.message_id)
       : undefined;
+    const triggerAuthor = (() => {
+      if (triggerMessage === undefined) return undefined;
+      if (triggerMessage.author_target !== undefined) {
+        const targetMember = this.store.getMember(
+          triggerMessage.author_target.conversation_id,
+          triggerMessage.author,
+        );
+        return targetMember === undefined
+          ? undefined
+          : { member: targetMember, target: triggerMessage.author_target } satisfies RoutedRecipient;
+      }
+      const localMember = this.store.getMember(room, triggerMessage.author);
+      return localMember === undefined ? undefined : { member: localMember } satisfies RoutedRecipient;
+    })();
     // harn:assume batched-human-resets-hop-count ref=batched-onward-hop-reset
     const onwardHopCount = batch.length === 0
       ? 1
@@ -4374,23 +4408,34 @@ export class Daemon {
     const root = this.store.getMessage(room, projection.group.root_message_id);
     if (!root) throw new Error(`collaboration group ${groupId} has no root message`);
     const results: NonNullable<GroupRoundPayloadContext['results']> = [];
-    const nextMembers: Member[] = [];
+    const nextMembers: RoutedRecipient[] = [];
     const seen = new Set<string>();
+    const routingState = this.routingState(room);
     for (const participant of projection.participants) {
-      const member = this.store.getMember(room, participant.member_id);
+      const participantDelivery = projection.deliveries.find(
+        (delivery) => delivery.id === participant.delivery_id,
+      );
+      const located = participantDelivery === undefined
+        ? undefined
+        : this.targetMember(participantDelivery, room);
+      const executionRoom = located?.room ?? room;
+      const member = located?.member ?? this.store.getMember(room, participant.member_id);
       const result = participant.result_message_id === undefined
         ? undefined
         : this.store.getMessage(room, participant.result_message_id);
       const resultRoot = result === undefined ? undefined : this.store.getRunRoot(room, result);
       const resultAck = result?.ack === true || resultRoot?.ack === true;
       const aggregateBody = resultRoot?.run?.final_text ?? result?.body ?? '';
-      const aggregateParsed = parseBody(aggregateBody, this.store.listMembers(room));
+      const aggregateParsed = parseBody(aggregateBody, this.store.listMembers(executionRoom), {
+        qualifiedTargets: routingState.catalog,
+      });
       const status = participant.terminal_status === 'completed' && resultAck
         ? 'acknowledged'
         : participant.terminal_status!;
       results.push({
         ordinal: participant.ordinal,
         memberHandle: member?.handle ?? participant.member_id,
+        ...(participantDelivery?.target !== undefined && { memberTarget: participantDelivery.target }),
         status,
         ...(result !== undefined && !resultAck && {
           messageId: result.id,
@@ -4406,14 +4451,22 @@ export class Daemon {
 
       if (participant.terminal_status !== 'completed' || resultAck) continue;
       for (const mention of aggregateParsed.mentions) {
-        if (mention.member_id === participant.member_id || seen.has(mention.member_id)) continue;
-        const recipient = this.store.getMember(room, mention.member_id);
+        const recipient = mention.target === undefined
+          ? this.store.getMember(executionRoom, mention.member_id)
+          : routingState.members.get(mention.member_id);
         if (
           recipient?.kind !== 'agent' ||
           recipient.removed_ts !== undefined
         ) continue;
-        seen.add(recipient.id);
-        nextMembers.push(recipient);
+        const target = mention.target ?? this.targetForMember(room, executionRoom, recipient);
+        if (
+          recipient.id === participant.member_id
+          && target?.worktree_id === participantDelivery?.target?.worktree_id
+        ) continue;
+        const identity = `${target?.worktree_id ?? 'local'}:${recipient.id}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+        nextMembers.push({ member: recipient, ...(target !== undefined && { target }) });
       }
     }
 
@@ -4427,8 +4480,9 @@ export class Daemon {
       groupId,
       roundNumber,
       releasedTs: new Date().toISOString(),
-      nextParticipants: nextMembers.map((member) => ({
+      nextParticipants: nextMembers.map(({ member, target }) => ({
         memberId: member.id,
+        target,
         payloadSnapshot: this.groupPayloadSnapshot(composeGroupRoundPayload(context, member.handle)),
         state: 'queued',
         hopCount: nextHop,
@@ -4461,8 +4515,13 @@ export class Daemon {
       ) continue;
       this.memberWaits.delete(memberId);
       this.groupWaits.delete(memberId);
-      const member = this.store.getMember(room, memberId);
-      if (member) this.emitMember(room, member);
+      const participant = participants.find((candidate) => candidate.member_id === memberId);
+      const delivery = participant === undefined
+        ? undefined
+        : this.store.getDelivery(room, participant.delivery_id);
+      const located = delivery === undefined ? undefined : this.targetMember(delivery, room);
+      const member = located?.member ?? this.store.getMember(room, memberId);
+      if (member) this.emitMember(located?.room ?? room, member);
     }
   }
 
@@ -4541,6 +4600,9 @@ export class Daemon {
   ): void {
     const cardMsg = this.store.postMessage(room, {
       author: member.id,
+      ...(targetRoom !== room && {
+        author_target: this.targetForMember(room, targetRoom, member),
+      }),
       kind,
       body: card.prompt,
       ask: card,
@@ -4899,7 +4961,9 @@ export class Daemon {
         )) {
           if (participant.terminal_status !== undefined) continue;
           const delivery = this.store.getDelivery(room, participant.delivery_id);
-          const member = this.store.getMember(room, participant.member_id);
+          const member = delivery === undefined
+            ? this.store.getMember(room, participant.member_id)
+            : this.targetMember(delivery, room)?.member;
           const result = delivery?.run_msg_id === undefined
             ? undefined
             : this.store.getMessage(room, delivery.run_msg_id);

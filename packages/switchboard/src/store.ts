@@ -1984,6 +1984,14 @@ export class Store {
             display_name: member.display_name,
             ...(member.purpose !== undefined && { purpose: member.purpose }),
           })),
+        removed_members: this.listMembers(worktree.conversation_id, { includeRemoved: true })
+          .filter((member) =>
+            member.removed_ts !== undefined && (member.kind === 'human' || member.kind === 'agent'))
+          .map((member) => ({
+            member_id: member.id,
+            handle: member.handle,
+            kind: member.kind,
+          })),
       }));
     const tombstones = registered
       .filter((worktree) => worktree.lifecycle !== 'active' && worktree.conversation_id !== undefined)
@@ -1997,15 +2005,35 @@ export class Store {
     return WorktreeRoutingCatalogSchema.parse({ room: root, targets, tombstones });
   }
 
-  /** Re-check a persisted qualified target immediately before execution. */
-  routingTargetIsActive(target: ScopedMemberTarget): boolean {
+  private routingTargetRecord(target: ScopedMemberTarget): {
+    root: string;
+    worktree: RegisteredWorktree;
+    member: Member;
+  } | undefined {
     const root = this.rootRoomId(target.conversation_id) ?? target.conversation_id;
     const worktree = this.getWorktreeByConversation(root, target.conversation_id);
+    if (
+      worktree === undefined
+      || worktree.id !== target.worktree_id
+      || worktree.room !== root
+      || worktree.conversation_id !== target.conversation_id
+      || worktree.alias !== target.alias
+    ) return undefined;
     const member = this.getMember(target.conversation_id, target.member_id);
-    return worktree?.id === target.worktree_id
-      && worktree.lifecycle === 'active'
-      && member !== undefined
-      && member.removed_ts === undefined;
+    if (
+      member === undefined
+      || member.handle !== target.handle
+      || (member.kind !== 'human' && member.kind !== 'agent')
+    ) return undefined;
+    return { root, worktree, member };
+  }
+
+  /** Re-check a persisted qualified target immediately before execution. */
+  routingTargetIsActive(target: ScopedMemberTarget): boolean {
+    const located = this.routingTargetRecord(target);
+    return located !== undefined
+      && located.worktree.lifecycle === 'active'
+      && located.member.removed_ts === undefined;
   }
 
   getWorktreeByGitAdmin(
@@ -3603,6 +3631,14 @@ export class Store {
     },
   ): Delivery {
     return this.db.transaction(() => {
+      // A stored target is an execution identity, not a hint. Validate the
+      // complete stable tuple while the delivery is still new; stale queued
+      // rows are settled by the daemon and never silently re-resolved.
+      if (delivery.target !== undefined && !this.routingTargetIsActive(delivery.target)) {
+        throw new Error(
+          `qualified delivery target is not active: ${delivery.target.alias}:@${delivery.target.handle}`,
+        );
+      }
       const nextQueueSeq = this.db
         .prepare('SELECT COALESCE(MAX(queue_seq), 0) + 1 AS seq FROM deliveries')
         .get() as { seq: number };
@@ -3842,15 +3878,16 @@ export class Store {
       targetRoom: string;
       target: ScopedMemberTarget;
     }[] = [];
+    const seen = new Set<string>();
     for (const room of this.listRooms()) {
       for (const delivery of this.listDeliveries(room.id, { state: 'delivering' })) {
         const target = delivery.target;
         if (target === undefined || target.member_id !== memberId || delivery.run_msg_id === undefined) continue;
         const run = this.getMessage(room.id, delivery.run_msg_id);
         if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
-        const key = `${room.id}:${run.id}:${target.conversation_id}:${target.member_id}`;
-        if (found.some((candidate) =>
-          `${candidate.originRoom}:${run.id}:${candidate.targetRoom}:${candidate.target.member_id}` === key)) continue;
+        const key = `${room.id}:${run.id}:${target.worktree_id}:${target.conversation_id}:${target.member_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         found.push({ originRoom: room.id, targetRoom: target.conversation_id, target });
       }
     }
@@ -3913,6 +3950,7 @@ export class Store {
         })
         .filter((delivery) =>
           delivery.state !== 'consumed' &&
+          (delivery.target === undefined || this.routingTargetIsActive(delivery.target)) &&
           (delivery.state === 'queued' || boundToReusedRun(delivery)),
         );
 
@@ -4428,10 +4466,11 @@ export class Store {
     }
     const seen = new Set<string>();
     for (const participant of participants) {
-      if (seen.has(participant.memberId)) {
+      const identity = `${participant.target?.worktree_id ?? 'local'}:${participant.memberId}`;
+      if (seen.has(identity)) {
         throw new Error(`duplicate collaboration participant: ${participant.memberId}`);
       }
-      seen.add(participant.memberId);
+      seen.add(identity);
       if (participant.state !== undefined && participant.state !== 'queued' && participant.state !== 'held') {
         throw new Error(`invalid initial collaboration delivery state: ${participant.state}`);
       }
@@ -4443,9 +4482,14 @@ export class Store {
     participants: CollaborationRoundParticipantInput[],
   ): void {
     for (const participant of participants) {
-      const member = this.getMember(room, participant.memberId);
+      const member = participant.target === undefined
+        ? this.getMember(room, participant.memberId)
+        : this.routingTargetRecord(participant.target)?.member;
       if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
         throw new Error(`no active agent member: ${participant.memberId}`);
+      }
+      if (participant.target !== undefined && !this.routingTargetIsActive(participant.target)) {
+        throw new Error(`qualified collaboration target is not active: ${participant.target.alias}:@${participant.target.handle}`);
       }
     }
   }
@@ -4456,7 +4500,15 @@ export class Store {
   ): CollaborationRoundProjection {
     const sameMembers = projection.participants.length === requested.length &&
       projection.participants.every(
-        (participant, index) => participant.member_id === requested[index]!.memberId,
+        (participant, index) => {
+          const requestedParticipant = requested[index]!;
+          const delivery = projection.deliveries[index];
+          return participant.member_id === requestedParticipant.memberId
+            && delivery?.target?.worktree_id === requestedParticipant.target?.worktree_id
+            && delivery?.target?.conversation_id === requestedParticipant.target?.conversation_id
+            && delivery?.target?.alias === requestedParticipant.target?.alias
+            && delivery?.target?.handle === requestedParticipant.target?.handle;
+        },
       );
     const sameSnapshots = sameMembers && projection.deliveries.every(
       (delivery, index) =>
@@ -4497,6 +4549,7 @@ export class Store {
         state: input.state,
         payload_snapshot: input.payloadSnapshot,
         hop_count: input.hopCount,
+        target: input.target,
         group_id: group.id,
         group_round: roundNumber,
       });

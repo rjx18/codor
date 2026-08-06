@@ -9,8 +9,8 @@ notes: >-
   anchors revealed by Luna's preserved seven-source patch; v2 adds only those
   assumptions and their paired regression anchors. The patch is not part of the
   clean lock and may be reapplied only after v2 is locked. This review-fix pass
-  must make the already-approved Phase 3
-  assumptions true without adding Phase 4 navigation or lifecycle UI.
+  must make the already-approved Phase 3 assumptions true without adding Phase 4
+  navigation or lifecycle UI.
 
   Make the shared qualified grammar code-unit safe so any number of non-BMP
   characters before a qualified token cannot expose its inner @handle to local
@@ -47,20 +47,21 @@ notes: >-
   idempotence, skipping, recovery, terminal settlement, and next-round release
   must resolve each participant from its delivery rather than the origin roster.
   Parse each terminal result with that participant's execution-worktree roster,
-  keep invalid qualified result routing atomic, retain stable scope on next-round
-  deliveries, and render qualified peer labels in the common group payload.
-  Cross-worktree group waits may name any participant in the same origin round,
-  while wait state and member frames remain on the waiter's target home.
+  keep invalid qualified result routing atomic, retain stable scope on
+  next-round deliveries, and render qualified peer labels in the common group
+  payload. Cross-worktree group waits may name any participant in the same
+  origin round, while wait state and member frames remain on the waiter's target
+  home.
 
   Keep foreign ask/approval rows and live run/member frames in the origin/target
   coordinate required by Phase 3: interactions in the origin carry scoped author
   attribution, target session-ref/member updates emit only to the target room,
   and an ambiguous remote attempt clears invocation authority when its durable
   delivery is held. During exactly one active invocation, WebSocket hydration
-  may map the home selector to the origin but must overlay only the authenticated
-  target member as self, expose only that member's origin inbox, and continue to
-  reject every other room and management act; idle and recovered credentials
-  return to home scope.
+  may map the home selector to the origin but must overlay only the
+  authenticated target member as self, expose only that member's origin inbox,
+  and continue to reject every other room and management act; idle and recovered
+  credentials return to home scope.
 
   Add regressions for every defect above, including long Unicode prefixes,
   malformed/ambiguous/unregistered/removed selectors, paired scope schema/store
@@ -77,105 +78,136 @@ assumptions:
   reviewed:
     - id: qualified-member-target-identity-is-durable
       outcome: unchanged
-      reason: The stable identity contract is correct; parser and store boundaries must close the reviewed gaps.
+      reason: The stable identity contract is correct; parser and store boundaries
+        must close the reviewed gaps.
     - id: invalid-qualified-targets-never-fallback
       outcome: unchanged
-      reason: Specific malformed, ambiguous, lifecycle, and member refusals must become complete and atomic.
+      reason: Specific malformed, ambiguous, lifecycle, and member refusals must
+        become complete and atomic.
     - id: cross-worktree-output-stays-in-origin
       outcome: unchanged
-      reason: Interactions, groups, replies, and live output remain origin-owned with scoped attribution.
+      reason: Interactions, groups, replies, and live output remain origin-owned with
+        scoped attribution.
     - id: cross-worktree-runtime-stays-target-local
       outcome: unchanged
-      reason: Main and secondary targets keep target-only runtime rows, frames, sessions, tasks, waits, and meters.
+      reason: Main and secondary targets keep target-only runtime rows, frames,
+        sessions, tasks, waits, and meters.
     - id: target-member-turns-serialize-across-origins
       outcome: unchanged
-      reason: Durable fencing and queue draining must serialize every origin by stable target member.
+      reason: Durable fencing and queue draining must serialize every origin by stable
+        target member.
     - id: agent-authority-follows-one-active-invocation
       outcome: unchanged
-      reason: One durable attempt maps one credential to one origin and every ambiguous or settled state fails closed/home.
+      reason: One durable attempt maps one credential to one origin and every
+        ambiguous or settled state fails closed/home.
     - id: qualified-completion-lists-registered-targets-only
       outcome: unchanged
-      reason: Completion remains path-free and active-only while bounded tombstones explain exact refusals.
+      reason: Completion remains path-free and active-only while bounded tombstones
+        explain exact refusals.
     - id: body-parser-shared-across-router-and-web
       outcome: unchanged
-      reason: Router and browser must continue sharing the corrected code-unit-safe grammar.
+      reason: Router and browser must continue sharing the corrected code-unit-safe
+        grammar.
     - id: mention-spans-survive-renames
       outcome: unchanged
-      reason: Correct UTF-16 offsets and stable target ids preserve stored mention identity.
+      reason: Correct UTF-16 offsets and stable target ids preserve stored mention
+        identity.
     - id: default-recipient-fallback-chain
       outcome: unchanged
-      reason: The existing precedence remains, but trigger/reply candidates carry their explicit scope.
+      reason: The existing precedence remains, but trigger/reply candidates carry
+        their explicit scope.
     - id: eligible-multi-agent-routing-starts-one-group
       outcome: unchanged
-      reason: Scoped recipients must no longer bypass the required one-group ingress transaction.
+      reason: Scoped recipients must no longer bypass the required one-group ingress
+        transaction.
     - id: collaboration-groups-are-durable-state
       outcome: unchanged
-      reason: Participant scope lives durably on its delivery while group/round slots remain origin-owned.
+      reason: Participant scope lives durably on its delivery while group/round slots
+        remain origin-owned.
     - id: group-round-payloads-share-one-ordered-view
       outcome: unchanged
-      reason: All recipients receive one ordered view with unambiguous qualified peer labels.
+      reason: All recipients receive one ordered view with unambiguous qualified peer
+        labels.
     - id: collaboration-round-release-is-one-barrier
       outcome: unchanged
-      reason: Next-round routing must resolve each result in its execution worktree and materialize scoped deliveries once.
+      reason: Next-round routing must resolve each result in its execution worktree
+        and materialize scoped deliveries once.
     - id: same-round-terminal-peers-end-live-waits
       outcome: unchanged
-      reason: Cross-worktree peers in the same durable round are valid wait peers and clear target-local state.
+      reason: Cross-worktree peers in the same durable round are valid wait peers and
+        clear target-local state.
     - id: brakes-rechecked-at-turn-start
       outcome: unchanged
       reason: Admission and retry must read the target room's current brake and meter.
     - id: unresolved-delivery-fences-fresh-member-turns
       outcome: unchanged
-      reason: The fence must inspect the actual origin message bound to every target delivery.
+      reason: The fence must inspect the actual origin message bound to every target
+        delivery.
     - id: only-an-admissible-delivery-becomes-delivering
       outcome: unchanged
-      reason: Scoped lifecycle and repository identity remain admission requirements without resurrecting work.
+      reason: Scoped lifecycle and repository identity remain admission requirements
+        without resurrecting work.
     - id: agent-sync-hydrates-only-own-queued-inbox
       outcome: unchanged
-      reason: Invocation hydration adds authenticated self only and never exposes a foreign inbox.
+      reason: Invocation hydration adds authenticated self only and never exposes a
+        foreign inbox.
     - id: agent-network-authority-is-narrow
       outcome: unchanged
-      reason: Effective-origin mapping must not widen the existing operation matrix or room boundary.
+      reason: Effective-origin mapping must not widen the existing operation matrix or
+        room boundary.
     - id: group-generated-deliveries-obey-existing-brakes
       outcome: unchanged
       reason: Scoped next rounds use the target room's existing brake semantics.
     - id: open-collaboration-groups-reconcile-without-resurrection
       outcome: unchanged
-      reason: Removed scoped participants settle and release the origin barrier without a turn.
+      reason: Removed scoped participants settle and release the origin barrier
+        without a turn.
     - id: grouped-deliveries-retain-agent-briefings
       outcome: unchanged
-      reason: Each scoped participant receives its target-local roster and conventions in the shared group payload.
+      reason: Each scoped participant receives its target-local roster and conventions
+        in the shared group payload.
     - id: group-round-routing-instruction-is-always-on
       outcome: unchanged
-      reason: Qualified peer labels must preserve the always-present group routing instruction and its cost/wait guidance.
+      reason: Qualified peer labels must preserve the always-present group routing
+        instruction and its cost/wait guidance.
     - id: live-agent-waits-are-transient
       outcome: unchanged
-      reason: Cross-worktree group wait eligibility changes only peer resolution; wait state remains transient and target-local.
+      reason: Cross-worktree group wait eligibility changes only peer resolution; wait
+        state remains transient and target-local.
     - id: finalized-turn-routes-aggregate-from-terminal-output
       outcome: unchanged
-      reason: Scoped trigger and reply routing still derives from the same finalized terminal aggregate.
+      reason: Scoped trigger and reply routing still derives from the same finalized
+        terminal aggregate.
     - id: agent-member-credentials-stay-secret
       outcome: unchanged
-      reason: Effective-origin hydration must preserve the existing principal boundary and never expose credentials.
+      reason: Effective-origin hydration must preserve the existing principal boundary
+        and never expose credentials.
     - id: group-round-creation-is-atomic-and-idempotent
       outcome: unchanged
-      reason: Adding participant target scope must preserve atomic, idempotent materialization of one durable group round.
+      reason: Adding participant target scope must preserve atomic, idempotent
+        materialization of one durable group round.
 anchors:
   qualified-member-target-identity-is-durable:
     qualified-member-target-protocol:
       action: change
-      reason: Add bounded removed-member tombstones and catalog identity/uniqueness validation.
+      reason: Add bounded removed-member tombstones and catalog identity/uniqueness
+        validation.
     qualified-member-target-protocol-regression:
       action: change
-      reason: Cover main relationships, duplicate identities, and path-free removed-member tombstones.
+      reason: Cover main relationships, duplicate identities, and path-free
+        removed-member tombstones.
     qualified-scope-schema-regression:
       action: change
-      reason: Add paired scoped mention, author, and delivery acceptance/refusal coverage.
+      reason: Add paired scoped mention, author, and delivery acceptance/refusal
+        coverage.
     qualified-body-grammar:
       action: change
-      reason: Blank qualified ranges by UTF-16 code unit and resolve exact complete tokens once.
+      reason: Blank qualified ranges by UTF-16 code unit and resolve exact complete
+        tokens once.
     qualified-body-grammar-regression:
       action: change
-      reason: Cover non-BMP prefixes, punctuation, malformed forms, ambiguity, tombstone classes, and inner-handle isolation.
+      reason: Cover non-BMP prefixes, punctuation, malformed forms, ambiguity,
+        tombstone classes, and inner-handle isolation.
     qualified-routing-resolution:
       action: change
       reason: Carry scoped trigger and reply recipients without local/default fallback.
@@ -184,36 +216,43 @@ anchors:
       reason: Prove child-to-main and cross-origin stable recipient selection.
     qualified-routing-store-query:
       action: change
-      reason: Project bounded removed members and validate stable repository/worktree/member agreement.
+      reason: Project bounded removed members and validate stable
+        repository/worktree/member agreement.
     qualified-routing-store-regression:
       action: change
-      reason: Prove reopen, tombstones, same-root enforcement, and malformed scoped-row refusal.
+      reason: Prove reopen, tombstones, same-root enforcement, and malformed
+        scoped-row refusal.
   invalid-qualified-targets-never-fallback:
     qualified-routing-refusal:
       action: change
       reason: Keep all explicit and derived scoped failures atomic and visible.
     qualified-routing-refusal-regression:
       action: change
-      reason: Exercise every refusal reason, mixed targets, late lifecycle changes, and group final output.
+      reason: Exercise every refusal reason, mixed targets, late lifecycle changes,
+        and group final output.
     qualified-post-error-boundary:
       action: change
       reason: Refuse stale scoped reply intent before allocating a new origin message.
     qualified-post-error-regression:
       action: change
-      reason: Prove browser and agent drafts/messages do not fall back or start a session.
+      reason: Prove browser and agent drafts/messages do not fall back or start a
+        session.
   cross-worktree-output-stays-in-origin:
     cross-worktree-origin-transaction:
       action: change
-      reason: Persist scoped group, interaction, reply, and refusal state in the origin transaction.
+      reason: Persist scoped group, interaction, reply, and refusal state in the
+        origin transaction.
     cross-worktree-origin-regression:
       action: change
       reason: Prove foreign authors and group state remain origin-only across reopen.
     cross-worktree-turn-orchestration:
       action: change
-      reason: Thread stable trigger/reply/group coordinates through turn finalization and onward routing.
+      reason: Thread stable trigger/reply/group coordinates through turn finalization
+        and onward routing.
     cross-worktree-turn-orchestration-regression:
       action: change
-      reason: Cover main-target onward routing, interactions, collaboration, reply placement, and restart.
+      reason: Cover main-target onward routing, interactions, collaboration, reply
+        placement, and restart.
     cross-worktree-interaction-attribution:
       action: change
       reason: Persist the active target identity on foreign ask and approval rows.
@@ -223,52 +262,66 @@ anchors:
   cross-worktree-runtime-stays-target-local:
     cross-worktree-runtime-target:
       action: change
-      reason: Treat execution-versus-origin as the local test and keep runtime callbacks target-local.
+      reason: Treat execution-versus-origin as the local test and keep runtime
+        callbacks target-local.
     cross-worktree-runtime-live-frame:
       action: change
       reason: Emit remote session/member updates only to the target conversation.
     cross-worktree-runtime-regression:
       action: change
-      reason: Prove main/secondary frames, state, session, wait, tasks, and meter isolation.
+      reason: Prove main/secondary frames, state, session, wait, tasks, and meter
+        isolation.
   target-member-turns-serialize-across-origins:
     cross-origin-delivery-queue:
       action: change
-      reason: Keep global order while validating each delivery's actual origin/run identity.
+      reason: Keep global order while validating each delivery's actual origin/run
+        identity.
     cross-origin-turn-scheduler:
       action: change
-      reason: Drain valid work after stale refusal and fence colliding ids across origins.
+      reason: Drain valid work after stale refusal and fence colliding ids across
+        origins.
     cross-origin-turn-scheduler-regression:
       action: change
-      reason: Cover durable restart fences, stale queue draining, groups, and no cross-origin steering.
+      reason: Cover durable restart fences, stale queue draining, groups, and no
+        cross-origin steering.
   agent-authority-follows-one-active-invocation:
     agent-active-invocation-resolution:
       action: change
-      reason: Deduplicate only deliveries bound to the same origin run and clear held remote attempts.
+      reason: Deduplicate only deliveries bound to the same origin run and clear held
+        remote attempts.
     agent-active-invocation-authorization:
       action: change
-      reason: Map only home/exact origin and restore home immediately after settlement/ambiguity.
+      reason: Map only home/exact origin and restore home immediately after
+        settlement/ambiguity.
     agent-active-invocation-regression:
       action: change
-      reason: Cover same-origin duplicate runs, cross-origin collisions, ambiguity, and recovery.
+      reason: Cover same-origin duplicate runs, cross-origin collisions, ambiguity,
+        and recovery.
     agent-active-invocation-server:
       action: change
-      reason: Overlay target self on effective-origin hydration without exposing its target roster or another inbox.
+      reason: Overlay target self on effective-origin hydration without exposing its
+        target roster or another inbox.
     agent-active-invocation-server-regression:
       action: change
-      reason: Exercise real WebSocket home/origin/other selectors and the complete existing agent matrix.
+      reason: Exercise real WebSocket home/origin/other selectors and the complete
+        existing agent matrix.
   qualified-completion-lists-registered-targets-only:
     qualified-target-catalog:
       action: change
-      reason: Include only bounded removed-member refusal metadata beside active completion members.
+      reason: Include only bounded removed-member refusal metadata beside active
+        completion members.
     qualified-target-catalog-regression:
       action: change
-      reason: Prove completion excludes tombstones/discovery and REST remains path-free and human-only.
+      reason: Prove completion excludes tombstones/discovery and REST remains
+        path-free and human-only.
     qualified-composer-completion-regression:
       action: change
-      reason: Cover identical handles, removed candidates, exact labels, and ordinary empty catalogs.
+      reason: Cover identical handles, removed candidates, exact labels, and ordinary
+        empty catalogs.
     qualified-composer-refusal-regression:
       action: change
-      reason: Cover every shared-parser label and draft preservation through server refusal.
+      reason: Cover every shared-parser label and draft preservation through server
+        refusal.
   body-parser-shared-across-router-and-web:
     shared-body-parser:
       action: change
@@ -276,34 +329,41 @@ anchors:
   default-recipient-fallback-chain:
     substantive-default-recipient:
       action: change
-      reason: Prefer the exact local-or-scoped trigger/reply recipient without changing ordinary precedence.
+      reason: Prefer the exact local-or-scoped trigger/reply recipient without
+        changing ordinary precedence.
     effective-default-regression:
       action: change
-      reason: Prove local defaults are unchanged and scoped defaults never degrade to a different agent.
+      reason: Prove local defaults are unchanged and scoped defaults never degrade to
+        a different agent.
   eligible-multi-agent-routing-starts-one-group:
     multi-agent-group-ingress:
       action: change
-      reason: Remove the scoped-recipient bypass and build one origin group with target-bearing participants.
+      reason: Remove the scoped-recipient bypass and build one origin group with
+        target-bearing participants.
     multi-agent-group-regression:
       action: change
-      reason: Exercise local plus main/secondary equal-handle participants and atomic ingress.
+      reason: Exercise local plus main/secondary equal-handle participants and atomic
+        ingress.
     atomic-routed-message-commit:
       action: change
       reason: Commit scoped participant deliveries in the same origin transaction.
   collaboration-groups-are-durable-state:
     scoped-collaboration-participant-input:
       action: change
-      reason: Carry optional stable target scope through participant materialization and idempotence.
+      reason: Carry optional stable target scope through participant materialization
+        and idempotence.
     collaboration-store-projection:
       action: change
-      reason: Resolve a participant from its delivery target rather than the origin roster.
+      reason: Resolve a participant from its delivery target rather than the origin
+        roster.
     collaboration-store-reopen-regression:
       action: change
       reason: Prove scoped participant deliveries and terminal slots survive reopen.
   group-round-payloads-share-one-ordered-view:
     group-round-payload-composer:
       action: change
-      reason: Render local @handle and foreign ~alias:@handle labels in one ordered result view.
+      reason: Render local @handle and foreign ~alias:@handle labels in one ordered
+        result view.
     group-round-payload-goldens:
       action: change
       reason: Pin qualified labels while preserving byte identity except the you field.
@@ -316,17 +376,21 @@ anchors:
       reason: Prove scoped next-round idempotence and one release.
     collaboration-barrier-engine:
       action: change
-      reason: Parse each result in its execution roster and retain local/qualified target identity.
+      reason: Parse each result in its execution roster and retain local/qualified
+        target identity.
     collaboration-barrier-regression:
       action: change
-      reason: Cover mixed scopes, invalid result atomicity, skipped targets, and deterministic next rounds.
+      reason: Cover mixed scopes, invalid result atomicity, skipped targets, and
+        deterministic next rounds.
   same-round-terminal-peers-end-live-waits:
     collaboration-wait-context:
       action: change
-      reason: Admit any peer in the same origin group round and keep the wait on target home.
+      reason: Admit any peer in the same origin group round and keep the wait on
+        target home.
     collaboration-wait-release-regression:
       action: change
-      reason: Prove cross-worktree peer completion emits only the waiting target member.
+      reason: Prove cross-worktree peer completion emits only the waiting target
+        member.
   brakes-rechecked-at-turn-start:
     turn-start-brake-recheck:
       action: change
@@ -345,17 +409,21 @@ anchors:
   only-an-admissible-delivery-becomes-delivering:
     turn-admission-guard:
       action: change
-      reason: Validate persisted target identity/lifecycle without widening admissible states.
+      reason: Validate persisted target identity/lifecycle without widening admissible
+        states.
     turn-start-with-nothing-admissible:
       action: change
-      reason: Refuse stale scope visibly, settle it, and continue draining valid work without an empty run.
+      reason: Refuse stale scope visibly, settle it, and continue draining valid work
+        without an empty run.
     turn-admission-regression:
       action: change
-      reason: Exercise removal between post/admission and valid work on both sides of the stale row.
+      reason: Exercise removal between post/admission and valid work on both sides of
+        the stale row.
   agent-sync-hydrates-only-own-queued-inbox:
     agent-own-queued-sync-overlay:
       action: change
-      reason: Overlay authenticated target self and only its effective-origin queued inbox.
+      reason: Overlay authenticated target self and only its effective-origin queued
+        inbox.
     own-queued-sync-regression:
       action: change
       reason: Prove a cross-invoked self never gains another member's delivery.
@@ -365,7 +433,8 @@ anchors:
       reason: Keep capability checks bound to home or exact effective origin only.
     agent-authz-regression:
       action: change
-      reason: Extend the existing role matrix through active and recovered invocation scope.
+      reason: Extend the existing role matrix through active and recovered invocation
+        scope.
   open-collaboration-groups-reconcile-without-resurrection:
     collaboration-member-skip-transaction:
       action: change
@@ -379,45 +448,56 @@ anchors:
   grouped-deliveries-retain-agent-briefings:
     grouped-delivery-briefing:
       action: change
-      reason: Compose each group delivery with its target-local roster and origin group bytes.
+      reason: Compose each group delivery with its target-local roster and origin
+        group bytes.
     grouped-delivery-briefing-regression:
       action: change
       reason: Prove equal handles do not leak another worktree roster.
   group-round-routing-instruction-is-always-on:
     group-routing-instruction:
       action: change
-      reason: Preserve the enclosing always-on routing instruction while rendering stable qualified peer labels.
+      reason: Preserve the enclosing always-on routing instruction while rendering
+        stable qualified peer labels.
     group-routing-instruction-regression:
       action: change
-      reason: Prove the common instruction and cost/wait guidance remain present for mixed-scope groups.
+      reason: Prove the common instruction and cost/wait guidance remain present for
+        mixed-scope groups.
   live-agent-waits-are-transient:
     transient-wait-registry:
       action: change
-      reason: Resolve same-round scoped peers without moving wait persistence out of the transient target-local registry.
+      reason: Resolve same-round scoped peers without moving wait persistence out of
+        the transient target-local registry.
     wait-daemon-regression:
       action: change
-      reason: Exercise cross-worktree peer waits through the existing transient wait lifecycle.
+      reason: Exercise cross-worktree peer waits through the existing transient wait
+        lifecycle.
   finalized-turn-routes-aggregate-from-terminal-output:
     finalize-and-route:
       action: change
-      reason: Carry scoped trigger and reply coordinates through the existing finalization and aggregate-routing boundary.
+      reason: Carry scoped trigger and reply coordinates through the existing
+        finalization and aggregate-routing boundary.
     aggregate-routing-regression:
       action: change
-      reason: Prove scoped onward routing still occurs only from finalized terminal aggregate output.
+      reason: Prove scoped onward routing still occurs only from finalized terminal
+        aggregate output.
   agent-member-credentials-stay-secret:
     agent-principal-resolution:
       action: change
-      reason: Resolve effective-origin authority while retaining the existing secret principal boundary.
+      reason: Resolve effective-origin authority while retaining the existing secret
+        principal boundary.
     agent-principal-resolution-regression:
       action: change
-      reason: Prove scoped hydration and authorization never disclose agent credentials or widen principal resolution.
+      reason: Prove scoped hydration and authorization never disclose agent
+        credentials or widen principal resolution.
   group-round-creation-is-atomic-and-idempotent:
     collaboration-round-materialization:
       action: change
-      reason: Materialize optional participant target scope inside the existing atomic idempotent round transaction.
+      reason: Materialize optional participant target scope inside the existing atomic
+        idempotent round transaction.
     collaboration-round-materialization-regression:
       action: change
-      reason: Prove mixed-scope participant materialization remains atomic, unique, and replay-safe.
+      reason: Prove mixed-scope participant materialization remains atomic, unique,
+        and replay-safe.
 files:
   - packages/protocol/src/body.ts
   - packages/protocol/src/worktree.ts
@@ -443,20 +523,22 @@ verification: Before source edits, verify the preserved patch at
   git apply --check against the clean locked base. Reapply only those seven
   entries after the lock is verified; then complete every declared regression
   and source requirement within the unchanged sixteen-file boundary. Run harn
-  find --plan native-worktrees-phase3-review-fixes-v2, harn plan
-  check native-worktrees-phase3-review-fixes-v2, and harn check
-  native-worktrees-phase3-review-fixes-v2. First run focused tests with pnpm --filter
-  @codor/protocol test and pnpm --filter @codor/switchboard exec vitest run
-  src/router.spec.ts src/collaboration.spec.ts src/store.spec.ts src/daemon.spec.ts
-  src/server.spec.ts and pnpm --filter @codor/web-next exec vitest run
-  src/room/Composer.spec.tsx src/room/Transcript.spec.tsx. Then run the complete
-  pnpm --filter @codor/switchboard test twice, pnpm --filter @codor/web-next test,
-  pnpm --filter '@codor/switchboard...' build, and pnpm --filter
-  '@codor/web-next...' build. Capture a normalized git worktree list --porcelain
-  path/branch inventory immediately before all gates and after all gates; require
-  the same count and exact bytes. Any Git-backed regression must create its own
-  mkdtemp repository and disposable worktrees. No command or test may create,
-  move, rename, unregister, remove, or modify a real user worktree. Stage only
-  this locked plan and the sixteen declared source/test files, run harn check
-  --staged, let the hook apply the plan/generate truth, and create exactly one
-  review-fix implementation commit.
+  find --plan native-worktrees-phase3-review-fixes-v2, harn plan check
+  native-worktrees-phase3-review-fixes-v2, and harn check
+  native-worktrees-phase3-review-fixes-v2. First run focused tests with pnpm
+  --filter @codor/protocol test and pnpm --filter @codor/switchboard exec vitest
+  run src/router.spec.ts src/collaboration.spec.ts src/store.spec.ts
+  src/daemon.spec.ts src/server.spec.ts and pnpm --filter @codor/web-next exec
+  vitest run src/room/Composer.spec.tsx src/room/Transcript.spec.tsx. Then run
+  the complete pnpm --filter @codor/switchboard test twice, pnpm --filter
+  @codor/web-next test, pnpm --filter '@codor/switchboard...' build, and pnpm
+  --filter '@codor/web-next...' build. Capture a normalized git worktree list
+  --porcelain path/branch inventory immediately before all gates and after all
+  gates; require the same count and exact bytes. Any Git-backed regression must
+  create its own mkdtemp repository and disposable worktrees. No command or test
+  may create, move, rename, unregister, remove, or modify a real user worktree.
+  Stage only this locked plan and the sixteen declared source/test files, run
+  harn check --staged, let the hook apply the plan/generate truth, and create
+  exactly one review-fix implementation commit.
+applied:
+  applied_at: 2026-08-06T12:59:22.538Z

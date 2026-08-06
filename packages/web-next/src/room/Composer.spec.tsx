@@ -89,6 +89,26 @@ describe('qualified composer completion', () => {
     expect(both.map((candidate) => `~${candidate.target.alias}:@${candidate.member.handle}`))
       .toEqual(['~main:@coder', '~review:@coder']);
   });
+
+  it('keeps duplicate handles distinct by target and never suggests tombstones', () => {
+    const query = qualifiedMentionQuery('~:@co', 5)!;
+    expect(query).toEqual({ start: 0, aliasQuery: '', handleQuery: 'co' });
+    const candidates = qualifiedCompletionCandidates(catalog, query);
+    expect(candidates.map((candidate) => `~${candidate.target.alias}:@${candidate.member.handle}`))
+      .toEqual(['~main:@coder', '~review:@coder']);
+    expect(candidates.some((candidate) => candidate.target.alias === 'old')).toBe(false);
+  });
+
+  it('uses UTF-16 caret offsets while preserving the surrounding draft on insertion', () => {
+    const draft = `😀😀 ask ~r:@co`;
+    const query = qualifiedMentionQuery(draft, draft.length)!;
+    expect(query).toEqual({ start: 9, aliasQuery: 'r', handleQuery: 'co' });
+    const completion = qualifiedCompletionCandidates(catalog, query)[0]!;
+    expect(insertQualifiedMentionText(draft, query, completion, draft.length)).toEqual({
+      text: '😀😀 ask ~review:@coder ',
+      caret: 24,
+    });
+  });
 });
 // harn:end qualified-completion-lists-registered-targets-only
 
@@ -103,6 +123,25 @@ describe('qualified composer refusal', () => {
       expect.objectContaining({ token: '~missing:@coder', reason: 'unknown-worktree' }),
     ]);
     expect('~missing:@coder keep this draft').toContain(parsed.qualified_issues![0]!.token);
+  });
+
+  it.each([
+    ['~old:@coder', 'removed-worktree'],
+    ['~unregistered:@coder', 'unregistered-worktree'],
+    ['~review: @coder', 'malformed'],
+  ] as const)('keeps %s as a visible non-fallback issue (%s)', (draft, reason) => {
+    const parsed = parseBody(draft, [], {
+      qualifiedTargets: {
+        room: 'eng', targets: [], tombstones: [
+          { worktree_id: '01J00000000000000000000004', conversation_id: 'wt-old', alias: 'old', lifecycle: 'removed' },
+          { worktree_id: '01J00000000000000000000005', conversation_id: 'wt-unregistered', alias: 'unregistered', lifecycle: 'unregistered' },
+        ],
+      },
+    });
+    expect(parsed.qualified).toEqual([]);
+    expect(parsed.mentions).toEqual([]);
+    expect(parsed.qualified_issues).toEqual([expect.objectContaining({ token: expect.stringContaining(draft.slice(0, draft.indexOf(':'))), reason })]);
+    expect(draft).toContain(parsed.qualified_issues![0]!.token);
   });
 });
 // harn:end invalid-qualified-targets-never-fallback

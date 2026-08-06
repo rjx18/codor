@@ -131,6 +131,27 @@ describe('group round payload composition', () => {
     expect(alpha.replace('you=@alpha', 'you=@recipient'))
       .toBe(gamma.replace('you=@gamma', 'you=@recipient'));
   });
+
+  it('labels foreign participants with their stable scope in the shared payload', () => {
+    const target = {
+      worktree_id: '01J00000000000000000000007',
+      conversation_id: 'wt-review',
+      member_id: '01J00000000000000000000008',
+      alias: 'review',
+      handle: 'alpha',
+    };
+    const payload = composeGroupRoundPayload({
+      ...context,
+      results: [
+        { ordinal: 0, memberHandle: 'alpha', memberTarget: target, status: 'completed', body: 'scoped result' },
+        { ordinal: 1, memberHandle: 'beta', memberTarget: target, status: 'acknowledged' },
+      ],
+    }, 'gamma');
+    expect(payload).toContain('~review:@alpha - completed');
+    expect(payload).toContain('[~review:@beta acknowledged; no substantive response.]');
+    expect(payload).toContain('[group routing: all participants in this round run independently.');
+    expect(payload).toContain('Use <ACK_OK> as your entire onward response');
+  });
 });
 // harn:end group-round-routing-instruction-is-always-on
 // harn:end group-round-payloads-share-one-ordered-view

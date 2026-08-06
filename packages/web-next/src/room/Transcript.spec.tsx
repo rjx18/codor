@@ -164,6 +164,22 @@ describe('qualified transcript attribution', () => {
       conventions_sent: false, misaddressed: false, roster_stale: false,
     })).toBe('@coder');
   });
+
+  it('keeps stable scoped labels for every foreign message kind, including removed authors', () => {
+    const target = {
+      worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      conversation_id: 'wt-review',
+      member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+      alias: 'review',
+      handle: 'coder',
+    };
+    for (const kind of ['chat', 'run', 'ask', 'approval'] as const) {
+      expect(qualifiedAuthorLabel({ ...chat(20 + kind.length), kind, author: target.member_id, author_target: target }))
+        .toBe('~review:@coder');
+    }
+    expect(qualifiedAuthorLabel({ ...chat(31), author: target.member_id, author_target: target }))
+      .toBe('~review:@coder');
+  });
 });
 // harn:end cross-worktree-output-stays-in-origin
 

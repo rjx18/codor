@@ -62,6 +62,18 @@ export const WorktreeRoutingMemberSchema = z.object({
 });
 export type WorktreeRoutingMember = z.infer<typeof WorktreeRoutingMemberSchema>;
 
+/**
+ * A removed member remains addressable as a path-free tombstone long enough
+ * for a stale qualified token to fail explicitly as "removed", rather than
+ * being reinterpreted as a member of the origin room.
+ */
+export const WorktreeRoutingMemberTombstoneSchema = z.object({
+  member_id: MemberIdSchema,
+  handle: HandleSchema,
+  kind: z.enum(['human', 'agent']),
+});
+export type WorktreeRoutingMemberTombstone = z.infer<typeof WorktreeRoutingMemberTombstoneSchema>;
+
 /** One registered worktree's path-free qualified-routing projection. */
 export const WorktreeRoutingTargetSchema = z.object({
   worktree_id: WorktreeIdSchema,
@@ -70,6 +82,7 @@ export const WorktreeRoutingTargetSchema = z.object({
   primary: z.boolean(),
   lifecycle: z.literal('active'),
   members: z.array(WorktreeRoutingMemberSchema),
+  removed_members: z.array(WorktreeRoutingMemberTombstoneSchema).max(256).optional(),
 });
 export type WorktreeRoutingTarget = z.infer<typeof WorktreeRoutingTargetSchema>;
 
@@ -85,6 +98,41 @@ export const WorktreeRoutingCatalogSchema = z.object({
   room: RoomIdSchema,
   targets: z.array(WorktreeRoutingTargetSchema),
   tombstones: z.array(WorktreeRoutingTombstoneSchema),
+}).superRefine((catalog, ctx) => {
+  const seenWorktrees = new Set<string>();
+  const seenConversations = new Set<string>();
+  const seenAliases = new Set<string>();
+  for (const [index, target] of catalog.targets.entries()) {
+    if (seenWorktrees.has(target.worktree_id)) {
+      ctx.addIssue({ code: 'custom', path: ['targets', index, 'worktree_id'], message: 'duplicate worktree identity' });
+    }
+    if (seenConversations.has(target.conversation_id)) {
+      ctx.addIssue({ code: 'custom', path: ['targets', index, 'conversation_id'], message: 'duplicate conversation identity' });
+    }
+    if (seenAliases.has(target.alias)) {
+      ctx.addIssue({ code: 'custom', path: ['targets', index, 'alias'], message: 'duplicate worktree alias' });
+    }
+    seenWorktrees.add(target.worktree_id);
+    seenConversations.add(target.conversation_id);
+    seenAliases.add(target.alias);
+    if (target.primary && (target.alias !== 'main' || target.conversation_id !== catalog.room)) {
+      ctx.addIssue({ code: 'custom', path: ['targets', index], message: 'primary target must be main at the catalog room' });
+    }
+    const seenMembers = new Set<string>();
+    for (const [memberIndex, member] of target.members.entries()) {
+      if (seenMembers.has(member.member_id)) {
+        ctx.addIssue({ code: 'custom', path: ['targets', index, 'members', memberIndex, 'member_id'], message: 'duplicate member identity' });
+      }
+      seenMembers.add(member.member_id);
+    }
+    for (const [memberIndex, member] of (target.removed_members ?? []).entries()) {
+      if (seenMembers.has(member.member_id)) {
+        ctx.addIssue({ code: 'custom', path: ['targets', index, 'removed_members', memberIndex, 'member_id'], message: 'member cannot be both active and removed' });
+      }
+      if (seenMembers.has(member.member_id)) continue;
+      seenMembers.add(member.member_id);
+    }
+  }
 });
 export type WorktreeRoutingCatalog = z.infer<typeof WorktreeRoutingCatalogSchema>;
 // harn:end qualified-member-target-protocol

@@ -22,8 +22,15 @@ export type QualifiedMentionIssueReason =
   | 'malformed'
   | 'catalog-unavailable'
   | 'unknown-worktree'
+  | 'unregistered-worktree'
   | 'removed-worktree'
-  | 'unknown-member';
+  | 'ambiguous-worktree'
+  | 'unknown-member'
+  | 'removed-member'
+  | 'ambiguous-member';
+  // A handle can be stale or duplicated inside a path-free catalog. Keep
+  // these failures distinct so the router can explain the refusal without
+  // ever trying the origin roster as a fallback.
 
 export interface QualifiedMentionIssue {
   token: string;
@@ -56,7 +63,10 @@ function blankCodeSpans(body: string): string {
 
 function blankRanges(body: string, ranges: readonly { start: number; end: number }[]): string {
   if (ranges.length === 0) return body;
-  const chars = [...body];
+  // JavaScript regex offsets are UTF-16 code-unit offsets. Splitting by code
+  // point (`[...body]`) shifts every range after a non-BMP character and can
+  // expose the inner @handle of an already-owned qualified token.
+  const chars = body.split('');
   for (const range of ranges) {
     for (let index = range.start; index < range.end && index < chars.length; index++) {
       if (chars[index] !== '\n') chars[index] = ' ';
@@ -95,36 +105,89 @@ export function parseBody(
   const occupied: { start: number; end: number }[] = [];
   const targets = targetList(options.qualifiedTargets);
   const catalog = targetCatalog(options.qualifiedTargets);
-  const qualifiedRe = /(^|[^\w`])~([a-z0-9][a-z0-9._-]*):@([a-z0-9][a-z0-9-]*)/g;
-  for (const match of coded.matchAll(qualifiedRe)) {
+  // Scan the whole suspicious token once. A prefix-only regex lets malformed
+  // suffixes (`~main:@codex.foo`, `~main: @codex`) escape and then be parsed as
+  // local mentions. The candidate owns the complete non-space token; a small
+  // punctuation suffix is left outside the span so ordinary prose remains
+  // byte-compatible.
+  const candidateRe = /(^|[^\w`])~[^\s`]+/g;
+  const validPrefixRe = /^~([a-z0-9][a-z0-9._-]*):@([a-z0-9][a-z0-9-]*)/;
+  const malformedPartsRe = /^~([^:\s]+):\s*@([^\s]*)/;
+  const punctuationOnly = /^[.,!?;:)\]}]*$/;
+  for (const match of coded.matchAll(candidateRe)) {
     const start = match.index + match[1]!.length;
-    const end = start + match[0]!.length - match[1]!.length;
-    const selector = match[2]!;
-    const handle = match[3]!;
+    let candidateEnd = start + match[0]!.length - match[1]!.length;
+    // Whitespace in a qualified selector is malformed, but it still belongs
+    // to the qualified token and must hide the inner local mention.
+    const spacedHandle = coded.slice(candidateEnd).match(/^\s+@[^\s`]+/);
+    if (coded[candidateEnd - 1] === ':' && spacedHandle !== null) {
+      candidateEnd += spacedHandle[0].length;
+    }
+    const candidate = coded.slice(start, candidateEnd);
+    const valid = validPrefixRe.exec(candidate);
+    let end = candidateEnd;
+    let selector = '';
+    let handle = '';
+    let malformed = false;
+    if (valid !== null && punctuationOnly.test(candidate.slice(valid[0].length))) {
+      end = start + valid[0].length;
+      selector = valid[1]!;
+      handle = valid[2]!;
+    } else {
+      malformed = true;
+      const parts = malformedPartsRe.exec(candidate);
+      selector = parts?.[1] ?? candidate.slice(1).split(':', 1)[0] ?? '';
+      handle = parts?.[2] ?? '';
+    }
     const token = body.slice(start, end);
     occupied.push({ start, end });
-    const target = targets?.find((candidate) => candidate.alias === selector);
+    if (malformed) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'malformed' });
+      continue;
+    }
     if (targets === undefined) {
       qualified_issues.push({ token, selector, handle, start, end, reason: 'catalog-unavailable' });
       continue;
     }
+    const matchingTargets = targets.filter((candidateTarget) => candidateTarget.alias === selector);
+    if (matchingTargets.length > 1) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'ambiguous-worktree' });
+      continue;
+    }
+    const target = matchingTargets[0];
     if (target === undefined) {
+      const tombstone = catalog?.tombstones.find((candidateTombstone) => candidateTombstone.alias === selector);
       qualified_issues.push({
         token,
         selector,
         handle,
         start,
         end,
-        reason: catalog?.tombstones.some((tombstone) => tombstone.alias === selector)
-          ? 'removed-worktree'
-          : 'unknown-worktree',
+        reason: tombstone?.lifecycle === 'unregistered'
+          ? 'unregistered-worktree'
+          : tombstone?.lifecycle === 'removed'
+            ? 'removed-worktree'
+            : 'unknown-worktree',
       });
       continue;
     }
-    const targetMember = target.members.find((candidate) =>
-      candidate.handle === handle && (candidate.kind === 'human' || candidate.kind === 'agent'));
+    const matchingMembers = target.members.filter((candidateMember) =>
+      candidateMember.handle === handle && (candidateMember.kind === 'human' || candidateMember.kind === 'agent'));
+    if (matchingMembers.length > 1) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'ambiguous-member' });
+      continue;
+    }
+    const targetMember = matchingMembers[0];
     if (targetMember === undefined) {
-      qualified_issues.push({ token, selector, handle, start, end, reason: 'unknown-member' });
+      const removed = target.removed_members?.some((candidateMember) => candidateMember.handle === handle);
+      qualified_issues.push({
+        token,
+        selector,
+        handle,
+        start,
+        end,
+        reason: removed ? 'removed-member' : 'unknown-member',
+      });
       continue;
     }
     const scoped: ScopedMemberTarget = {
@@ -140,22 +203,6 @@ export function parseBody(
       start,
       end,
     });
-  }
-
-  // A malformed qualified token still owns its inner @handle. This keeps a
-  // malformed `~alias:@agent` from accidentally becoming a local mention and
-  // lets the router return a strict refusal instead of falling back.
-  const malformedRe = /(^|[^\w`])~([^\s:@]+):@([^\s]*)/g;
-  for (const match of coded.matchAll(malformedRe)) {
-    const start = match.index + match[1]!.length;
-    const end = start + match[0]!.length - match[1]!.length;
-    if (qualified.some((mention) => mention.start === start && mention.end === end)
-      || qualified_issues.some((issue) => issue.start === start && issue.end === end)) continue;
-    const selector = match[2]!;
-    const handle = match[3]!;
-    const token = body.slice(start, end);
-    occupied.push({ start, end });
-    qualified_issues.push({ token, selector, handle, start, end, reason: 'malformed' });
   }
   // harn:end qualified-member-target-identity-is-durable
 

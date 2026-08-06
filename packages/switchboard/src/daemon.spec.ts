@@ -7980,6 +7980,55 @@ describe('qualified target orchestration', () => {
       .not.toContain('second target answer');
     expect(first.body).toBe('~target-a:@same-target first request');
   });
+
+  it('keeps mixed local and qualified ingress in one origin-owned collaboration group', async () => {
+    const targetWorktree = registerQualifiedFixture('mixed-target', 'mixed-target');
+    const local = spawnAgent('mixed-local');
+    const remote = daemon.spawnMember(targetWorktree.conversation_id, {
+      harness: 'fake', handle: 'mixed-remote', cwd: testCwd('mixed-remote'),
+    });
+    daemon.pauseMember('eng', local.id);
+    daemon.pauseMember(targetWorktree.conversation_id, remote.id);
+
+    const root = daemon.postHumanMessage('eng', '@mixed-local ~mixed-target:@mixed-remote compare scopes');
+    const deliveries = daemon.store.listDeliveries('eng').filter((delivery) => delivery.message_id === root.id);
+    expect(deliveries).toHaveLength(2);
+    expect(new Set(deliveries.map((delivery) => delivery.group_id)).size).toBe(1);
+    expect(deliveries.find((delivery) => delivery.recipient === local.id)?.target).toBeUndefined();
+    expect(deliveries.find((delivery) => delivery.recipient === remote.id)?.target).toMatchObject({
+      conversation_id: targetWorktree.conversation_id,
+      alias: 'mixed-target',
+      handle: 'mixed-remote',
+    });
+    expect(daemon.store.getCollaborationGroupByRoot('eng', root.id)?.room).toBe('eng');
+    await daemon.settle();
+  });
+
+  it('routes a child-origin onward mention to the registered main target', async () => {
+    const targetWorktree = registerQualifiedFixture('child-origin', 'child-origin');
+    const childRoom = targetWorktree.conversation_id;
+    const remote = daemon.spawnMember(childRoom, {
+      harness: 'fake', handle: 'child-agent', cwd: testCwd('child-agent'),
+    });
+    const main = spawnAgent('main-agent');
+    daemon.pauseMember('eng', main.id);
+
+    const root = daemon.postHumanMessage(childRoom, '~main:@main-agent please answer in the root');
+    const delivery = daemon.store.listDeliveries(childRoom, { recipient: main.id })[0];
+    expect(root.room).toBe(childRoom);
+    expect(delivery).toMatchObject({
+      room: childRoom,
+      recipient: main.id,
+      target: {
+        conversation_id: 'eng',
+        alias: 'main',
+        handle: 'main-agent',
+      },
+    });
+    expect(daemon.store.listDeliveries('eng', { recipient: main.id })).toEqual([]);
+    expect(remote.kind).toBe('agent');
+    await daemon.settle();
+  });
 });
 // harn:end target-member-turns-serialize-across-origins
 // harn:end cross-worktree-runtime-stays-target-local

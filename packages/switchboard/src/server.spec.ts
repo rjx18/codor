@@ -68,7 +68,8 @@ const spawnAgentWithToken = (handle: string, room = 'eng') => {
   spawn.mockRestore();
   const token = captured?.env?.CODOR_MEMBER_TOKEN;
   if (!token) throw new Error(`spawn did not issue a member credential for @${handle}`);
-  return { agent, token };
+  if (captured === undefined) throw new Error(`spawn did not return a session for @${handle}`);
+  return { agent, token, session: captured };
 };
 
 beforeEach(async () => {
@@ -622,6 +623,93 @@ describe('child conversation REST and WebSocket isolation', () => {
 });
 // harn:end child-members-own-isolated-runtime
 // harn:end child-conversation-state-is-room-isolated
+
+// harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-server-regression
+it('maps an active target session across home and origin selectors without widening authority', async () => {
+  const fixture = join(dir, 'active invocation fixture');
+  const primary = join(fixture, 'primary');
+  const childPath = join(fixture, 'child');
+  mkdirSync(primary, { recursive: true });
+  fixtureGit(primary, ['init', '-q', '-b', 'main']);
+  fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+  fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+  writeFileSync(join(primary, 'README.md'), 'active invocation fixture\n');
+  fixtureGit(primary, ['add', 'README.md']);
+  fixtureGit(primary, ['commit', '-qm', 'active invocation fixture']);
+  fixtureGit(primary, ['worktree', 'add', '-b', 'feature/active-invocation', childPath, 'HEAD']);
+  daemon.store.updateRoomConfig('eng', { cwd: primary });
+  const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'active-target' });
+  const child = adopted.worktree.conversation_id;
+  const { agent, token: initialToken, session } = spawnAgentWithToken('active-target-agent', child);
+  const unrelated = spawnAgentWithToken('unrelated-origin-agent').agent;
+  daemon.pauseMember('eng', unrelated.id);
+  daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' } });
+
+  fake.enqueue({
+    kind: 'ask',
+    card: { kind: 'ask', prompt: 'Keep the target invocation active?' },
+    reply: () => 'target invocation completed',
+  });
+  daemon.postHumanMessage('eng', '~active-target:@active-target-agent begin scoped work');
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const activeToken = session.env?.CODOR_MEMBER_TOKEN;
+    if (activeToken !== undefined && activeToken !== initialToken
+      && daemon.authenticateAgentToken(activeToken)?.invocation !== undefined) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const originDeliveries = daemon.store.listDeliveries('eng');
+  expect(originDeliveries.filter((delivery) => delivery.target !== undefined)).toEqual([
+    expect.objectContaining({
+      recipient: agent.id,
+      state: 'delivering',
+      target: expect.objectContaining({
+        alias: 'active-target',
+        conversation_id: child,
+        member_id: agent.id,
+      }),
+    }),
+  ]);
+  expect(daemon.store.getMember(child, agent.id)).toEqual(expect.objectContaining({
+    id: agent.id,
+    state: expect.stringMatching(/^(running|awaiting_input)$/),
+  }));
+  expect(fake.deliveries).toHaveLength(1);
+  const activeToken = session.env?.CODOR_MEMBER_TOKEN;
+  expect(activeToken).toBeDefined();
+  expect(daemon.authenticateAgentToken(initialToken)).toBeUndefined();
+  expect(daemon.authenticateAgentToken(activeToken!)).toMatchObject({
+    room: 'eng', homeRoom: child,
+    invocation: { originRoom: 'eng', targetRoom: child },
+  });
+
+  const client = await connectAs(activeToken!);
+  const nextFrame = async (label: string, predicate: (frame: ServerFrame) => boolean) => {
+    try {
+      return await client.next(predicate);
+    } catch (error) {
+      throw new Error(`${label}: ${String(error)}; frames=${JSON.stringify(client.frames)}`);
+    }
+  };
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+  expect(await nextFrame('home self', (frame) => frame.type === 'self' && frame.room === 'eng'))
+    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
+  expect(await nextFrame('home sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng'))
+    .toMatchObject({ type: 'sync_complete', room: 'eng' });
+
+  daemon.postHumanMessage('eng', '@unrelated-origin-agent unrelated pending work');
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  expect(await nextFrame('origin self', (frame) => frame.type === 'self' && frame.room === 'eng'))
+    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
+  await nextFrame('origin sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+  const inboxes = client.frames.filter((frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox');
+  expect(inboxes.every((frame) => frame.delivery.recipient === agent.id)).toBe(true);
+
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'other', since_seq: 0, room_addressed: true }));
+  expect(await nextFrame('other refusal', (frame) => frame.type === 'error'))
+    .toMatchObject({ type: 'error' });
+  client.ws.close();
+});
+// harn:end agent-authority-follows-one-active-invocation
 
 afterEach(async () => {
   await server.close();

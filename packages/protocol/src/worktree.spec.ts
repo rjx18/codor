@@ -105,6 +105,46 @@ describe('native worktree protocol', () => {
 // harn:end registered-worktrees-materialize-stable-conversations
 // harn:end registered-worktree-identities-are-durable
 
+it('rejects duplicate stable identities and an active/removed member collision', () => {
+  const target = {
+    worktree_id: worktree.id,
+    conversation_id: worktree.conversation_id,
+    alias: worktree.alias,
+    primary: false,
+    lifecycle: 'active' as const,
+    members: [{ member_id: '01J00000000000000000000003', handle: 'richard', kind: 'human' as const }],
+  };
+  expect(WorktreeRoutingCatalogSchema.safeParse({
+    room: repository.room,
+    targets: [target, { ...target, worktree_id: '01J00000000000000000000006', alias: 'other' }],
+    tombstones: [],
+  }).success).toBe(false);
+  const withRemovedMember = WorktreeRoutingCatalogSchema.parse({
+    room: repository.room,
+    targets: [{
+      ...target,
+      removed_members: [{ member_id: '01J00000000000000000000005', handle: 'old-agent', kind: 'agent' as const }],
+    }],
+    tombstones: [],
+  });
+  expect(withRemovedMember.targets[0]?.removed_members).toEqual([{
+    member_id: '01J00000000000000000000005', handle: 'old-agent', kind: 'agent',
+  }]);
+  expect(WorktreeRoutingCatalogSchema.safeParse({
+    room: repository.room,
+    targets: [{ ...target, primary: true, alias: 'review-a' }],
+    tombstones: [],
+  }).success).toBe(false);
+  expect(WorktreeRoutingCatalogSchema.safeParse({
+    room: repository.room,
+    targets: [{
+      ...target,
+      removed_members: [{ member_id: '01J00000000000000000000003', handle: 'richard', kind: 'human' as const }],
+    }],
+    tombstones: [],
+  }).success).toBe(false);
+});
+
 // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-regression
 describe('discovery contract', () => {
   it('does not make a discovery response look like an adoption', () => {
@@ -166,5 +206,6 @@ describe('qualified routing projection protocol', () => {
     expect(catalog.targets.map((target) => target.alias)).toEqual(['main', 'review-a']);
     expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
   });
+
 });
 // harn:end qualified-member-target-identity-is-durable

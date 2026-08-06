@@ -79,7 +79,7 @@ export interface RoutingContext extends EligibilityContext {
    * For agent-authored messages: author of the delivery that triggered the
    * run (for a batched turn, the author of the LAST delivery in the batch).
    */
-  triggerAuthor?: string;
+  triggerAuthor?: string | RoutedRecipient;
   // harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-resolution
   /** Path-free registered worktree projection used by the shared parser. */
   qualifiedTargets?: readonly WorktreeRoutingTarget[] | WorktreeRoutingCatalog;
@@ -91,6 +91,21 @@ export interface RoutingContext extends EligibilityContext {
 export interface RoutedRecipient {
   member: Member;
   target?: ScopedMemberTarget;
+}
+
+function targetCatalogContains(
+  target: ScopedMemberTarget,
+  qualifiedTargets: RoutingContext['qualifiedTargets'],
+): boolean {
+  if (qualifiedTargets === undefined) return false;
+  const targets = 'targets' in qualifiedTargets ? qualifiedTargets.targets : qualifiedTargets;
+  return targets.some((candidate) =>
+    candidate.worktree_id === target.worktree_id
+    && candidate.conversation_id === target.conversation_id
+    && candidate.alias === target.alias
+    && candidate.members.some((member) =>
+      member.member_id === target.member_id && member.handle === target.handle),
+  );
 }
 
 export interface RouteResult {
@@ -136,7 +151,7 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
   const qualifiedMentions = parsed.qualified ?? [];
   const qualifiedIssues = parsed.qualified_issues ?? [];
   // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal
-  const qualified_refusal = qualifiedIssues.length > 0
+  let qualified_refusal = qualifiedIssues.length > 0
     ? `qualified target refused: ${qualifiedIssues.map((issue) => `${issue.token} (${issue.reason})`).join(', ')}`
     : undefined;
   // harn:end invalid-qualified-targets-never-fallback
@@ -144,7 +159,14 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
     const member = span.target === undefined
       ? byId.get(span.member_id)
       : qualifiedById.get(span.member_id);
-    if (!member) continue;
+    if (!member) {
+      if (span.target !== undefined) {
+        qualified_refusal = qualified_refusal === undefined
+          ? `qualified target refused: ${span.target.alias}:@${span.target.handle} (target member unavailable)`
+          : `${qualified_refusal}; ${span.target.alias}:@${span.target.handle} (target member unavailable)`;
+      }
+      continue;
+    }
     const isSelf = span.member_id === message.author && (
       span.target === undefined
       || message.author_target === undefined
@@ -166,15 +188,33 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
   const hasQualifiedIntent = qualifiedMentions.length > 0 || qualifiedIssues.length > 0;
   if (recipients.length === 0 && !hasQualifiedIntent && qualified_refusal === undefined) {
     const authorKind = ctx.author!.kind;
+    const trigger = ctx.triggerAuthor;
+    const triggerMember = trigger === undefined
+      ? undefined
+      : typeof trigger === 'string'
+        ? byId.get(trigger)
+        : trigger.target === undefined
+          ? byId.get(trigger.member.id)
+          : targetCatalogContains(trigger.target, ctx.qualifiedTargets)
+            ? qualifiedById.get(trigger.target.member_id)
+            : undefined;
+    if (typeof trigger !== 'string' && trigger?.target !== undefined
+      && !targetCatalogContains(trigger.target, ctx.qualifiedTargets)) {
+      qualified_refusal = `qualified target refused: ${trigger.target.alias}:@${trigger.target.handle} (stale scoped trigger)`;
+    }
     const fallback = authorKind === 'agent'
-      ? (ctx.triggerAuthor === undefined ? undefined : byId.get(ctx.triggerAuthor))
+      ? triggerMember
       : effectiveDefaultAgent({
           members: ctx.members,
           latestFinalizedAgentId: ctx.latestFinalizedAgentAuthor,
           startingAgentHandle: ctx.roomConfig.starting_agent_handle,
         });
     if (fallback && fallback.id !== message.author && isAddressable(fallback)) {
-      recipients.push({ member: fallback });
+      recipients.push({
+        member: fallback,
+        ...(authorKind === 'agent' && typeof trigger !== 'string' && trigger?.target !== undefined
+          && { target: trigger.target }),
+      });
     }
   }
   // harn:end default-recipient-fallback-chain
@@ -216,7 +256,10 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
     commentary: recipients.length === 0,
     misaddressed,
     ...(qualified_refusal !== undefined && { qualified_refusal }),
-    ...(parsed.qualified !== undefined && { agentTargets, humanTargets }),
+    ...((parsed.qualified !== undefined || recipients.some((recipient) => recipient.target !== undefined)) && {
+      agentTargets,
+      humanTargets,
+    }),
   };
 }
 

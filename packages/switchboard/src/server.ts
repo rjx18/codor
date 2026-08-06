@@ -22,6 +22,7 @@ import {
   type BridgeOrigin,
   type Member,
   type Policy,
+  type ScopedMemberTarget,
   VoiceTranscribeError,
   type ServerFrame,
   type ThinkingLevel,
@@ -131,7 +132,7 @@ type AuthPrincipal =
       memberId: string;
       room: string;
       homeRoom: string;
-      invocation?: { originRoom: string; targetRoom: string };
+      invocation?: { originRoom: string; targetRoom: string; target: ScopedMemberTarget };
     };
 
 const PAIRING_CODE_ATTEMPTS = 5;
@@ -270,6 +271,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             invocation: {
               originRoom: agent.invocation.originRoom,
               targetRoom: agent.invocation.targetRoom,
+              target: agent.invocation.target,
             },
           }),
         }
@@ -299,7 +301,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const member = principal.kind === 'agent'
       ? daemon.agentMemberForRoom(principal.room, principal.memberId)
       : daemon.store.getMember(room, principal.memberId);
-    if (member?.kind !== principal.kind) {
+    if (member?.kind !== principal.kind || member.removed_ts !== undefined) {
       throw new Error(`principal is not a ${principal.kind} member of this room`);
     }
     return member;
@@ -1571,11 +1573,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     roomAddressed: boolean;
     memberId?: string;
     lastSupport?: string;
+    /** Active cross-origin agent sessions receive only their target runtime frames. */
+    forwardedMemberId?: string;
+    forwardedTo?: string;
   };
   const subscriptions = new Map<WebSocket, Map<string, RoomSubscription>>();
-  const projectLiveFrame = (room: string, frame: ServerFrame, subscription: RoomSubscription): ServerFrame => {
+  const projectLiveFrame = (
+    room: string,
+    frame: ServerFrame,
+    subscription: RoomSubscription,
+  ): ServerFrame | undefined => {
+    if (subscription.forwardedMemberId !== undefined) {
+      if (frame.type === 'member') {
+        if (frame.member.id !== subscription.forwardedMemberId) return undefined;
+      } else if (frame.type !== 'meter') {
+        return undefined;
+      }
+    }
     if (!subscription.roomAddressed || frame.type !== 'member') return frame;
-    return { ...frame, room };
+    return { ...frame, room: subscription.forwardedTo ?? room };
   };
   const pendingSupportRooms = new Set<string>();
   const sendRoomSupport = (
@@ -1619,7 +1635,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     for (const [socket, rooms] of subscriptions) {
       const subscription = rooms.get(room);
       if (subscription && socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify(projectLiveFrame(room, frame, subscription)));
+        const projected = projectLiveFrame(room, frame, subscription);
+        if (projected !== undefined) socket.send(JSON.stringify(projected));
       }
     }
     // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
@@ -1744,7 +1761,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               roomAddressed,
               ...(supportMemberId !== undefined && { memberId: supportMemberId }),
             };
-            subscriptions.get(socket)!.set(room, subscription);
+            const socketRooms = subscriptions.get(socket)!;
+            socketRooms.set(room, subscription);
+            if (
+              principal.kind === 'agent'
+              && principal.invocation !== undefined
+              && principal.invocation.targetRoom !== room
+            ) {
+              socketRooms.set(principal.invocation.targetRoom, {
+                roomAddressed,
+                forwardedMemberId: actor.id,
+                forwardedTo: room,
+              });
+            }
             // harn:end room-support-is-bounded-recipient-scoped-state
             const address = roomAddressed ? { room } : {};
             // harn:end multiplexed-subscriptions-identify-their-room
