@@ -3,7 +3,7 @@ import { delimiter, isAbsolute, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { AntigravityAdapter } from '@codor/adapter-antigravity';
-import { AcpAdapter } from '@codor/adapter-acp';
+import { AcpAdapter, resolveAcpExecutable } from '@codor/adapter-acp';
 import { ClaudeCodeAdapter } from '@codor/adapter-claude-code';
 import { CodexAdapter, CodexVoiceProvider, codexVoiceStatus } from '@codor/adapter-codex';
 import {
@@ -26,7 +26,7 @@ import {
 
 // The sole registry is also the single import site for adapter packages, so the
 // codex voice provider is re-exported here for switchboard's voice registry.
-export { CodexVoiceProvider, codexVoiceStatus };
+export { CodexVoiceProvider, codexVoiceStatus, resolveAcpExecutable };
 
 export type AdapterModuleConfig = Record<string, string>;
 

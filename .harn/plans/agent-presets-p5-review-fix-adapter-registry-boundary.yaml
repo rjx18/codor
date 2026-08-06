@@ -1,0 +1,103 @@
+id: agent-presets-p5-review-fix-adapter-registry-boundary
+title: Phase 5 review fix - restore the sole adapter-package import boundary
+notes: >-
+  This is a bounded production review-fix based on clean commit
+  cff6c01dff1878cea6992666463cd91b271bc32c. Independent review accepted the
+  Phase 5 tests-only release-gate commit: its parent and three-file scope are
+  exact, its Harn plan is applied, the ACP regression uses observable
+  session/prompt readiness, and room39 asserts exact active-host roster
+  summaries. The remaining exact root-test failure is independently reproduced
+  by packages/switchboard/src/hot-swap.integration.spec.ts: the production tree
+  has ten built-in adapter-package import hits instead of the nine unique
+  packages owned by packages/switchboard/src/adapter-registry.ts.
+
+  The extra hit was introduced by the earlier ACP preset validation review fix:
+  packages/switchboard/src/daemon.ts directly imports resolveAcpExecutable from
+  @codor/adapter-acp. That violates the existing
+  adapter-registry-sole-harness-source contract and its hardcoded-list guard.
+  The guard is current product architecture, not an obsolete count assertion:
+  adapter-registry.ts already imports the ACP adapter and deliberately
+  re-exports other adapter-owned switchboard helpers so production core does not
+  acquire additional first-party adapter-package import sites.
+
+  Restore the existing boundary without changing validation behavior. Import
+  resolveAcpExecutable alongside AcpAdapter in adapter-registry.ts, re-export
+  that exact binding from the local registry module, remove daemon.ts's direct
+  @codor/adapter-acp import, and import the binding from ./adapter-registry.js
+  with the daemon's other registry-owned helpers. Do not copy or wrap the
+  resolver, change its signature or errors, alter either daemon call site,
+  weaken the hardcoded-list guard, change registry construction, or change ACP
+  preset/starting-agent/default-roster admission behavior.
+
+  Only packages/switchboard/src/adapter-registry.ts and
+  packages/switchboard/src/daemon.ts may change. This plan does not authorize
+  test edits, Harn marker movement, adapter implementation changes, protocol,
+  persistence, server/routes, authorization, UI, browser fixture/spec, package
+  metadata, dependency links, or any Phase 1-5 behavior expansion. If routing
+  the exact existing binding through the registry does not make the focused
+  guard and existing ACP admission regressions pass, stop and tag Sol with the
+  exact failure.
+assumptions:
+  reviewed:
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The existing registry remains the sole production import site for all
+        built-in adapter packages and becomes the local export boundary for
+        ACP's exact executable resolver.
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: Preset validation calls the same ACP resolver with the same executable
+        and preserves every catalog, no-spawn, and persistence boundary.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Starting-agent and expanded-roster preflight call the same ACP resolver
+        at the same point and preserve all rejection and durability behavior.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Registry adapter construction and spawn validation remain untouched;
+        only an already-imported adapter package binding is exposed locally.
+anchors:
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: The registry module becomes the sole local export boundary for the ACP
+        resolver while retaining the same built-in definitions and factories.
+    hardcoded-list-guard:
+      action: keep
+      reason: The existing production import scan is the release regression this fix
+        must satisfy unchanged.
+  individual-agent-presets-are-bounded-catalog-validated-configurations:
+    individual-agent-preset-catalog-validation:
+      action: keep
+      reason: The preset validation body and exact resolver invocation must not change.
+  new-agent-requests-require-available-native-or-detected-acp:
+    new-agent-provider-availability-preflight:
+      action: keep
+      reason: The room/roster preflight body and exact resolver invocation must not
+        change.
+  canonical-spawn-controls-enforced:
+    registry-spawn-control-validation:
+      action: keep
+      reason: Adapter wrapper and canonical spawn validation behavior are unrelated
+        and must remain byte-for-byte unchanged.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/daemon.ts
+verification: "Run git diff --check; verify production @codor/adapter-* imports
+  resolve only in packages/switchboard/src/adapter-registry.ts through the
+  unchanged hot-swap guard; run pnpm --filter @codor/switchboard exec vitest run
+  src/hot-swap.integration.spec.ts src/agent-presets.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; run pnpm --filter @codor/switchboard build; then run exact
+  pnpm test and pnpm build from the workspace root. The root commands must
+  resolve this worktree's built workspace packages and pass, including the now
+  readiness-synchronized ACP cancellation regression. Temporarily pinning
+  generated dependency links for command duration is permitted, but every
+  original target must be restored exactly before staging. Run harn find --plan
+  agent-presets-p5-review-fix-adapter-registry-boundary; harn plan check
+  agent-presets-p5-review-fix-adapter-registry-boundary; harn check
+  agent-presets-p5-review-fix-adapter-registry-boundary; and the normal explicit
+  staged Harn check/apply gate before exactly one production review-fix commit.
+  Do not use --no-verify: both files are visible to Harn's normal classifier and
+  the repository pre-commit hook must pass."
+applied:
+  applied_at: 2026-08-06T13:29:49.233Z

@@ -39,7 +39,6 @@ import type {
   DefaultRosterInput,
 } from '@codor/protocol';
 
-import { resolveAcpExecutable } from '@codor/adapter-acp';
 import {
   AgentPresetInputSchema,
   AttachmentSchema,
@@ -60,6 +59,7 @@ import {
 import { BlobStore } from './blobs.js';
 import {
   executableOnPath,
+  resolveAcpExecutable,
   type RegisteredHarnessAdapter,
   validateSpawnOptions,
 } from './adapter-registry.js';
