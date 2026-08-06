@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AgentPresetInputSchema,
+  AgentPresetPublicSchema,
   AgentPresetSchema,
   DefaultRosterInputSchema,
   DefaultRosterSchema,
@@ -80,6 +81,30 @@ describe('individual agent preset schemas', () => {
     expect(AgentPresetInputSchema.safeParse({ ...nativeInput, label: '' }).success).toBe(false);
     expect(AgentPresetInputSchema.safeParse({ ...nativeInput, thinking: 'extreme' }).success)
       .toBe(false);
+  });
+
+  it('accepts the maximum named ACP public selector without exposing launch material', () => {
+    const maximumProvider = `a${'p'.repeat(63)}`;
+    const publicPreset = {
+      id: PRESET_ID,
+      schema_version: 1,
+      created_ts: TIMESTAMP,
+      updated_ts: TIMESTAMP,
+      label: 'Maximum provider',
+      handle: 'maximum-provider',
+      adapter: `acp:${maximumProvider}`,
+    };
+    expect(AgentPresetPublicSchema.parse(publicPreset)).toEqual(publicPreset);
+    expect(AgentPresetPublicSchema.safeParse({
+      ...publicPreset,
+      adapter: `acp:${'a'.repeat(65)}`,
+    }).success).toBe(false);
+    expect(AgentPresetPublicSchema.safeParse({
+      ...publicPreset,
+      adapter: 'acp',
+      custom_acp: true,
+      acp_launch: { executable: '/private/agent', argv: ['--secret'] },
+    }).success).toBe(false);
   });
 });
 // harn:end individual-agent-presets-are-bounded-catalog-validated-configurations

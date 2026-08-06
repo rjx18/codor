@@ -461,6 +461,43 @@ describe('correlated agent management over WebSocket', () => {
 // harn:end agent-add-selects-public-adapter-or-detached-preset
 // harn:end agent-management-correlates-safe-member-results
 
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-server-regression
+// harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+it('adds a fresh preset snapshot as one safe correlated member and denies agent credentials', async () => {
+  const preset = daemon.createAgentPreset({
+    label: 'Server preset', handle: 'server-preset', harness: 'fake', policy: 'workspace-write',
+  });
+  const cwd = testCwd('preset-server-add');
+  const beforeMessages = daemon.store.listMessages('eng', { limit: 100 }).length;
+  const beforeDeliveries = fake.deliveries.length;
+
+  const owner = await connect();
+  owner.ws.send(JSON.stringify({
+    type: 'add_agent', room: 'eng', ref: 'preset-add', preset_id: preset.id,
+    cwd, purpose: 'server preset purpose', policy: 'read-only',
+  }));
+  const added = await owner.next((frame) => frame.type === 'member' && frame.ref === 'preset-add');
+  expect(added).toMatchObject({ type: 'member', ref: 'preset-add', member: {
+    handle: 'server-preset', cwd, purpose: 'server preset purpose', policy: 'read-only',
+  } });
+  expect(JSON.stringify(added)).not.toContain('preset_id');
+  expect(JSON.stringify(added)).not.toContain('acp_launch');
+
+  const denied = spawnAgentWithToken('preset-denied');
+  const agentClient = await connectAs(denied.token);
+  agentClient.ws.send(JSON.stringify({
+    type: 'add_agent', room: 'eng', ref: 'agent-preset-denied', preset_id: preset.id, cwd,
+  }));
+  expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'agent-preset-denied'))
+    .toMatchObject({ type: 'error', ref: 'agent-preset-denied' });
+  expect(daemon.store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages);
+  expect(fake.deliveries).toHaveLength(beforeDeliveries);
+  owner.ws.close();
+  agentClient.ws.close();
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+
 // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=own-queued-sync-regression
 describe('agent queued inbox hydration', () => {
   it('sends only the authenticated agent own queued rows and leaves them consumable', async () => {

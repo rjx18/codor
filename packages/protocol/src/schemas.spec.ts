@@ -1788,3 +1788,108 @@ describe('voice note metadata', () => {
   });
 });
 // harn:end voice-message-metadata-is-bounded-and-additive
+
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-authorization-regression
+describe('preset and roster management frame schemas', () => {
+  const presetInput = { label: 'Preset', handle: 'preset', harness: 'fake' };
+  const presetId = ULID_A;
+
+  it('parses all strict correlated requests and four launch-free result shapes', () => {
+    const requests = [
+      { type: 'list_agent_presets', ref: 'preset-list' },
+      { type: 'create_agent_preset', ref: 'preset-create', input: presetInput },
+      { type: 'update_agent_preset', ref: 'preset-update', preset_id: presetId, input: presetInput },
+      { type: 'delete_agent_preset', ref: 'preset-delete', preset_id: presetId },
+      { type: 'get_default_roster', ref: 'roster-get' },
+      { type: 'set_default_roster', ref: 'roster-set', input: { preset_ids: [presetId, ULID_B] } },
+    ] as const;
+    for (const request of requests) expect(ClientFrameSchema.parse(request)).toEqual(request);
+    expect(ClientFrameSchema.safeParse({ ...requests[0], extra: true }).success).toBe(false);
+
+    const publicPreset = {
+      id: presetId,
+      schema_version: 1 as const,
+      created_ts: TS,
+      updated_ts: TS,
+      label: 'Preset',
+      handle: 'preset',
+      adapter: 'acp',
+      custom_acp: true as const,
+    };
+    expect(ServerFrameSchema.parse({
+      type: 'agent_presets', ref: 'preset-list', presets: [publicPreset],
+    })).toMatchObject({ type: 'agent_presets', ref: 'preset-list' });
+    expect(ServerFrameSchema.parse({
+      type: 'agent_preset', ref: 'preset-create', preset: publicPreset,
+    })).toMatchObject({ type: 'agent_preset', ref: 'preset-create' });
+    expect(ServerFrameSchema.parse({
+      type: 'agent_preset_deleted', ref: 'preset-delete', id: presetId, deleted: true,
+    })).toMatchObject({ type: 'agent_preset_deleted', ref: 'preset-delete' });
+    expect(ServerFrameSchema.parse({
+      type: 'default_roster', ref: 'roster-get',
+      roster: { id: 'default', schema_version: 1, updated_ts: TS, preset_ids: [presetId] },
+    })).toMatchObject({ type: 'default_roster', ref: 'roster-get' });
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'preset-create', preset: {
+        ...publicPreset, acp_launch: { executable: 'private-agent', argv: ['--secret'] },
+      },
+    }).success).toBe(false);
+  });
+});
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli
+
+// harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
+describe('public ACP preset selector bounds', () => {
+  const publicPreset = {
+    id: ULID_A,
+    schema_version: 1 as const,
+    created_ts: TS,
+    updated_ts: TS,
+    label: 'Maximum provider',
+    handle: 'maximum-provider',
+  };
+
+  it('accepts the maximum named provider and rejects selectors beyond it', () => {
+    const maximumProvider = `a${'p'.repeat(63)}`;
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'maximum', preset: {
+        ...publicPreset, adapter: `acp:${maximumProvider}`,
+      },
+    }).success).toBe(true);
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'too-long', preset: {
+        ...publicPreset, adapter: `acp:${'a'.repeat(65)}`,
+      },
+    }).success).toBe(false);
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'private', preset: {
+        ...publicPreset, adapter: 'acp', custom_acp: true,
+        acp_launch: { executable: 'private-agent', argv: ['--secret'] },
+      },
+    }).success).toBe(false);
+  });
+});
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-protocol
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-protocol-regression
+describe('agent add selection frame contract', () => {
+  it('requires exactly one selector, conditionally requires a manual handle, and rejects private launch fields', () => {
+    const manual = {
+      type: 'add_agent' as const,
+      room: 'eng', ref: 'manual-add', adapter: 'housecat', handle: 'legacy', cwd: '/work',
+    };
+    expect(ClientFrameSchema.parse(manual)).toEqual(manual);
+    expect(ClientFrameSchema.safeParse({ ...manual, handle: undefined }).success).toBe(false);
+    expect(ClientFrameSchema.parse({
+      type: 'add_agent', room: 'eng', ref: 'preset-add', preset_id: ULID_A, cwd: '/work',
+    })).toMatchObject({ preset_id: ULID_A });
+    expect(ClientFrameSchema.safeParse({ ...manual, adapter: undefined, preset_id: ULID_A }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ ...manual, preset_id: ULID_A }).success).toBe(false);
+    expect(ClientFrameSchema.safeParse({ ...manual, adapter: undefined }).success).toBe(false);
+    expect(ClientFrameSchema.safeParse({ ...manual, acp_launch: { executable: 'sh', argv: [] } }).success)
+      .toBe(false);
+  });
+});
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+// harn:end agent-add-selects-public-adapter-or-detached-preset

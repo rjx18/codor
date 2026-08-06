@@ -1,4 +1,4 @@
-import type { Member, Room, ServerFrame } from '@codor/protocol';
+import type { AgentPresetPublic, Member, Room, ServerFrame } from '@codor/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,7 +7,9 @@ import {
   cliExitCode,
   classifyManagementError,
   confirmAgentRemove,
+  confirmAgentPresetDelete,
   confirmArchive,
+  listManagedAgentPresets,
   listManagedRooms,
   listManagedAgents,
   redactDiagnostic,
@@ -178,6 +180,9 @@ describe('management failures', () => {
       .toBe(MANAGEMENT_EXIT_CODES.conflict);
     expect(cliExitCode(classifyManagementError(new Error("adapter 'fake' does not support thinking level 'ultra'"))))
       .toBe(MANAGEMENT_EXIT_CODES.invocation);
+    expect(cliExitCode(classifyManagementError(new Error(
+      "model 'stale-model' is not currently offered by harness 'fake'",
+    )))).toBe(MANAGEMENT_EXIT_CODES.conflict);
     const schemaFailure = new Error('Invalid input') as Error & { issues: unknown[] };
     schemaFailure.name = 'ZodError';
     schemaFailure.issues = [];
@@ -314,3 +319,65 @@ describe('archive confirmation', () => {
   });
 });
 // harn:end channel-archive-requires-explicit-confirmation
+
+// harn:assume preset-deletion-requires-explicit-confirmation ref=preset-delete-confirmation-regression
+describe('preset deletion confirmation', () => {
+  it('escapes a hostile stored label into one safe stderr prompt line', async () => {
+    const stderr: string[] = [];
+    const hostile = 'Hostile\tlabel\r\n\u001b[31m\\tail';
+    await expect(confirmAgentPresetDelete({
+      label: `${hostile} (01ARZ3NDEKTSV4RRFFQ69G5FAV)`,
+      isTTY: true,
+      stderr: (line) => stderr.push(line),
+      confirm: async () => false,
+    })).rejects.toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(stderr).toEqual([[
+      'Delete agent preset Hostile\\tlabel\\r\\n\\x1b[31m\\\\tail',
+      ' (01ARZ3NDEKTSV4RRFFQ69G5FAV)? [y/N]',
+    ].join('')]);
+    expect(stderr[0]).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(stderr[0]!.split('\n')).toHaveLength(1);
+  });
+});
+// harn:end preset-deletion-requires-explicit-confirmation
+
+// harn:assume management-frames-correlate-one-result ref=management-correlation-cli-regression
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-management-client-regression
+describe('preset management correlation', () => {
+  it('ignores unrelated room, member, preset, and error frames and sorts labels stably', async () => {
+    const preset = (label: string, id: string): AgentPresetPublic => ({
+      id,
+      schema_version: 1,
+      created_ts: '2026-08-06T00:00:00.000Z',
+      updated_ts: '2026-08-06T00:00:00.000Z',
+      label,
+      handle: `${label.toLowerCase()}-preset`,
+      adapter: 'fake',
+    });
+    const alpha = preset('Alpha', '01ARZ3NDEKTSV4RRFFQ69G5FAV');
+    const zulu = preset('Zulu', '01BX5ZZKBKACTAV9WEVGEMMVRZ');
+    const frames: ServerFrame[] = [
+      { type: 'agent_preset', ref: 'other-preset', preset: zulu },
+      { type: 'room', seq: 1, ref: 'room-result', room },
+      { type: 'member', seq: 1, room: 'eng', ref: 'member-result', member: agent },
+      { type: 'error', ref: 'other-error', message: 'unrelated failure' },
+    ];
+    const send = vi.fn((frame: { type: string; ref?: string }) => {
+      if (frame.type === 'list_agent_presets' && frame.ref !== undefined) {
+        frames.push({ type: 'agent_presets', ref: frame.ref, presets: [zulu, alpha] });
+      }
+    });
+    const client = {
+      send,
+      next: async () => frames.shift()!,
+    } as unknown as ProtocolClient;
+
+    const listed = await listManagedAgentPresets(client);
+    expect(listed.map((candidate) => candidate.label)).toEqual(['Alpha', 'Zulu']);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'list_agent_presets', ref: expect.any(String),
+    }));
+  });
+});
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
+// harn:end management-frames-correlate-one-result

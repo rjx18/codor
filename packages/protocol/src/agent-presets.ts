@@ -14,6 +14,8 @@ export const DEFAULT_ROSTER_ID = 'default' as const;
 export const AGENT_PRESET_MAX_LABEL_LENGTH = 80;
 export const AGENT_PRESET_MAX_DISPLAY_NAME_LENGTH = 120;
 export const AGENT_PRESET_MAX_HARNESS_LENGTH = 64;
+/** Public selectors also carry the `acp:` prefix for named ACP providers. */
+export const AGENT_PRESET_MAX_PUBLIC_ADAPTER_LENGTH = AGENT_PRESET_MAX_HARNESS_LENGTH + 'acp:'.length;
 export const AGENT_PRESET_MAX_MODEL_LENGTH = 256;
 export const DEFAULT_ROSTER_MAX_PRESETS = 100;
 
@@ -111,7 +113,7 @@ export const AgentPresetPublicSchema = z.object({
   label: boundedText(AGENT_PRESET_MAX_LABEL_LENGTH),
   handle: AssignableHandleSchema,
   display_name: boundedText(AGENT_PRESET_MAX_DISPLAY_NAME_LENGTH).optional(),
-  adapter: boundedText(AGENT_PRESET_MAX_HARNESS_LENGTH),
+  adapter: boundedText(AGENT_PRESET_MAX_PUBLIC_ADAPTER_LENGTH),
   model: z.string().trim().min(1).max(AGENT_PRESET_MAX_MODEL_LENGTH)
     .regex(AGENT_PRESET_MODEL_ID_REGEX, 'model id has an invalid format')
     .optional(),

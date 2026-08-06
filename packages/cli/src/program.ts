@@ -1007,6 +1007,7 @@ defaultRosterManagement
       out(renderDefaultRoster(roster, options.json === true));
     });
   });
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
 
   // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-command-surface
   // harn:assume public-install-is-the-primary-command-with-setup-alias ref=install-command-alias

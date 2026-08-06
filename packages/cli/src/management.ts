@@ -61,7 +61,7 @@ export function classifyManagementError(error: unknown): ManagementError {
   } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (
-    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc/.test(lower)
+    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|not currently offered|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc/.test(lower)
   ) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {
@@ -287,9 +287,10 @@ function projectPreset(preset: AgentPresetPublic): AgentPresetPublic {
 }
 
 function sortedPresets(presets: readonly AgentPresetPublic[]): AgentPresetPublic[] {
+  const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
   return presets
     .map(projectPreset)
-    .sort((left, right) => left.label.localeCompare(right.label) || left.id.localeCompare(right.id));
+    .sort((left, right) => compare(left.label, right.label) || compare(left.id, right.id));
 }
 
 const presetHumanFields = (preset: AgentPresetPublic): [string, string][] => [
@@ -426,6 +427,7 @@ export async function archiveManagedRoom(client: ProtocolClient, room: string): 
 }
 
 // harn:assume management-frames-correlate-one-result ref=management-correlation-client
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-management-client
 export async function listManagedAgentPresets(client: ProtocolClient): Promise<AgentPresetPublic[]> {
   try {
     const ref = randomUUID();
@@ -512,6 +514,8 @@ export async function setManagedDefaultRoster(
     throw classifyManagementError(error);
   }
 }
+
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
 
 export interface AddManagedPresetAgentRequest {
   preset_id: string;
@@ -680,7 +684,14 @@ export async function confirmAgentRemove(options: ConfirmationOptions): Promise<
   return confirmManagementAction({ ...options, action: 'remove' });
 }
 
+// harn:assume preset-deletion-requires-explicit-confirmation ref=preset-delete-confirmation
 export async function confirmAgentPresetDelete(options: ConfirmationOptions): Promise<void> {
-  return confirmManagementAction({ ...options, action: 'delete-preset' });
+  // The stored label is intentionally preserved; only its human prompt form is escaped.
+  return confirmManagementAction({
+    ...options,
+    label: encodeHumanCell(options.label),
+    action: 'delete-preset',
+  });
 }
+// harn:end preset-deletion-requires-explicit-confirmation
 // harn:end channel-archive-requires-explicit-confirmation

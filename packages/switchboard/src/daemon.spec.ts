@@ -194,6 +194,41 @@ describe('structured agent lifecycle guards', () => {
 // harn:end agent-pause-refuses-active-turn
 // harn:end agent-add-selects-public-adapter-or-detached-preset
 
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=daemon-spawn-control-regression
+// harn:assume agent-management-does-not-invent-work ref=agent-management-no-work-regression
+it('takes a fresh detached preset snapshot with per-add overrides and no collaboration work', () => {
+  const preset = daemon.createAgentPreset({
+    label: 'Preset worker', handle: 'preset-worker', harness: 'fake', policy: 'workspace-write',
+  });
+  const beforeMembers = daemon.store.listMembers('eng').length;
+  const beforeMessages = daemon.store.listMessages('eng', { limit: 100 }).length;
+  const beforeDeliveries = fake.deliveries.length;
+  const firstCwd = testCwd('preset-first');
+  const first = daemon.spawnMemberFromPreset('eng', preset.id, {
+    cwd: firstCwd, handle: 'override-worker', purpose: 'one-off purpose', policy: 'read-only',
+  });
+  expect(first).toMatchObject({
+    handle: 'override-worker', cwd: firstCwd, purpose: 'one-off purpose', policy: 'read-only', harness: 'fake',
+  });
+  expect(first).not.toHaveProperty('preset_id');
+  expect(first).not.toHaveProperty('acp_launch');
+  daemon.updateAgentPreset(preset.id, {
+    label: 'Preset worker changed', handle: 'changed-worker', harness: 'fake', policy: 'full-access',
+  });
+  const second = daemon.spawnMemberFromPreset('eng', preset.id, { cwd: testCwd('preset-second') });
+  expect(second).toMatchObject({ handle: 'changed-worker', policy: 'full-access' });
+  expect(daemon.store.listMembers('eng')).toHaveLength(beforeMembers + 2);
+  expect(daemon.store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages);
+  expect(fake.deliveries).toHaveLength(beforeDeliveries);
+
+  daemon.deleteAgentPreset(preset.id);
+  expect(() => daemon.spawnMemberFromPreset('eng', preset.id, { cwd: testCwd('preset-missing') }))
+    .toThrow(/no such agent preset/);
+  expect(daemon.store.listMembers('eng')).toHaveLength(beforeMembers + 2);
+});
+// harn:end agent-management-does-not-invent-work
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+
 // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-regression
 // harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=aggregate-routing-regression
 describe('chronological continuation writer', () => {

@@ -1280,8 +1280,18 @@ describe('@codor/cli', () => {
     expect(preset).not.toHaveProperty('acp_launch');
 
     const presetId = String(preset.id);
+    const alphaCreated = await invoke([
+      'agent-preset', 'create', 'Alpha helper', '--handle', 'alpha-preset', '--adapter', 'fake', '--json',
+    ]);
+    const alphaId = String((JSON.parse(alphaCreated.stdout[0]!) as Record<string, unknown>).id);
+    const hostileCreated = await invoke([
+      'agent-preset', 'create', 'Hostile\tlabel\r\n\u001b[31m\\tail',
+      '--handle', 'hostile-preset', '--adapter', 'fake', '--json',
+    ]);
+    const hostileId = String((JSON.parse(hostileCreated.stdout[0]!) as Record<string, unknown>).id);
     const listed = await invoke(['agent-preset', 'list', '--json']);
-    expect(JSON.parse(listed.stdout[0]!)).toEqual([expect.objectContaining({ id: presetId })]);
+    expect((JSON.parse(listed.stdout[0]!) as Array<{ label: string }>).map((entry) => entry.label))
+      .toEqual(['Alpha helper', 'Helper\tOne', 'Hostile\tlabel\r\n\u001b[31m\\tail']);
 
     const updated = await invoke([
       'agent-preset', 'update', presetId, '--label', 'Helper Two', '--handle', 'preset-helper-2',
@@ -1306,6 +1316,15 @@ describe('@codor/cli', () => {
     expect(JSON.parse(defaultRoom.stdout[0]!)).toMatchObject({ id: 'preset-channel' });
     expect(daemon.store.listMembers('preset-channel').map((member) => member.handle)).toContain('preset-helper-2');
 
+    const manualCwd = join(dir, 'manual-start');
+    mkdirSync(manualCwd);
+    const manualRoom = await invoke([
+      'channel', 'create', 'Manual Starting Agent', '--owner', 'richard', '--id', 'manual-start',
+      '--cwd', manualCwd, '--starting-agent', 'manual-worker', '--adapter', 'fake', '--json',
+    ]);
+    expect(manualRoom.error).toBeUndefined();
+    expect(daemon.store.getMemberByHandle('manual-start', 'manual-worker')).toMatchObject({ harness: 'fake' });
+
     const add = await invoke([
       'agent', 'add', '--channel', 'eng', '--preset', presetId, '--cwd', presetCwd, '--purpose', 'per-add', '--json',
     ]);
@@ -1320,7 +1339,26 @@ describe('@codor/cli', () => {
       'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
       '--token', 'cli-token', 'agent-preset', 'list', '--json',
     ], { stdout: (line) => remoteList.push(line), stderr: () => undefined });
-    expect(JSON.parse(remoteList[0]!)).toEqual([expect.objectContaining({ id: presetId })]);
+    expect((JSON.parse(remoteList[0]!) as Array<{ label: string; id: string }>).map((entry) => entry.label))
+      .toEqual(['Alpha helper', 'Helper Two', 'Hostile\tlabel\r\n\u001b[31m\\tail']);
+    expect(JSON.parse(remoteList[0]!)).toEqual(expect.arrayContaining([expect.objectContaining({ id: presetId })]));
+
+    const hostileDeclined = await invoke(['agent-preset', 'delete', hostileId], {
+      isTTY: true,
+      confirm: async () => false,
+    });
+    expect(hostileDeclined.error).toMatchObject({
+      name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation,
+    });
+    expect(hostileDeclined.stderr).toEqual([[
+      'Delete agent preset Hostile\\tlabel\\r\\n\\x1b[31m\\\\tail',
+      ` (${hostileId})? [y/N]`,
+    ].join('')]);
+    expect(hostileDeclined.stderr[0]).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(hostileDeclined.stderr[0]!.split('\n')).toHaveLength(1);
+    expect(daemon.getAgentPreset(hostileId)).toBeDefined();
+    await invoke(['agent-preset', 'delete', hostileId, '--yes', '--json']);
+    await invoke(['agent-preset', 'delete', alphaId, '--yes', '--json']);
 
     const declined = await invoke(['agent-preset', 'delete', presetId], {
       isTTY: true,
@@ -1341,6 +1379,12 @@ describe('@codor/cli', () => {
     ]);
     expect(orphan.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
     expect(daemon.store.getRoom('orphan-starting-option')).toBeUndefined();
+    const mixed = await invoke([
+      'channel', 'create', 'Mixed Initial Modes', '--owner', 'richard', '--id', 'mixed-initial-modes',
+      '--cwd', manualCwd, '--default-roster', '--starting-agent', 'mixed-worker', '--adapter', 'fake', '--json',
+    ]);
+    expect(mixed.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(daemon.store.getRoom('mixed-initial-modes')).toBeUndefined();
   });
   // harn:end default-roster-channel-members-are-detached-ordered-snapshots
   // harn:end management-failures-have-stable-redacted-exits

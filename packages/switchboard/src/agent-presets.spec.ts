@@ -3,8 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { AgentPresetInput } from '@codor/protocol';
+import type { AgentPresetInput, ServerFrame, Session } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import WebSocket from 'ws';
 
 import { Daemon } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
@@ -645,4 +646,178 @@ describe('agent preset REST authorization and behavior', () => {
     expect(spawn).not.toHaveBeenCalled();
   });
 });
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli
+
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-authorization-regression
+// harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+// harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+describe('agent preset management over the authenticated WebSocket', () => {
+  let wsDir: string;
+  let wsDaemon: Daemon;
+  let wsServer: RunningServer;
+  let wsCrypto: CryptoVault;
+  let agentToken: string;
+
+  const connectAs = (token: string): Promise<{
+    ws: WebSocket;
+    frames: ServerFrame[];
+    next: (predicate: (frame: ServerFrame) => boolean) => Promise<ServerFrame>;
+  }> => new Promise((resolve, reject) => {
+    const ws = new WebSocket(`ws://127.0.0.1:${wsServer.port}/ws?token=${token}`);
+    const frames: ServerFrame[] = [];
+    const waiters: { predicate: (frame: ServerFrame) => boolean; resolve: (frame: ServerFrame) => void }[] = [];
+    ws.on('message', (raw: Buffer) => {
+      const frame = JSON.parse(raw.toString()) as ServerFrame;
+      frames.push(frame);
+      for (let index = waiters.length - 1; index >= 0; index -= 1) {
+        if (waiters[index]!.predicate(frame)) waiters.splice(index, 1)[0]!.resolve(frame);
+      }
+    });
+    ws.on('open', () => resolve({
+      ws,
+      frames,
+      next: (predicate) => {
+        const existing = frames.find(predicate);
+        if (existing !== undefined) return Promise.resolve(existing);
+        return new Promise((nextResolve, nextReject) => {
+          const timer = setTimeout(() => nextReject(new Error('preset websocket frame timeout')), 3_000);
+          waiters.push({
+            predicate,
+            resolve: (frame) => {
+              clearTimeout(timer);
+              nextResolve(frame);
+            },
+          });
+        });
+      },
+    }));
+    ws.on('error', reject);
+  });
+
+  beforeEach(async () => {
+    wsDir = mkdtempSync(join(tmpdir(), 'codor-agent-presets-ws-'));
+    const fake = new FakeAdapter('fake');
+    Object.assign(fake, { executable: 'fake' });
+    const acp = Object.assign(new FakeAdapter('acp'), { configurable: true });
+    wsDaemon = new Daemon({
+      dbPath: join(wsDir, 'switchboard.sqlite'),
+      blobRoot: join(wsDir, 'blobs'),
+      adapters: [fake, acp],
+      homeDir: wsDir,
+      executableOnPath: () => true,
+      discoverModels: false,
+    });
+    wsDaemon.createRoom({
+      id: 'eng', name: 'Eng', owner: { handle: 'richard', display_name: 'Richard' },
+    });
+    const admin = wsDaemon.store.addMember('eng', {
+      kind: 'human', handle: 'admin-user', display_name: 'Admin', role: 'admin',
+    });
+    const member = wsDaemon.store.addMember('eng', {
+      kind: 'human', handle: 'member-user', display_name: 'Member', role: 'member',
+    });
+    const observer = wsDaemon.store.addMember('eng', {
+      kind: 'human', handle: 'observer-user', display_name: 'Observer', role: 'observer',
+    });
+    let session: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawn = vi.spyOn(fake, 'spawn').mockImplementation((options) => {
+      session = originalSpawn(options);
+      return session;
+    });
+    wsDaemon.spawnMember('eng', { harness: 'fake', handle: 'preset-agent', cwd: wsDir });
+    spawn.mockRestore();
+    agentToken = session?.env?.CODOR_MEMBER_TOKEN ?? '';
+    if (agentToken === '') throw new Error('agent credential was not issued');
+    wsCrypto = new CryptoVault(join(wsDir, 'crypto'));
+    wsServer = await startServer({
+      daemon: wsDaemon,
+      token: 'owner-token',
+      principals: [
+        { token: 'admin-token', member_id: admin.id },
+        { token: 'member-token', member_id: member.id },
+        { token: 'observer-token', member_id: observer.id },
+      ],
+      crypto: wsCrypto,
+    });
+  });
+
+  afterEach(async () => {
+    await wsServer.close();
+    wsCrypto.close();
+    await wsDaemon.close();
+    rmSync(wsDir, { recursive: true, force: true });
+  });
+
+  it('authorizes owner/admin CRUD and ordered roster management, with safe custom results', async () => {
+    const owner = await connectAs('owner-token');
+    const admin = await connectAs('admin-token');
+    const native = { label: 'Native', handle: 'native-preset', harness: 'fake' };
+    const custom = { ...customAcpInput, label: 'Custom \t ACP' };
+
+    owner.ws.send(JSON.stringify({ type: 'create_agent_preset', ref: 'owner-create', input: native }));
+    const ownerCreated = await owner.next((frame) => frame.type === 'agent_preset' && frame.ref === 'owner-create');
+    expect(ownerCreated).toMatchObject({ type: 'agent_preset', ref: 'owner-create', preset: { adapter: 'fake' } });
+    if (ownerCreated.type !== 'agent_preset') throw new Error('missing owner preset');
+
+    // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-server-regression
+    admin.ws.send(JSON.stringify({ type: 'create_agent_preset', ref: 'admin-create', input: custom }));
+    const customCreated = await admin.next((frame) => frame.type === 'agent_preset' && frame.ref === 'admin-create');
+    expect(customCreated).toMatchObject({
+      type: 'agent_preset', ref: 'admin-create', preset: { adapter: 'acp', custom_acp: true },
+    });
+    expect(JSON.stringify(customCreated)).not.toContain(process.execPath);
+    if (customCreated.type !== 'agent_preset') throw new Error('missing custom preset');
+    // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+
+    owner.ws.send(JSON.stringify({ type: 'list_agent_presets', ref: 'unrelated-list' }));
+    owner.ws.send(JSON.stringify({ type: 'list_agent_presets', ref: 'target-list' }));
+    expect(await owner.next((frame) => frame.type === 'agent_presets' && frame.ref === 'target-list'))
+      .toMatchObject({ type: 'agent_presets', ref: 'target-list', presets: expect.any(Array) });
+    expect(owner.frames.some((frame) => frame.type === 'agent_presets' && frame.ref === 'unrelated-list')).toBe(true);
+
+    admin.ws.send(JSON.stringify({
+      type: 'set_default_roster', ref: 'roster-set',
+      input: { preset_ids: [customCreated.preset.id, ownerCreated.preset.id] },
+    }));
+    expect(await admin.next((frame) => frame.type === 'default_roster' && frame.ref === 'roster-set'))
+      .toMatchObject({ type: 'default_roster', ref: 'roster-set', roster: {
+        preset_ids: [customCreated.preset.id, ownerCreated.preset.id],
+      } });
+
+    owner.ws.send(JSON.stringify({ type: 'delete_agent_preset', ref: 'referenced-delete', preset_id: ownerCreated.preset.id }));
+    expect(await owner.next((frame) => frame.type === 'error' && frame.ref === 'referenced-delete'))
+      .toMatchObject({ type: 'error', ref: 'referenced-delete' });
+    expect(wsDaemon.getAgentPreset(ownerCreated.preset.id)).toBeDefined();
+
+    for (const [token, ref] of [['member-token', 'member-list'], ['observer-token', 'observer-create'], [agentToken, 'agent-list']] as const) {
+      const denied = await connectAs(token);
+      denied.ws.send(JSON.stringify(token === 'member-token' || token === agentToken
+        ? { type: 'list_agent_presets', ref }
+        : { type: 'create_agent_preset', ref, input: native }));
+      expect(await denied.next((frame) => frame.type === 'error' && frame.ref === ref))
+        .toMatchObject({ type: 'error', ref });
+      denied.ws.close();
+    }
+
+    owner.ws.send(JSON.stringify({
+      type: 'set_default_roster', ref: 'missing-roster', input: { preset_ids: ['01C4F6Y9J4QJ5F4KZ5T6X2V3W4'] },
+    }));
+    expect(await owner.next((frame) => frame.type === 'error' && frame.ref === 'missing-roster'))
+      .toMatchObject({ type: 'error', ref: 'missing-roster' });
+    expect(wsDaemon.getDefaultRoster().preset_ids).toEqual([customCreated.preset.id, ownerCreated.preset.id]);
+
+    owner.ws.send(JSON.stringify({ type: 'set_default_roster', ref: 'roster-clear', input: { preset_ids: [] } }));
+    expect(await owner.next((frame) => frame.type === 'default_roster' && frame.ref === 'roster-clear'))
+      .toMatchObject({ type: 'default_roster', ref: 'roster-clear', roster: { preset_ids: [] } });
+    owner.ws.send(JSON.stringify({ type: 'delete_agent_preset', ref: 'owner-delete', preset_id: ownerCreated.preset.id }));
+    expect(await owner.next((frame) => frame.type === 'agent_preset_deleted' && frame.ref === 'owner-delete'))
+      .toMatchObject({ type: 'agent_preset_deleted', ref: 'owner-delete', id: ownerCreated.preset.id, deleted: true });
+
+    owner.ws.close();
+    admin.ws.close();
+  });
+});
+// harn:end agent-room-authorization
+// harn:end roles-gate-human-acts-not-agents
 // harn:end agent-preset-management-is-authorized-across-rest-and-cli
