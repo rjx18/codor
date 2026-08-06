@@ -2572,6 +2572,13 @@
   color: var(--c-error-text);
   font: var(--t-ui);
 }
+.nx-preset-editor-fields,
+.nx-roster-draft {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
 .nx-preset-list,
 .nx-roster-list { display: grid; gap: var(--sp-2); margin: 0; padding: 0; list-style: none; }
 .nx-preset-row,

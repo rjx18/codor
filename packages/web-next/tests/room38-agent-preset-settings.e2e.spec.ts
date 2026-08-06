@@ -283,6 +283,12 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await expect(page.getByTestId('roster-save-error')).toContainText(/temporary roster failure/i);
     await expect(page.getByTestId(`roster-row-${second}`)).toBeVisible();
     await page.unroute(`${API}/api/default-roster`);
+    await page.getByTestId('roster-refresh').click();
+    await expect(page.getByTestId(`roster-row-${second}`)).toHaveCount(0);
+    await expect(page.getByTestId(`roster-row-${first}`)).toBeVisible();
+
+    await page.getByTestId('roster-add-select').selectOption(second);
+    await page.getByTestId('roster-add').click();
     await page.getByTestId('roster-save').click();
     await expect(page.getByTestId('roster-save-error')).toHaveCount(0);
 
@@ -392,9 +398,40 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     expect(settingsMetrics.targets.length).toBeGreaterThan(6);
     expect(settingsMetrics.targets.every((target) => target.width >= 44 && target.height >= 44)).toBe(true);
 
+    const rosterFieldsetMetrics = await page.locator('.nx-roster-draft').evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        border: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+        padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
+        margin: [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft],
+        minInlineSize: style.minInlineSize,
+      };
+    });
+    expect(rosterFieldsetMetrics).toEqual({
+      border: ['0px', '0px', '0px', '0px'],
+      padding: ['0px', '0px', '0px', '0px'],
+      margin: ['0px', '0px', '0px', '0px'],
+      minInlineSize: '0px',
+    });
+
     await page.getByTestId('preset-add').click();
     const editor = page.getByTestId('preset-editor-dialog');
     await expect(page.getByTestId('preset-label')).toBeFocused();
+    const presetFieldsetMetrics = await page.locator('.nx-preset-editor-fields').evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        border: [style.borderTopWidth, style.borderRightWidth, style.borderBottomWidth, style.borderLeftWidth],
+        padding: [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft],
+        margin: [style.marginTop, style.marginRight, style.marginBottom, style.marginLeft],
+        minInlineSize: style.minInlineSize,
+      };
+    });
+    expect(presetFieldsetMetrics).toEqual({
+      border: ['0px', '0px', '0px', '0px'],
+      padding: ['0px', '0px', '0px', '0px'],
+      margin: ['0px', '0px', '0px', '0px'],
+      minInlineSize: '0px',
+    });
     const dialogMetrics = await editor.evaluate((element) => {
       const body = element.querySelector<HTMLElement>('.nx-dialog-body');
       const actions = element.querySelector<HTMLElement>('.nx-dialog-actions');

@@ -353,4 +353,31 @@ describe('agent preset runtime API', () => {
       headers: { authorization: 'Bearer relay-secret' },
     }));
   });
+
+  it('correlates schema-valid addressed update responses on native and relay transport', async () => {
+    const mismatchedPreset = {
+      ...preset,
+      id: '01ARZ3NDEKTSV4RRFFQ69G5FAW',
+    };
+    const nativeFetch = vi.fn(() => Promise.resolve(respond({ preset: mismatchedPreset })));
+    vi.stubGlobal('fetch', nativeFetch);
+
+    await expect(updateAgentPreset(preset.id, {
+      label: 'Update', handle: 'update', harness: 'codex',
+    }, { token: 'native-secret' })).rejects.toThrow(/did not match requested preset/);
+
+    const relayFetch = vi.fn(() => Promise.resolve(respond({ preset: mismatchedPreset })));
+    setRelayTransport({ origin: 'https://relay.example', fetch: relayFetch });
+    await expect(updateAgentPreset(preset.id, {
+      label: 'Update', handle: 'update', harness: 'codex',
+    }, { token: 'relay-secret', origin: 'https://relay.example' }))
+      .rejects.toThrow(/did not match requested preset/);
+    expect(relayFetch).toHaveBeenCalledWith(
+      `/api/agent-presets/${preset.id}`,
+      expect.objectContaining({
+        method: 'PUT',
+        headers: { authorization: 'Bearer relay-secret', 'content-type': 'application/json' },
+      }),
+    );
+  });
 });

@@ -237,7 +237,11 @@ export async function updateAgentPreset(
   const body = await sendJson<{ preset: AgentPreset }>(
     `/api/agent-presets/${encodeURIComponent(id)}`, 'PUT', input, options,
   );
-  return AgentPresetSchema.parse(body.preset);
+  const preset = AgentPresetSchema.parse(body.preset);
+  if (preset.id !== id) {
+    throw new Error(`preset response id ${preset.id} did not match requested preset ${id}`);
+  }
+  return preset;
 }
 
 export async function deleteAgentPreset(id: string, options: ApiOptions): Promise<void> {

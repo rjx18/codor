@@ -87,6 +87,7 @@ export function AgentPresetSettings(props: { token: () => string }) {
   );
   const [presets, setPresets] = useState<AgentPreset[]>();
   const [roster, setRoster] = useState<DefaultRoster>();
+  const [rosterRevision, setRosterRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshError, setRefreshError] = useState<string>();
   const [editor, setEditor] = useState<EditorDraft>();
@@ -125,6 +126,7 @@ export function AgentPresetSettings(props: { token: () => string }) {
       if (!alive.current || current !== generation.current) return;
       setPresets(nextPresets);
       setRoster(nextRoster);
+      setRosterRevision((revision) => revision + 1);
     }).catch((failure: unknown) => {
       if (alive.current && current === generation.current) setRefreshError(errorMessage(failure));
     }).finally(() => {
@@ -323,10 +325,14 @@ export function AgentPresetSettings(props: { token: () => string }) {
         token={props.token}
         presets={presets ?? []}
         roster={roster}
+        rosterRevision={rosterRevision}
         loading={loading}
         error={refreshError}
         onRefresh={refresh}
-        onSaved={setRoster}
+        onSaved={(saved) => {
+          setRoster(saved);
+          setRosterRevision((revision) => revision + 1);
+        }}
       />
 
       {editor !== undefined && (
@@ -393,7 +399,7 @@ function PresetEditorModal(props: {
           </button>
         </header>
         <div className="nx-dialog-body" aria-busy={props.saving}>
-          <fieldset disabled={props.saving}>
+          <fieldset className="nx-preset-editor-fields" disabled={props.saving}>
           <label className="nx-field">
             <span className="nx-label">Preset label</span>
             <input ref={labelRef} value={props.draft.label} maxLength={80} required data-testid="preset-label" onChange={(event) => props.onChange({ ...props.draft, label: event.target.value })} />
@@ -445,6 +451,7 @@ function DefaultRosterEditor(props: {
   token: () => string;
   presets: readonly AgentPreset[];
   roster: DefaultRoster | undefined;
+  rosterRevision: number;
   loading: boolean;
   error?: string;
   onRefresh: () => void;
@@ -456,7 +463,7 @@ function DefaultRosterEditor(props: {
   const [error, setError] = useState<string>();
   const alive = useRef(true);
   const rosterGeneration = useRef(0);
-  const appliedRoster = useRef<string>();
+  const appliedRoster = useRef<{ revision: number; serialized: string }>();
 
   useEffect(() => () => {
     alive.current = false;
@@ -466,12 +473,13 @@ function DefaultRosterEditor(props: {
   useEffect(() => {
     if (props.roster !== undefined && !saving) {
       const serialized = JSON.stringify(props.roster);
-      if (serialized === appliedRoster.current) return;
-      appliedRoster.current = serialized;
+      const applied = appliedRoster.current;
+      if (applied?.revision === props.rosterRevision && applied.serialized === serialized) return;
+      appliedRoster.current = { revision: props.rosterRevision, serialized };
       setDraftIds([...props.roster.preset_ids]);
       setError(undefined);
     }
-  }, [props.roster, saving]);
+  }, [props.roster, props.rosterRevision, saving]);
 
   const authoritative = props.roster?.preset_ids ?? [];
   const dirty = JSON.stringify(draftIds) !== JSON.stringify(authoritative);
