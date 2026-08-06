@@ -1360,6 +1360,14 @@ export interface AgentRuntimeConfig {
   usage_baseline?: AcpUsageBaseline;
 }
 
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+/** A fully preflighted agent snapshot that may join the room transaction. */
+export interface InitialAgent {
+  member: NewMember;
+  runtime?: AgentRuntimeConfig;
+}
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+
 export interface NewMessage {
   author: string;
   kind: Message['kind'];
@@ -1568,11 +1576,15 @@ export class Store {
     name: string;
     owner: { handle: string; display_name: string };
     config?: Partial<RoomConfig>;
+    // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+    /** Concrete, already validated agents, inserted in this exact order. */
+    initialAgents?: readonly InitialAgent[];
+    // harn:end default-roster-channel-members-are-detached-ordered-snapshots
     bootstrapWelcome?: {
       author: { handle: string; display_name: string };
       body: string;
     };
-  }): { room: Room; owner: Member; system: Member } {
+  }): { room: Room; owner: Member; system: Member; initialAgents: Member[] } {
     const config = RoomConfigSchema.parse({
       ...opts.config,
       color: opts.config?.color ?? deriveRoomColor(opts.id),
@@ -1594,6 +1606,32 @@ export class Store {
         handle: 'switchboard',
         display_name: 'Switchboard',
       });
+      // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+      // These rows are deliberately dead until the daemon has activated each
+      // independent runtime. A failed external spawn therefore cannot undo the
+      // room transaction or erase a durable member identity.
+      const initialAgents = (opts.initialAgents ?? []).map(({ member, runtime }) => {
+        const inserted = this.insertMember(opts.id, member);
+        if (
+          runtime?.acp_launch !== undefined ||
+          runtime?.lifecycle !== undefined ||
+          runtime?.usage_baseline !== undefined
+        ) {
+          this.db.prepare(
+            `UPDATE members
+             SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
+             WHERE room = ? AND id = ?`,
+          ).run(
+            runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
+            runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
+            runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
+            opts.id,
+            inserted.id,
+          );
+        }
+        return inserted;
+      });
+      // harn:end default-roster-channel-members-are-detached-ordered-snapshots
       if (opts.bootstrapWelcome !== undefined) {
         const tutorial = this.insertMember(opts.id, {
           kind: 'system',
@@ -1606,7 +1644,7 @@ export class Store {
           body: opts.bootstrapWelcome.body,
         });
       }
-      return { owner, system };
+      return { owner, system, initialAgents };
     })();
     return { room: this.getRoom(opts.id)!, ...result };
   }

@@ -315,6 +315,140 @@ describe('direct daemon preset validation', () => {
 });
 // harn:end individual-agent-presets-are-bounded-catalog-validated-configurations
 
+// harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-expansion-regression
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-snapshot-regression
+describe('default roster room creation', () => {
+  let daemon: Daemon;
+  let fake: FakeAdapter;
+  let acp: FakeAdapter & { configurable: true };
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'codor-default-roster-create-'));
+    fake = new FakeAdapter('fake');
+    Object.assign(fake, { executable: 'fake' });
+    acp = Object.assign(new FakeAdapter('acp'), { configurable: true });
+    daemon = new Daemon({
+      dbPath: join(dir, 'switchboard.sqlite'),
+      blobRoot: join(dir, 'blobs'),
+      adapters: [fake, acp],
+      homeDir: dir,
+      executableOnPath: () => true,
+      discoverModels: false,
+    });
+  });
+
+  afterEach(async () => {
+    await daemon.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('snapshots native, named ACP, and custom ACP entries in roster order', () => {
+    const first = daemon.createAgentPreset({
+      label: 'First', handle: 'first-roster', harness: 'fake',
+    });
+    const named = daemon.createAgentPreset({
+      label: 'Named', handle: 'named-roster', harness: 'acp', acp_provider: 'kimi',
+    });
+    const custom = daemon.createAgentPreset({
+      ...customAcpInput, handle: 'custom-roster',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, named.id, custom.id] });
+
+    const sessions: ReturnType<FakeAdapter['spawn']>[] = [];
+    const originalFakeSpawn = fake.spawn.bind(fake);
+    vi.spyOn(fake, 'spawn').mockImplementation((opts) => {
+      const session = originalFakeSpawn(opts);
+      session.session_ref = `fake-roster-${String(sessions.length)}`;
+      sessions.push(session);
+      return session;
+    });
+    const originalAcpSpawn = acp.spawn.bind(acp);
+    vi.spyOn(acp, 'spawn').mockImplementation((opts) => {
+      const session = originalAcpSpawn(opts);
+      session.session_ref = `acp-roster-${String(sessions.length)}`;
+      sessions.push(session);
+      return session;
+    });
+
+    const created = daemon.createRoom({
+      id: 'roster-room', name: 'Roster Room', owner: { handle: 'owner', display_name: 'Owner' },
+      cwd: dir, default_roster: true,
+    });
+    expect(created.initialAgents.map((member) => member.handle))
+      .toEqual(['first-roster', 'named-roster', 'custom-roster']);
+    expect(created.initialAgents.map((member) => member.state)).toEqual(['idle', 'idle', 'idle']);
+    expect(created.initialAgents.map((member) => member.id)).toEqual([
+      expect.any(String), expect.any(String), expect.any(String),
+    ]);
+    expect(new Set(created.initialAgents.map((member) => member.id)).size).toBe(3);
+    expect(created.room.config.starting_agent_handle).toBeUndefined();
+    expect(created.initialAgents.every((member) => member.cwd === dir)).toBe(true);
+    expect(created.initialAgents.find((member) => member.handle === 'first-roster'))
+      .toMatchObject({ display_name: 'first-roster', policy: 'read-only', harness: 'fake' });
+    expect(created.initialAgents.find((member) => member.handle === 'named-roster'))
+      .toMatchObject({ acp_provider: 'kimi', harness: 'acp' });
+    expect(JSON.stringify(created.initialAgents)).not.toContain(process.execPath);
+    expect(daemon.store.getAgentRuntimeConfig('roster-room', created.initialAgents[1]!.id))
+      .toMatchObject({ acp_launch: expect.any(Object) });
+    expect(daemon.store.getAgentRuntimeConfig('roster-room', created.initialAgents[2]!.id))
+      .toEqual({ acp_launch: customAcpInput.acp_launch });
+    expect(sessions).toHaveLength(3);
+    expect(new Set(sessions.map((session) => session.session_ref)).size).toBe(3);
+
+    daemon.updateAgentPreset(first.id, {
+      label: 'First changed', handle: 'first-renamed', harness: 'fake', policy: 'full-access',
+    });
+    daemon.replaceDefaultRoster({ preset_ids: [custom.id] });
+    expect(daemon.store.getMemberByHandle('roster-room', 'first-roster')).toMatchObject({
+      handle: 'first-roster', policy: 'read-only',
+    });
+    expect(daemon.store.getMemberByHandle('roster-room', 'first-renamed')).toBeUndefined();
+  });
+
+  // harn:assume initial-roster-runtime-failures-are-member-local-and-actionable ref=initial-agent-runtime-failure-regression
+  it('keeps a failed seeded runtime dead and activates later entries independently', () => {
+    const handles = ['failure-first', 'success-middle', 'success-last'];
+    const presets = handles.map((handle) => daemon.createAgentPreset({
+      label: handle, handle, harness: 'fake',
+    }));
+    daemon.replaceDefaultRoster({ preset_ids: presets.map((preset) => preset.id) });
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawn = vi.spyOn(fake, 'spawn');
+    spawn.mockImplementationOnce(() => { throw new Error('first runtime failed'); });
+    spawn.mockImplementation((opts) => originalSpawn(opts));
+
+    const created = daemon.createRoom({
+      id: 'partial-roster', name: 'Partial Roster', owner: { handle: 'owner', display_name: 'Owner' },
+      default_roster: true,
+    });
+    expect(spawn).toHaveBeenCalledTimes(3);
+    expect(created.initialAgents.map((member) => [member.handle, member.state])).toEqual([
+      ['failure-first', 'dead'], ['success-middle', 'idle'], ['success-last', 'idle'],
+    ]);
+    expect(daemon.store.listMessages('partial-roster', { limit: 20 }).filter((message) =>
+      message.kind === 'system' && message.body.includes('failure-first'))).toHaveLength(1);
+    expect(daemon.store.listMessages('partial-roster', { limit: 20 }).at(-1)?.body)
+      .toContain('remove it and spawn a replacement');
+    expect(daemon.store.getAgentRuntimeConfig('partial-roster', created.initialAgents[0]!.id))
+      .toEqual({});
+  });
+
+  it('accepts an empty selected roster without inventing a starting agent', () => {
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    const created = daemon.createRoom({
+      id: 'empty-roster', name: 'Empty Roster', owner: { handle: 'owner', display_name: 'Owner' },
+      default_roster: true,
+    });
+    expect(created.room.config.starting_agent_handle).toBeUndefined();
+    expect(created.initialAgents).toEqual([]);
+    expect(daemon.store.listMembers('empty-roster').map((member) => member.kind).sort())
+      .toEqual(['human', 'system']);
+  });
+});
+// harn:end initial-roster-runtime-failures-are-member-local-and-actionable
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+// harn:end default-roster-channel-selection-is-exclusive-and-preflighted
+
 // harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-regression
 describe('agent preset REST authorization and behavior', () => {
   let daemon: Daemon;

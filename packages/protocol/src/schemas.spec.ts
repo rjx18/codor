@@ -502,7 +502,8 @@ describe('room config', () => {
     // harn:end channel-starting-agent-handle-persisted
   });
 
-  it('accepts additive create requests with an optional id and starting agent', () => {
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-request-regression
+  it('accepts the additive default-roster selector without changing legacy requests', () => {
     const base = {
       name: 'Demo',
       owner: { handle: 'richard', display_name: 'Richard' },
@@ -584,7 +585,19 @@ describe('room config', () => {
         acp_launch: { executable: 'kimi', argv: [] },
       },
     }).success).toBe(false);
+
+    expect(CreateRoomRequestSchema.parse({ ...base, default_roster: true }).default_roster)
+      .toBe(true);
+    expect(CreateRoomRequestSchema.safeParse({ ...base, default_roster: false }).success)
+      .toBe(false);
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base,
+      default_roster: true,
+      starting_agent: { harness: 'claude-code', handle: 'codor' },
+    }).success).toBe(false);
+    expect(CreateRoomRequestSchema.parse(base).starting_agent).toBeUndefined();
   });
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
 
   it('rooms default their whole config', () => {
     const room = RoomSchema.parse({ id: 'r', name: 'R', created_ts: TS });

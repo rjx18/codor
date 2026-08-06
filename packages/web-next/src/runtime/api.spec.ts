@@ -110,6 +110,31 @@ describe('actionable REST errors', () => {
       'starting agent handle @richard is already in use by the channel owner',
     );
   });
+
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-rest-regression
+  it('passes the typed default-roster selector through the hosted create helper', async () => {
+    const response = (body: unknown): Response =>
+      ({ ok: true, status: 200, json: () => Promise.resolve(body) }) as unknown as Response;
+    const fetch = vi.fn(() => Promise.resolve(response({
+      room: { id: 'roster-room', name: 'Roster Room' },
+    })));
+    vi.stubGlobal('fetch', fetch);
+
+    await createRoom({
+      name: 'Roster Room',
+      owner: { handle: 'owner', display_name: 'Owner' },
+      default_roster: true,
+    }, { token: 'secret' });
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/rooms'), expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Roster Room',
+        owner: { handle: 'owner', display_name: 'Owner' },
+        default_roster: true,
+      }),
+    }));
+  });
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
 });
 // harn:end starting-agent-name-derives-one-valid-identity-v6
 
