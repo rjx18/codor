@@ -101,6 +101,49 @@ describe('Git repository identity and read-only discovery', () => {
       .toEqual(expect.arrayContaining([main.id, adopted.worktree.id]));
   });
 
+  it('keeps detached primary and secondary identities stable across refresh and reopen', async () => {
+    const secondaryPath = join(fixtureRoot, 'detached secondary');
+    git(repositoryPath, ['checkout', '--detach', 'HEAD']);
+    git(repositoryPath, ['worktree', 'add', '--detach', secondaryPath, 'HEAD']);
+
+    const inspection = await manager.inspect(repositoryPath);
+    expect(inspection?.worktrees).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: repositoryPath, primary: true }),
+      expect.objectContaining({ path: secondaryPath, primary: false }),
+    ]));
+    expect(inspection?.worktrees.find((worktree) => worktree.path === repositoryPath)?.branch).toBeUndefined();
+    expect(inspection?.worktrees.find((worktree) => worktree.path === secondaryPath)?.branch).toBeUndefined();
+
+    const adopted = await manager.adopt('eng', repositoryPath, {
+      path: secondaryPath,
+      alias: 'detached-secondary',
+    });
+    const main = store.listRegisteredWorktrees('eng').find((worktree) => worktree.primary)!;
+    const repositoryId = adopted.repository.id;
+    const ids = { main: main.id, secondary: adopted.worktree.id };
+    expect(main.branch).toBeUndefined();
+    expect(adopted.worktree.branch).toBeUndefined();
+
+    const refreshed = await manager.list('eng', repositoryPath);
+    expect(refreshed.repository?.id).toBe(repositoryId);
+    expect(refreshed.registered.find((worktree) => worktree.id === ids.main))
+      .toMatchObject({ id: ids.main, primary: true });
+    expect(refreshed.registered.find((worktree) => worktree.id === ids.secondary))
+      .toMatchObject({ id: ids.secondary, primary: false });
+    expect(refreshed.registered.find((worktree) => worktree.id === ids.main)?.branch).toBeUndefined();
+    expect(refreshed.registered.find((worktree) => worktree.id === ids.secondary)?.branch).toBeUndefined();
+
+    store.close();
+    store = new Store(join(fixtureRoot, 'codor.sqlite'));
+    manager = new WorktreeManager(store);
+    const reopened = await manager.list('eng', repositoryPath);
+    expect(reopened.repository?.id).toBe(repositoryId);
+    expect(reopened.registered.map((worktree) => worktree.id))
+      .toEqual(expect.arrayContaining([ids.main, ids.secondary]));
+    expect(reopened.registered.find((worktree) => worktree.id === ids.main)?.branch).toBeUndefined();
+    expect(reopened.registered.find((worktree) => worktree.id === ids.secondary)?.branch).toBeUndefined();
+  });
+
   it('returns no repository for a non-Git directory', async () => {
     const nonGit = join(fixtureRoot, 'plain directory');
     mkdirSync(nonGit);
@@ -180,6 +223,61 @@ describe('safe creation and conservative removal', () => {
     expect(branchExists(repositoryPath, 'feature/collision')).toBe(false);
   });
 
+  it('refuses a second repository before adoption or creation can mutate it', async () => {
+    const firstSecondary = join(fixtureRoot, 'first repository secondary');
+    git(repositoryPath, ['worktree', 'add', '-b', 'first/review', firstSecondary, 'HEAD']);
+    await manager.adopt('eng', repositoryPath, { path: firstSecondary, alias: 'first-review' });
+    const repositoryBefore = store.getRepository('eng')!;
+    const registryBefore = JSON.stringify({
+      repository: repositoryBefore,
+      worktrees: store.listRegisteredWorktrees('eng'),
+    });
+
+    const secondRepository = join(fixtureRoot, 'second repository');
+    const secondSecondary = join(fixtureRoot, 'second repository secondary');
+    mkdirSync(secondRepository, { recursive: true });
+    git(secondRepository, ['init', '-q', '-b', 'main']);
+    git(secondRepository, ['config', 'user.email', 'fixture@example.test']);
+    git(secondRepository, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(secondRepository, 'README.md'), 'second fixture\n');
+    git(secondRepository, ['add', 'README.md']);
+    git(secondRepository, ['commit', '-qm', 'second fixture']);
+    git(secondRepository, ['worktree', 'add', '-b', 'second/review', secondSecondary, 'HEAD']);
+
+    const refsBefore = git(secondRepository, ['show-ref']);
+    const worktreesBefore = git(secondRepository, ['worktree', 'list', '--porcelain', '-z']);
+    await expect(manager.adopt('eng', secondRepository, {
+      path: secondSecondary,
+      alias: 'cross-repository-adopt',
+    })).rejects.toThrow('one Git repository');
+    expect(store.getRepository('eng')).toMatchObject({
+      id: repositoryBefore.id,
+      common_path: repositoryBefore.common_path,
+    });
+    expect(JSON.stringify({
+      repository: store.getRepository('eng'),
+      worktrees: store.listRegisteredWorktrees('eng'),
+    })).toBe(registryBefore);
+    expect(git(secondRepository, ['show-ref'])).toBe(refsBefore);
+    expect(git(secondRepository, ['worktree', 'list', '--porcelain', '-z'])).toBe(worktreesBefore);
+    expect(existsSync(secondSecondary)).toBe(true);
+
+    const createTarget = join(fixtureRoot, 'second repository created');
+    await expect(manager.create('eng', secondRepository, {
+      alias: 'cross-repository-create',
+      branch: 'feature/cross-repository',
+      path: createTarget,
+    })).rejects.toThrow('one Git repository');
+    expect(branchExists(secondRepository, 'feature/cross-repository')).toBe(false);
+    expect(existsSync(createTarget)).toBe(false);
+    expect(git(secondRepository, ['show-ref'])).toBe(refsBefore);
+    expect(git(secondRepository, ['worktree', 'list', '--porcelain', '-z'])).toBe(worktreesBefore);
+    expect(JSON.stringify({
+      repository: store.getRepository('eng'),
+      worktrees: store.listRegisteredWorktrees('eng'),
+    })).toBe(registryBefore);
+  });
+
   it('refuses locked, missing, main, unregistered, moved, and mismatched targets', async () => {
     const lockedTarget = join(fixtureRoot, 'locked target');
     git(repositoryPath, ['worktree', 'add', '-b', 'feature/locked-target', lockedTarget, 'HEAD']);
@@ -209,20 +307,43 @@ describe('safe creation and conservative removal', () => {
       path: movedTarget, alias: 'moved-target',
     });
     git(repositoryPath, ['worktree', 'move', movedTarget, movedPath]);
+    await expect(manager.remove('eng', repositoryPath, moved.worktree.id))
+      .rejects.toThrow(/missing or mismatched/);
+    expect(store.getWorktree('eng', moved.worktree.id)).toMatchObject({
+      id: moved.worktree.id,
+      path: movedTarget,
+      branch: 'feature/moved-target',
+      lifecycle: 'active',
+    });
+    expect(existsSync(movedPath)).toBe(true);
+    expect(branchExists(repositoryPath, 'feature/moved-target')).toBe(true);
+
     const refreshed = await manager.list('eng', repositoryPath);
     expect(refreshed.registered.find((item) => item.id === moved.worktree.id)).toMatchObject({
       id: moved.worktree.id, path: movedPath,
     });
-    store.refreshWorktreeObservation('eng', moved.worktree.id, {
-      path: movedPath,
+
+    const removedMoved = await manager.remove('eng', repositoryPath, moved.worktree.id);
+    expect(removedMoved.worktree).toMatchObject({ lifecycle: 'removed', availability: 'missing' });
+    expect(existsSync(movedPath)).toBe(false);
+    expect(branchExists(repositoryPath, 'feature/moved-target')).toBe(true);
+
+    const mismatchedTarget = join(fixtureRoot, 'mismatched target');
+    git(repositoryPath, ['worktree', 'add', '-b', 'feature/mismatched-target', mismatchedTarget, 'HEAD']);
+    const mismatched = await manager.adopt('eng', repositoryPath, {
+      path: mismatchedTarget, alias: 'mismatched-target',
+    });
+    store.refreshWorktreeObservation('eng', mismatched.worktree.id, {
+      path: mismatchedTarget,
       git_admin_id: join(fixtureRoot, 'wrong administrative identity'),
       primary: false,
       availability: 'available',
       locked: false,
     });
-    await expect(manager.remove('eng', repositoryPath, moved.worktree.id))
+    await expect(manager.remove('eng', repositoryPath, mismatched.worktree.id))
       .rejects.toThrow(/missing or mismatched/);
-    expect(branchExists(repositoryPath, 'feature/moved-target')).toBe(true);
+    expect(existsSync(mismatchedTarget)).toBe(true);
+    expect(branchExists(repositoryPath, 'feature/mismatched-target')).toBe(true);
 
     const main = store.listRegisteredWorktrees('eng').find((item) => item.primary);
     expect(main).toBeDefined();

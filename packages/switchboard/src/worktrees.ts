@@ -518,6 +518,9 @@ export class WorktreeManager {
     }
     const fresh = inspection.worktrees.find((observation) => observation.git_admin_id === registered.git_admin_id);
     if (fresh === undefined || fresh.primary) throw new Error('registered worktree is missing or mismatched');
+    if (fresh.path !== registered.path || fresh.git_admin_id !== registered.git_admin_id) {
+      throw new Error('registered worktree is missing or mismatched');
+    }
     if (fresh.availability !== 'available' || fresh.locked) {
       throw new Error('worktree is locked, prunable, or unavailable');
     }

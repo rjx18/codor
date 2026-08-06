@@ -405,6 +405,7 @@ describe('native worktree REST authorization and lifecycle', () => {
     const primary = join(fixture, 'primary checkout');
     const secondary = join(fixture, 'secondary checkout');
     const created = join(fixture, 'created checkout');
+    const ownerCreated = join(fixture, 'owner created checkout');
     mkdirSync(primary, { recursive: true });
     fixtureGit(primary, ['init', '-q', '-b', 'main']);
     fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
@@ -423,6 +424,17 @@ describe('native worktree REST authorization and lifecycle', () => {
         ...init.headers,
       },
     });
+
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
+    const wrongRoomAdopt = vi.spyOn(daemon.worktrees, 'adopt');
+    const wrongRoomMutation = await jsonRequest(ADMIN_TOKEN, '/api/rooms/other/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'wrong-room' }),
+    });
+    expect(wrongRoomMutation.status).toBe(403);
+    expect(wrongRoomAdopt).not.toHaveBeenCalled();
+    expect(daemon.store.getRepository('other')).toBeUndefined();
+    wrongRoomAdopt.mockRestore();
 
     const anonymous = await fetch(`${base}/api/rooms/eng/worktrees`);
     expect(anonymous.status).toBe(401);
@@ -499,6 +511,16 @@ describe('native worktree REST authorization and lifecycle', () => {
     expect(removedResponse.status).toBe(200);
     expect(existsSync(secondary)).toBe(false);
     expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/review/rest'])).toContain('review/rest');
+
+    const ownerCreatedResponse = await jsonRequest(TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ alias: 'Owner Created', branch: 'feature/owner-created', path: ownerCreated }),
+    });
+    expect(ownerCreatedResponse.status).toBe(201);
+    expect((await ownerCreatedResponse.json() as { worktree: { path: string } }).worktree.path)
+      .toBe(ownerCreated);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/owner-created']))
+      .toContain('feature/owner-created');
   });
 });
 // harn:end agent-network-authority-is-narrow
