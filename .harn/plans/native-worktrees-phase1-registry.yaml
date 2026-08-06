@@ -1,0 +1,279 @@
+id: native-worktrees-phase1-registry
+title: Native worktrees phase 1 - repository identity and explicit registry lifecycle
+notes: >-
+  Implement only the repository/worktree registry foundation approved in
+  .codor/PHASED-PLAN.md. A room-scoped repository inspection starts from an
+  existing canonical room/member cwd, detects the enclosing Git common directory
+  and Git's primary checkout without treating a branch name as identity, and
+  parses NUL-delimited worktree porcelain. Discovery may refresh the observed
+  path/head/branch/availability of an already-registered stable id, but it must
+  neither mutate Git nor persist any unregistered candidate. The first explicit
+  secondary adoption or successful creation persists one stable repository id,
+  the stable main-checkout record with reserved alias main, and only the selected
+  secondary. Re-adopting the same Git worktree after unregister preserves its
+  Codor id; aliases are normalized, unique among active records, and main is
+  reserved.
+
+  Expose additive authenticated REST primitives and shared protocol schemas for
+  listing/discovery, explicit adoption, creation of a new local branch at the
+  repository's current primary HEAD into a missing absolute target, registry-only
+  unregister, and explicit filesystem removal. Every Git invocation uses
+  execFile-style argv with bounded execution and no shell. Removal operates only
+  on an actively registered non-main worktree whose freshly detected repository,
+  Git administrative identity, canonical path, and clean status still match; it
+  uses git worktree remove without force, never raw recursive deletion, pruning,
+  or branch deletion. Missing, locked, dirty (including untracked), mismatched,
+  unsafe, main, cross-repository, and unregistered targets are refused.
+
+  Lifecycle operations are room-admin/owner-only and never create or copy room
+  members, messages, sessions, credentials, caches, tasks, usage, room config, or
+  roster state. Non-Git directories and rooms without an explicitly registered
+  secondary retain the existing ordinary-channel behavior. This phase adds no
+  group/child-conversation model, qualified mention grammar or routing, web UI,
+  preset integration, relay/cloud registry, branch deletion, or multi-repository
+  group support. Every lifecycle regression must create its own disposable Git
+  repository and worktrees below an isolated temporary fixture root and may clean
+  up only that fixture; tests must never create, move, unregister, remove, rename,
+  dirty, or otherwise modify an unrelated real user worktree.
+assumptions:
+  create:
+    - id: repository-primary-identity-is-git-derived
+      title: Repository and primary-checkout identity follow Git metadata, not branch names
+      statement: A worktree registry inspection must derive the enclosing repository
+        from its absolute Git common directory and identify the primary checkout by
+        Git worktree metadata rather than the current branch, while non-Git input
+        returns no repository and an existing registered worktree is correlated by
+        its Git administrative identity so detached heads, branch changes, moved
+        secondary paths, spaces, and restart do not replace stable Codor ids.
+      reason: Branch labels and checkout paths are mutable presentation details and
+        cannot safely identify the repository, main checkout, or a registered child.
+      depends_on: []
+    - id: worktree-discovery-never-registers-candidates
+      title: Worktree discovery observes candidates without adopting them
+      statement: Room worktree discovery must use a freshly read, NUL-delimited local
+        Git worktree list and may reconcile observation metadata only for identities
+        already registered, but it must not mutate Git or persist, expose as active,
+        or otherwise adopt any newly discovered secondary until the operator selects
+        that exact candidate explicitly.
+      reason: Codor must show only worktrees it created or the operator deliberately adopted.
+      depends_on:
+        - repository-primary-identity-is-git-derived
+    - id: registered-worktree-identities-are-durable
+      title: Registered repository and worktree identities survive lifecycle changes
+      statement: The store must persist one stable repository id per participating
+        room, one stable main-checkout record, and stable selected-secondary ids with
+        reserved or unique aliases, canonical observed paths, Git administrative
+        identity, source, head/branch/availability observations, and registration,
+        update, unregister, and removal timestamps; unregister and removal are
+        tombstone transitions, and re-adopting the same extant Git identity restores
+        its prior Codor id across store reopen.
+      reason: Later child conversations and qualified routing must bind to durable
+        identities rather than mutable branch labels or filesystem paths.
+      depends_on:
+        - repository-primary-identity-is-git-derived
+        - worktree-discovery-never-registers-candidates
+    - id: worktree-git-execution-is-argument-safe
+      title: Worktree Git execution is bounded and shell-free
+      statement: Every repository and worktree discovery, validation, creation,
+        cleanliness check, and removal command must invoke Git through an executable
+        plus an argument array with fixed time and output bounds, parse machine-safe
+        NUL output where paths are returned, and never construct a shell command from
+        a repository path, worktree path, alias, branch, or revision.
+      reason: Worktree paths and operator labels may contain spaces or hostile-looking
+        text and must never become command syntax.
+      depends_on: []
+    - id: worktree-creation-registers-only-a-new-secondary
+      title: Worktree creation is collision-safe and registers only its result
+      statement: Creating a worktree must require a normalized non-main alias, a valid
+        new local branch name, and a missing absolute target with an existing safe
+        parent, verify repository and registry constraints before mutation, create
+        from the freshly resolved primary HEAD without force, and register only the
+        exact secondary rediscovered after Git succeeds; existing paths, branches,
+        aliases, primary targets, and cross-repository identities are refused.
+      reason: Creation must not overwrite filesystem state, reset refs, guess a remote,
+        or import neighboring worktrees as a side effect.
+      depends_on:
+        - repository-primary-identity-is-git-derived
+        - registered-worktree-identities-are-durable
+        - worktree-git-execution-is-argument-safe
+    - id: worktree-removal-is-clean-and-branch-preserving
+      title: Worktree unregister and removal are distinct conservative operations
+      statement: Unregistering an active secondary must change registry lifecycle only
+        and leave Git and the filesystem untouched, while filesystem removal must be
+        a separate explicit operation limited to an actively registered non-main
+        secondary whose fresh repository, Git administrative identity, canonical
+        path, availability, lock state, and empty tracked/untracked status still
+        match; removal must call non-force git worktree remove, tombstone only after
+        success, and never prune or delete the checked-out branch.
+      reason: Codor must not destroy dirty, mismatched, main, or unregistered operator data.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - worktree-git-execution-is-argument-safe
+    - id: worktree-lifecycle-is-roster-neutral
+      title: Worktree lifecycle does not clone or rewrite channel runtime state
+      statement: Repository detection, worktree discovery, adoption, creation,
+        unregister, and removal must not create, copy, rename, or remove room members
+        or mutate room configuration, messages, sessions, credentials, caches, tasks,
+        usage, or roster-staleness state, so a non-Git room or a room with no active
+        registered secondary continues through the ordinary channel path unchanged.
+      reason: Group conversations, worktree-scoped agents, and preset-driven rosters
+        belong to later phases and must not be inferred from filesystem lifecycle.
+      depends_on:
+        - registered-worktree-identities-are-durable
+    - id: worktree-management-is-human-admin-only
+      title: Worktree lifecycle is authorized only for human room administrators
+      statement: Worktree listing and discovery must require authenticated room read
+        access, every adopt, create, unregister, and filesystem-removal request must
+        require an authenticated human room admin or owner, and an agent credential
+        must remain unable to use any worktree management operation.
+      reason: Repository and filesystem mutation is operator authority and must never
+        be inherited from an agent's narrow room credential.
+      depends_on:
+        - roles-gate-human-acts-not-agents
+        - agent-network-authority-is-narrow
+  reviewed:
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: The human capability matrix gains explicit admin-level worktree
+        lifecycle authority while preserving every existing role threshold and
+        authenticated-principal rule.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Worktree reads and mutations remain absent from the agent capability
+        allowlist, and server regressions prove an agent credential is refused.
+anchors:
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Add the explicit admin-level worktree-management capability.
+    role-matrix-integration:
+      action: change
+      reason: Pin observer/member refusal and admin/owner allowance for lifecycle mutation.
+  agent-network-authority-is-narrow:
+    agent-capability-matrix:
+      action: keep
+      reason: Worktree authority must not enter the agent capability allowlist.
+    agent-capability-regression:
+      action: change
+      reason: Prove agent credentials do not acquire worktree lifecycle authority.
+    agent-authz-regression:
+      action: change
+      reason: Prove worktree REST reads and mutations reject a room-scoped agent token.
+  repository-primary-identity-is-git-derived:
+    git-repository-detection:
+      action: change
+      reason: Detect common Git metadata, primary checkout, stable administrative ids,
+        branch/detached observations, and non-Git input.
+    git-repository-fixtures:
+      action: change
+      reason: Cover linked worktrees, detached heads, spaces, moved paths, primary
+        branch changes, non-Git directories, and restart using disposable repositories.
+  worktree-discovery-never-registers-candidates:
+    worktree-discovery-contract:
+      action: change
+      reason: Parse fresh porcelain and reconcile only already-registered identities.
+    worktree-discovery-rest:
+      action: change
+      reason: Expose the additive room-scoped read-only discovery response.
+    worktree-discovery-regression:
+      action: change
+      reason: Prove repeated discovery leaves unselected worktrees unregistered and
+        does not mutate any fixture repository.
+  registered-worktree-identities-are-durable:
+    worktree-protocol-contract:
+      action: change
+      reason: Define bounded repository, registered-worktree, discovery, alias,
+        lifecycle, and REST request/response schemas without altering Room or WS shapes.
+    worktree-protocol-regression:
+      action: change
+      reason: Pin valid lifecycle projections and reject malformed ids, aliases,
+        paths, states, and mutation inputs.
+    worktree-store-schema:
+      action: change
+      reason: Add room-scoped repository and tombstoned registered-worktree tables,
+        migrations, constraints, and active uniqueness indexes.
+    worktree-store-lifecycle:
+      action: change
+      reason: Persist, observe, transition, list, and reopen stable repository and
+        worktree records transactionally without room change-log side effects.
+    worktree-store-regression:
+      action: change
+      reason: Prove stable ids, alias uniqueness, lifecycle timestamps, tombstones,
+        re-adoption, and reopen behavior.
+    worktree-runtime-reconciliation:
+      action: change
+      reason: Match fresh Git observations to durable identities and refresh only
+        registered metadata when paths, branch, head, or availability change.
+  worktree-git-execution-is-argument-safe:
+    worktree-git-runner:
+      action: change
+      reason: Centralize bounded shell-free Git execution and NUL-safe parsing for
+        every Phase 1 lifecycle command.
+    worktree-git-runner-regression:
+      action: change
+      reason: Exercise spaces and option-looking aliases/branches through argv seams
+        without executing user text as a shell command.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-contract:
+      action: change
+      reason: Validate alias, branch, target, primary HEAD, and post-create identity
+        around one non-force git worktree add.
+    worktree-create-rest:
+      action: change
+      reason: Expose the authorized additive creation primitive and bounded errors.
+    worktree-create-regression:
+      action: change
+      reason: Prove only the temporary created worktree is registered and collisions,
+        invalid targets, and cross-repository inputs are refused.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-contract:
+      action: change
+      reason: Separate DB-only unregister from identity-checked clean Git removal and
+        preserve the branch in every outcome.
+    worktree-remove-rest:
+      action: change
+      reason: Expose distinct authorized unregister and filesystem-remove operations.
+    worktree-remove-regression:
+      action: change
+      reason: Prove dirty, untracked, locked, missing, moved/mismatched, main, and
+        unregistered fixture targets are refused and no branch is deleted.
+  worktree-lifecycle-is-roster-neutral:
+    worktree-lifecycle-daemon-boundary:
+      action: change
+      reason: Keep daemon lifecycle delegation isolated from room/member/session paths.
+    worktree-roster-neutrality-regression:
+      action: change
+      reason: Snapshot room, member, message, config, and runtime-facing store state
+        across discovery/adopt/create/unregister/remove and prove it is unchanged.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-role-gate:
+      action: change
+      reason: Gate reads by room read capability and mutations by the new human
+        admin capability before any Git or store lifecycle call.
+    worktree-lifecycle-authorization-regression:
+      action: change
+      reason: Prove anonymous, observer, member, wrong-room, and agent principals are
+        refused before Git while admin and owner principals reach the operation.
+files:
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/protocol/src/index.ts
+  - packages/switchboard/src/worktrees.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+verification: >-
+  Run harn find --plan native-worktrees-phase1-registry and harn check
+  native-worktrees-phase1-registry; run pnpm --filter @codor/protocol test,
+  pnpm --filter @codor/switchboard test, and pnpm --filter '@codor/switchboard...'
+  build. All worktree lifecycle tests must use only per-test mkdtemp repositories
+  and worktrees below their own temporary roots, assert the branch survives removal,
+  and clean up only those roots. Then stage only the plan files and implementation,
+  run harn check --staged, let the Harn hook apply the plan, and create exactly one
+  Phase 1 implementation commit containing the code, tests, applied plan, and
+  generated assumption truth.
