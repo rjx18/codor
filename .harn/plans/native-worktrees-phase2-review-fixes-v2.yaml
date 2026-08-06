@@ -1,0 +1,159 @@
+id: native-worktrees-phase2-review-fixes-v2
+title: Native worktrees Phase 2 review fixes v2 - browser keys and Harn truth
+notes: >-
+  Replace the unimplemented native-worktrees-phase2-review-fixes lock without
+  rewriting it. The first lock was clean but Harn's duplicate-anchor identity
+  aggregation attributed the required store.spec.ts edits to both
+  registered-worktree-identities-are-durable worktree-store-lifecycle and
+  worktree-store-schema. This replacement preserves the exact same five-file
+  implementation and explicitly accounts for both anchors; store.ts remains
+  outside the file list and its production schema must not change.
+
+  Route both worktree creation REST aliases through the same validated
+  lifecycle-response helper as adoption so successful creation ensures the child
+  room key, a paired browser receives only that child's sealed key, and operator
+  responses remain keyless. Add a browser-create regression using only its own
+  temporary Git repository/worktrees. Make the child-roster assertion independent
+  of random ULID lexical order. Repair only the malformed or missing Phase 2 Harn
+  test delimiters for migration, store/server isolation, main compatibility,
+  child authorization, roster neutrality, and residency. Do not alter conversation
+  identity/persistence, routing, runtime behavior, filesystem lifecycle, relay
+  protocols, UI, presets, or any Phase 3 behavior. Never mutate a real user
+  worktree.
+assumptions:
+  reviewed:
+    - id: child-files-voice-and-keys-are-isolated
+      outcome: unchanged
+      reason: The existing invariant requires the create route to reuse the correct
+        child-key response already implemented for adoption.
+    - id: browser-created-channel-delivers-its-room-key
+      outcome: unchanged
+      reason: Direct room creation remains untouched and is the compatibility
+        precedent for a paired browser creating a worktree child.
+    - id: registered-worktrees-materialize-stable-conversations
+      outcome: unchanged
+      reason: Identity and migration behavior stay unchanged while missing regression
+        delimiters become valid source anchors.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: Compatibility behavior stays unchanged and its existing REST regression
+        receives the correct closing marker.
+    - id: child-conversation-state-is-room-isolated
+      outcome: unchanged
+      reason: State and server isolation behavior stays unchanged while malformed
+        nested test anchors are repaired.
+    - id: child-members-own-isolated-runtime
+      outcome: unchanged
+      reason: Runtime isolation stays unchanged and child authorization closes under
+        its intended assumption.
+    - id: child-home-authority-survives-residency
+      outcome: unchanged
+      reason: Hosted behavior stays unchanged and the existing child fixture receives
+        its missing end marker.
+    - id: worktree-lifecycle-is-roster-neutral
+      outcome: unchanged
+      reason: The empty-child proof stays unchanged apart from duplicate and unmatched
+        delimiter cleanup.
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Lifecycle and schema behavior stay unchanged; the test assertion becomes
+        order-independent and both duplicate Harn anchor identities are accounted.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Authorization behavior stays unchanged while test delimiters are fixed.
+    - id: worktree-creation-registers-only-a-new-secondary
+      outcome: unchanged
+      reason: Creation still performs the same safe Git/registration operation; only
+        its response gains the already-declared paired-browser key envelope.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: Existing role gates stay unchanged while the nested regression marker is
+        corrected.
+anchors:
+  child-files-voice-and-keys-are-isolated:
+    conversation-key-response:
+      action: change
+      reason: Reuse the validated lifecycle response after worktree creation.
+    conversation-files-voice-key-regression:
+      action: change
+      reason: Prove paired-browser create returns only the new child key and operator
+        creation remains keyless.
+  browser-created-channel-delivers-its-room-key:
+    browser-room-key-response:
+      action: keep
+      reason: Direct room creation must remain unchanged.
+    browser-room-key-regression:
+      action: keep
+      reason: Direct room creation coverage must remain unchanged.
+  registered-worktrees-materialize-stable-conversations:
+    worktree-conversation-migration:
+      action: change
+      reason: Close the existing migration regression outer anchor correctly.
+    worktree-conversation-store-regression:
+      action: change
+      reason: Preserve the inner store regression while fixing nested closure.
+  main-and-direct-conversations-stay-compatible:
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Replace its mismatched end marker.
+  child-conversation-state-is-room-isolated:
+    conversation-room-state-regression:
+      action: change
+      reason: Close the existing state regression outer anchor correctly.
+    conversation-read-cursor-seeding:
+      action: change
+      reason: Preserve the inner cursor proof while fixing nested closure.
+    conversation-server-isolation-regression:
+      action: change
+      reason: Close the child server proof with its intended assumption.
+  child-members-own-isolated-runtime:
+    conversation-agent-authorization-regression:
+      action: change
+      reason: Replace the unrelated end marker with the child-runtime end.
+  child-home-authority-survives-residency:
+    conversation-residency-regression:
+      action: change
+      reason: Add the missing end immediately after the hosted child test.
+  worktree-lifecycle-is-roster-neutral:
+    worktree-roster-neutrality-regression:
+      action: change
+      reason: Remove the duplicate start and unmatched conversation end.
+  registered-worktree-identities-are-durable:
+    worktree-store-lifecycle:
+      action: change
+      reason: Make the lifecycle child-roster assertion ULID-order independent.
+    worktree-store-schema:
+      action: change
+      reason: Account for Harn's duplicate-anchor attribution of the same
+        store.spec.ts hunk; no store.ts schema code is authorized to change.
+  agent-network-authority-is-narrow:
+    agent-authz-regression:
+      action: change
+      reason: Preserve authorization assertions while fixing nested delimiters.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-rest:
+      action: change
+      reason: Return the validated child lifecycle envelope after safe creation.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-authorization-regression:
+      action: change
+      reason: Preserve role checks while repairing the nested compatibility marker.
+files:
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/switchboard/src/residency.spec.ts
+verification: Verify the preserved implementation patch SHA-256 is
+  26df7a21c63aa48a385d63070c023063d26b1a91cced58c75294772374b7c9f8 and
+  applies only to the five declared files. Run harn find --plan
+  native-worktrees-phase2-review-fixes-v2, harn plan check
+  native-worktrees-phase2-review-fixes-v2, and harn check
+  native-worktrees-phase2-review-fixes-v2. Run pnpm --filter
+  @codor/switchboard test twice to prove the former random-order failure is
+  deterministic, then pnpm --filter '@codor/switchboard...' build and harn check
+  --staged. Compare git worktree list --porcelain before and after. Every Git
+  lifecycle regression must use only its own mkdtemp repository/worktrees; no real
+  user worktree may be created, removed, renamed, or modified. Stage only the
+  applied replacement plan and its five declared files and create exactly one
+  review-fix implementation commit.
