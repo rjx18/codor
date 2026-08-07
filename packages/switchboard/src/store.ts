@@ -1852,11 +1852,48 @@ export class Store {
         this.db,
         options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'),
       );
+      this.reconcileWorktreeChildMetadata();
     } catch (error) {
       this.db.close();
       throw error;
     }
   }
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-migration
+  /** Idempotent open-time reconciliation for children materialized before the
+   * canonical projection existed (root config copied verbatim, root cwd, or a
+   * leaked starting agent handle). One ordinary child room change is appended
+   * only when the visible name/config actually drifts; root rows are read,
+   * never written, and root ids/history are untouched. */
+  private reconcileWorktreeChildMetadata(): void {
+    const rows = this.db.prepare(
+      `SELECT room, alias, path, conversation_id
+       FROM worktrees
+       WHERE primary_checkout = 0 AND lifecycle = 'active'
+         AND conversation_id IS NOT NULL AND conversation_id != ''`,
+    ).all() as { room: string; alias: string; path: string; conversation_id: string }[];
+    if (rows.length === 0) return;
+    this.db.transaction(() => {
+      for (const row of rows) {
+        const rootRoom = this.getRoom(row.room);
+        const childRow = this.db.prepare('SELECT * FROM rooms WHERE id = ?')
+          .get(row.conversation_id) as RoomRow | undefined;
+        if (rootRoom === undefined || childRow === undefined) continue;
+        const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, row.alias, row.path);
+        const currentConfig = RoomConfigSchema.parse(JSON.parse(childRow.config) as unknown);
+        if (
+          childRow.name === projection.name
+          && JSON.stringify(currentConfig) === JSON.stringify(projection.config)
+        ) {
+          continue;
+        }
+        this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
+          .run(projection.name, JSON.stringify(projection.config), row.conversation_id);
+        this.appendChange(row.conversation_id, 'room', row.conversation_id);
+      }
+    })();
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
 
   close(): void {
     this.db.close();
@@ -1930,27 +1967,7 @@ export class Store {
       // These rows are deliberately dead until the daemon has activated each
       // independent runtime. A failed external spawn therefore cannot undo the
       // room transaction or erase a durable member identity.
-      const initialAgents = (opts.initialAgents ?? []).map(({ member, runtime }) => {
-        const inserted = this.insertMember(opts.id, member);
-        if (
-          runtime?.acp_launch !== undefined ||
-          runtime?.lifecycle !== undefined ||
-          runtime?.usage_baseline !== undefined
-        ) {
-          this.db.prepare(
-            `UPDATE members
-             SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
-             WHERE room = ? AND id = ?`,
-          ).run(
-            runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
-            runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
-            runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
-            opts.id,
-            inserted.id,
-          );
-        }
-        return inserted;
-      });
+      const initialAgents = this.insertInitialAgentMembers(opts.id, opts.initialAgents ?? []);
       // harn:end default-roster-channel-members-are-detached-ordered-snapshots
       if (opts.bootstrapWelcome !== undefined) {
         const tutorial = this.insertMember(opts.id, {
@@ -2038,15 +2055,76 @@ export class Store {
     return RoomIdSchema.parse(candidate);
   }
 
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-store
+  /** One detached snapshot member insertion shared by channel creation and
+   * child registration: the private runtime columns travel with the row and no
+   * preset or roster reference is ever persisted. */
+  private insertInitialAgentMembers(
+    room: string,
+    initialAgents: readonly InitialAgent[],
+  ): Member[] {
+    return initialAgents.map(({ member, runtime }) => {
+      const inserted = this.insertMember(room, member);
+      if (
+        runtime?.acp_launch !== undefined ||
+        runtime?.lifecycle !== undefined ||
+        runtime?.usage_baseline !== undefined
+      ) {
+        this.db.prepare(
+          `UPDATE members
+           SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
+           WHERE room = ? AND id = ?`,
+        ).run(
+          runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
+          runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
+          runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
+          room,
+          inserted.id,
+        );
+      }
+      return inserted;
+    });
+  }
+
+  /** A child's visible metadata derives from the root but belongs to the exact
+   * secondary: its canonical registered path is the cwd, and a root-only
+   * starting agent handle never leaks across. */
+  private childRoomProjection(rootName: string, rootConfig: RoomConfig, alias: string, canonicalPath: string): {
+    name: string;
+    config: RoomConfig;
+  } {
+    const { starting_agent_handle: _rootStartingHandle, ...inherited } = rootConfig;
+    return {
+      name: `${rootName} · ${alias}`,
+      config: RoomConfigSchema.parse({ ...inherited, cwd: canonicalPath }),
+    };
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
   private ensureChildConversation(
     root: string,
     conversationId: string,
     alias: string,
+    canonicalPath: string,
     now: string,
   ): void {
+    const rootRoom = this.getRoom(root);
+    if (rootRoom === undefined) throw new Error(`no root room: ${root}`);
+    const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, alias, canonicalPath);
     const existing = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(conversationId) as
       RoomRow | undefined;
     if (existing !== undefined) {
+      // Explicit re-adoption reconciles the durable child projection (name and
+      // canonical cwd) and appends one ordinary room change only on real drift.
+      const currentConfig = RoomConfigSchema.parse(JSON.parse(existing.config) as unknown);
+      if (
+        existing.name !== projection.name
+        || JSON.stringify(currentConfig) !== JSON.stringify(projection.config)
+      ) {
+        this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
+          .run(projection.name, JSON.stringify(projection.config), conversationId);
+        this.appendChange(conversationId, 'room', conversationId);
+      }
       for (const member of this.db.prepare(
         `SELECT id FROM members WHERE room = ? AND kind = 'human' ORDER BY id`,
       ).all(root) as { id: string }[]) {
@@ -2057,11 +2135,9 @@ export class Store {
       }
       return;
     }
-    const rootRoom = this.getRoom(root);
-    if (rootRoom === undefined) throw new Error(`no root room: ${root}`);
     this.db.prepare(
       'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
-    ).run(conversationId, `${rootRoom.name} · ${alias}`, now, JSON.stringify(rootRoom.config));
+    ).run(conversationId, projection.name, now, JSON.stringify(projection.config));
     this.appendChange(conversationId, 'room', conversationId);
     const inherited = this.db.prepare(
       `SELECT id, kind FROM members
@@ -2252,8 +2328,12 @@ export class Store {
     return this.listWorktrees(room, { repositoryId });
   }
 
+  // harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-root-neutral-registration
   /** Persist the repository, its stable main row, and one explicitly selected
-   * secondary in one SQLite transaction. No room change-log row is appended. */
+   * secondary in one SQLite transaction. Registration effects are limited to
+   * repository/worktree rows and CHILD conversation metadata (plus the one
+   * explicitly preflighted new-child seed); every existing root entity — Room
+   * config, roster, history, tasks, usage — is preserved byte-for-byte. */
   registerWorktree(
     room: string,
     repository: RepositoryObservation,
@@ -2262,7 +2342,8 @@ export class Store {
     alias: string,
     source: Exclude<WorktreeSource, 'main'>,
     now = new Date().toISOString(),
-  ): { repository: RepositoryRecord; worktree: RegisteredWorktree } {
+    initialAgents: readonly InitialAgent[] = [],
+  ): { repository: RepositoryRecord; worktree: RegisteredWorktree; seeded: Member[] } {
     if (!main.primary || secondary.primary) throw new Error('invalid primary/secondary worktree observations');
     const normalizedAlias = WorktreeAliasSchema.parse(alias);
     return this.db.transaction(() => {
@@ -2388,7 +2469,15 @@ export class Store {
       if (secondaryRow.conversation_id === null || secondaryRow.conversation_id === '') {
         throw new Error(`worktree ${secondaryId} has no conversation mapping`);
       }
-      this.ensureChildConversation(room, secondaryRow.conversation_id, normalizedAlias, now);
+      this.ensureChildConversation(room, secondaryRow.conversation_id, normalizedAlias, secondary.path, now);
+      // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-store
+      // Only a brand-new child receives the preflighted detached snapshots,
+      // bound to that exact conversation inside this same transaction. Any
+      // later re-adoption reuses the durable child and seeds nothing.
+      const seeded = existingSecondary === undefined
+        ? this.insertInitialAgentMembers(secondaryRow.conversation_id, initialAgents)
+        : [];
+      // harn:end worktree-child-default-roster-is-an-explicit-snapshot
 
       const refreshedRepository = this.db
         .prepare('SELECT * FROM repositories WHERE id = ?')
@@ -2404,9 +2493,11 @@ export class Store {
       return {
         repository: repositoryFromRow(refreshedRepository),
         worktree: worktreeFromRow(refreshedWorktree),
+        seeded,
       };
     })();
   }
+  // harn:end worktree-lifecycle-preserves-existing-state-by-default
 
   /** Refresh an active row from a fresh Git observation. This deliberately
    * bypasses the room changelog because worktree metadata is an additive REST
@@ -2457,6 +2548,53 @@ export class Store {
       return this.getWorktree(room, worktreeId)!;
     })();
   }
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-store
+  /** Identity-preserving alias mutation: one unique non-main label on an
+   * active secondary, the stable child's display name reconciled in the same
+   * transaction, and NO Git invocation. WorktreeId, conversation RoomId, path,
+   * Git administrative identity, branch, transcript, and members never move. */
+  updateWorktreeAlias(
+    room: string,
+    worktreeId: string,
+    alias: string,
+    now = new Date().toISOString(),
+  ): RegisteredWorktree {
+    const normalized = WorktreeAliasSchema.parse(alias);
+    if (normalized === 'main') throw new Error('the main alias is reserved');
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
+        throw new Error(`only an active secondary worktree can be renamed: ${worktreeId}`);
+      }
+      const collision = this.listWorktrees(room, { repositoryId: existing.repository_id })
+        .find((candidate) => candidate.alias === normalized && candidate.id !== existing.id);
+      if (collision !== undefined) throw new Error(`worktree alias is already in use: ${normalized}`);
+      this.db.prepare('UPDATE worktrees SET alias = ?, updated_ts = ? WHERE id = ?')
+        .run(normalized, now, existing.id);
+      const rootRoom = this.getRoom(room);
+      if (rootRoom === undefined) throw new Error(`no root room: ${room}`);
+      const child = this.getRoom(existing.conversation_id);
+      if (child !== undefined) {
+        const projection = this.childRoomProjection(
+          rootRoom.name,
+          rootRoom.config,
+          normalized,
+          existing.path,
+        );
+        if (
+          child.name !== projection.name
+          || JSON.stringify(child.config) !== JSON.stringify(projection.config)
+        ) {
+          this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
+            .run(projection.name, JSON.stringify(projection.config), child.id);
+          this.appendChange(child.id, 'room', child.id);
+        }
+      }
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
 
   private insertWorktreeRow(
     repositoryId: string,

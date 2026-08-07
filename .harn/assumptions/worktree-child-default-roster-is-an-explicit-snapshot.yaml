@@ -1,0 +1,19 @@
+id: worktree-child-default-roster-is-an-explicit-snapshot
+hash: a-6bbc42bde173
+title: A worktree child receives the default roster only by explicit snapshot
+state: active
+statement: Only create-worktree input with literal default_roster true may
+  require both worktree and agent-management authority, synchronously preflight
+  the complete current ordered default roster and every inherited-human handle
+  before Git, then atomically seed detached concrete members into only the newly
+  registered child at its canonical worktree cwd and activate each runtime
+  independently after commit; omission, discovery, adoption, re-adoption,
+  unregister, and removal seed nothing, main agents are never cloned, and
+  registration failure after Git gets only non-force branch-preserving cleanup.
+depends_on:
+  - worktree-lifecycle-preserves-existing-state-by-default
+  - worktree-creation-registers-only-a-new-secondary
+  - default-roster-channel-selection-is-exclusive-and-preflighted
+  - default-roster-channel-members-are-detached-ordered-snapshots
+  - initial-roster-runtime-failures-are-member-local-and-actionable
+created_by: native-worktrees-phase4-functional-group-ui

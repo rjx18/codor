@@ -105,6 +105,75 @@ describe('native worktree protocol', () => {
 // harn:end registered-worktrees-materialize-stable-conversations
 // harn:end registered-worktree-identities-are-durable
 
+import {
+  WorktreeAliasUpdateRequestSchema,
+  WorktreeAliasUpdateResponseSchema,
+  WorktreeRegisteredResponseSchema,
+  WorktreeRemovalPreviewResponseSchema,
+} from './worktree.js';
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-regression
+describe('worktree lifecycle projection protocol', () => {
+  it('carries a store-only registered projection with no discovery surface', () => {
+    const main = { ...worktree, id: repository.id, alias: 'main', primary: true, source: 'main', conversation_id: repository.room };
+    const parsed = WorktreeRegisteredResponseSchema.parse({
+      repository,
+      registered: [main, worktree],
+    });
+    expect(parsed.registered.map((entry) => entry.alias)).toEqual(['main', 'review-a']);
+    expect(parsed).not.toHaveProperty('discovered');
+    expect(WorktreeRegisteredResponseSchema.safeParse({
+      repository,
+      registered: [worktree],
+      discovered: [],
+    }).success).toBe(false);
+    expect(WorktreeRegisteredResponseSchema.safeParse({ registered: [worktree] }).success)
+      .toBe(false);
+  });
+
+  it('accepts only the literal default-roster opt-in on worktree creation', () => {
+    const base = { alias: 'review-b', branch: 'feature/review-b', path: '/tmp/target' };
+    expect(WorktreeCreateRequestSchema.parse(base)).not.toHaveProperty('default_roster');
+    expect(WorktreeCreateRequestSchema.parse({ ...base, default_roster: true }).default_roster)
+      .toBe(true);
+    for (const nonliteral of [false, 'true', 1, 'yes']) {
+      expect(WorktreeCreateRequestSchema.safeParse({ ...base, default_roster: nonliteral }).success)
+        .toBe(false);
+    }
+  });
+
+  it('bounds alias updates to a raw label keyed by the stable route id', () => {
+    expect(WorktreeAliasUpdateRequestSchema.parse({ alias: ' Review Two ' })).toEqual({
+      alias: 'Review Two',
+    });
+    expect(WorktreeAliasUpdateRequestSchema.safeParse({ alias: '' }).success).toBe(false);
+    expect(WorktreeAliasUpdateRequestSchema.safeParse({ alias: 'x'.repeat(129) }).success)
+      .toBe(false);
+    expect(WorktreeAliasUpdateRequestSchema.safeParse({ alias: 'ok', path: '/etc/passwd' }).success)
+      .toBe(false);
+    expect(WorktreeAliasUpdateResponseSchema.parse({ repository, worktree }))
+      .toEqual({ repository, worktree });
+  });
+
+  it('validates removal previews as fresh truthful states with branch preservation', () => {
+    for (const state of ['clean', 'dirty', 'locked', 'missing', 'mismatched', 'unavailable']) {
+      expect(WorktreeRemovalPreviewResponseSchema.parse({
+        repository, worktree, state, branch_preserved: true,
+      }).state).toBe(state);
+    }
+    expect(WorktreeRemovalPreviewResponseSchema.safeParse({
+      repository, worktree, state: 'clean', branch_preserved: false,
+    }).success).toBe(false);
+    expect(WorktreeRemovalPreviewResponseSchema.safeParse({
+      repository, worktree, state: 'gone', branch_preserved: true,
+    }).success).toBe(false);
+    expect(WorktreeRemovalPreviewResponseSchema.safeParse({
+      repository, state: 'clean', branch_preserved: true,
+    }).success).toBe(false);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
+
 it('rejects duplicate stable identities and an active/removed member collision', () => {
   const target = {
     worktree_id: worktree.id,

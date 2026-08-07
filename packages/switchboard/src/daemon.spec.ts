@@ -8747,3 +8747,145 @@ describe('qualified refusal boundary', () => {
 });
 // harn:end invalid-qualified-targets-never-fallback
 // harn:end invalid-qualified-targets-never-fallback
+
+// harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-daemon-regression
+describe('worktree child default roster', () => {
+  const fixtureGit = (cwd: string, args: readonly string[]): string =>
+    execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+  const fixtureRepo = (name: string): string => {
+    const primary = join(dir, name);
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    return primary;
+  };
+  const rosterRoom = (id: string, primary: string) => daemon.createRoom({
+    id,
+    name: id,
+    owner: { handle: `${id}-owner`, display_name: id },
+    cwd: primary,
+  });
+
+  it('seeds only the new child with detached ordered snapshots at its canonical cwd', async () => {
+    const primary = fixtureRepo('roster-daemon-repo');
+    rosterRoom('wtroster', primary);
+    const first = daemon.createAgentPreset({ label: 'Kid One', handle: 'kid-one', harness: 'fake' });
+    const second = daemon.createAgentPreset({ label: 'Kid Two', handle: 'kid-two', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+    const target = join(dir, 'roster-daemon-child');
+    const result = await daemon.createWorktree('wtroster', {
+      alias: 'kid', branch: 'feature/kid', path: target, default_roster: true,
+    });
+    const child = result.worktree.conversation_id;
+    const agents = daemon.store.listMembers(child).filter((member) => member.kind === 'agent');
+    expect(agents.map((member) => member.handle).sort()).toEqual(['kid-one', 'kid-two']);
+    expect(agents.every((member) => member.cwd === result.worktree.path && member.state === 'idle'))
+      .toBe(true);
+    expect(result.worktree.path).toBe(target);
+    expect(daemon.store.getRoom(child)?.config.cwd).toBe(target);
+    // No main clone and no root roster mutation.
+    expect(daemon.store.listMembers('wtroster').filter((member) => member.kind === 'agent'))
+      .toEqual([]);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/kid']))
+      .toContain('feature/kid');
+  });
+
+  it('preflights the complete roster and inherited handles before any Git mutation', async () => {
+    const primary = fixtureRepo('roster-preflight-repo');
+    rosterRoom('wtpreflight', primary);
+    const spawn = vi.spyOn(fake, 'spawn');
+
+    // A dangling preset reference fails before Git, registration, or spawn.
+    const dangling = new Database(join(dir, 'switchboard.sqlite'));
+    dangling.pragma('foreign_keys = OFF');
+    dangling.prepare(
+      `INSERT INTO default_roster_items (roster_id, preset_id, ordinal) VALUES ('default', '01J00000000000000000000000', 0)`,
+    ).run();
+    dangling.close();
+    const missingTarget = join(dir, 'preflight-missing');
+    await expect(daemon.createWorktree('wtpreflight', {
+      alias: 'miss', branch: 'feature/miss', path: missingTarget, default_roster: true,
+    })).rejects.toThrow('missing agent preset');
+    expect(existsSync(missingTarget)).toBe(false);
+    expect(daemon.store.getRepository('wtpreflight')).toBeUndefined();
+    expect(spawn).not.toHaveBeenCalled();
+
+    // An inherited-human handle collision fails the same way.
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    const collide = daemon.createAgentPreset({ label: 'Owner Clone', handle: 'wtpreflight-owner', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [collide.id] });
+    const collideTarget = join(dir, 'preflight-collide');
+    await expect(daemon.createWorktree('wtpreflight', {
+      alias: 'collide', branch: 'feature/collide', path: collideTarget, default_roster: true,
+    })).rejects.toThrow('inherited channel member');
+    expect(existsSync(collideTarget)).toBe(false);
+    expect(spawn).not.toHaveBeenCalled();
+
+    // Duplicate handles inside the roster fail the same way.
+    const dupA = daemon.createAgentPreset({ label: 'Dup A', handle: 'dup-handle', harness: 'fake' });
+    const dupB = daemon.createAgentPreset({ label: 'Dup B', handle: 'dup-handle', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [dupA.id, dupB.id] });
+    await expect(daemon.createWorktree('wtpreflight', {
+      alias: 'dup', branch: 'feature/dup', path: join(dir, 'preflight-dup'), default_roster: true,
+    })).rejects.toThrow('duplicate member handle');
+    expect(spawn).not.toHaveBeenCalled();
+    spawn.mockRestore();
+  });
+
+  it('creates an agent-empty child on omission or an empty roster', async () => {
+    const primary = fixtureRepo('roster-empty-repo');
+    rosterRoom('wtempty', primary);
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    const omitted = await daemon.createWorktree('wtempty', {
+      alias: 'plain', branch: 'feature/plain', path: join(dir, 'empty-plain'),
+    });
+    expect(omitted.seeded).toEqual([]);
+    expect(
+      daemon.store.listMembers(omitted.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toEqual([]);
+    const empty = await daemon.createWorktree('wtempty', {
+      alias: 'empty-roster', branch: 'feature/empty-roster',
+      path: join(dir, 'empty-roster'), default_roster: true,
+    });
+    expect(empty.seeded).toEqual([]);
+    expect(
+      daemon.store.listMembers(empty.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toEqual([]);
+  });
+
+  it('keeps an external spawn failure local to one durable dead member', async () => {
+    const primary = fixtureRepo('roster-failure-repo');
+    rosterRoom('wtfailure', primary);
+    const first = daemon.createAgentPreset({ label: 'Fragile', handle: 'fragile-kid', harness: 'fake' });
+    const second = daemon.createAgentPreset({ label: 'Sturdy', handle: 'sturdy-kid', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+    const spawn = vi.spyOn(fake, 'spawn').mockImplementationOnce(() => {
+      throw new Error('spawn exploded');
+    });
+    const result = await daemon.createWorktree('wtfailure', {
+      alias: 'fragile', branch: 'feature/fragile', path: join(dir, 'failure-child'), default_roster: true,
+    });
+    spawn.mockRestore();
+    const child = result.worktree.conversation_id;
+    const byHandle = new Map(
+      daemon.store.listMembers(child)
+        .filter((member) => member.kind === 'agent')
+        .map((member) => [member.handle, member]),
+    );
+    expect(byHandle.get('fragile-kid')?.state).toBe('dead');
+    expect(byHandle.get('sturdy-kid')?.state).toBe('idle');
+    expect(daemon.store.getWorktree('wtfailure', result.worktree.id)?.lifecycle).toBe('active');
+    expect(
+      daemon.store.listMessages(child)
+        .filter((message) => message.kind === 'system')
+        .some((message) => message.body.includes('spawn exploded')),
+    ).toBe(true);
+  });
+});
+// harn:end worktree-child-default-roster-is-an-explicit-snapshot

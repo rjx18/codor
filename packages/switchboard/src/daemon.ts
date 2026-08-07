@@ -5700,9 +5700,11 @@ export class Daemon {
     return this.project(room, this.blobs.read(room, message.run.events_ref));
   }
 
-  // harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-lifecycle-daemon-boundary
+  // harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-lifecycle-daemon-boundary
   /** Worktree lifecycle is a separate additive projection. These delegations
-   * intentionally do not call room/member/session/runtime mutation paths. */
+   * intentionally do not call room/member/session/runtime mutation paths —
+   * except the one explicitly preflighted new-child roster seed, which lands
+   * only inside the creation transaction below. */
   async listWorktrees(room: string, requestedCwd?: string): Promise<WorktreeListResponse> {
     const cwd = this.resolveWorktreeCwd(room, requestedCwd);
     if (cwd === undefined) {
@@ -5715,6 +5717,19 @@ export class Daemon {
     return this.worktrees.list(room, cwd);
   }
 
+  /** The background group projection: store-only, never a Git invocation. */
+  registeredWorktrees(room: string): ReturnType<WorktreeManager['registered']> {
+    return this.worktrees.registered(room);
+  }
+
+  updateWorktreeAlias(
+    room: string,
+    worktreeId: string,
+    alias: string,
+  ): ReturnType<WorktreeManager['updateAlias']> {
+    return this.worktrees.updateAlias(room, worktreeId, alias);
+  }
+
   adoptWorktree(
     room: string,
     input: WorktreeAdoptRequest,
@@ -5725,18 +5740,59 @@ export class Daemon {
     return this.worktrees.adopt(room, cwd, input);
   }
 
-  createWorktree(
+  async createWorktree(
     room: string,
     input: WorktreeCreateRequest,
     requestedCwd?: string,
   ): ReturnType<WorktreeManager['create']> {
     const cwd = this.resolveWorktreeCwd(room, requestedCwd);
     if (cwd === undefined) throw new Error('room has no existing repository cwd');
-    return this.worktrees.create(room, cwd, input);
+    if (input.default_roster !== true) return this.worktrees.create(room, cwd, input);
+    // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-daemon
+    // Preflight the COMPLETE current roster and every inherited human handle
+    // before the first Git mutation; only then create, seed the brand-new
+    // child with detached snapshots at its canonical cwd, and activate each
+    // committed runtime independently in roster order.
+    const inheritedHandles = new Set(
+      this.store.listMembers(room)
+        .filter((member) => member.kind === 'human')
+        .map((member) => member.handle),
+    );
+    const unbound = this.expandDefaultRoster(undefined, inheritedHandles);
+    const specs = unbound.map((agent) => {
+      const bound = { ...agent, cwd: input.path };
+      // Validation-only binding: the target does not exist until Git succeeds;
+      // the persisted rows are rebound to the canonical path below.
+      this.validateInitialAgentSpawn(bound);
+      return bound;
+    });
+    let canonicalCwd: string | undefined;
+    const result = await this.worktrees.create(room, cwd, input, (bound) => {
+      canonicalCwd = bound;
+      return this.seedInitialAgents(specs.map((spec) => ({ ...spec, cwd: bound })));
+    });
+    for (const [index, member] of result.seeded.entries()) {
+      this.activateInitialAgent(result.worktree.conversation_id, member, {
+        ...specs[index]!,
+        cwd: member.cwd ?? canonicalCwd ?? result.worktree.path,
+      });
+    }
+    // harn:end worktree-child-default-roster-is-an-explicit-snapshot
+    return result;
   }
 
   unregisterWorktree(room: string, worktreeId: string): ReturnType<WorktreeManager['unregister']> {
     return this.worktrees.unregister(room, worktreeId);
+  }
+
+  previewWorktreeRemoval(
+    room: string,
+    worktreeId: string,
+    requestedCwd?: string,
+  ): ReturnType<WorktreeManager['previewRemoval']> {
+    const cwd = this.resolveWorktreeCwd(room, requestedCwd);
+    if (cwd === undefined) throw new Error('room has no existing repository cwd');
+    return this.worktrees.previewRemoval(room, cwd, worktreeId);
   }
 
   removeWorktree(
@@ -5780,7 +5836,7 @@ export class Daemon {
     }
     return normalized;
   }
-  // harn:end worktree-lifecycle-is-roster-neutral
+  // harn:end worktree-lifecycle-preserves-existing-state-by-default
 
   // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-contract
   /**
@@ -6494,7 +6550,10 @@ export class Daemon {
     };
   }
 
-  private expandDefaultRoster(ownerHandle: string): Omit<InitialAgentSpec, 'cwd'>[] {
+  private expandDefaultRoster(
+    ownerHandle: string | undefined,
+    extraInheritedHandles: ReadonlySet<string> = new Set(),
+  ): Omit<InitialAgentSpec, 'cwd'>[] {
     const roster = this.store.getDefaultRoster();
     const handles = new Set<string>();
     return roster.preset_ids.map((presetId) => {
@@ -6513,9 +6572,14 @@ export class Daemon {
         acp_provider: preset.acp_provider,
         acp_launch: preset.acp_launch,
       });
-      if (validated.handle === ownerHandle) {
+      if (ownerHandle !== undefined && validated.handle === ownerHandle) {
         throw new Error(
           `default roster preset '${presetId}' handle @${validated.handle} is already in use by the channel owner`,
+        );
+      }
+      if (extraInheritedHandles.has(validated.handle)) {
+        throw new Error(
+          `default roster preset '${presetId}' handle @${validated.handle} is already in use by an inherited channel member`,
         );
       }
       if (handles.has(validated.handle)) {

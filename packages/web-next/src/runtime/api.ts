@@ -13,6 +13,18 @@ import type {
   WireEvent,
 } from '@codor/protocol';
 import { WorktreeRoutingCatalogSchema, type WorktreeRoutingCatalog } from '@codor/protocol';
+import {
+  WorktreeLifecycleResponseSchema,
+  WorktreeListResponseSchema,
+  WorktreeRegisteredResponseSchema,
+  WorktreeRemovalPreviewResponseSchema,
+  type WorktreeAdoptRequest,
+  type WorktreeCreateRequest,
+  type WorktreeLifecycleResponse,
+  type WorktreeListResponse,
+  type WorktreeRegisteredResponse,
+  type WorktreeRemovalPreviewResponse,
+} from '@codor/protocol';
 import { AgentPresetSchema, DefaultRosterSchema } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
@@ -375,6 +387,139 @@ export async function fetchRoutingCatalog(
   return WorktreeRoutingCatalogSchema.parse(body);
 }
 // harn:end qualified-completion-lists-registered-targets-only
+
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=registered-worktree-client
+/** The store-only background projection behind group navigation. Strictly
+ * parsed; no Git discovery ever runs for this call. */
+export async function fetchRegisteredWorktrees(
+  room: string,
+  options: ApiOptions,
+): Promise<WorktreeRegisteredResponse> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/registered`,
+    options,
+  );
+  return WorktreeRegisteredResponseSchema.parse(body);
+}
+// harn:end registered-worktree-navigation-is-promotion-gated
+
+// harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-client
+/** Explicit Find: the ONLY client call that runs read-only Git discovery. */
+export async function discoverWorktrees(
+  room: string,
+  options: ApiOptions,
+): Promise<WorktreeListResponse> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/discover`,
+    options,
+  );
+  return WorktreeListResponseSchema.parse(body);
+}
+
+/** Persist the exact child's sealed key before the caller observes or switches
+ * to that conversation — same pairing contract as channel creation. */
+async function persistWorktreeChildKey(
+  response: WorktreeLifecycleResponse,
+): Promise<WorktreeLifecycleResponse> {
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-client
+  if (response.room_key !== undefined) {
+    if (response.room_key.room !== response.worktree.conversation_id) {
+      throw new Error('worktree child key does not match the returned child');
+    }
+    const roomKey = await openForBrowser(response.room_key.sealed_key);
+    await persistBrowserRoomKey(
+      response.room_key.room,
+      response.room_key.generation,
+      roomKey,
+    );
+  }
+  // harn:end child-files-voice-and-keys-are-isolated
+  return response;
+}
+
+export async function adoptWorktree(
+  room: string,
+  input: WorktreeAdoptRequest,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/adopt`,
+    'POST',
+    input,
+    options,
+  );
+  return persistWorktreeChildKey(WorktreeLifecycleResponseSchema.parse(body));
+}
+
+export async function createWorktree(
+  room: string,
+  input: WorktreeCreateRequest,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/create`,
+    'POST',
+    input,
+    options,
+  );
+  return persistWorktreeChildKey(WorktreeLifecycleResponseSchema.parse(body));
+}
+
+export async function updateWorktreeAlias(
+  room: string,
+  worktreeId: string,
+  alias: string,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/alias`,
+    'POST',
+    { alias },
+    options,
+  );
+  return WorktreeLifecycleResponseSchema.parse(body);
+}
+
+export async function previewWorktreeRemoval(
+  room: string,
+  worktreeId: string,
+  options: ApiOptions,
+): Promise<WorktreeRemovalPreviewResponse> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/removal-preview`,
+    options,
+  );
+  return WorktreeRemovalPreviewResponseSchema.parse(body);
+}
+
+export async function unregisterWorktree(
+  room: string,
+  worktreeId: string,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/unregister`,
+    'POST',
+    {},
+    options,
+  );
+  return WorktreeLifecycleResponseSchema.parse(body);
+}
+
+export async function removeWorktree(
+  room: string,
+  worktreeId: string,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/remove`,
+    'POST',
+    {},
+    options,
+  );
+  return WorktreeLifecycleResponseSchema.parse(body);
+}
+// harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
 
 export async function fetchMessageHistory(
   room: string,

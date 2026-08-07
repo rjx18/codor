@@ -1,6 +1,7 @@
 import {
   effectiveDefaultAgent,
   type Delivery,
+  type RegisteredWorktree,
   type Member,
   type MemberState,
   type Message,
@@ -40,6 +41,18 @@ export interface RoomSlice {
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 }
 
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-state
+/** The last successful root-scoped registration projection. Transient
+ * REST/socket failure never clears it: rows render last-good state until a
+ * refresh or reconnect replaces the set. */
+export interface WorktreeGroupSlice {
+  repositoryId: string | undefined;
+  /** Main first, active secondaries alias-ordered (server ordering). */
+  registered: RegisteredWorktree[];
+  loaded: boolean;
+}
+// harn:end registered-worktree-navigation-is-promotion-gated
+
 export interface ClientState {
   connected: boolean;
   /** The connector parked on a device-auth refusal (app-WS 4403): positive
@@ -50,12 +63,15 @@ export interface ClientState {
   roomList: Room[];
   roomSummaries: RoomSummary[];
   roomSummariesLoaded: boolean;
+  /** Root room id → last-good registered worktree projection. */
+  worktreeGroups: Record<string, WorktreeGroupSlice>;
   applyFrame(frame: ServerFrame, fallbackRoom?: string): void;
   mergeHistoryPage(room: string, messages: Message[]): void;
   setActiveRoom(room: string): void;
   setConnected(connected: boolean): void;
   setAuthRefused(authRefused: boolean): void;
   setRoomSummaries(summaries: RoomSummary[]): void;
+  setWorktreeGroup(root: string, group: { repositoryId?: string; registered: RegisteredWorktree[] }): void;
   reset(): void;
 }
 
@@ -174,6 +190,7 @@ export function createClientStore(): ClientStore {
   roomList: [],
   roomSummaries: [],
   roomSummariesLoaded: false,
+  worktreeGroups: {},
 
   applyFrame: (frame, fallbackRoom) => {
     if (frame.type === 'rooms') {
@@ -400,9 +417,19 @@ export function createClientStore(): ClientStore {
   setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
+  setWorktreeGroup: (root, group) => set((state) => ({
+    worktreeGroups: {
+      ...state.worktreeGroups,
+      [root]: {
+        repositoryId: group.repositoryId ?? state.worktreeGroups[root]?.repositoryId,
+        registered: group.registered,
+        loaded: true,
+      },
+    },
+  })),
   reset: () => {
     staging.clear();
-    set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false });
+    set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {} });
   },
   }));
 }

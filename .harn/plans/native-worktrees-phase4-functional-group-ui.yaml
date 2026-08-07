@@ -1,0 +1,741 @@
+id: native-worktrees-phase4-functional-group-ui
+title: Native worktrees Phase 4 - functional group navigation and explicit
+  lifecycle UI
+notes: >-
+  Implement only Phase 4 of .codor/PHASED-PLAN.md on the accepted Agent Presets
+  integration base. Keep a root room on the ordinary channel path until it has
+  at least one active registered secondary. The browser's background group query
+  must read only persisted active registrations and must not invoke Git
+  discovery. Only opening the explicit Find flow may run read-only discovery; it
+  may display exact unregistered candidates, but nothing becomes registered
+  until the human selects one candidate and submits adoption. A promoted root
+  renders as one group with stable main first and active registered secondaries
+  ordered by alias. The original root RoomId and transcript are main, main stays
+  selected on first promotion and on a migrated URL without a worktree selector,
+  and discovered, unregistered, and removed records never appear as active
+  children.
+
+  Keep the public channel id separate from the selected conversation. Use a
+  stable URL shape whose room parameter remains the authorized public root and
+  whose optional worktree parameter is the stable Codor WorktreeId; never put a
+  mutable alias, branch, path, or hidden child RoomId in navigation state. Main
+  omits the worktree selector. Back, forward, reload, top-level channel changes,
+  hosted-computer changes, alias edits, unregister, and removal must resolve or
+  clear that selector without rewriting history. Selecting a worktree switches
+  the exact child conversation in place on the existing connector; selecting a
+  top-level channel still remembers only that public root. If the selected
+  secondary ceases to be active, fall back to main.
+
+  Extend the room connector with an explicit desired-observation set for hidden
+  child conversations while retaining its public-root identity. Desired rooms
+  subscribe on the existing multiplexed application socket from their own
+  committed cursors, survive every legal reconnect, and are removed from future
+  reconnects when no longer registered. Track readiness per exact conversation
+  so each group row can distinguish connecting, connected, offline, and Git
+  unavailable state. Derive unread, attention, and working from each room's
+  recipient-scoped RoomSupport rather than copying main or using one aggregate.
+  Keep the last successful registered set and room slices through transient
+  REST/socket failure; reconnect refreshes the registered set and resubscribes.
+  Reuse the active hosted computer's isolated store, token, relayFetch
+  transport, and connector. Add no WebSocket, relay, cloud-registry, or
+  residency protocol.
+
+  Add strict shared schemas and additive human-only REST/client operations for
+  the persisted registered set, alias edit, removal preview, and the existing
+  adopt/create/unregister/remove lifecycle. The alias operation is limited to an
+  active secondary, normalizes one unique non-main alias, updates its child Room
+  display name, and preserves WorktreeId, child RoomId, path, Git administrative
+  identity, branch, transcript, and runtime state without invoking Git or
+  rewriting already-persisted qualified messages/deliveries. Child Room config
+  must carry the secondary's canonical registered path as cwd, clear any stale
+  root starting_agent_handle, and follow path changes on idempotent migration or
+  explicit re-adoption; the root Room config stays byte-for-byte untouched.
+
+  Worktree creation may add only the literal optional default_roster true. Its
+  omission creates an agent-empty child exactly as today. A selected roster
+  requires both manage_worktrees and manage_agents authority before preflight,
+  even though the current role matrix grants both to the same admin/owner roles.
+  When selected, expand the accepted current ordered default roster into
+  detached snapshots, reject missing presets, duplicate or inherited-human
+  handles, invalid catalog/model/ policy/thinking/provider/ACP configuration,
+  and unavailable adapters before the first Git mutation. After Git creates and
+  rediscovers the canonical target, atomically register the child Room metadata
+  and seed only that brand-new child with the preflighted members bound to its
+  exact cwd. Never clone main and never seed on discovery, adoption,
+  re-adoption, unregister, removal, or a creation request that omitted the flag.
+  Activate seeded runtimes after commit in roster order; an external spawn
+  failure remains local to that durable dead member and does not roll back
+  siblings or the worktree. If durable registration fails after git worktree
+  add, attempt only the existing non-force, branch-preserving worktree cleanup
+  and return an actionable failure.
+
+  Make lifecycle UI operator-explicit and recoverable. Before promotion, expose
+  the entry only from the existing Git context after its read-only inspection
+  confirms a repository, leaving non-Git and ordinary channel navigation
+  unchanged. After promotion, expose Create and Find from the group navigation.
+  Create collects a normalized alias, new local branch, missing absolute target,
+  and optional accepted default roster. Find performs discovery only after open,
+  requires one exact candidate and alias, and never bulk-adopts. Provide an
+  identity-preserving alias edit. Keep unregister and filesystem removal as
+  separate confirmations. A read-only removal preview must report the freshly
+  checked clean/dirty/locked/missing/mismatched/unavailable state and state that
+  the branch is preserved; enable filesystem deletion only for a ready preview,
+  then make remove repeat all checks to close the preview/action race. Never
+  force removal, prune, recursively delete, or delete a branch. Failed requests
+  keep the dialog, draft, selection, and last-good group visible.
+
+  Build the group rows and dialogs from existing restrained primitives. Preserve
+  semantic buttons/links, visible focus, Escape close, focus entry/return and
+  trapped Tab behavior through Modal, and at least 44px phone targets. At 390px,
+  the channels surface must fit main and child labels/statuses without
+  horizontal overflow, worktree switching must remain reachable, and destructive
+  copy must remain explicit. Individual presets remain available only through
+  the existing Add agent flow after creation; this phase does not add
+  per-worktree preset editors or change Agent Presets truth.
+
+  Do not implement Phase 5 concurrency and integration hardening, broaden
+  qualified routing, rewrite stale alias snapshots, change branch semantics,
+  import every Git worktree, expose filesystem paths in routing catalogs, add a
+  second repository, or redesign unrelated room/settings surfaces. Preserve all
+  prior applied plans. Every Git-backed unit and browser fixture must create its
+  repository and linked worktrees below its own mkdtemp root and may clean up
+  only that root. No planning, implementation, test, build, or browser command
+  may create, discover through Codor, adopt, move, rename, dirty, unregister,
+  remove, or otherwise modify a real user worktree or branch.
+assumptions:
+  retire:
+    - id: worktree-lifecycle-is-roster-neutral
+      reason: Its blanket prohibition on lifecycle-created child members and child
+        config updates predates the approved explicit default-roster option and
+        canonical child cwd; the replacement keeps every existing/root boundary
+        neutral while allowing only those two narrowly authorized child effects.
+  create:
+    - id: worktree-lifecycle-preserves-existing-state-by-default
+      title: Worktree lifecycle preserves existing and root runtime state by default
+      statement: Discovery, adoption, re-adoption, unregister, removal, and creation
+        without literal default_roster true must never create, copy, rename, or
+        remove agents or mutate root/main configuration, messages, sessions,
+        credentials, caches, tasks, usage, or roster-staleness state; lifecycle
+        may create or reconcile only stable secondary conversation metadata, and
+        the separately authorized roster choice may seed only a brand-new child,
+        so non-Git rooms and roots without an active secondary retain the
+        ordinary channel path unchanged.
+      reason: Phase 4 needs an explicit child-only roster option and truthful child
+        cwd without weakening the original protection around main or implicit
+        lifecycle behavior.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - registered-worktrees-materialize-stable-conversations
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      title: A worktree child receives the default roster only by explicit snapshot
+      statement: Only create-worktree input with literal default_roster true may
+        require both worktree and agent-management authority, synchronously
+        preflight the complete current ordered default roster and every
+        inherited-human handle before Git, then atomically seed detached
+        concrete members into only the newly registered child at its canonical
+        worktree cwd and activate each runtime independently after commit;
+        omission, discovery, adoption, re-adoption, unregister, and removal seed
+        nothing, main agents are never cloned, and registration failure after
+        Git gets only non-force branch-preserving cleanup.
+      reason: The accepted reusable roster is an operator-selected creation input, not
+        an implicit clone or a live link to presets.
+      depends_on:
+        - worktree-lifecycle-preserves-existing-state-by-default
+        - worktree-creation-registers-only-a-new-secondary
+        - default-roster-channel-selection-is-exclusive-and-preflighted
+        - default-roster-channel-members-are-detached-ordered-snapshots
+        - initial-roster-runtime-failures-are-member-local-and-actionable
+    - id: registered-worktree-navigation-is-promotion-gated
+      title: Registered worktree navigation appears only after explicit promotion
+      statement: A browser must read persisted active registrations without Git
+        discovery and keep the ordinary channel navigation until at least one
+        secondary is active; after promotion it must show stable main first and
+        only active registered children, preserve main on first promotion,
+        encode an optional stable WorktreeId beside the public root RoomId in
+        history, and fall back to main when a selected child is no longer
+        active, while Find alone may reveal unregistered discovery candidates.
+      reason: A group is a deliberate registry projection, never an automatic view of
+        every checkout Git happens to know.
+      depends_on:
+        - registered-worktrees-materialize-stable-conversations
+        - main-and-direct-conversations-stay-compatible
+        - worktree-discovery-never-registers-candidates
+    - id: worktree-conversation-status-is-live-and-independent
+      title: Each visible worktree conversation reports independent live status
+      statement: The browser must observe main and every active registered child on
+        the existing multiplexed socket from each conversation's own cursor and
+        project its own recipient-scoped unread, attention, working, hydration,
+        connection, and Git availability state; desired hidden subscriptions
+        survive reconnect, transient failure preserves last-good state, removed
+        registrations stop future observation, and every hosted computer keeps
+        this state inside its existing isolated store and transport.
+      reason: Operators must be able to switch worktrees without flattening child
+        activity into main or losing background state during an offline cycle.
+      depends_on:
+        - child-conversation-state-is-room-isolated
+        - multiplexed-subscriptions-identify-their-room
+        - room-support-is-bounded-recipient-scoped-state
+        - durable-room-summaries-stream-and-fallback
+        - hosted-computer-sessions-keep-state-isolated
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      title: Worktree lifecycle UI is authorized, explicit, and recoverable
+      statement: Only a human admin or owner may see mutation controls; Find must
+        discover on explicit open and adopt one selected candidate, Create must
+        collect alias, branch, missing absolute target and optional roster, and
+        unregister, alias edit, and filesystem removal must be distinct
+        deliberate acts whose errors preserve drafts and selection; removal
+        requires a fresh read-only state preview, clear branch-preservation
+        copy, and a second destructive confirmation, remains disabled for dirty,
+        locked, missing, mismatched, or unavailable targets, and stays
+        keyboard-, focus-, phone-, direct-, and relay-transport accessible.
+      reason: Filesystem lifecycle is operator authority and destructive ambiguity is
+        unacceptable in either local or hosted browser paths.
+      depends_on:
+        - worktree-management-is-human-admin-only
+        - worktree-discovery-never-registers-candidates
+        - worktree-creation-registers-only-a-new-secondary
+        - worktree-removal-is-clean-and-branch-preserving
+        - registered-worktree-navigation-is-promotion-gated
+    - id: worktree-alias-and-child-metadata-follow-stable-identity
+      title: Alias and child metadata follow stable worktree identity
+      statement: An active secondary alias may be changed only to a normalized unique
+        non-main value and must update that stable child's display name without
+        invoking Git or changing WorktreeId, conversation RoomId, path, Git
+        administrative identity, branch, transcript, members, or persisted route
+        snapshots; every new, migrated, or explicitly re-adopted child must
+        store its canonical registered path as room cwd and clear a root-only
+        starting agent handle while leaving the root Room byte-for-byte
+        unchanged.
+      reason: Mutable presentation and execution metadata must remain attached to the
+        durable child rather than becoming a second identity or leaking main
+        cwd.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - registered-worktrees-materialize-stable-conversations
+        - child-conversation-state-is-room-isolated
+        - qualified-member-target-identity-is-durable
+        - changelog-covers-every-visible-entity
+  reviewed:
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Repository, main, and secondary ids remain stable; additive registered
+        listing, alias mutation, and preview operate only through those ids.
+    - id: registered-worktrees-materialize-stable-conversations
+      outcome: unchanged
+      reason: Main retains the existing root and every selected secondary retains one
+        hidden stable child across aliases and lifecycle tombstones.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: Public room discovery and remembered startup still use only roots, and
+        rooms without an active secondary render the existing channel path.
+    - id: child-conversation-state-is-room-isolated
+      outcome: unchanged
+      reason: Group navigation selects existing exact room slices and does not merge
+        child transcripts, cursors, summaries, tasks, meters, or files.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: The background endpoint is store-only and explicit Find remains a
+        read-only observation until one selected adoption succeeds.
+    - id: worktree-creation-registers-only-a-new-secondary
+      outcome: unchanged
+      reason: The optional roster is preflighted before the same safe Git add and is
+        bound only after the exact new secondary is rediscovered.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Preview is advisory and remove repeats the existing conservative checks,
+        uses non-force Git removal, and never deletes a branch.
+    - id: worktree-git-execution-is-argument-safe
+      outcome: unchanged
+      reason: Preview and removal reuse only the existing bounded argv Git runner;
+        aliases, branches, and paths never become shell text.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: Registered reads remain human room-readable and every alias/lifecycle
+        mutation remains admin/owner-only before Git or Store work.
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: Its complete no-mutation preflight is reused for the child-specific
+        literal choice without adding Starting-agent mixing.
+    - id: default-roster-channel-members-are-detached-ordered-snapshots
+      outcome: unchanged
+      reason: Seeded child agents are the same detached current ordered snapshots,
+        only scoped to the canonical child cwd and transaction.
+    - id: initial-roster-runtime-failures-are-member-local-and-actionable
+      outcome: unchanged
+      reason: Child agents reuse the post-commit per-member activation boundary and
+        retain dead actionable rows on external spawn failure.
+    - id: individual-agent-presets-are-versioned-local-state
+      outcome: unchanged
+      reason: Creation reads current presets but persists no preset reference; later
+        Add agent and Settings flows stay unchanged.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Every selected child preset must pass the same live adapter/provider
+        availability check before Git mutation.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Alias edit changes only future catalog presentation and never rewrites a
+        stored scoped target snapshot or falls back across worktrees.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: The connector opts hidden children into the existing addressed subscribe
+        contract without altering any wire frame.
+    - id: room-support-is-bounded-recipient-scoped-state
+      outcome: unchanged
+      reason: Each visible row consumes the existing exact-room human support
+        projection without adding a group-wide aggregate.
+    - id: durable-room-summaries-stream-and-fallback
+      outcome: unchanged
+      reason: Hidden children obtain live summaries through their room_support frames;
+        the public REST room summary remains root-only.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Worktree registered state and hidden subscriptions use only the active
+        computer's existing token, connector, relay transport, and client store.
+    - id: child-files-voice-and-keys-are-isolated
+      outcome: unchanged
+      reason: Lifecycle clients persist only the sealed key for the returned exact
+        child before observing it, while every child keeps its own files and
+        key.
+    - id: browser-created-channel-delivers-its-room-key
+      outcome: unchanged
+      reason: The existing paired-browser key opening/persistence pattern is reused
+        for child create/adopt without changing ordinary room creation.
+    - id: room-git-inspection-read-only-from-known-cwds
+      outcome: unchanged
+      reason: The pre-promotion entry appears only after the existing Diff context has
+        independently confirmed a repository from its bounded known cwd.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials remain unable to read management metadata or invoke
+        any new registered, alias, preview, or lifecycle route.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Existing admin/owner capabilities gate every new control; no capability
+        is granted to observers, members, or agents.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Child room name/config reconciliation appends the ordinary room change
+        in the same transaction and root state is untouched.
+anchors:
+  worktree-lifecycle-is-roster-neutral:
+    worktree-lifecycle-daemon-boundary:
+      action: remove
+      reason: Re-anchor the daemon boundary under the refined default-neutral rule.
+    worktree-roster-neutrality-regression:
+      action: remove
+      reason: Replace blanket no-child-mutation assertions with root/default
+        neutrality and the one explicit roster exception.
+  worktree-lifecycle-preserves-existing-state-by-default:
+    worktree-lifecycle-daemon-boundary:
+      action: change
+      reason: Preserve store-only lifecycle delegation while admitting preflighted
+        child seeding only on explicitly flagged creation.
+    worktree-roster-neutrality-regression:
+      action: change
+      reason: Prove discovery, adoption, empty creation, re-adoption, unregister, and
+        removal leave root/config/runtime/rosters unchanged through reopen.
+    worktree-root-neutral-registration:
+      action: change
+      reason: Limit registration effects to child metadata and optional new-child seed
+        while preserving every existing root entity.
+    worktree-root-neutral-regression:
+      action: change
+      reason: Snapshot root Room, roster, history, tasks, usage, config, presets, and
+        default roster around every disposable lifecycle path.
+  worktree-child-default-roster-is-an-explicit-snapshot:
+    child-default-roster-protocol:
+      action: change
+      reason: Add only optional literal default_roster true to worktree creation.
+    child-default-roster-store:
+      action: change
+      reason: Seed fully concrete ordered members only in the new child registration
+        transaction and report exactly those members for activation.
+    child-default-roster-manager:
+      action: change
+      reason: Bind preflighted snapshots to the canonical created target and clean up
+        a post-Git registration failure without force or branch deletion.
+    child-default-roster-daemon:
+      action: change
+      reason: Preflight the entire roster and inherited handle set before Git, then
+        activate each committed child member independently.
+    child-default-roster-store-regression:
+      action: change
+      reason: Prove ordered detached child-only seeding is atomic, survives reopen,
+        and never repeats on re-adoption.
+    child-default-roster-daemon-regression:
+      action: change
+      reason: Prove complete preflight-before-Git, canonical cwd, no main clone,
+        omission, empty roster, and member-local activation failure.
+    child-default-roster-server-regression:
+      action: change
+      reason: Prove literal validation, admin/owner authorization, child key response,
+        and zero lifecycle mutation for invalid roster input.
+    child-default-roster-browser-regression:
+      action: change
+      reason: Create from the accepted default group, verify exact child agents and
+        cwd, then add an individual preset through the unchanged Add agent flow.
+  registered-worktree-navigation-is-promotion-gated:
+    registered-worktree-projection:
+      action: change
+      reason: Return only persisted active registrations without invoking Git or
+        exposing tombstones/discovered candidates.
+    registered-worktree-rest:
+      action: change
+      reason: Expose the store-only human-readable background projection separately
+        from explicit discovery.
+    registered-worktree-client:
+      action: change
+      reason: Strictly parse the registered projection through relayFetch and persist
+        a returned child key before selection.
+    worktree-url-selector:
+      action: change
+      reason: Parse and write the optional stable WorktreeId beside the public root
+        without changing startup authorization or remembered-room keys.
+    worktree-group-state:
+      action: change
+      reason: Retain the last successful root-scoped registration set and resolve
+        main, active child, promotion, refresh, and fallback transitions.
+    worktree-group-navigation:
+      action: change
+      reason: Render stable main-first active rows only after promotion and keep the
+        current public channel semantics outside the group.
+    worktree-group-style:
+      action: change
+      reason: Fit nested status rows and controls into restrained desktop and 390px
+        channel surfaces with accessible targets and no horizontal overflow.
+    worktree-group-unit-regression:
+      action: change
+      reason: Cover ordinary/promotion state, stable URL/history, alias independence,
+        fallback, ordering, visibility, role gating, and retained-error state.
+    worktree-group-browser-fixture:
+      action: change
+      reason: Seed only disposable Git roots, registered children, independent room
+        activity, and lifecycle controls for isolated Playwright runs.
+    worktree-group-browser-regression:
+      action: change
+      reason: Prove first promotion leaves main selected/history intact, switching and
+        reload use stable ids, normal channels remain unchanged, and phone
+        geometry and keyboard focus are usable.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-observed-room-subscriptions:
+      action: change
+      reason: Maintain a desired hidden-room set across socket generations without
+        changing the connector's public-root identity.
+    worktree-room-readiness-state:
+      action: change
+      reason: Track exact-room subscription readiness independently of retained
+        hydration and global socket reachability.
+    worktree-conversation-status-model:
+      action: change
+      reason: Combine each exact child support summary, readiness, global connection,
+        and Git availability without group-wide flattening.
+    worktree-observed-room-regression:
+      action: change
+      reason: Prove per-room cursors/readiness, desired-set removal, reconnect, and
+        public-root identity on direct and isolated managed stores.
+    worktree-managed-connector-regression:
+      action: change
+      reason: Keep hosted session connector doubles and per-computer public-root state
+        aligned with hidden conversation observation without sharing stores.
+    worktree-status-browser-regression:
+      action: change
+      reason: Exercise independent unread, attention, working and connection labels,
+        offline last-good state, reconnect catch-up, and no cross-computer
+        leakage.
+  worktree-lifecycle-ui-is-explicit-and-recoverable:
+    worktree-lifecycle-client:
+      action: change
+      reason: Add strict relay-neutral
+        discover/create/adopt/rename/preview/unregister/ remove calls with
+        actionable errors and child-key persistence.
+    worktree-git-context-entry:
+      action: change
+      reason: Offer the pre-promotion manager only after existing read-only Git
+        context reports a repository; non-Git context remains unchanged.
+    worktree-lifecycle-dialogs:
+      action: change
+      reason: Implement explicit Create, Find/select/adopt, rename, unregister, and
+        preview-gated filesystem removal with preserved drafts and selection.
+    worktree-default-roster-choice-copy:
+      action: change
+      reason: Reuse the accepted roster selector with child-specific copy and no new
+        preset editing surface.
+    worktree-lifecycle-style:
+      action: change
+      reason: Keep forms, candidate rows, errors, confirmations, and phone controls
+        readable, focus-visible, and bounded.
+    worktree-lifecycle-unit-regression:
+      action: change
+      reason: Prove discovery is deferred until Find, exact selection is required,
+        errors preserve inputs, roles hide controls, and removal gating is
+        truthful.
+    worktree-lifecycle-browser-regression:
+      action: change
+      reason: Exercise owner/admin success, member refusal, direct and separate-origin
+        relay transport, alias edit, unregister, dirty refusal, clean removal,
+        branch survival, Escape/focus return, and 390px behavior.
+  worktree-alias-and-child-metadata-follow-stable-identity:
+    worktree-alias-protocol:
+      action: change
+      reason: Add bounded alias-update request/response shapes keyed only by stable id.
+    worktree-child-metadata-migration:
+      action: change
+      reason: Idempotently correct existing child name/cwd metadata and append only
+        the child room change when its visible projection actually differs.
+    worktree-child-metadata-store:
+      action: change
+      reason: Initialize and reconcile the exact canonical cwd/name, clear root-only
+        starting identity, and update aliases transactionally.
+    worktree-alias-manager:
+      action: change
+      reason: Normalize and apply an active-secondary alias without a Git invocation.
+    worktree-alias-rest:
+      action: change
+      reason: Expose the admin/owner alias mutation and return the stable lifecycle
+        projection.
+    worktree-child-metadata-regression:
+      action: change
+      reason: Prove migration, registration, re-adoption, alias update, changelog,
+        root-byte preservation, stable ids/history, and canonical child cwd.
+    worktree-alias-browser-regression:
+      action: change
+      reason: Rename a selected child while its stable URL, transcript, members, and
+        navigation selection remain intact.
+  registered-worktree-identities-are-durable:
+    worktree-protocol-contract:
+      action: change
+      reason: Add registered-only, alias, and removal-preview lifecycle contracts
+        without changing stable identity fields.
+    worktree-protocol-regression:
+      action: change
+      reason: Validate new strict shapes and reject primary/tombstone alias mutation,
+        malformed previews, and nonliteral roster selection.
+    worktree-store-lifecycle:
+      action: change
+      reason: Add active registered projection and identity-preserving alias mutation.
+    worktree-store-regression:
+      action: change
+      reason: Prove active-only ordering, uniqueness, stable ids, alias update, and
+        tombstone exclusion through reopen.
+    worktree-runtime-reconciliation:
+      action: change
+      reason: Add store-only listing, alias delegation, and read-only fresh removal
+        inspection around the existing Git reconciliation boundary.
+  registered-worktrees-materialize-stable-conversations:
+    worktree-conversation-protocol:
+      action: change
+      reason: Retain the stable child id while adding lifecycle projections that drive
+        navigation.
+    worktree-conversation-migration:
+      action: change
+      reason: Reconcile legacy child cwd/name idempotently without changing root ids
+        or history.
+    worktree-conversation-store-schema:
+      action: change
+      reason: Create or refresh child Room metadata and optional initial members
+        within the registration transaction.
+    worktree-conversation-lifecycle:
+      action: change
+      reason: Carry exact child metadata and seeded-member results through explicit
+        adoption/creation only.
+    worktree-conversation-store-regression:
+      action: change
+      reason: Extend child creation/reopen/tombstone coverage to metadata and optional
+        new-child seeds.
+    worktree-conversation-git-regression:
+      action: change
+      reason: Prove canonical child cwd, cleanup on registration failure, re-adoption,
+        and stable conversation identity using disposable repositories.
+  worktree-discovery-never-registers-candidates:
+    worktree-discovery-contract:
+      action: change
+      reason: Keep Git discovery explicit and separate from the new store-only active
+        projection.
+    worktree-discovery-rest:
+      action: change
+      reason: Preserve the explicit discovery route while adding a non-discovering
+        registered route for background UI.
+    worktree-discovery-regression:
+      action: change
+      reason: Prove background group reads execute no Git and explicit Find does not
+        persist any unselected candidate.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-contract:
+      action: change
+      reason: Carry the optional preflighted child seed through safe create and add
+        branch-preserving cleanup for Store failure after Git succeeds.
+    worktree-create-rest:
+      action: change
+      reason: Validate the literal roster option and require both worktree and agent
+        management authority before roster preflight or Git.
+    worktree-create-regression:
+      action: change
+      reason: Cover optional roster/empty child, registration rollback cleanup,
+        canonical target, collisions, and branch preservation in temporary
+        repos.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-contract:
+      action: change
+      reason: Add a read-only structured preview and make removal repeat the shared
+        fresh validation before non-force Git removal.
+    worktree-remove-rest:
+      action: change
+      reason: Expose authorized preview separately from unregister and removal.
+    worktree-remove-regression:
+      action: change
+      reason: Prove preview states, no preview mutation, dirty refusal, preview/action
+        race recheck, clean removal, and branch survival in disposable fixtures.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-role-gate:
+      action: change
+      reason: Gate registered/preview reads to humans and
+        alias/create/adopt/unregister/ remove mutations to admin/owner before
+        Store, roster preflight, or Git.
+    worktree-lifecycle-authorization-regression:
+      action: change
+      reason: Cover anonymous/agent read refusal, observer/member mutation refusal,
+        wrong-room isolation, and admin/owner access for every new route.
+  agent-network-authority-is-narrow:
+    agent-authz-regression:
+      action: change
+      reason: Prove an agent token cannot use registered listing, discovery, alias,
+        preview, roster-create, unregister, or removal endpoints.
+    agent-capability-matrix:
+      action: keep
+      reason: No worktree capability may enter the agent allowlist.
+  default-roster-channel-selection-is-exclusive-and-preflighted:
+    default-roster-expansion-preflight:
+      action: change
+      reason: Factor reusable complete expansion that can validate inherited child
+        human handles and target configuration before Git.
+    default-roster-expansion-regression:
+      action: change
+      reason: Preserve room-create behavior while adding child-specific preflight and
+        no-Git failure evidence.
+  default-roster-channel-members-are-detached-ordered-snapshots:
+    default-roster-room-seed:
+      action: change
+      reason: Reuse one detached snapshot insertion helper inside a child registration
+        transaction without persisting preset references.
+    default-roster-room-seed-regression:
+      action: change
+      reason: Extend atomic seed evidence to a child while retaining ordinary channel
+        creation behavior.
+    default-roster-snapshot-regression:
+      action: change
+      reason: Prove later preset/default-roster edits cannot alter created child
+        members.
+  initial-roster-runtime-failures-are-member-local-and-actionable:
+    initial-agent-runtime-activation:
+      action: change
+      reason: Reuse per-member activation for committed child snapshots without
+        changing failure settlement.
+  new-agent-requests-require-available-native-or-detected-acp:
+    new-agent-provider-availability-preflight:
+      action: change
+      reason: Apply the same adapter/provider availability check to every selected
+        child roster member before Git creation.
+    new-agent-provider-availability-regression:
+      action: change
+      reason: Prove an unavailable child preset rejects before Git or durable
+        registration.
+  child-files-voice-and-keys-are-isolated:
+    conversation-key-response:
+      action: change
+      reason: Keep paired-browser create/adopt responses tied to the exact returned
+        child while new lifecycle projections remain path-safe.
+    conversation-key-client:
+      action: change
+      reason: Open and persist only the returned exact child key before observing or
+        switching to that conversation.
+    conversation-files-voice-key-regression:
+      action: change
+      reason: Extend browser lifecycle coverage without exposing or replacing main or
+        sibling key state.
+  main-and-direct-conversations-stay-compatible:
+    conversation-root-query:
+      action: keep
+      reason: Public room listing and startup authorization remain root-only.
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Prove main history/id/config and selector-less ordinary direct behavior
+        survive promotion, switching, and lifecycle UI.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-frame-contract:
+      action: keep
+      reason: Phase 4 adds no wire field or frame variant.
+    room-addressed-live-fanout:
+      action: keep
+      reason: Server live fanout already identifies exact subscribed child rooms.
+    room-addressed-hydration:
+      action: keep
+      reason: Existing addressed hydration remains the sole child sync protocol.
+  qualified-member-target-identity-is-durable:
+    qualified-routing-store-query:
+      action: keep
+      reason: Alias mutation must not rewrite routing-query logic or persisted scoped
+        target snapshots; Phase 5 owns deeper alias-routing hardening.
+files:
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/worktrees.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/session.ts
+  - packages/web-next/src/app/session.spec.ts
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/room/DefaultRosterChoice.tsx
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
+verification: Before implementation, run harn find --plan
+  native-worktrees-phase4-functional-group-ui, harn plan check
+  native-worktrees-phase4-functional-group-ui, and harn check
+  native-worktrees-phase4-functional-group-ui. Capture a normalized
+  byte-for-byte git worktree list --porcelain path/branch inventory before any
+  test or build. Run git diff --check; pnpm --filter @codor/protocol test; pnpm
+  --filter @codor/switchboard exec vitest run src/worktrees.spec.ts
+  src/store.spec.ts src/daemon.spec.ts src/server.spec.ts; pnpm --filter
+  @codor/web-next exec vitest run src/runtime/api.spec.ts
+  src/app/connector.spec.ts src/app/computer-sessions.spec.ts
+  src/app/store.spec.ts src/app/session.spec.ts src/room/WorktreeGroup.spec.tsx;
+  the complete pnpm --filter @codor/switchboard test; the complete pnpm --filter
+  @codor/web-next test; pnpm build; and then pnpm test so the CLI artifact test
+  sees the built workspace. Run isolated Playwright room37, room38, room39,
+  room40, and room41 specs, each with a fresh harness and its own nonoverlapping
+  four-port range. The new browser fixtures must exercise first promotion/main
+  preservation, stable switching/back/reload, independent
+  unread/attention/working/readiness, offline/reconnect observation, normal
+  non-Git and unpromoted channels, explicit discovery and single adoption,
+  empty/default-roster creation and later Add agent, alias edit, unregister
+  fallback, dirty/locked refusal, clean confirmed removal with branch survival,
+  human-role gating, relayFetch on a separate page origin, Escape/focus return,
+  and 390px no-overflow/tap geometry. Every Git fixture must live below its own
+  mkdtemp root; assert no unselected candidate is registered or modified and no
+  branch is deleted. Compare the normalized real worktree inventory immediately
+  after all gates and require identical bytes, entry count, and SHA-256. Run
+  harn find --file for every nonignored protocol and switchboard file plus
+  textual delimiter checks for every web file. Stage only this plan and the 28
+  declared implementation/test files, run harn check --staged, let the
+  pre-commit hook apply the plan and stage only generated Harn truth, rerun the
+  staged check, and create exactly one Phase 4 implementation commit. No real
+  user worktree or branch may be touched by any verification.
+applied:
+  applied_at: 2026-08-07T13:15:59.317Z

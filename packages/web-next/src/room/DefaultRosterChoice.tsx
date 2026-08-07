@@ -90,6 +90,11 @@ export function DefaultRosterChoice(props: {
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
   idPrefix?: string;
+  // harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-default-roster-choice-copy
+  /** Consumer-specific copy; the selector itself is the one accepted control. */
+  title?: string;
+  note?: string;
+  // harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
 }) {
   const id = props.idPrefix ?? 'create';
   const enabled = props.enabled !== false;
@@ -105,8 +110,8 @@ export function DefaultRosterChoice(props: {
     <section className="nx-roster-choice" aria-labelledby={`${id}-roster-choice-title`} data-testid={`${id}-roster-choice`}>
       <div className="nx-roster-choice-head">
         <div>
-          <h3 id={`${id}-roster-choice-title`}>Default roster</h3>
-          <p className="nx-field-note">Use the saved ordered group for this channel.</p>
+          <h3 id={`${id}-roster-choice-title`}>{props.title ?? 'Default roster'}</h3>
+          <p className="nx-field-note">{props.note ?? 'Use the saved ordered group for this channel.'}</p>
         </div>
         <button
           type="button"

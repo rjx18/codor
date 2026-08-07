@@ -5,8 +5,22 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Store } from './store.js';
+import { Store, type InitialAgent } from './store.js';
 import { WorktreeManager } from './worktrees.js';
+
+const makeSeed = (handle: string, cwd: string): InitialAgent => ({
+  member: {
+    kind: 'agent',
+    handle,
+    display_name: handle,
+    harness: 'fake',
+    cwd,
+    policy: 'read-only',
+    host: 'test-host',
+    state: 'dead',
+    custody: 'owned',
+  },
+});
 
 let fixtureRoot: string;
 let repositoryPath: string;
@@ -193,6 +207,30 @@ describe('explicit adoption and tombstones', () => {
     expect(readopted.worktree.id).toBe(adopted.worktree.id);
     expect(readopted.worktree.lifecycle).toBe('active');
   });
+
+  it('serves the background registered projection without Git and persists no unselected candidate', async () => {
+    const secondaryPath = join(fixtureRoot, 'background candidate');
+    git(repositoryPath, ['worktree', 'add', '-b', 'background', secondaryPath, 'HEAD']);
+    const adopted = await manager.adopt('eng', repositoryPath, { path: secondaryPath, alias: 'background' });
+    const unselectedPath = join(fixtureRoot, 'unselected background');
+    git(repositoryPath, ['worktree', 'add', '-b', 'unselected', unselectedPath, 'HEAD']);
+
+    // The background projection is store-only: a Git runner that always fails
+    // proves no discovery runs for it.
+    const noGit = new WorktreeManager(store, {
+      git: () => Promise.reject(new Error('git must not run for the registered projection')),
+    });
+    const projection = noGit.registered('eng');
+    expect(projection.repository?.id).toBe(adopted.repository.id);
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'background']);
+    expect(projection.registered.every((worktree) => worktree.lifecycle === 'active')).toBe(true);
+
+    // Explicit Find runs discovery but persists nothing until a human selects.
+    const found = await manager.list('eng', repositoryPath);
+    expect(found.discovered.map((candidate) => candidate.path)).toContain(unselectedPath);
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'background']);
+  });
 });
 // harn:end worktree-discovery-never-registers-candidates
 
@@ -230,7 +268,113 @@ describe('safe creation and conservative removal', () => {
     expect(existsSync(target)).toBe(false);
     expect(git(repositoryPath, ['show-ref', '--verify', 'refs/heads/feature/clean-target'])).toContain('feature/clean-target');
   });
+
+  it('previews removal read-only and rechecks fresh state before the destructive act', async () => {
+    const created = await manager.create('eng', repositoryPath, {
+      alias: 'preview-target', branch: 'feature/preview-target', path: join(fixtureRoot, 'preview-target'),
+    });
+    const storeBefore = JSON.stringify(store.listRegisteredWorktrees('eng'));
+
+    const clean = await manager.previewRemoval('eng', repositoryPath, created.worktree.id);
+    expect(clean).toMatchObject({ state: 'clean', branch_preserved: true });
+    expect(JSON.stringify(store.listRegisteredWorktrees('eng'))).toBe(storeBefore);
+
+    // Dirty the checkout: the preview reports it truthfully and remove refuses.
+    writeFileSync(join(created.worktree.path, 'dirty.txt'), 'dirty\n');
+    const dirty = await manager.previewRemoval('eng', repositoryPath, created.worktree.id);
+    expect(dirty).toMatchObject({ state: 'dirty', branch_preserved: true });
+    await expect(manager.remove('eng', repositoryPath, created.worktree.id))
+      .rejects.toThrow('clean before removal');
+    expect(existsSync(created.worktree.path)).toBe(true);
+    expect(JSON.stringify(store.listRegisteredWorktrees('eng'))).toBe(storeBefore);
+
+    // Clean again: the destructive act revalidates instead of trusting the preview.
+    rmSync(join(created.worktree.path, 'dirty.txt'));
+    expect((await manager.previewRemoval('eng', repositoryPath, created.worktree.id)).state).toBe('clean');
+    const removed = await manager.remove('eng', repositoryPath, created.worktree.id);
+    expect(removed.worktree.lifecycle).toBe('removed');
+    expect(existsSync(created.worktree.path)).toBe(false);
+    expect(branchExists(repositoryPath, 'feature/preview-target')).toBe(true);
+  });
+
+  it('reports locked, missing, mismatched, and unavailable previews without mutation', async () => {
+    const lockedTarget = await manager.create('eng', repositoryPath, {
+      alias: 'preview-locked', branch: 'feature/preview-locked', path: join(fixtureRoot, 'preview-locked'),
+    });
+    git(repositoryPath, ['worktree', 'lock', lockedTarget.worktree.path]);
+    expect((await manager.previewRemoval('eng', repositoryPath, lockedTarget.worktree.id)).state)
+      .toBe('locked');
+    git(repositoryPath, ['worktree', 'unlock', lockedTarget.worktree.path]);
+
+    const goneTarget = await manager.create('eng', repositoryPath, {
+      alias: 'preview-gone', branch: 'feature/preview-gone', path: join(fixtureRoot, 'preview-gone'),
+    });
+    rmSync(goneTarget.worktree.path, { recursive: true, force: true });
+    expect((await manager.previewRemoval('eng', repositoryPath, goneTarget.worktree.id)).state)
+      .toBe('missing');
+
+    const movedTarget = await manager.create('eng', repositoryPath, {
+      alias: 'preview-moved', branch: 'feature/preview-moved', path: join(fixtureRoot, 'preview-moved'),
+    });
+    git(repositoryPath, ['worktree', 'move', movedTarget.worktree.path, join(fixtureRoot, 'preview-moved-elsewhere')]);
+    expect((await manager.previewRemoval('eng', repositoryPath, movedTarget.worktree.id)).state)
+      .toBe('mismatched');
+
+    // A non-Git cwd makes the inspection itself unavailable.
+    expect((await manager.previewRemoval('eng', fixtureRoot, lockedTarget.worktree.id)).state)
+      .toBe('unavailable');
+
+    // A tombstone has no removable target at all.
+    manager.unregister('eng', lockedTarget.worktree.id);
+    await expect(manager.previewRemoval('eng', repositoryPath, lockedTarget.worktree.id))
+      .rejects.toThrow('active secondary');
+    expect(existsSync(join(fixtureRoot, 'preview-moved-elsewhere'))).toBe(true);
+  });
   // harn:end worktree-removal-is-clean-and-branch-preserving
+
+  it('seeds preflighted members into only the created child at its canonical cwd', async () => {
+    const empty = await manager.create('eng', repositoryPath, {
+      alias: 'roster-empty', branch: 'feature/roster-empty', path: join(fixtureRoot, 'roster-empty'),
+    });
+    expect(empty.seeded).toEqual([]);
+    expect(store.listMembers(empty.worktree.conversation_id).filter((member) => member.kind === 'agent'))
+      .toEqual([]);
+
+    let boundCwd: string | undefined;
+    const seeded = await manager.create('eng', repositoryPath, {
+      alias: 'roster-seeded', branch: 'feature/roster-seeded', path: join(fixtureRoot, 'roster-seeded'),
+    }, (canonicalCwd) => {
+      boundCwd = canonicalCwd;
+      return [makeSeed('seeded-alpha', canonicalCwd), makeSeed('seeded-beta', canonicalCwd)];
+    });
+    expect(boundCwd).toBe(seeded.worktree.path);
+    expect(seeded.seeded.map((member) => member.handle)).toEqual(['seeded-alpha', 'seeded-beta']);
+    expect(
+      store.listMembers(seeded.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toHaveLength(2);
+    expect(store.listMembers('eng').filter((member) => member.kind === 'agent')).toEqual([]);
+    expect(store.getRoom(seeded.worktree.conversation_id)?.config.cwd).toBe(seeded.worktree.path);
+  });
+
+  it('cleans up non-force and preserves the branch when registration fails after Git', async () => {
+    const rollbackTarget = join(fixtureRoot, 'roster-rollback');
+    const sabotaged = new Store(join(fixtureRoot, 'codor.sqlite'));
+    const throwing = (() => {
+      throw new Error('injected registration failure');
+    }) as unknown as Store['registerWorktree'];
+    sabotaged.registerWorktree = throwing;
+    const rollbackManager = new WorktreeManager(sabotaged);
+    await expect(rollbackManager.create('eng', repositoryPath, {
+      alias: 'roster-rollback', branch: 'feature/roster-rollback', path: rollbackTarget,
+    })).rejects.toThrow(/registration failed/);
+    expect(existsSync(rollbackTarget)).toBe(false);
+    expect(branchExists(repositoryPath, 'feature/roster-rollback')).toBe(true);
+    // No durable residue: neither the repository nor any worktree row landed.
+    expect(store.getRepository('eng')).toBeUndefined();
+    expect(store.listRegisteredWorktrees('eng')).toEqual([]);
+    sabotaged.close();
+  });
 
   it('refuses collisions before Git mutation', async () => {
     const existingTarget = join(fixtureRoot, 'already exists');
@@ -382,7 +526,7 @@ describe('safe creation and conservative removal', () => {
 // harn:end worktree-creation-registers-only-a-new-secondary
 // harn:end worktree-git-execution-is-argument-safe
 
-// harn:assume worktree-lifecycle-is-roster-neutral ref=worktree-roster-neutrality-regression
+// harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-roster-neutrality-regression
 describe('registry storage neutrality', () => {
   it('does not rewrite room, roster, transcript, or delivery state across lifecycle operations', async () => {
     const snapshot = () => JSON.stringify({
@@ -468,7 +612,7 @@ describe('registry storage neutrality', () => {
     expect(childRosters(childIds)).toBe(childRostersBefore);
   });
 });
-// harn:end worktree-lifecycle-is-roster-neutral
+// harn:end worktree-lifecycle-preserves-existing-state-by-default
 
 function adoptedId(current: Store, alias: string): string {
   const worktree = current.listRegisteredWorktrees('eng').find((item) => item.alias === alias);

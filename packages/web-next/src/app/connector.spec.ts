@@ -506,3 +506,89 @@ describe('per-room seq reconciliation', () => {
     expect(resyncsAfter(socket, before)).toEqual([]);
   });
 });
+
+// harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-observed-room-regression
+describe('connector hidden-room observation', () => {
+  it('subscribes desired hidden rooms from their own cursors on every open', async () => {
+    const connector = build('eng');
+    const first = latest();
+    first.accept();
+    first.deliver({ type: 'rooms', rooms: [] });
+
+    connector.setDesiredRooms(['wt-child-a', 'wt-child-b']);
+    expect(first.subscriptions().map((sub) => sub.room))
+      .toEqual(['eng', 'wt-child-a', 'wt-child-b']);
+    expect(first.subscriptions().find((sub) => sub.room === 'wt-child-a')?.since_seq).toBe(0);
+
+    // A legal resume replaces the socket and resubscribes the whole desired
+    // set alongside the selected public root.
+    fireVisible();
+    await flush();
+    const second = latest();
+    second.accept();
+    expect(second.subscriptions().map((sub) => sub.room))
+      .toEqual(['eng', 'wt-child-a', 'wt-child-b']);
+    connector.dispose();
+  });
+
+  it('stops resubscribing rooms dropped from the desired set', async () => {
+    const connector = build('eng');
+    const first = latest();
+    first.accept();
+    first.deliver({ type: 'rooms', rooms: [] });
+    connector.setDesiredRooms(['wt-child-a', 'wt-child-b']);
+    connector.setDesiredRooms(['wt-child-b']);
+
+    fireVisible();
+    await flush();
+    const second = latest();
+    second.accept();
+    expect(second.subscriptions().map((sub) => sub.room)).toEqual(['eng', 'wt-child-b']);
+    connector.dispose();
+  });
+
+  it('reports exact-room readiness without changing the public-root identity', () => {
+    const connector = build('eng');
+    const socket = latest();
+    expect(connector.roomReadiness('wt-child-a')).toBe('unsubscribed');
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [] });
+    connector.setDesiredRooms(['wt-child-a']);
+    expect(connector.roomReadiness('wt-child-a')).toBe('connecting');
+    expect(connector.roomReadiness('wt-elsewhere')).toBe('unsubscribed');
+    expect(connector.room()).toBe('eng');
+
+    // Hydration of the exact room flips only that room's readiness.
+    useClientStore.setState({
+      rooms: { 'wt-child-a': { ...useClientStore.getState().rooms['wt-child-a'], hydrated: true } },
+    } as never);
+    expect(connector.roomReadiness('wt-child-a')).toBe('connected');
+    expect(connector.roomReadiness('eng')).toBe('connecting');
+
+    socket.drop(1006);
+    expect(connector.roomReadiness('wt-child-a')).toBe('offline');
+    connector.dispose();
+  });
+
+  it('keeps hidden observation inside an isolated computer store', () => {
+    const isolated = createClientStore();
+    const connector = createConnector({
+      room: 'root',
+      token: 'computer-token',
+      store: isolated,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    latest().accept();
+    latest().deliver({ type: 'rooms', rooms: [] });
+    connector.setDesiredRooms(['wt-hosted-child']);
+    expect(latest().subscriptions().map((sub) => sub.room)).toEqual(['root', 'wt-hosted-child']);
+    expect(connector.roomReadiness('wt-hosted-child')).toBe('connecting');
+    isolated.setState({
+      rooms: { 'wt-hosted-child': { ...isolated.getState().rooms['wt-hosted-child'], hydrated: true } },
+    } as never);
+    expect(connector.roomReadiness('wt-hosted-child')).toBe('connected');
+    expect(useClientStore.getState().rooms['wt-hosted-child']).toBeUndefined();
+    connector.dispose();
+  });
+});
+// harn:end worktree-conversation-status-is-live-and-independent

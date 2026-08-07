@@ -19,6 +19,7 @@ import {
   CreateRoomRequestSchema,
   DefaultRosterInputSchema,
   WorktreeAdoptRequestSchema,
+  WorktreeAliasUpdateRequestSchema,
   WorktreeCreateRequestSchema,
   WorktreeIdSchema,
   WorktreeLifecycleResponseSchema,
@@ -419,6 +420,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return undefined;
     }
     return authorizeRoom(principal, room, 'manage_worktrees', reply);
+  };
+
+  /** The explicit roster choice expands agent configuration into a new child,
+   * so it requires BOTH worktree and agent management authority even though
+   * the current role matrix grants both to the same admin/owner roles. */
+  const authorizeWorktreeRosterCreate = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    const member = authorizeWorktreeMutation(principal, room, reply);
+    if (member === undefined) return undefined;
+    return authorizeRoom(principal, room, 'manage_agents', reply);
   };
   // harn:end worktree-management-is-human-admin-only
 
@@ -1152,6 +1166,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.get('/api/rooms/:room/worktrees/discover', listWorktreeRoute);
   // harn:end worktree-discovery-never-registers-candidates
 
+  // harn:assume registered-worktree-navigation-is-promotion-gated ref=registered-worktree-rest
+  /** The background group projection: persisted active registrations only,
+   * store-only — Git discovery runs solely on the explicit routes above. */
+  app.get('/api/rooms/:room/worktrees/registered', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      void reply.send(daemon.registeredWorktrees(room));
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end registered-worktree-navigation-is-promotion-gated
+
   // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-rest
   /** Human-only, path-free routing projection; this never invokes Git discovery. */
   const routingCatalogRoute = (req: FastifyRequest, reply: FastifyReply): void => {
@@ -1215,6 +1245,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         ...body,
         path: body.path ?? body.target,
       });
+      // The literal roster choice expands agent configuration, so it needs
+      // agent-management authority on top of the worktree mutation before any
+      // roster preflight or Git work runs.
+      if (input.default_roster === true && !authorizeWorktreeRosterCreate(principal, room, reply)) return;
       const { cwd } = req.query as { cwd?: string };
       const result = await daemon.createWorktree(room, input, cwd);
       return void reply.code(201).send(worktreeLifecycleResponse(principal, result));
@@ -1249,6 +1283,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.post('/api/rooms/:room/worktrees/:worktreeId/unregister', unregisterWorktreeRoute);
   app.delete('/api/rooms/:room/worktrees/:worktreeId', unregisterWorktreeRoute);
 
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-rest
+  /** Identity-preserving alias edit: admin/owner only, keyed by the stable id,
+   * no Git invocation, returns the stable lifecycle projection. */
+  app.post('/api/rooms/:room/worktrees/:worktreeId/alias', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const input = WorktreeAliasUpdateRequestSchema.parse(req.body);
+      const result = daemon.updateWorktreeAlias(room, worktreeIdFromParams(req), input.alias);
+      void reply.send(WorktreeLifecycleResponseSchema.parse(result));
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
   const removeWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const principal = authed(req, reply);
     if (!principal) return;
@@ -1263,6 +1315,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
   app.post('/api/rooms/:room/worktrees/:worktreeId/remove', removeWorktreeRoute);
   app.post('/api/rooms/:room/worktrees/:worktreeId/filesystem-remove', removeWorktreeRoute);
+
+  /** The read-only removal preview: fresh structured state for the operator,
+   * human-readable like the other projections, and completely side-effect
+   * free — the destructive route above repeats every check itself. */
+  app.get('/api/rooms/:room/worktrees/:worktreeId/removal-preview', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.send(await daemon.previewWorktreeRemoval(room, worktreeIdFromParams(req), cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  });
   // harn:end worktree-removal-is-clean-and-branch-preserving
 
   // harn:assume attachments-are-capped-files-served-inert ref=attachment-contract

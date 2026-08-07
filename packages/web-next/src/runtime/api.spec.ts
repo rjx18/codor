@@ -14,6 +14,16 @@ import {
   replaceDefaultRoster,
   updateAgentPreset,
 } from './api.js';
+import {
+  adoptWorktree,
+  createWorktree,
+  discoverWorktrees,
+  fetchRegisteredWorktrees,
+  previewWorktreeRemoval,
+  removeWorktree,
+  unregisterWorktree,
+  updateWorktreeAlias,
+} from './api.js';
 import { setRelayTransport } from './relay-transport.js';
 
 // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
@@ -456,3 +466,120 @@ describe('agent preset runtime API', () => {
     );
   });
 });
+
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=registered-worktree-client
+// harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-client
+describe('worktree lifecycle client', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const repository = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAA',
+    room: 'eng',
+    common_path: '/repo/.git',
+    primary_path: '/repo',
+    primary_git_admin_id: '/repo/.git',
+    created_ts: '2026-08-07T00:00:00.000Z',
+    updated_ts: '2026-08-07T00:00:00.000Z',
+  };
+  const main = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAB',
+    repository_id: repository.id,
+    room: 'eng',
+    conversation_id: 'eng',
+    alias: 'main',
+    path: '/repo',
+    git_admin_id: '/repo/.git',
+    primary: true,
+    source: 'main',
+    lifecycle: 'active',
+    availability: 'available',
+    locked: false,
+    registered_ts: repository.created_ts,
+    updated_ts: repository.updated_ts,
+  };
+  const child = {
+    ...main,
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAC',
+    conversation_id: 'wt-01arz3ndektsv4rrffq69g5fac',
+    alias: 'review',
+    path: '/repo-review',
+    git_admin_id: '/repo/.git/worktrees/review',
+    primary: false,
+    source: 'adopted',
+  };
+  const respond = (body: unknown, status = 200): Response =>
+    ({ ok: status < 400, status, json: () => Promise.resolve(body) }) as unknown as Response;
+
+  it('parses the store-only registered projection strictly and preserves errors', async () => {
+    const fetch = vi.fn(() => Promise.resolve(respond({ repository, registered: [main, child] })));
+    vi.stubGlobal('fetch', fetch);
+    const projection = await fetchRegisteredWorktrees('eng', { token: 'secret' });
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'review']);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/rooms/eng/worktrees/registered'),
+      expect.objectContaining({ headers: expect.objectContaining({ authorization: 'Bearer secret' }) }),
+    );
+
+    vi.stubGlobal('fetch', () => Promise.resolve(respond({
+      repository, registered: [main, child], discovered: [],
+    })));
+    await expect(fetchRegisteredWorktrees('eng', { token: 'secret' })).rejects.toThrow();
+
+    vi.stubGlobal('fetch', () => Promise.resolve(respond({ error: 'forbidden: agent cannot use worktree management' }, 403)));
+    await expect(fetchRegisteredWorktrees('eng', { token: 'agent-token' }))
+      .rejects.toThrow('forbidden: agent cannot use worktree management');
+  });
+
+  it('runs discovery only through the explicit Find call', async () => {
+    const fetch = vi.fn(() => Promise.resolve(respond({
+      repository, registered: [main, child], discovered: [],
+    })));
+    vi.stubGlobal('fetch', fetch);
+    const found = await discoverWorktrees('eng', { token: 'secret' });
+    expect(found.registered).toHaveLength(2);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/rooms/eng/worktrees/discover'),
+      expect.anything(),
+    );
+  });
+
+  it('sends lifecycle mutations to their exact routes and parses projections', async () => {
+    const lifecycle = { repository, worktree: child };
+    const calls: [string, RequestInit?][] = [];
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      calls.push([url, init]);
+      return Promise.resolve(respond(lifecycle, 201));
+    });
+    await adoptWorktree('eng', { path: '/repo-review', alias: 'review' }, { token: 't' });
+    await createWorktree('eng', {
+      alias: 'created', branch: 'feature/created', path: '/repo-created', default_roster: true,
+    }, { token: 't' });
+    await updateWorktreeAlias('eng', child.id, 'renamed', { token: 't' });
+    await unregisterWorktree('eng', child.id, { token: 't' });
+    await removeWorktree('eng', child.id, { token: 't' });
+    expect(calls.map(([url]) => url)).toEqual([
+      expect.stringContaining('/api/rooms/eng/worktrees/adopt'),
+      expect.stringContaining('/api/rooms/eng/worktrees/create'),
+      expect.stringContaining(`/api/rooms/eng/worktrees/${child.id}/alias`),
+      expect.stringContaining(`/api/rooms/eng/worktrees/${child.id}/unregister`),
+      expect.stringContaining(`/api/rooms/eng/worktrees/${child.id}/remove`),
+    ]);
+    expect(JSON.parse(String(calls[1]![1]?.body))).toMatchObject({ default_roster: true });
+    expect(JSON.parse(String(calls[2]![1]?.body))).toEqual({ alias: 'renamed' });
+  });
+
+  it('parses removal previews and rejects malformed states', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve(respond({
+      repository, worktree: child, state: 'dirty', branch_preserved: true, detail: 'untracked files',
+    })));
+    const preview = await previewWorktreeRemoval('eng', child.id, { token: 't' });
+    expect(preview).toMatchObject({ state: 'dirty', branch_preserved: true });
+
+    vi.stubGlobal('fetch', () => Promise.resolve(respond({
+      repository, worktree: child, state: 'gone', branch_preserved: true,
+    })));
+    await expect(previewWorktreeRemoval('eng', child.id, { token: 't' })).rejects.toThrow();
+  });
+});
+// harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
+// harn:end registered-worktree-navigation-is-promotion-gated

@@ -8,13 +8,22 @@ import { rememberRoom } from '../app/startup.js';
 import { refreshMutableRunJournals } from './run-journals.js';
 import {
   pageParams,
+  roomUrl,
   useAccessToken,
   useIsMobile,
   useMinuteTick,
 } from '../app/session.js';
 import { relayConnectExtras } from '@runtime/relay-mode.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
-import { roomSlice, useClientStore } from '../app/store.js';
+import { roleAtLeast, roomSlice, useClientStore } from '../app/store.js';
+import {
+  useWorktreeGroup,
+  WorktreeChildDialog,
+  WorktreeCreateDialog,
+  WorktreeFindDialog,
+  WorktreeGroupSection,
+} from './WorktreeGroup.js';
+import type { RegisteredWorktree } from '@codor/protocol';
 import { ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, Modal, StatusPill } from '../primitives/primitives.js';
 import { ComputerSwitcher } from './ComputerSwitcher.js';
@@ -68,9 +77,13 @@ function MountedRoomPage(props: {
   const { manager, managed } = props;
   const activeToken = managed?.token ?? props.token;
   const token = useAccessToken(activeToken);
-  // The room is resolved and validated before this component exists, so the
-  // connector never opens on a speculative id.
+  // The public channel id stays the authorized ROOT; the selected conversation
+  // may be one of its registered children. The URL never carries a child id.
+  const root = props.room;
   const [room, setRoom] = useState(props.room);
+  const [selectedWorktree, setSelectedWorktree] = useState<string | undefined>(
+    () => pageParams().worktree,
+  );
   const connectorRef = useRef<RoomConnector | null>(null);
   if (!manager && connectorRef.current === null) {
     connectorRef.current = createConnector({
@@ -94,24 +107,76 @@ function MountedRoomPage(props: {
   if (!connection) throw new Error('RoomPage requires a room connector');
   const [pageSurface, setPageSurface] = useState<'room' | 'settings'>('room');
 
+  // harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-navigation
+  // The store-only group projection drives both the hidden-room observation set
+  // and selection resolution. Main omits the worktree selector; a selector
+  // whose secondary is no longer active falls back to main.
+  const group = useWorktreeGroup(root, token);
+  const activeChild = selectedWorktree === undefined
+    ? undefined
+    : group.registered.find((worktree) => !worktree.primary && worktree.id === selectedWorktree);
+
+  useEffect(() => {
+    connection.setDesiredRooms(
+      group.registered.filter((worktree) => !worktree.primary).map((worktree) => worktree.conversation_id),
+    );
+  }, [connection, group.registered]);
+
+  useEffect(() => {
+    if (!group.loaded) return;
+    if (selectedWorktree !== undefined && activeChild === undefined) {
+      // The selected secondary ceased to be active: resolve to main.
+      setSelectedWorktree(undefined);
+      if (room !== root) {
+        connection.switchRoom(root);
+        setRoom(root);
+      }
+      window.history.replaceState(null, '', roomUrl(root));
+      return;
+    }
+    if (activeChild !== undefined && room !== activeChild.conversation_id) {
+      connection.switchRoom(activeChild.conversation_id);
+      setRoom(activeChild.conversation_id);
+    }
+  }, [group.loaded, selectedWorktree, activeChild, connection, room, root]);
+
+  const selectWorktree = (worktreeId: string | undefined): void => {
+    // Read the FRESH set from the store: a post-create/adopt refresh lands
+    // there before this render's `group` prop catches up.
+    const fresh = useClientStore.getState().worktreeGroups[root]?.registered ?? group.registered;
+    const target = worktreeId === undefined
+      ? root
+      : fresh.find((worktree) => !worktree.primary && worktree.id === worktreeId)?.conversation_id;
+    if (target === undefined) return;
+    setSelectedWorktree(worktreeId);
+    if (target !== room) {
+      connection.switchRoom(target);
+      setRoom(target);
+    }
+    window.history.pushState(null, '', roomUrl(root, worktreeId));
+  };
+  // harn:end registered-worktree-navigation-is-promotion-gated
+
   // In-place channel switching: select the room's keyed slice, keep the shared
-  // socket and every background subscription alive, and let the URL follow.
+  // socket and every background subscription alive, and let the URL follow. A
+  // top-level channel is always a public root — the worktree selector clears.
   const switchRoom = (next: string): void => {
-    if (next === room) return;
+    setSelectedWorktree(undefined);
+    if (next === room && next === root) return;
     connection.switchRoom(next);
     setRoom(next);
     if (manager) manager.rememberActiveRoom(next);
     else rememberRoom(next);
-    window.history.pushState(null, '', `/?room=${encodeURIComponent(next)}`);
+    window.history.pushState(null, '', roomUrl(next));
   };
 
   const openSettings = (): void => {
-    window.history.pushState(null, '', `/settings?room=${encodeURIComponent(room)}`);
+    window.history.pushState(null, '', `/settings?room=${encodeURIComponent(root)}`);
     setPageSurface('settings');
   };
 
   const openRoom = (): void => {
-    window.history.pushState(null, '', `/?room=${encodeURIComponent(room)}`);
+    window.history.pushState(null, '', roomUrl(root, selectedWorktree));
     setPageSurface('room');
   };
 
@@ -120,27 +185,44 @@ function MountedRoomPage(props: {
   useEffect(() => () => { connectorRef.current?.dispose(); }, []);
 
   useEffect(() => {
-    if (!managed || managed.room === room) return;
+    if (!managed || managed.room === root) return;
+    setSelectedWorktree(undefined);
     setRoom(managed.room);
     const path = window.location.pathname === '/settings' ? '/settings' : '/';
     window.history.replaceState(null, '', `${path}?room=${encodeURIComponent(managed.room)}`);
-  }, [managed, room]);
+  }, [managed, root]);
 
   useEffect(() => {
     const onPop = (): void => {
-      // Back/forward reaches rooms and Settings entries this session already opened.
-      const next = pageParams().room;
-      if (next !== undefined && next !== connection.room()) {
+      // Back/forward reaches rooms, worktree selections, and Settings entries
+      // this session already opened — without rewriting history.
+      const params = pageParams();
+      const next = params.room;
+      if (next !== undefined && next !== root) {
         connection.switchRoom(next);
         setRoom(next);
         if (manager) manager.rememberActiveRoom(next);
         else rememberRoom(next);
       }
+      setSelectedWorktree(params.worktree);
       setPageSurface(window.location.pathname === '/settings' ? 'settings' : 'room');
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
-  }, [connection, manager]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection, manager, root]);
+
+  // Lifecycle dialogs: one at a time, drafts preserved inside each dialog.
+  const [worktreeDialog, setWorktreeDialog] = useState<
+    'create' | 'find' | { child: RegisteredWorktree } | undefined
+  >();
+  const selfRole = useClientStore((state) => {
+    const slice = roomSlice(state, root);
+    return slice.selfMemberId !== undefined
+      ? slice.members[slice.selfMemberId]?.role
+      : undefined;
+  });
+  const canManageWorktrees = roleAtLeast(selfRole, 'admin');
 
   // Mobile is a two-surface stack (channels ⇄ room), never a drawer.
   const isMobile = useIsMobile();
@@ -162,6 +244,46 @@ function MountedRoomPage(props: {
     return () => query.removeEventListener('change', onChange);
   }, [responsiveContext]);
 
+  const worktreeDialogs = (
+    <>
+      {worktreeDialog === 'create' && (
+        <WorktreeCreateDialog
+          root={root}
+          token={token}
+          onClose={() => setWorktreeDialog(undefined)}
+          onCreated={(worktree) => {
+            setWorktreeDialog(undefined);
+            void group.refresh().then(() => selectWorktree(worktree.id));
+          }}
+        />
+      )}
+      {worktreeDialog === 'find' && (
+        <WorktreeFindDialog
+          root={root}
+          token={token}
+          onClose={() => setWorktreeDialog(undefined)}
+          onAdopted={(worktree) => {
+            setWorktreeDialog(undefined);
+            void group.refresh().then(() => selectWorktree(worktree.id));
+          }}
+        />
+      )}
+      {typeof worktreeDialog === 'object' && worktreeDialog !== undefined && (
+        <WorktreeChildDialog
+          root={root}
+          token={token}
+          child={worktreeDialog.child}
+          onClose={() => setWorktreeDialog(undefined)}
+          onChanged={() => void group.refresh()}
+          onRemoved={() => {
+            if (selectedWorktree === worktreeDialog.child.id) selectWorktree(undefined);
+            void group.refresh();
+          }}
+        />
+      )}
+    </>
+  );
+
   if (pageSurface === 'settings') {
     return (
       <SettingsPage
@@ -179,13 +301,20 @@ function MountedRoomPage(props: {
       <div className="nx-app is-mobile" data-testid="app" data-surface={surface}>
         {surface === 'channels' ? (
           <ChannelRail
-            activeRoom={room}
+            activeRoom={root}
             token={token}
             onSwitch={(next) => {
               switchRoom(next);
               setSurface('room');
             }}
             onSettings={openSettings}
+            group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
+            readiness={(conversation) => connection.roomReadiness(conversation)}
+            onSelectWorktree={(worktreeId) => {
+              selectWorktree(worktreeId);
+              setSurface('room');
+            }}
+            onOpenWorktreeDialog={setWorktreeDialog}
           />
         ) : (
           <ChatPanel
@@ -198,12 +327,13 @@ function MountedRoomPage(props: {
             }}
           />
         )}
+        {worktreeDialogs}
         {mobileContext && surface === 'room' && (
           <div className="nx-mobile-context" data-testid="mobile-context">
             <button className="nx-mobile-context-close nx-btn" onClick={() => setMobileContext(false)}>
               Close
             </button>
-            <ContextPanel room={room} token={token} connection={connection} />
+            <ContextPanel room={room} token={token} connection={connection} onManageWorktrees={() => setWorktreeDialog('find')} />
           </div>
         )}
       </div>
@@ -212,14 +342,24 @@ function MountedRoomPage(props: {
 
   return (
     <div className="nx-app" data-testid="app">
-      <ChannelRail activeRoom={room} token={token} onSwitch={switchRoom} onSettings={openSettings} />
+      <ChannelRail
+        activeRoom={root}
+        token={token}
+        onSwitch={switchRoom}
+        onSettings={openSettings}
+        group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
+        readiness={(conversation) => connection.roomReadiness(conversation)}
+        onSelectWorktree={selectWorktree}
+        onOpenWorktreeDialog={setWorktreeDialog}
+      />
       <ChatPanel
         room={room}
         connection={connection}
         token={token}
         onContext={() => setResponsiveContext(true)}
       />
-      <ContextPanel room={room} token={token} connection={connection} />
+      <ContextPanel room={room} token={token} connection={connection} onManageWorktrees={() => setWorktreeDialog('find')} />
+      {worktreeDialogs}
       {responsiveContext && (
         <Modal
           label="Channel context"
@@ -252,6 +392,15 @@ function ChannelRail(props: {
   token: () => string;
   onSwitch: (room: string) => void;
   onSettings: () => void;
+  group?: {
+    root: string;
+    view: ReturnType<typeof useWorktreeGroup>;
+    selectedWorktree: string | undefined;
+    canManage: boolean;
+  };
+  readiness?: (conversation: string) => 'connecting' | 'connected' | 'offline' | 'unsubscribed';
+  onSelectWorktree?: (worktreeId: string | undefined) => void;
+  onOpenWorktreeDialog?: (dialog: 'create' | 'find' | { child: RegisteredWorktree }) => void;
 }) {
   const [creating, setCreating] = useState(false);
   const summaries = useRoomSummaries(props.token);
@@ -369,6 +518,22 @@ function ChannelRail(props: {
                   </span>
                 </span>
               </a>
+              {props.group !== undefined
+                && props.group.root === entry.id
+                && props.onSelectWorktree !== undefined
+                && props.onOpenWorktreeDialog !== undefined
+                && props.readiness !== undefined && (
+                <WorktreeGroupSection
+                  root={entry.id}
+                  token={props.token}
+                  group={props.group.view}
+                  selectedWorktree={props.group.selectedWorktree}
+                  readiness={props.readiness}
+                  canManage={props.group.canManage}
+                  onSelect={props.onSelectWorktree}
+                  onOpenDialog={props.onOpenWorktreeDialog}
+                />
+              )}
             </li>
           );
         })}

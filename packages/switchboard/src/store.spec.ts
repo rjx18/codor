@@ -3790,3 +3790,271 @@ describe('a named ACP provider persists a public id while its launch stays priva
   });
 });
 // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+
+const mainObs = (over: Partial<WorktreeObservation> = {}): WorktreeObservation => ({
+  path: join(dir, 'repo'),
+  git_admin_id: join(dir, 'repo', '.git'),
+  primary: true,
+  availability: 'available',
+  locked: false,
+  ...over,
+});
+
+const childObs = (name: string, over: Partial<WorktreeObservation> = {}): WorktreeObservation => ({
+  path: join(dir, name),
+  git_admin_id: join(dir, 'repo', '.git', 'worktrees', name),
+  primary: false,
+  availability: 'available',
+  locked: false,
+  ...over,
+});
+
+const repoObs = () => ({
+  common_path: join(dir, 'repo', '.git'),
+  primary_path: join(dir, 'repo'),
+  primary_git_admin_id: join(dir, 'repo', '.git'),
+});
+
+// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-regression
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-regression
+describe('worktree child metadata follows stable identity', () => {
+  it('creates children with the canonical cwd and no root starting handle', () => {
+    store.createRoom({
+      id: 'eng',
+      name: 'Engineering',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      config: { cwd: join(dir, 'repo'), starting_agent_handle: 'alpha' },
+    });
+    const rootBefore = store.getRoom('eng')!;
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const child = store.getRoom(worktree.conversation_id)!;
+    expect(child.name).toBe('Engineering · child-label');
+    expect(child.config.cwd).toBe(join(dir, 'child'));
+    expect(child.config.starting_agent_handle).toBeUndefined();
+    expect(store.getRoom('eng')).toEqual(rootBefore);
+  });
+
+  it('migrates a legacy child projection idempotently on reopen', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    // Simulate a Phase-1-era child: root config copied verbatim with a leaked handle.
+    const legacyConfig = { ...store.getRoom('eng')!.config, starting_agent_handle: 'alpha' };
+    const raw = new Database(join(dir, 'test.sqlite'));
+    raw.prepare('UPDATE rooms SET config = ? WHERE id = ?')
+      .run(JSON.stringify(legacyConfig), worktree.conversation_id);
+    raw.close();
+    const rootBefore = JSON.stringify(store.getRoom('eng'));
+    const childSeqBefore = store.currentSeq(worktree.conversation_id);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    const migrated = store.getRoom(worktree.conversation_id)!;
+    expect(migrated.config.starting_agent_handle).toBeUndefined();
+    expect(migrated.config.cwd).toBe(join(dir, 'child'));
+    expect(store.currentSeq(worktree.conversation_id)).toBe(childSeqBefore + 1);
+    expect(JSON.stringify(store.getRoom('eng'))).toBe(rootBefore);
+
+    // A second open finds no drift: no further change rows.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.currentSeq(worktree.conversation_id)).toBe(childSeqBefore + 1);
+  });
+
+  it('reconciles a moved canonical path on re-adoption and keeps history stable', () => {
+    openRoom(store);
+    const first = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const conversation = first.worktree.conversation_id;
+    store.postMessage(conversation, {
+      author: store.getMemberByHandle('eng', 'richard')!.id,
+      kind: 'chat',
+      body: 'child history',
+    });
+    store.unregisterWorktree('eng', first.worktree.id, '2026-08-06T00:06:00.000Z');
+    const readopted = store.registerWorktree(
+      'eng',
+      repoObs(),
+      mainObs(),
+      { ...childObs('child'), path: join(dir, 'moved-child') },
+      'child-label',
+      'adopted',
+      '2026-08-06T00:07:00.000Z',
+    );
+    expect(readopted.worktree.id).toBe(first.worktree.id);
+    expect(readopted.worktree.conversation_id).toBe(conversation);
+    expect(readopted.seeded).toEqual([]);
+    expect(store.getRoom(conversation)?.config.cwd).toBe(join(dir, 'moved-child'));
+    expect(store.listMessages(conversation).map((message) => message.body)).toEqual(['child history']);
+  });
+
+  it('orders actives main-first by alias and excludes tombstones through reopen', () => {
+    openRoom(store);
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('bravo'), 'bravo', 'created');
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('alpha'), 'alpha', 'created');
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'alpha', 'bravo']);
+    const alpha = store.listRegisteredWorktrees('eng').find((worktree) => worktree.alias === 'alpha')!;
+    store.unregisterWorktree('eng', alpha.id, '2026-08-06T00:04:00.000Z');
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'bravo']);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'bravo']);
+    const withTombstones = store.listWorktrees('eng', { includeTombstones: true });
+    expect(withTombstones.map((worktree) => worktree.alias)).toEqual(['main', 'alpha', 'bravo']);
+    expect(withTombstones.find((worktree) => worktree.alias === 'alpha'))
+      .toMatchObject({ id: alpha.id, lifecycle: 'unregistered' });
+  });
+
+  it('updates an active secondary alias without moving any stable identity', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('other'), 'other-label', 'created');
+    const renamed = store.updateWorktreeAlias('eng', worktree.id, 'renamed-label', '2026-08-06T00:05:00.000Z');
+    expect(renamed).toMatchObject({
+      id: worktree.id,
+      conversation_id: worktree.conversation_id,
+      path: worktree.path,
+      git_admin_id: worktree.git_admin_id,
+      alias: 'renamed-label',
+    });
+    expect(store.getRoom(worktree.conversation_id)?.name).toBe('Engineering · renamed-label');
+    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'other-label')).toThrow(/already in use/);
+    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'main')).toThrow(/reserved/);
+    const mainRow = store.listRegisteredWorktrees('eng').find((entry) => entry.primary)!;
+    expect(() => store.updateWorktreeAlias('eng', mainRow.id, 'not-main')).toThrow(/active secondary/);
+    store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:05:30.000Z');
+    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'again')).toThrow(/active secondary/);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getWorktree('eng', worktree.id)?.alias).toBe('renamed-label');
+  });
+
+  it('appends a child change only when an alias update visibly differs', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const seqBefore = store.currentSeq(worktree.conversation_id);
+    store.updateWorktreeAlias('eng', worktree.id, 'child-label');
+    expect(store.currentSeq(worktree.conversation_id)).toBe(seqBefore);
+    store.updateWorktreeAlias('eng', worktree.id, 'renamed');
+    expect(store.currentSeq(worktree.conversation_id)).toBe(seqBefore + 1);
+  });
+});
+// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
+// harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-root-neutral-regression
+describe('root-neutral registration', () => {
+  it('leaves root room, roster, history, config, presets, and roster unchanged across lifecycle', () => {
+    openRoom(store);
+    store.postMessage('eng', {
+      author: store.getMemberByHandle('eng', 'richard')!.id,
+      kind: 'chat',
+      body: 'root history',
+    });
+    const preset = store.createAgentPreset({ label: 'Alpha', handle: 'alpha', harness: 'fake' });
+    store.replaceDefaultRoster([preset.id]);
+    const snapshot = () => JSON.stringify({
+      room: store.getRoom('eng'),
+      members: store.listMembers('eng', { includeRemoved: true }),
+      messages: store.listMessages('eng'),
+      presets: store.listAgentPresets(),
+      roster: store.getDefaultRoster(),
+    });
+    const before = snapshot();
+    const first = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    store.updateWorktreeAlias('eng', first.worktree.id, 'renamed');
+    store.unregisterWorktree('eng', first.worktree.id);
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'adopted');
+    store.removeWorktree('eng', first.worktree.id);
+    expect(snapshot()).toBe(before);
+  });
+});
+// harn:end worktree-lifecycle-preserves-existing-state-by-default
+
+// harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-store-regression
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed-regression
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-snapshot-regression
+describe('child default roster seeding', () => {
+  const makeSeed = (handle: string): import('./store.js').InitialAgent => ({
+    member: {
+      kind: 'agent',
+      handle,
+      display_name: handle,
+      harness: 'fake',
+      cwd: join(dir, 'child'),
+      policy: 'read-only',
+      host: 'test-host',
+      state: 'dead',
+      custody: 'owned',
+    },
+  });
+
+  it('seeds ordered detached members only into a brand-new child and survives reopen', () => {
+    openRoom(store);
+    const seed = [makeSeed('alpha'), makeSeed('beta')];
+    const first = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created',
+      '2026-08-06T00:08:00.000Z', seed,
+    );
+    expect(first.seeded.map((member) => member.handle)).toEqual(['alpha', 'beta']);
+    expect(first.seeded.every((member) => member.state === 'dead' && member.custody === 'owned'))
+      .toBe(true);
+    // The roster ORDER lives in the seeded registration result above; the
+    // durable member set is id-sorted, so compare it order-insensitively.
+    expect(
+      store.listMembers(first.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent')
+        .map((member) => member.handle)
+        .sort(),
+    ).toEqual(['alpha', 'beta']);
+    // Root roster untouched: no agent rows leak into the root.
+    expect(store.listMembers('eng').filter((member) => member.kind === 'agent')).toEqual([]);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(
+      store.listMembers(first.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent')
+        .map((member) => member.handle)
+        .sort(),
+    ).toEqual(['alpha', 'beta']);
+
+    // Re-adoption of the same admin identity seeds nothing again.
+    store.unregisterWorktree('eng', first.worktree.id, '2026-08-06T00:09:00.000Z');
+    const readopted = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'adopted',
+      '2026-08-06T00:10:00.000Z', seed,
+    );
+    expect(readopted.seeded).toEqual([]);
+    expect(
+      store.listMembers(first.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toHaveLength(2);
+  });
+
+  it('keeps child snapshots detached from later preset and roster edits', () => {
+    openRoom(store);
+    const preset = store.createAgentPreset({ label: 'Alpha', handle: 'alpha', harness: 'fake', model: 'm-1' });
+    store.replaceDefaultRoster([preset.id]);
+    const first = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created',
+      '2026-08-06T00:11:00.000Z',
+      [{
+        member: {
+          kind: 'agent', handle: 'alpha', display_name: 'alpha', harness: 'fake',
+          cwd: join(dir, 'child'), policy: 'read-only', model: 'm-1',
+          host: 'test-host', state: 'dead', custody: 'owned',
+        },
+      }],
+    );
+    store.updateAgentPreset(preset.id, { label: 'Alpha', handle: 'alpha', harness: 'fake', model: 'm-2' });
+    store.replaceDefaultRoster([]);
+    const member = store.getMember(first.worktree.conversation_id, first.seeded[0]!.id)!;
+    expect(member.handle).toBe('alpha');
+    expect(member.model).toBe('m-1');
+  });
+});
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+// harn:end worktree-child-default-roster-is-an-explicit-snapshot

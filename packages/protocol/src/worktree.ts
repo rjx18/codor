@@ -205,6 +205,15 @@ export const WorktreeListResponseSchema = z.object({
 });
 export type WorktreeListResponse = z.infer<typeof WorktreeListResponseSchema>;
 
+/** The store-only background projection: persisted ACTIVE registrations only
+ * (stable main first, secondaries alias-ordered). It never invokes Git
+ * discovery and never exposes a tombstone or an unregistered candidate. */
+export const WorktreeRegisteredResponseSchema = z.object({
+  repository: RepositoryRecordSchema.nullable(),
+  registered: z.array(RegisteredWorktreeSchema),
+}).strict();
+export type WorktreeRegisteredResponse = z.infer<typeof WorktreeRegisteredResponseSchema>;
+
 export const WorktreeAdoptRequestSchema = z.object({
   path: WorktreePathSchema,
   alias: z.string().trim().min(1).max(128).optional(),
@@ -215,6 +224,11 @@ export const WorktreeCreateRequestSchema = z.object({
   alias: z.string().trim().min(1).max(128),
   branch: WorktreeBranchSchema,
   path: WorktreePathSchema,
+  // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-protocol
+  /** Literal-only opt-in: the accepted ordered default roster seeds exactly the
+   * brand-new child. Omission creates an agent-empty child exactly as before. */
+  default_roster: z.literal(true).optional(),
+  // harn:end worktree-child-default-roster-is-an-explicit-snapshot
 });
 export type WorktreeCreateRequest = z.infer<typeof WorktreeCreateRequestSchema>;
 
@@ -235,6 +249,16 @@ export const WorktreeLifecycleResponseSchema = z.object({
 export type WorktreeLifecycleResponse = z.infer<typeof WorktreeLifecycleResponseSchema>;
 // harn:end registered-worktree-identities-are-durable
 
+// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-protocol
+/** An alias edit is keyed by the stable WorktreeId in the route; the body
+ * carries only the raw desired label, normalized server-side like adoption. */
+export const WorktreeAliasUpdateRequestSchema = z.object({
+  alias: z.string().trim().min(1).max(128),
+}).strict();
+export type WorktreeAliasUpdateRequest = z.infer<typeof WorktreeAliasUpdateRequestSchema>;
+export const WorktreeAliasUpdateResponseSchema = WorktreeLifecycleResponseSchema;
+// harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
 // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-contract
 export const WorktreeDiscoveryResponseSchema = WorktreeListResponseSchema;
 export type WorktreeDiscoveryResponse = WorktreeListResponse;
@@ -247,4 +271,27 @@ export const WorktreeCreateResponseSchema = WorktreeLifecycleResponseSchema;
 // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-contract
 export const WorktreeUnregisterResponseSchema = WorktreeLifecycleResponseSchema;
 export const WorktreeRemoveResponseSchema = WorktreeLifecycleResponseSchema;
+
+/** Freshly inspected removal readiness. Only `clean` enables the destructive
+ * confirmation; every other value is a truthful refusal reason. */
+export const WorktreeRemovalPreviewStateSchema = z.enum([
+  'clean',
+  'dirty',
+  'locked',
+  'missing',
+  'mismatched',
+  'unavailable',
+]);
+export type WorktreeRemovalPreviewState = z.infer<typeof WorktreeRemovalPreviewStateSchema>;
+
+/** A read-only preview: it mutates nothing, states that the branch is always
+ * preserved, and is repeated by the removal act itself to close the race. */
+export const WorktreeRemovalPreviewResponseSchema = z.object({
+  repository: RepositoryRecordSchema,
+  worktree: RegisteredWorktreeSchema,
+  state: WorktreeRemovalPreviewStateSchema,
+  branch_preserved: z.literal(true),
+  detail: z.string().optional(),
+}).strict();
+export type WorktreeRemovalPreviewResponse = z.infer<typeof WorktreeRemovalPreviewResponseSchema>;
 // harn:end worktree-removal-is-clean-and-branch-preserving

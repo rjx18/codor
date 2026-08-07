@@ -18,15 +18,23 @@ import {
   WorktreeCreateRequestSchema,
   WorktreeDiscoveryCandidateSchema,
   WorktreeListResponseSchema,
+  WorktreeRegisteredResponseSchema,
+  WorktreeRemovalPreviewResponseSchema,
   type RegisteredWorktree,
   type RepositoryRecord,
   type WorktreeAdoptRequest,
   type WorktreeCreateRequest,
   type WorktreeDiscoveryCandidate,
   type WorktreeListResponse,
+  type WorktreeRegisteredResponse,
+  type WorktreeRemovalPreviewResponse,
+  type WorktreeRemovalPreviewState,
 } from '@codor/protocol';
 
+import type { Member } from '@codor/protocol';
+
 import {
+  type InitialAgent,
   type RepositoryObservation,
   Store,
   type WorktreeObservation,
@@ -392,6 +400,39 @@ export class WorktreeManager {
   }
   // harn:end worktree-discovery-never-registers-candidates
 
+  // harn:assume registered-worktree-identities-are-durable ref=worktree-runtime-reconciliation
+  /** The background group projection: ONLY the persisted active registrations.
+   * No Git command runs here, so a stale checkout can never delay or corrupt
+   * the browser's ordinary channel path. */
+  registered(room: string): WorktreeRegisteredResponse {
+    return WorktreeRegisteredResponseSchema.parse({
+      repository: this.store.getRepository(room) ?? null,
+      registered: this.store.listRegisteredWorktrees(room),
+    });
+  }
+  // harn:end registered-worktree-identities-are-durable
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-manager
+  /** Normalize and apply an active-secondary alias with no Git invocation: the
+   * store transaction owns uniqueness and child metadata reconciliation. */
+  updateAlias(
+    room: string,
+    worktreeId: string,
+    alias: string,
+  ): { repository: RepositoryRecord; worktree: RegisteredWorktree } {
+    const normalized = normalizeAlias(alias);
+    const worktree = this.store.updateWorktreeAlias(room, worktreeId, normalized);
+    const repository = this.store.getRepository(room);
+    if (repository === undefined || repository.id !== worktree.repository_id) {
+      throw new Error('worktree repository is not registered');
+    }
+    return {
+      repository: RepositoryRecordSchema.parse(repository),
+      worktree: RegisteredWorktreeSchema.parse(worktree),
+    };
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
   // harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-contract
   async adopt(
     room: string,
@@ -436,7 +477,12 @@ export class WorktreeManager {
     room: string,
     cwd: string,
     input: WorktreeCreateRequest,
-  ): Promise<{ repository: RepositoryRecord; worktree: RegisteredWorktree }> {
+    // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-manager
+    /** Fully preflighted detached snapshots, bound to the canonical created
+     * target only AFTER Git succeeds and the exact secondary is rediscovered. */
+    bindSeed?: (canonicalCwd: string) => readonly InitialAgent[],
+    // harn:end worktree-child-default-roster-is-an-explicit-snapshot
+  ): Promise<{ repository: RepositoryRecord; worktree: RegisteredWorktree; seeded: Member[] }> {
     const parsedInput = WorktreeCreateRequestSchema.parse(input);
     const inspection = await this.requireInspection(cwd);
     const primary = inspection.worktrees.find((observation) => observation.primary);
@@ -483,17 +529,34 @@ export class WorktreeManager {
       try { await this.git(primary.path, ['worktree', 'remove', '--', target]); } catch { /* diagnostic only */ }
       throw new Error('created worktree could not be rediscovered');
     }
-    const result = this.store.registerWorktree(
-      room,
-      this.repositoryObservation(created),
-      created.worktrees.find((observation) => observation.primary) ?? primary,
-      createdObservation,
-      alias,
-      'created',
-    );
+    // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-manager
+    // Durable registration happens only after Git succeeded. If the Store
+    // transaction fails, the ONLY recovery is the existing non-force,
+    // branch-preserving worktree removal — never a force, prune, or branch
+    // deletion — and the caller receives the actionable store failure.
+    let result: { repository: RepositoryRecord; worktree: RegisteredWorktree; seeded: Member[] };
+    try {
+      result = this.store.registerWorktree(
+        room,
+        this.repositoryObservation(created),
+        created.worktrees.find((observation) => observation.primary) ?? primary,
+        createdObservation,
+        alias,
+        'created',
+        new Date().toISOString(),
+        bindSeed?.(createdObservation.path) ?? [],
+      );
+    } catch (error) {
+      try { await this.git(primary.path, ['worktree', 'remove', '--', target]); } catch { /* diagnostic only */ }
+      throw error instanceof Error
+        ? new Error(`worktree was created but registration failed: ${error.message}`)
+        : error;
+    }
+    // harn:end worktree-child-default-roster-is-an-explicit-snapshot
     return {
       repository: RepositoryRecordSchema.parse(result.repository),
       worktree: RegisteredWorktreeSchema.parse(result.worktree),
+      seeded: result.seeded,
     };
   }
   // harn:end worktree-creation-registers-only-a-new-secondary
@@ -503,39 +566,116 @@ export class WorktreeManager {
     return this.store.unregisterWorktree(room, worktreeId);
   }
 
-  async remove(room: string, cwd: string, worktreeId: string): Promise<{
-    repository: RepositoryRecord;
-    worktree: RegisteredWorktree;
+  /** The ONE fresh read-only inspection shared by preview and removal. It
+   * never mutates the store or the filesystem; removal re-runs it to close
+   * the preview/action race. */
+  private async inspectRemoval(
+    room: string,
+    cwd: string,
+    worktreeId: string,
+  ): Promise<{
+    registered: RegisteredWorktree | undefined;
+    repository: RepositoryRecord | undefined;
+    inspection: GitRepositoryInspection | undefined;
+    fresh: WorktreeObservation | undefined;
+    state: WorktreeRemovalPreviewState;
+    detail?: string;
   }> {
+    const unavailable = (
+      registered: RegisteredWorktree | undefined,
+      repository: RepositoryRecord | undefined,
+      detail: string,
+    ) => ({ registered, repository, inspection: undefined, fresh: undefined, state: 'unavailable' as const, detail });
     const registered = this.store.getWorktree(room, worktreeId);
     if (registered === undefined || registered.lifecycle !== 'active' || registered.primary) {
-      throw new Error('only an active secondary worktree can be removed');
+      return unavailable(registered, undefined, 'only an active secondary worktree can be removed');
     }
     const repository = this.store.getRepository(room);
     if (repository === undefined || repository.id !== registered.repository_id) {
-      throw new Error('worktree repository is not registered');
+      return unavailable(registered, repository, 'worktree repository is not registered');
     }
-    const inspection = await this.requireInspection(cwd);
-    if (inspection.common_path !== repository.common_path) {
-      throw new Error('worktree belongs to a different repository');
+    const inspection = await this.inspect(cwd);
+    if (inspection === undefined || inspection.common_path !== repository.common_path) {
+      return {
+        registered, repository, inspection, fresh: undefined,
+        state: 'unavailable', detail: 'worktree belongs to a different or unavailable repository',
+      };
     }
     const fresh = inspection.worktrees.find((observation) => observation.git_admin_id === registered.git_admin_id);
-    if (fresh === undefined || fresh.primary) throw new Error('registered worktree is missing or mismatched');
+    if (fresh === undefined || fresh.primary) {
+      return {
+        registered, repository, inspection, fresh: undefined,
+        state: 'missing', detail: 'registered worktree is missing or mismatched',
+      };
+    }
     if (fresh.path !== registered.path || fresh.git_admin_id !== registered.git_admin_id) {
-      throw new Error('registered worktree is missing or mismatched');
+      return {
+        registered, repository, inspection, fresh,
+        state: 'mismatched', detail: 'registered worktree is missing or mismatched',
+      };
+    }
+    if (fresh.availability === 'missing' || fresh.availability === 'prunable') {
+      // A prunable entry is Git reporting the checkout path is gone.
+      return { registered, repository, inspection, fresh, state: 'missing', detail: 'worktree path is missing' };
     }
     if (fresh.availability !== 'available' || fresh.locked) {
-      throw new Error('worktree is locked, prunable, or unavailable');
-    }
-    const refreshed = this.store.refreshWorktreeObservation(room, worktreeId, fresh);
-    if (refreshed.path !== fresh.path || refreshed.git_admin_id !== fresh.git_admin_id) {
-      throw new Error('registered worktree identity does not match Git');
+      return {
+        registered, repository, inspection, fresh,
+        state: 'locked', detail: 'worktree is locked, prunable, or unavailable',
+      };
     }
     const status = (await this.git(fresh.path, [
       'status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=matching',
     ])).stdout;
-    if (status !== '') throw new Error('worktree must be clean before removal');
+    if (status !== '') {
+      return { registered, repository, inspection, fresh, state: 'dirty', detail: 'worktree must be clean before removal' };
+    }
     const primary = inspection.worktrees.find((observation) => observation.primary);
+    if (primary === undefined || primary.availability !== 'available') {
+      return {
+        registered, repository, inspection, fresh,
+        state: 'unavailable', detail: 'the primary checkout is unavailable',
+      };
+    }
+    return { registered, repository, inspection, fresh, state: 'clean' };
+  }
+
+  /** Read-only removal readiness for the operator: fresh Git state, structured
+   * refusal reasons, and the standing promise that the branch is preserved. */
+  async previewRemoval(
+    room: string,
+    cwd: string,
+    worktreeId: string,
+  ): Promise<WorktreeRemovalPreviewResponse> {
+    const outcome = await this.inspectRemoval(room, cwd, worktreeId);
+    if (outcome.registered === undefined || outcome.repository === undefined) {
+      throw new Error(outcome.detail ?? 'worktree is unavailable');
+    }
+    return WorktreeRemovalPreviewResponseSchema.parse({
+      repository: outcome.repository,
+      worktree: outcome.registered,
+      state: outcome.state,
+      branch_preserved: true,
+      ...(outcome.detail !== undefined && { detail: outcome.detail }),
+    });
+  }
+
+  async remove(room: string, cwd: string, worktreeId: string): Promise<{
+    repository: RepositoryRecord;
+    worktree: RegisteredWorktree;
+  }> {
+    // The destructive act repeats the complete fresh validation rather than
+    // trusting any earlier preview.
+    const outcome = await this.inspectRemoval(room, cwd, worktreeId);
+    if (outcome.state !== 'clean' || outcome.fresh === undefined || outcome.inspection === undefined) {
+      throw new Error(outcome.detail ?? 'worktree cannot be removed');
+    }
+    const { fresh } = outcome;
+    const refreshed = this.store.refreshWorktreeObservation(room, worktreeId, fresh);
+    if (refreshed.path !== fresh.path || refreshed.git_admin_id !== fresh.git_admin_id) {
+      throw new Error('registered worktree identity does not match Git');
+    }
+    const primary = outcome.inspection.worktrees.find((observation) => observation.primary);
     if (primary === undefined || primary.availability !== 'available') {
       throw new Error('the primary checkout is unavailable');
     }

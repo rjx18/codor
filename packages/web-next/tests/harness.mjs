@@ -426,6 +426,50 @@ daemon.postHumanMessage('workspace', '@builder bump app.ts to version 2');
 await daemon.settle();
 dirtyWorkspace();
 
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-browser-fixture
+// Native worktree fixtures: 'workspace' gains one registered child so group
+// navigation is promoted with independent child activity; 'wtops' is a
+// git-backed room with NO registration for the explicit Find/Create flows.
+// Both repositories live below this harness's own mkdtemp root.
+const worktreeChildPath = join(dir, 'workspace-review');
+execFileSync('git', ['worktree', 'add', '-b', 'feature/review', worktreeChildPath, 'HEAD'], { cwd: workspaceRepo, env: gitEnv });
+const reviewRegistration = await daemon.adoptWorktree('workspace', { path: worktreeChildPath, alias: 'review' });
+const reviewChildRoom = reviewRegistration.worktree.conversation_id;
+crypto.roomKeys.ensureRoom(reviewChildRoom);
+const reviewer = daemon.spawnMember(reviewChildRoom, { harness: 'fake', handle: 'reviewer', cwd: worktreeChildPath });
+// Independent child activity the human has not read: posted directly as the
+// child agent so the owner's read cursor stays behind.
+daemon.store.postMessage(reviewChildRoom, {
+  author: reviewer.id,
+  kind: 'chat',
+  body: 'review notes live in the child conversation',
+});
+
+const wtopsRepo = join(dir, 'wtops-repo');
+mkdirSync(wtopsRepo, { recursive: true });
+const gitOps = (args) => execFileSync('git', args, { cwd: wtopsRepo, env: gitEnv });
+gitOps(['init', '-q', '-b', 'main']);
+writeFileSync(join(wtopsRepo, 'README.md'), '# ops fixture\n');
+gitOps(['add', '.']);
+gitOps(['commit', '-q', '-m', 'ops fixture']);
+const wtopsFoundPath = join(dir, 'wtops-found');
+gitOps(['worktree', 'add', '-b', 'feature/found', wtopsFoundPath, 'HEAD']);
+daemon.createRoom({ id: 'wtops', name: 'Worktree Ops', owner, cwd: wtopsRepo });
+crypto.roomKeys.ensureRoom('wtops');
+
+const resetWtops = () => {
+  // Re-run safety only: unregister every secondary and restore the seeded
+  // discovery candidate. Created test branches are left in place (tests use
+  // unique names); nothing force-removes or prunes.
+  for (const worktree of daemon.store.listRegisteredWorktrees('wtops').filter((item) => !item.primary)) {
+    try { daemon.unregisterWorktree('wtops', worktree.id); } catch { /* already tombstoned */ }
+  }
+  if (!existsSync(wtopsFoundPath)) {
+    try { gitOps(['worktree', 'add', '-b', `feature/found-${String(Date.now())}`, wtopsFoundPath, 'HEAD']); } catch { /* best effort */ }
+  }
+};
+// harn:end registered-worktree-navigation-is-promotion-gated
+
 // Files: an agent-free room seeded with a message carrying a rendered image and a
 // download chip (bytes + sidecars on disk) so the attachments e2e has real files
 // to render, delete, and axe-check without a live upload.
@@ -1561,6 +1605,39 @@ createServer((req, res) => {
       if (url.pathname === '/git-dirty') {
         // Re-dirty the workspace repo (inverse of /git-reset) for re-runs.
         dirtyWorkspace();
+      }
+      if (url.pathname === '/wt-dirty') {
+        // Dirty the seeded review child checkout for the removal-preview refusal.
+        writeFileSync(join(worktreeChildPath, 'wt-dirty.txt'), 'dirty\n');
+      }
+      if (url.pathname === '/wt-clean') {
+        rmSync(join(worktreeChildPath, 'wt-dirty.txt'), { force: true });
+      }
+      if (url.pathname === '/wt-ops-reset') {
+        resetWtops();
+      }
+      if (url.pathname === '/wt-branch') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const repo = String(body.room ?? 'wtops') === 'wtops' ? wtopsRepo : workspaceRepo;
+        let exists = false;
+        try {
+          execFileSync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${String(body.branch)}`], { cwd: repo, env: gitEnv });
+          exists = true;
+        } catch { /* absent */ }
+        payload = { exists };
+      }
+      if (url.pathname === '/wt-registered') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = {
+          registered: daemon.store.listRegisteredWorktrees(String(body.room ?? 'workspace'))
+            .map((worktree) => ({
+              id: worktree.id,
+              alias: worktree.alias,
+              primary: worktree.primary,
+              lifecycle: worktree.lifecycle,
+              conversation_id: worktree.conversation_id,
+            })),
+        };
       }
       if (url.pathname === '/run-progress') {
         // Report an agent's latest run: its id, status, and how many prose

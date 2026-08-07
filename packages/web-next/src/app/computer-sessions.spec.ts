@@ -52,6 +52,8 @@ function harness() {
   const connectorDisposals: string[] = [];
   const switches: string[] = [];
   const connectorOptions = new Map<string, ConnectorOptions>();
+  const desiredByComputer = new Map<string, readonly string[]>();
+  const connectors = new Map<string, RoomConnector>();
 
   const deps: ComputerSessionDeps = {
     load: async () => ({ materials, activeId }),
@@ -76,16 +78,25 @@ function harness() {
       connectorStarts.push(id);
       options.store!.getState().setConnected(true);
       let room = options.room;
-      return {
+      let desired: readonly string[] = [];
+      desiredByComputer.set(id, desired);
+      const connector: RoomConnector = {
         room: () => room,
         state: () => 'connected',
         switchRoom: (next) => { room = next; options.store!.getState().setActiveRoom(next); },
+        // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-managed-connector-regression
+        setDesiredRooms: (rooms) => { desired = rooms; desiredByComputer.set(id, rooms); },
+        roomReadiness: (target) =>
+          target === room || desired.includes(target) ? 'connected' : 'unsubscribed',
+        // harn:end worktree-conversation-status-is-live-and-independent
         post: () => undefined,
         act: () => undefined,
         disconnect: () => options.store!.getState().setConnected(false),
         reconnect: () => options.store!.getState().setConnected(true),
         dispose: () => { connectorDisposals.push(id); options.store!.getState().setConnected(false); },
       };
+      connectors.set(id, connector);
+      return connector;
     },
     switchStored: async (id) => { switches.push(id); activeId = id; },
     pair: async () => {
@@ -125,7 +136,7 @@ function harness() {
     tunnelDisposals,
     connectorDisposals,
     switches,
-    connectorOptions,
+    connectorOptions, desiredByComputer, connectors,
   };
 }
 
@@ -361,6 +372,24 @@ describe('ComputerSessionManager', () => {
 
     expect(await manager.forget('A')).toBe(false);
     expect(manager.getSnapshot()).toBe(before);
+    manager.dispose();
+  });
+
+  it('keeps hidden worktree observation per computer without sharing stores', async () => {
+    const h = harness();
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+
+    h.connectors.get('A')!.setDesiredRooms(['wt-child-on-a']);
+    h.connectors.get('B')!.setDesiredRooms(['wt-child-on-b-1', 'wt-child-on-b-2']);
+    expect(h.desiredByComputer.get('A')).toEqual(['wt-child-on-a']);
+    expect(h.desiredByComputer.get('B')).toEqual(['wt-child-on-b-1', 'wt-child-on-b-2']);
+    expect(h.connectors.get('A')!.roomReadiness('wt-child-on-a')).toBe('connected');
+    expect(h.connectors.get('A')!.roomReadiness('wt-child-on-b-1')).toBe('unsubscribed');
+    expect(h.connectors.get('B')!.roomReadiness('wt-child-on-b-2')).toBe('connected');
+    // Public-root identity per computer is unchanged.
+    expect(h.connectors.get('A')!.room()).toBe('same-room');
+    expect(h.connectors.get('B')!.room()).toBe('same-room');
     manager.dispose();
   });
 });

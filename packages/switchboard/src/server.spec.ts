@@ -14,6 +14,7 @@ import {
   type SpawnOpts,
 } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 import type { VoiceProviderDefinition } from './voice-providers.js';
 
@@ -548,6 +549,222 @@ describe('native worktree REST authorization and lifecycle', () => {
       .toBe(ownerCreated);
     expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/owner-created']))
       .toContain('feature/owner-created');
+  });
+
+  const fixtureRepository = (name: string): string => {
+    const primary = join(dir, name, 'primary checkout');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    return primary;
+  };
+
+  it('serves the store-only registered projection to humans and never to agents', async () => {
+    const primary = fixtureRepository('registered projection fixture');
+    const secondary = join(dir, 'registered projection fixture', 'secondary checkout');
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/projection', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+
+    const anonymous = await fetch(`${base}/api/rooms/eng/worktrees/registered`);
+    expect(anonymous.status).toBe(401);
+    const agentPrincipal = spawnAgentWithToken('registered-projection-agent');
+    const agentRead = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees/registered');
+    expect(agentRead.status).toBe(403);
+
+    // Adopt, then tombstone a second child: the projection shows actives only.
+    const adopted = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'projection-child' }),
+    })).json() as { worktree: { id: string } };
+    const second = join(dir, 'registered projection fixture', 'second checkout');
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/projection-two', second, 'HEAD']);
+    const adoptedTwo = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: second, alias: 'projection-two' }),
+    })).json() as { worktree: { id: string } };
+    await jsonRequest(ADMIN_TOKEN, `/api/rooms/eng/worktrees/${adoptedTwo.worktree.id}/unregister`, {
+      method: 'POST', body: '{}',
+    });
+
+    const listSpy = vi.spyOn(daemon.worktrees, 'list');
+    const observerRead = await jsonRequest(OBSERVER_TOKEN, '/api/rooms/eng/worktrees/registered');
+    expect(observerRead.status).toBe(200);
+    expect(listSpy).not.toHaveBeenCalled();
+    listSpy.mockRestore();
+    const projection = await observerRead.json() as {
+      repository: { id: string } | null;
+      registered: { id: string; alias: string; lifecycle: string }[];
+      discovered?: unknown;
+    };
+    expect(projection.repository).not.toBeNull();
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'projection-child']);
+    expect(projection.registered.every((worktree) => worktree.lifecycle === 'active')).toBe(true);
+    expect(projection.registered.some((worktree) => worktree.id === adopted.worktree.id)).toBe(true);
+    expect(projection).not.toHaveProperty('discovered');
+  });
+
+  it('edits an active secondary alias only for admins and keeps every stable identity', async () => {
+    const primary = fixtureRepository('alias route fixture');
+    const secondary = join(dir, 'alias route fixture', 'secondary checkout');
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/alias-route', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const adopted = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'alias-child' }),
+    })).json() as { worktree: { id: string; conversation_id: string } };
+    const agentPrincipal = spawnAgentWithToken('alias-route-agent');
+    const url = `/api/rooms/eng/worktrees/${adopted.worktree.id}/alias`;
+
+    for (const token of [MEMBER_TOKEN, OBSERVER_TOKEN, agentPrincipal.token]) {
+      const refused = await jsonRequest(token, url, { method: 'POST', body: JSON.stringify({ alias: 'nope' }) });
+      expect(refused.status).toBe(403);
+    }
+    const renamed = await jsonRequest(ADMIN_TOKEN, url, {
+      method: 'POST', body: JSON.stringify({ alias: ' Renamed Child ' }),
+    });
+    expect(renamed.status).toBe(200);
+    const renamedBody = await renamed.json() as {
+      worktree: { id: string; alias: string; conversation_id: string; path: string };
+    };
+    expect(renamedBody.worktree).toMatchObject({
+      id: adopted.worktree.id,
+      alias: 'renamed-child',
+      conversation_id: adopted.worktree.conversation_id,
+    });
+    expect(daemon.store.getRoom(adopted.worktree.conversation_id)?.name)
+      .toBe('Eng · renamed-child');
+    expect((await jsonRequest(ADMIN_TOKEN, url, {
+      method: 'POST', body: JSON.stringify({ alias: 'renamed-child' }),
+    })).status).toBe(200);
+    expect((await jsonRequest(ADMIN_TOKEN, url, {
+      method: 'POST', body: JSON.stringify({ alias: 'main' }),
+    })).status).toBe(400);
+  });
+
+  it('previews removal read-only for humans with fresh truthful states', async () => {
+    const primary = fixtureRepository('preview route fixture');
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const target = join(dir, 'preview route fixture', 'preview checkout');
+    const created = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ alias: 'preview-child', branch: 'feature/preview-child', path: target }),
+    })).json() as { worktree: { id: string } };
+    const agentPrincipal = spawnAgentWithToken('preview-route-agent');
+    const url = `/api/rooms/eng/worktrees/${created.worktree.id}/removal-preview`;
+
+    expect((await jsonRequest(agentPrincipal.token, url)).status).toBe(403);
+    const registeredBefore = JSON.stringify(daemon.store.listRegisteredWorktrees('eng'));
+    const clean = await jsonRequest(OBSERVER_TOKEN, url);
+    expect(clean.status).toBe(200);
+    expect(await clean.json()).toMatchObject({ state: 'clean', branch_preserved: true });
+    writeFileSync(join(target, 'dirty.txt'), 'dirty\n');
+    const dirty = await jsonRequest(OBSERVER_TOKEN, url);
+    expect(await dirty.json()).toMatchObject({ state: 'dirty', branch_preserved: true });
+    expect(JSON.stringify(daemon.store.listRegisteredWorktrees('eng'))).toBe(registeredBefore);
+    expect(existsSync(target)).toBe(true);
+  });
+
+  it('requires both capabilities for the roster choice and preflights before any Git mutation', async () => {
+    const primary = fixtureRepository('roster create fixture');
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const preset = daemon.createAgentPreset({ label: 'Roster Kid', handle: 'roster-kid', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [preset.id] });
+
+    // Nonliteral roster input fails validation before anything runs.
+    for (const nonliteral of [false, 'yes', 1]) {
+      const invalid = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          alias: 'roster-nonliteral', branch: 'feature/roster-nonliteral',
+          path: join(dir, 'roster create fixture', `nonliteral-${String(nonliteral)}`),
+          default_roster: nonliteral,
+        }),
+      });
+      expect(invalid.status).toBe(400);
+    }
+
+    // Observer/member/agent lack worktree mutation authority for the choice.
+    const agentPrincipal = spawnAgentWithToken('roster-create-agent');
+    for (const token of [OBSERVER_TOKEN, MEMBER_TOKEN, agentPrincipal.token]) {
+      const refused = await jsonRequest(token, '/api/rooms/eng/worktrees/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          alias: 'roster-refused', branch: 'feature/roster-refused',
+          path: join(dir, 'roster create fixture', 'refused checkout'), default_roster: true,
+        }),
+      });
+      expect(refused.status).toBe(403);
+    }
+
+    // An invalid roster fails before Git or durable registration: a dangling
+    // preset reference injected below the validated Store API.
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    daemon.store.deleteAgentPreset(preset.id);
+    const dangling = new Database(join(dir, 'db.sqlite'));
+    dangling.pragma('foreign_keys = OFF');
+    dangling.prepare(
+      `INSERT INTO default_roster_items (roster_id, preset_id, ordinal) VALUES ('default', ?, 0)`,
+    ).run(preset.id);
+    dangling.close();
+    const missingTarget = join(dir, 'roster create fixture', 'missing preset checkout');
+    const missing = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        alias: 'roster-missing', branch: 'feature/roster-missing',
+        path: missingTarget, default_roster: true,
+      }),
+    });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({ error: expect.stringContaining('missing agent preset') });
+    expect(existsSync(missingTarget)).toBe(false);
+    expect(daemon.store.getRepository('eng')).toBeUndefined();
+    expect(() => fixtureGit(primary, ['show-ref', '--verify', '--quiet', 'refs/heads/feature/roster-missing'])).toThrow();
+
+    // A valid roster seeds exactly the new child; the branch survives.
+    const valid = daemon.createAgentPreset({ label: 'Roster Kid', handle: 'roster-kid', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [valid.id] });
+    const createdTarget = join(dir, 'roster create fixture', 'created checkout');
+    const created = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        alias: 'roster-created', branch: 'feature/roster-created',
+        path: createdTarget, default_roster: true,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = await created.json() as { worktree: { conversation_id: string; path: string } };
+    const childAgents = daemon.store.listMembers(createdBody.worktree.conversation_id)
+      .filter((member) => member.kind === 'agent');
+    expect(childAgents.map((member) => member.handle)).toEqual(['roster-kid']);
+    expect(childAgents[0]?.cwd).toBe(createdBody.worktree.path);
+    // No main clone: the roster preset never becomes a root member.
+    expect(
+      daemon.store.listMembers('eng')
+        .filter((member) => member.kind === 'agent' && member.handle === 'roster-kid'),
+    ).toEqual([]);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/roster-created']))
+      .toContain('feature/roster-created');
+    daemon.replaceDefaultRoster({ preset_ids: [] });
   });
 });
 // harn:end main-and-direct-conversations-stay-compatible

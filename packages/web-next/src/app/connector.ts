@@ -20,6 +20,17 @@ export interface RoomConnector extends Connection {
   room(): string;
   /** What this connector is doing — resume legality depends on it. */
   state(): ConnectorState;
+  // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-observed-room-subscriptions
+  /** Maintain the desired hidden-observation set (registered child
+   *  conversations). Members subscribe on the existing multiplexed socket from
+   *  their own committed cursors and are resubscribed after EVERY legal
+   *  reconnect; rooms dropped from the set simply stop being resubscribed. The
+   *  connector's public-root identity is unchanged. */
+  setDesiredRooms(rooms: readonly string[]): void;
+  /** Exact-room subscription readiness for group rows: offline while the
+   *  socket is down, connecting until the room's own hydration completes. */
+  roomReadiness(room: string): 'connecting' | 'connected' | 'offline' | 'unsubscribed';
+  // harn:end worktree-conversation-status-is-live-and-independent
   /** Release every listener, timer and socket this connector owns. */
   dispose(): void;
 }
@@ -78,6 +89,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let currentRoom = options.room;
   let socket: WebSocket | undefined;
   let subscribed = new Set<string>();
+  // Hidden child conversations the group view wants live. They ride the same
+  // multiplexed socket and resubscribe from their own cursors on every open.
+  let desiredRooms = new Set<string>();
   // Rooms with an in-flight reconciliation resync, mapped to the server seq we
   // are catching up to. One resync per room; reset with the socket generation.
   let resyncing = new Map<string, number>();
@@ -241,6 +255,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom);
+      for (const desired of desiredRooms) subscribe(desired);
       send({ type: 'list_rooms' });
       startProbes(mine);
     };
@@ -390,6 +405,15 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       currentRoom = room;
       clientStore.getState().setActiveRoom(room);
       subscribe(room);
+    },
+    setDesiredRooms: (rooms: readonly string[]) => {
+      desiredRooms = new Set(rooms);
+      for (const desired of desiredRooms) subscribe(desired);
+    },
+    roomReadiness: (room: string) => {
+      if (room !== currentRoom && !desiredRooms.has(room)) return 'unsubscribed';
+      if (state !== 'connected') return 'offline';
+      return clientStore.getState().rooms[room]?.hydrated === true ? 'connected' : 'connecting';
     },
     dispose: () => {
       state = 'disposed';

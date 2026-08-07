@@ -1,0 +1,15 @@
+id: worktree-lifecycle-preserves-existing-state-by-default
+hash: a-a64b35285ef1
+title: Worktree lifecycle preserves existing and root runtime state by default
+state: active
+statement: Discovery, adoption, re-adoption, unregister, removal, and creation
+  without literal default_roster true must never create, copy, rename, or remove
+  agents or mutate root/main configuration, messages, sessions, credentials,
+  caches, tasks, usage, or roster-staleness state; lifecycle may create or
+  reconcile only stable secondary conversation metadata, and the separately
+  authorized roster choice may seed only a brand-new child, so non-Git rooms and
+  roots without an active secondary retain the ordinary channel path unchanged.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - registered-worktrees-materialize-stable-conversations
+created_by: native-worktrees-phase4-functional-group-ui
