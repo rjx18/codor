@@ -49,18 +49,80 @@ test.describe('native worktree group navigation', () => {
     // Selecting the child switches the conversation in place with a stable URL.
     await page.getByTestId(`worktree-link-${childId}`).click();
     await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute('aria-current', 'page');
+    // Exclusivity: main is a plain link while its child claims the page.
+    await expect(page.getByTestId('room-link-workspace')).not.toHaveAttribute('aria-current', 'page');
     expect(page.url()).toContain(`room=workspace`);
     expect(page.url()).toContain(`worktree=${childId}`);
     await expect(page.getByTestId('timeline')).toContainText('review notes live in the child conversation');
 
+    // The real href carries BOTH the public root and the stable child id, so
+    // copied links and open-in-new-tab keep their authorization.
+    const href = await page.getByTestId(`worktree-link-${childId}`).getAttribute('href');
+    expect(href).toContain('room=workspace');
+    expect(href).toContain(`worktree=${childId}`);
+
     // Back returns to main without rewriting history; reload keeps the child.
     await page.goBack();
     expect(page.url()).not.toContain('worktree=');
+    await expect(page.getByTestId('room-link-workspace')).toHaveAttribute('aria-current', 'page');
     await page.goForward();
     expect(page.url()).toContain(`worktree=${childId}`);
     await page.reload();
     await expect(page.getByTestId('timeline')).toBeVisible();
     await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('room-link-workspace')).not.toHaveAttribute('aria-current', 'page');
+
+    // A Settings round-trip carries the public root PLUS the stable selector
+    // in its history entry and returns to exactly the selected child.
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    expect(page.url()).toContain('/settings');
+    expect(page.url()).toContain('room=workspace');
+    expect(page.url()).toContain(`worktree=${childId}`);
+    await page.goBack();
+    expect(page.url()).not.toContain('/settings');
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute('aria-current', 'page');
+
+    // Open-in-new-tab equivalent: a cold load of the copied href lands on the
+    // selected child with the group in place.
+    await page.goto(`${href}&token=${TOKEN}`);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('worktree-group')).toBeVisible();
+    await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('room-link-workspace')).not.toHaveAttribute('aria-current', 'page');
+  });
+
+  test('moves the public root across top-level A-to-B-to-A switching and history', async ({ page }) => {
+    await openRoom(page, `/?room=workspace&token=${TOKEN}`);
+    await expect(page.getByTestId('worktree-group')).toBeVisible();
+
+    // A → B: the group projection and aria-current follow the public root,
+    // and the selector clears on a top-level switch.
+    await page.getByTestId('room-link-wtops').click();
+    expect(page.url()).toContain('room=wtops');
+    expect(page.url()).not.toContain('worktree=');
+    await expect(page.getByTestId('room-link-wtops')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('room-link-workspace')).not.toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('worktree-group')).toHaveCount(0);
+
+    // Back to A: the group returns under the root row.
+    await page.goBack();
+    expect(page.url()).toContain('room=workspace');
+    await expect(page.getByTestId('room-link-workspace')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('worktree-group')).toBeVisible();
+
+    // Forward to B, then reload: the public root survives the reload.
+    await page.goForward();
+    expect(page.url()).toContain('room=wtops');
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('room-link-wtops')).toHaveAttribute('aria-current', 'page');
+
+    // And an ordinary channel after all of this is still ordinary.
+    await page.getByTestId('room-link-eng').click();
+    expect(page.url()).toContain('room=eng');
+    await expect(page.getByTestId('room-link-eng')).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByTestId('worktree-group')).toHaveCount(0);
   });
 
   test('reports independent readiness, retains rows offline, and recovers on reconnect', async ({ page }) => {
@@ -68,35 +130,43 @@ test.describe('native worktree group navigation', () => {
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);
     await expect(page.getByTestId('worktree-group')).toBeVisible();
 
-    // The hidden child hydrates on the multiplexed socket: readiness settles.
-    await expect(page.getByTestId(`worktree-status-${childId}`)).toContainText(/live|connecting/);
-    await expect(page.getByTestId(`worktree-status-${childId}`)).toContainText('live', { timeout: 15_000 });
+    // The hidden child hydrates on the multiplexed socket: connection settles
+    // on its OWN sync_complete, independent of activity or unread state.
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText(/live|connecting/);
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText('live', { timeout: 15_000 });
 
     // Offline (operator park drives the same disconnected state): the group
-    // rows remain as last-good state and the child reports offline.
+    // rows remain as last-good state, the unread badge survives, and the
+    // child's connection reads offline — never masked by activity.
     await page.evaluate(() => {
       (window as unknown as { __codor: { disconnect(): void } }).__codor.disconnect();
     });
     await expect(page.getByTestId('connection')).toHaveText(/Reconnecting/, { timeout: 15_000 });
     await expect(page.getByTestId(`worktree-link-${childId}`)).toBeVisible();
-    await expect(page.getByTestId(`worktree-status-${childId}`)).toContainText('offline');
+    await expect(page.getByTestId(`worktree-unread-${childId}`)).toBeVisible();
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText('offline');
 
-    // Reconnect refreshes the registered set and resubscribes the child.
+    // Reconnect replaces the generation: the child must re-prove itself with a
+    // fresh sync_complete before it reads live again.
     await page.evaluate(() => {
       (window as unknown as { __codor: { reconnect(): void } }).__codor.reconnect();
     });
     await expect(page.getByTestId('connection')).toHaveText(/Connected/, { timeout: 20_000 });
-    await expect(page.getByTestId(`worktree-status-${childId}`)).toContainText('live', { timeout: 20_000 });
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText('live', { timeout: 20_000 });
   });
 
-  test('leaves normal channels unchanged and hides the entry for non-Git context', async ({ page }) => {
+  test('leaves normal channels unchanged and hides the entry for a known non-Git cwd', async ({ page }) => {
     await openRoom(page, `/?room=eng&token=${TOKEN}`);
     await expect(page.getByTestId('worktree-group')).toHaveCount(0);
 
-    // A non-Git room's Diff context never offers the pre-promotion entry.
-    await openRoom(page, `/?room=files&token=${TOKEN}`);
+    // A KNOWN existing cwd that is not a Git repository never reveals either
+    // pre-promotion entry, and the bounded read must not create a repository.
+    await openRoom(page, `/?room=plain&token=${TOKEN}`);
     await page.getByTestId('context-tab-diff').click();
     await expect(page.getByTestId('worktree-entry')).toHaveCount(0);
+    await expect(page.getByTestId('worktree-entry-create')).toHaveCount(0);
+    const proof = await control<{ git: boolean }>('/wt-plain-git');
+    expect(proof.git).toBe(false);
   });
 
   test('fits the 390px channel surface and keeps focus behavior in dialogs', async ({ page }) => {

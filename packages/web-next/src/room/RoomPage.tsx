@@ -79,7 +79,10 @@ function MountedRoomPage(props: {
   const token = useAccessToken(activeToken);
   // The public channel id stays the authorized ROOT; the selected conversation
   // may be one of its registered children. The URL never carries a child id.
-  const root = props.room;
+  // The root is mutable state — top-level switches, history, reload, and
+  // hosted-computer changes all move it — while a hidden child is only ever the
+  // selected conversation, never the remembered root.
+  const [root, setRoot] = useState(props.room);
   const [room, setRoom] = useState(props.room);
   const [selectedWorktree, setSelectedWorktree] = useState<string | undefined>(
     () => pageParams().worktree,
@@ -117,26 +120,28 @@ function MountedRoomPage(props: {
     : group.registered.find((worktree) => !worktree.primary && worktree.id === selectedWorktree);
 
   useEffect(() => {
-    connection.setDesiredRooms(
-      group.registered.filter((worktree) => !worktree.primary).map((worktree) => worktree.conversation_id),
-    );
-  }, [connection, group.registered]);
+    // The public root rides the desired set with its children, so a reconnect
+    // while a child is selected still observes main plus every active child.
+    connection.setDesiredRooms([
+      root,
+      ...group.registered.filter((worktree) => !worktree.primary).map((worktree) => worktree.conversation_id),
+    ]);
+  }, [connection, root, group.registered]);
 
   useEffect(() => {
     if (!group.loaded) return;
     if (selectedWorktree !== undefined && activeChild === undefined) {
       // The selected secondary ceased to be active: resolve to main.
       setSelectedWorktree(undefined);
-      if (room !== root) {
-        connection.switchRoom(root);
-        setRoom(root);
-      }
       window.history.replaceState(null, '', roomUrl(root));
       return;
     }
-    if (activeChild !== undefined && room !== activeChild.conversation_id) {
-      connection.switchRoom(activeChild.conversation_id);
-      setRoom(activeChild.conversation_id);
+    // Main or a resolved child: the connector follows the selection, so Back
+    // to a selector-less URL also returns the conversation to the root.
+    const target = activeChild?.conversation_id ?? root;
+    if (room !== target) {
+      connection.switchRoom(target);
+      setRoom(target);
     }
   }, [group.loaded, selectedWorktree, activeChild, connection, room, root]);
 
@@ -159,11 +164,13 @@ function MountedRoomPage(props: {
 
   // In-place channel switching: select the room's keyed slice, keep the shared
   // socket and every background subscription alive, and let the URL follow. A
-  // top-level channel is always a public root — the worktree selector clears.
+  // top-level channel is always a public root — the worktree selector clears
+  // and the public root itself moves.
   const switchRoom = (next: string): void => {
     setSelectedWorktree(undefined);
     if (next === room && next === root) return;
     connection.switchRoom(next);
+    setRoot(next);
     setRoom(next);
     if (manager) manager.rememberActiveRoom(next);
     else rememberRoom(next);
@@ -171,7 +178,12 @@ function MountedRoomPage(props: {
   };
 
   const openSettings = (): void => {
-    window.history.pushState(null, '', `/settings?room=${encodeURIComponent(root)}`);
+    // Settings rides the live selected conversation; its history entry still
+    // names the public root plus the optional stable child selector, so Back
+    // restores exactly what the operator left.
+    const params = new URLSearchParams({ room: root });
+    if (selectedWorktree !== undefined) params.set('worktree', selectedWorktree);
+    window.history.pushState(null, '', `/settings?${params.toString()}`);
     setPageSurface('settings');
   };
 
@@ -185,21 +197,29 @@ function MountedRoomPage(props: {
   useEffect(() => () => { connectorRef.current?.dispose(); }, []);
 
   useEffect(() => {
+    // Hosted-computer changes move the public root: the manager remembers only
+    // each session's public root, never a hidden selected child, so this room
+    // is always a safe top-level target for the warm connector.
     if (!managed || managed.room === root) return;
     setSelectedWorktree(undefined);
+    connection.switchRoom(managed.room);
+    setRoot(managed.room);
     setRoom(managed.room);
     const path = window.location.pathname === '/settings' ? '/settings' : '/';
     window.history.replaceState(null, '', `${path}?room=${encodeURIComponent(managed.room)}`);
-  }, [managed, root]);
+  }, [managed, root, connection]);
 
   useEffect(() => {
     const onPop = (): void => {
       // Back/forward reaches rooms, worktree selections, and Settings entries
-      // this session already opened — without rewriting history.
+      // this session already opened — without rewriting history. A top-level
+      // entry moves the public root; a same-root entry only resolves the
+      // selector through the group effect.
       const params = pageParams();
       const next = params.room;
       if (next !== undefined && next !== root) {
         connection.switchRoom(next);
+        setRoot(next);
         setRoom(next);
         if (manager) manager.rememberActiveRoom(next);
         else rememberRoom(next);
@@ -333,7 +353,7 @@ function MountedRoomPage(props: {
             <button className="nx-mobile-context-close nx-btn" onClick={() => setMobileContext(false)}>
               Close
             </button>
-            <ContextPanel room={room} token={token} connection={connection} onManageWorktrees={() => setWorktreeDialog('find')} />
+            <ContextPanel room={room} token={token} connection={connection} onOpenWorktreeDialog={setWorktreeDialog} />
           </div>
         )}
       </div>
@@ -358,7 +378,7 @@ function MountedRoomPage(props: {
         token={token}
         onContext={() => setResponsiveContext(true)}
       />
-      <ContextPanel room={room} token={token} connection={connection} onManageWorktrees={() => setWorktreeDialog('find')} />
+      <ContextPanel room={room} token={token} connection={connection} onOpenWorktreeDialog={setWorktreeDialog} />
       {worktreeDialogs}
       {responsiveContext && (
         <Modal
@@ -464,6 +484,11 @@ function ChannelRail(props: {
       <ul className="nx-rail-list">
         {entries.map((entry) => {
           const active = entry.id === props.activeRoom;
+          // Main and a selected child never both claim the current page: while
+          // one of this root's secondaries is selected, the child row alone
+          // exposes aria-current and the root row stays a plain link.
+          const childSelected = props.group?.root === entry.id
+            && props.group.selectedWorktree !== undefined;
           const workingAgents = workingByRoom[entry.id] ?? [];
           const isWorking = workingAgents.length > 0 || entry.working;
           const workingLabel = workingAgents.length === 1
@@ -479,7 +504,7 @@ function ChannelRail(props: {
               <a
                 className={`nx-row ${active ? 'is-active' : ''}`}
                 href={`/?room=${encodeURIComponent(entry.id)}`}
-                aria-current={active ? 'page' : undefined}
+                aria-current={active && !childSelected ? 'page' : undefined}
                 data-testid={`room-link-${entry.id}`}
                 onClick={(event) => {
                   if (event.metaKey || event.ctrlKey || event.shiftKey) return;

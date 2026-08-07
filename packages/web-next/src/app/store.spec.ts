@@ -249,5 +249,29 @@ describe('worktree group state', () => {
     useClientStore.getState().reset();
     expect(useClientStore.getState().worktreeGroups).toEqual({});
   });
+
+  it('tracks current-generation live evidence separately from retained room slices', () => {
+    // A retained hydrated slice is last-good content, never readiness: only an
+    // explicit live mark counts, and a generation reset withdraws exactly the
+    // listed rooms without touching the slices.
+    useClientStore.setState({
+      rooms: {
+        eng: { ...roomSlice(useClientStore.getState(), 'eng'), hydrated: true },
+        'wt-a': { ...roomSlice(useClientStore.getState(), 'wt-a'), hydrated: true },
+      },
+    } as never);
+    expect(useClientStore.getState().roomLive).toEqual({});
+
+    useClientStore.getState().markRoomLive('eng');
+    useClientStore.getState().markRoomLive('wt-a');
+    expect(useClientStore.getState().roomLive).toEqual({ eng: true, 'wt-a': true });
+
+    useClientStore.getState().markRoomsConnecting(['wt-a']);
+    expect(useClientStore.getState().roomLive).toEqual({ eng: true });
+    expect(useClientStore.getState().rooms['wt-a']?.hydrated).toBe(true);
+
+    useClientStore.getState().reset();
+    expect(useClientStore.getState().roomLive).toEqual({});
+  });
 });
 // harn:end registered-worktree-navigation-is-promotion-gated

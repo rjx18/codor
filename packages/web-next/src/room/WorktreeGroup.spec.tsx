@@ -19,7 +19,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@runtime/api.js', () => api);
 
-const { resetClientStoreForTest, useClientStore } = await import('../app/store.js');
+const { resetClientStoreForTest, roomSlice, useClientStore } = await import('../app/store.js');
 const {
   useWorktreeGroup,
   WorktreeChildDialog,
@@ -183,6 +183,11 @@ describe('worktree group state and navigation', () => {
     expect(byTestId('worktree-group')).not.toBeNull();
     expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('aria-current')).toBe('page');
     expect(byTestId(`worktree-link-${BRAVO.id}`)?.getAttribute('aria-current')).toBeNull();
+    // Copied/new-tab hrefs carry BOTH the public root and the stable child id.
+    expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('href'))
+      .toBe(`/?room=eng&worktree=${encodeURIComponent(ALPHA.id)}`);
+    expect(byTestId(`worktree-link-${BRAVO.id}`)?.getAttribute('href'))
+      .toBe(`/?room=eng&worktree=${encodeURIComponent(BRAVO.id)}`);
     // Role gating: no mutation controls for members.
     expect(byTestId('worktree-create-open')).toBeNull();
     expect(byTestId('worktree-find-open')).toBeNull();
@@ -192,11 +197,56 @@ describe('worktree group state and navigation', () => {
     expect(selected).toEqual([BRAVO.id]);
   });
 
-  it('shows per-child readiness and availability without flattening into main', async () => {
+  it('shows connection independently of working, availability, and unread', async () => {
     const missing = { ...BRAVO, availability: 'missing' as const };
     const group = {
       registered: [MAIN, ALPHA, missing],
       children: [ALPHA, missing],
+      promoted: true,
+      loaded: true,
+      refresh: () => Promise.resolve(),
+    };
+    // ALPHA's room is working with unread mail — last-good content that must
+    // stay visible WHILE the row honestly reads offline.
+    const prior = useClientStore.getState();
+    useClientStore.setState({
+      rooms: {
+        ...prior.rooms,
+        [ALPHA.conversation_id]: {
+          ...roomSlice(prior, ALPHA.conversation_id),
+          members: {
+            a1: { id: 'a1', kind: 'agent', state: 'running', handle: 'coder' },
+          },
+          support: { room: ALPHA.conversation_id, summary: { unread: 3, attention: false } },
+        },
+      },
+    } as never);
+    await mount(
+      <WorktreeGroupSection
+        root="eng"
+        token={() => 'token'}
+        group={group}
+        selectedWorktree={undefined}
+        readiness={(conversation) => conversation === ALPHA.conversation_id ? 'offline' : 'connecting'}
+        canManage={true}
+        onSelect={() => undefined}
+        onOpenDialog={() => undefined}
+      />,
+    );
+    // Activity and connection are separate labels: one never masks the other.
+    expect(byTestId(`worktree-status-${ALPHA.id}`)?.textContent).toContain('working…');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('offline');
+    expect(byTestId(`worktree-unread-${ALPHA.id}`)?.textContent).toBe('3');
+    expect(byTestId(`worktree-status-${BRAVO.id}`)?.textContent).toContain('checkout unavailable');
+    expect(byTestId(`worktree-connection-${BRAVO.id}`)?.textContent).toBe('connecting…');
+    expect(byTestId('worktree-create-open')).not.toBeNull();
+    expect(byTestId('worktree-find-open')).not.toBeNull();
+  });
+
+  it('re-renders a row when current-generation live evidence lands in the store', async () => {
+    const group = {
+      registered: [MAIN, ALPHA],
+      children: [ALPHA],
       promoted: true,
       loaded: true,
       refresh: () => Promise.resolve(),
@@ -207,16 +257,25 @@ describe('worktree group state and navigation', () => {
         token={() => 'token'}
         group={group}
         selectedWorktree={undefined}
-        readiness={(conversation) => conversation === ALPHA.conversation_id ? 'connected' : 'connecting'}
-        canManage={true}
+        readiness={() => useClientStore.getState().roomLive[ALPHA.conversation_id] === true
+          ? 'connected'
+          : 'connecting'}
+        canManage={false}
         onSelect={() => undefined}
         onOpenDialog={() => undefined}
       />,
     );
-    expect(byTestId(`worktree-status-${ALPHA.id}`)?.textContent).toContain('live');
-    expect(byTestId(`worktree-status-${BRAVO.id}`)?.textContent).toContain('checkout unavailable');
-    expect(byTestId('worktree-create-open')).not.toBeNull();
-    expect(byTestId('worktree-find-open')).not.toBeNull();
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('connecting…');
+    await act(async () => {
+      useClientStore.getState().markRoomLive(ALPHA.conversation_id);
+      await Promise.resolve();
+    });
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('live');
+    await act(async () => {
+      useClientStore.getState().markRoomsConnecting([ALPHA.conversation_id]);
+      await Promise.resolve();
+    });
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('connecting…');
   });
 });
 // harn:end registered-worktree-navigation-is-promotion-gated
@@ -253,7 +312,14 @@ describe('worktree lifecycle dialogs', () => {
 
     await click(byTestId('worktree-candidate-feature/free'));
     expect((byTestId('worktree-adopt-alias') as HTMLInputElement).value).toBe('feature/free');
+    // Adoption requires a NONEMPTY alias: clearing the prefilled branch name
+    // disables the act, and a blank alias never reaches the server.
+    await type(byTestId('worktree-adopt-alias'), '   ');
+    expect((byTestId('worktree-adopt-submit') as HTMLButtonElement).disabled).toBe(true);
+    await click(byTestId('worktree-adopt-submit'));
+    expect(api.adoptWorktree).not.toHaveBeenCalled();
     await type(byTestId('worktree-adopt-alias'), 'Free Review');
+    expect((byTestId('worktree-adopt-submit') as HTMLButtonElement).disabled).toBe(false);
     await click(byTestId('worktree-adopt-submit'));
     await flush();
     expect(api.adoptWorktree).toHaveBeenCalledWith(

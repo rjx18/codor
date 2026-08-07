@@ -3636,6 +3636,29 @@
   cursor: pointer;
 }
 
+/* The corrected pre-promotion pair: first Create and explicit Find sit on one
+   wrapping row so both stay reachable without overflowing the panel. */
+.nx-wt-entry-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nx-wt-entry-row .nx-wt-entry { margin: 4px 0 0; }
+
+/* Connection truth on a group row is its own quiet label: it never collapses
+   into the activity text or the unread badge, so one state cannot mask
+   another. */
+.nx-wt-conn {
+  font: var(--t-note, 11px/1.3 system-ui);
+  color: var(--c-ink-dim, #7a7f8a);
+  white-space: nowrap;
+}
+
+.nx-wt-conn.is-connected { color: var(--c-live, #2e7d4f); }
+
+.nx-wt-conn.is-offline { color: var(--c-danger, #b4433a); }
+
 .nx-wt-dialog { display: flex; flex-direction: column; gap: var(--sp-3, 12px); }
 
 .nx-wt-dialog-head h2 { margin: 0; font: var(--t-title, 600 16px/1.3 system-ui); }
@@ -3715,6 +3738,7 @@
   .nx-wt-group { margin-inline: 4px; }
   .nx-wt-branch { display: none; }
   .nx-wt-row { padding-left: 10px; }
+  .nx-wt-entry-row { flex-direction: column; align-items: stretch; }
   .nx-wt-dialog-actions { flex-direction: column-reverse; align-items: stretch; }
   .nx-wt-dialog-actions > * { min-height: 44px; }
 }

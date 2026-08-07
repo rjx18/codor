@@ -19,6 +19,7 @@ import {
 } from '@runtime/api.js';
 
 import { roomSlice, useClientStore } from '../app/store.js';
+import { roomUrl } from '../app/session.js';
 import { Button, IconButton, Modal } from '../primitives/primitives.js';
 import { DefaultRosterChoice } from './DefaultRosterChoice.js';
 
@@ -86,10 +87,14 @@ export function useWorktreeGroup(root: string, token: () => string): WorktreeGro
   };
 }
 
-/** Per-row live status: unread/attention/working come from the room's OWN
- * recipient-scoped support and members, readiness from the connector's
- * exact-room subscription state, availability from the registered record. */
+// harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-conversation-status-model
+/** Per-row status: CONNECTION (the connector's current-generation exact-room
+ * readiness) is rendered on its own, never collapsed into ACTIVITY
+ * (working/attention from the room's own recipient-scoped support and members,
+ * Git availability from the registered record) or the unread badge — one state
+ * can never mask another. */
 function ChildRow(props: {
+  root: string;
   worktree: RegisteredWorktree;
   selected: boolean;
   readiness: 'connecting' | 'connected' | 'offline' | 'unsubscribed';
@@ -101,24 +106,25 @@ function ChildRow(props: {
   const working = Object.values(slice.members)
     .some((member) => member.kind === 'agent' && (member.state === 'running' || member.state === 'queued'));
   const gitUnavailable = props.worktree.availability !== 'available';
-  const status = working
+  const connection = props.readiness === 'connected'
+    ? 'live'
+    : props.readiness === 'connecting'
+      ? 'connecting…'
+      : props.readiness === 'offline'
+        ? 'offline'
+        : 'not observed';
+  const activity = working
     ? 'working…'
     : attention
       ? 'needs attention'
       : gitUnavailable
         ? 'checkout unavailable'
-        : props.readiness === 'connected'
-          ? 'live'
-          : props.readiness === 'connecting'
-            ? 'connecting…'
-            : props.readiness === 'offline'
-              ? 'offline'
-              : 'not observed';
+        : undefined;
   return (
     <li>
       <a
         className={`nx-row nx-wt-row ${props.selected ? 'is-active' : ''}`}
-        href={`?worktree=${encodeURIComponent(props.worktree.id)}`}
+        href={roomUrl(props.root, props.worktree.id)}
         aria-current={props.selected ? 'page' : undefined}
         data-testid={`worktree-link-${props.worktree.id}`}
         onClick={(event) => {
@@ -136,12 +142,20 @@ function ChildRow(props: {
             )}
           </span>
           <span className="nx-row-bottom">
+            {activity !== undefined && (
+              <span
+                className={`nx-row-preview ${attention ? 'is-error' : ''}`}
+                data-testid={`worktree-status-${props.worktree.id}`}
+              >
+                {working && <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>}
+                {activity}
+              </span>
+            )}
             <span
-              className={`nx-row-preview ${attention ? 'is-error' : ''}`}
-              data-testid={`worktree-status-${props.worktree.id}`}
+              className={`nx-wt-conn is-${props.readiness}`}
+              data-testid={`worktree-connection-${props.worktree.id}`}
             >
-              {working && <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>}
-              {status}
+              {connection}
             </span>
             {unread > 0 && (
               <span className="nx-unread" data-testid={`worktree-unread-${props.worktree.id}`}>
@@ -154,6 +168,7 @@ function ChildRow(props: {
     </li>
   );
 }
+// harn:end worktree-conversation-status-is-live-and-independent
 
 /** The group block under a promoted root: child rows plus the explicit
  * Create / Find entries. Main is the root channel row above, always first. */
@@ -168,6 +183,11 @@ export function WorktreeGroupSection(props: {
   onOpenDialog: (dialog: 'create' | 'find' | { child: RegisteredWorktree }) => void;
 }) {
   const { group } = props;
+  // The readiness strings below are computed during THIS render from the
+  // connector, so the section subscribes to the store's current-generation
+  // live evidence: a room's own sync_complete (or a socket replacement
+  // withdrawing every proof) re-renders the rows immediately.
+  useClientStore((state) => state.roomLive);
   if (!group.promoted) return null;
   return (
     <section className="nx-wt-group" aria-label="Worktrees" data-testid="worktree-group">
@@ -203,6 +223,7 @@ export function WorktreeGroupSection(props: {
         {group.children.map((worktree) => (
           <div key={worktree.id} className="nx-wt-item">
             <ChildRow
+              root={props.root}
               worktree={worktree}
               selected={props.selectedWorktree === worktree.id}
               readiness={props.readiness(worktree.conversation_id)}
@@ -333,7 +354,7 @@ export function WorktreeCreateDialog(props: {
 }
 
 /** Find runs read-only discovery only after it opens, requires ONE selected
- * candidate plus an alias, and never bulk-adopts. */
+ * candidate plus a NONEMPTY alias, and never bulk-adopts. */
 export function WorktreeFindDialog(props: {
   root: string;
   token: () => string;
@@ -370,11 +391,13 @@ export function WorktreeFindDialog(props: {
   const selectedCandidate = candidates?.find((candidate) => candidate.path === selected);
 
   const adopt = (): void => {
-    if (selectedCandidate === undefined) return;
+    // Adoption names the child deliberately: one selected candidate AND a
+    // nonempty alias, never a default derived from the branch.
+    if (selectedCandidate === undefined || alias.trim() === '') return;
     setState('busy');
     void adoptWorktree(props.root, {
       path: selectedCandidate.path,
-      ...(alias.trim() !== '' && { alias }),
+      alias: alias.trim(),
     }, { token: props.token() }).then((result) => {
       props.onAdopted(result.worktree);
     }).catch((failure: unknown) => {
@@ -446,7 +469,7 @@ export function WorktreeFindDialog(props: {
           <Button
             type="button"
             data-testid="worktree-adopt-submit"
-            disabled={state === 'busy' || selectedCandidate === undefined}
+            disabled={state === 'busy' || selectedCandidate === undefined || alias.trim() === ''}
             onClick={adopt}
           >
             {state === 'busy' ? 'Adopting…' : 'Adopt selected'}

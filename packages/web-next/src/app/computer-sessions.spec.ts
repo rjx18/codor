@@ -17,6 +17,7 @@ import {
   type ComputerSessionDeps,
 } from './computer-sessions.js';
 import type { ConnectorOptions, RoomConnector } from './connector.js';
+import { rememberedRoom } from './startup.js';
 
 const material = (id: string, gen = 1): HostedComputerMaterial => ({
   computer: { id, gen, label: `Computer ${id}`, label_source: 'fallback', paired_at: `2026-08-0${gen}` },
@@ -392,4 +393,32 @@ describe('ComputerSessionManager', () => {
     expect(h.connectors.get('B')!.room()).toBe('same-room');
     manager.dispose();
   });
+
+  // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-managed-connector-regression
+  it('remembers only the public root while a hidden child is selected, across computer switches', async () => {
+    const h = harness();
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+
+    // A top-level switch names the session's public root.
+    manager.rememberActiveRoom('root-on-a');
+    // Selecting a hidden registered child moves only the connector's
+    // conversation — never the remembered room.
+    h.connectors.get('A')!.switchRoom('hidden-child-on-a');
+    expect(h.connectors.get('A')!.room()).toBe('hidden-child-on-a');
+    expect(manager.active()?.room).toBe('root-on-a');
+    expect(rememberedRoom('A')).toBe('root-on-a');
+
+    // Switch computers away and back: the restored session room is still the
+    // public root, and the warm connector is driven back to it while its child
+    // selection remains only conversation-local state.
+    await manager.activate('B');
+    expect(manager.active()?.id).toBe('B');
+    await manager.activate('A');
+    expect(manager.active()).toMatchObject({ id: 'A', room: 'root-on-a' });
+    expect(h.connectors.get('A')!.room()).toBe('root-on-a');
+    expect(rememberedRoom('A')).toBe('root-on-a');
+    manager.dispose();
+  });
+  // harn:end worktree-conversation-status-is-live-and-independent
 });

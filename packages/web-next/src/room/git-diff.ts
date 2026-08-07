@@ -1,6 +1,8 @@
 // The diff explorer's client read. Kept in web-next (not @runtime/api) so the
 // whole feature stays in one batch; mirrors the fetchJson auth shape.
 
+import { relayFetch } from '@runtime/relay-transport.js';
+
 import { activeComputerId } from '@runtime/active-computer.js';
 
 export type GitFileStatus = 'modified' | 'added' | 'deleted' | 'renamed' | 'untracked';
@@ -19,6 +21,9 @@ export interface GitFile {
 export interface GitWorkingState {
   cwds: string[];
   selected: string | null;
+  /** Honest repository truth for the selected cwd: a known existing directory
+   *  that is not a Git repository reports false with an empty, clean tree. */
+  repository: boolean;
   clean: boolean;
   files: GitFile[];
 }
@@ -51,7 +56,12 @@ export interface GitCommitState {
 }
 
 async function readGitJson<T>(path: string, token: string): Promise<T> {
-  const res = await fetch(path, { headers: { authorization: `Bearer ${token}` } });
+  // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-contract
+  // relayFetch tunnels these reads to the active computer in hosted mode; the
+  // direct path keeps the page origin.
+  const origin = window.location.origin;
+  const res = await relayFetch(`${origin}${path}`, { headers: { authorization: `Bearer ${token}` } });
+  // harn:end room-git-inspection-read-only-from-known-cwds
   if (!res.ok) throw new Error(`git request failed: ${String(res.status)}`);
   return res.json() as Promise<T>;
 }

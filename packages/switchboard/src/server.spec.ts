@@ -3048,6 +3048,30 @@ describe('git inspection endpoints (room-git-inspection-read-only-from-known-cwd
     expect((await fetch(`${base}/api/rooms/eng/git-history`)).status).toBe(401);
   });
 
+  it('reports repository truth for Git and known non-Git cwds without mutation', async () => {
+    const repo = initRepo();
+    daemon.configureRoom('eng', { cwd: repo });
+    const gitState = await fetch(`${base}/api/rooms/eng/git-diff`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await gitState.json()).toMatchObject({ repository: true, clean: false });
+
+    // A known existing directory that is not a repository reads honestly:
+    // repository false, an empty clean tree, and no filesystem mutation.
+    const plain = testCwd('plain-known-dir');
+    daemon.configureRoom('eng', { cwd: plain });
+    const plainState = await fetch(`${base}/api/rooms/eng/git-diff`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(plainState.status).toBe(200);
+    expect(await plainState.json()).toMatchObject({
+      repository: false,
+      clean: true,
+      files: [],
+    });
+    expect(existsSync(join(plain, '.git'))).toBe(false);
+  });
+
   it("refuses a cwd outside the room's known set", async () => {
     daemon.configureRoom('eng', { cwd: initRepo() });
     const res = await fetch(`${base}/api/rooms/eng/git-diff?cwd=${encodeURIComponent('/etc')}`, {

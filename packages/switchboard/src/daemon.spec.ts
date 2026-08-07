@@ -5852,17 +5852,22 @@ describe('git working state (diff explorer)', () => {
   it('returns a clean, empty state for a repo with no working changes', async () => {
     daemon.configureRoom('eng', { cwd: initRepo() });
     const state = await daemon.gitWorkingState('eng');
+    expect(state.repository).toBe(true);
     expect(state.clean).toBe(true);
     expect(state.files).toEqual([]);
   });
 
-  it('returns a clean, empty state for a non-git directory', async () => {
+  it('reports a known non-git directory honestly without mutating it', async () => {
     const plain = join(dir, 'plain');
     mkdirSync(plain, { recursive: true });
     daemon.configureRoom('eng', { cwd: plain });
     const state = await daemon.gitWorkingState('eng');
+    // Honest repository truth: the entry must be able to hide itself, and the
+    // read-only inspection must never turn the directory INTO a repository.
+    expect(state.repository).toBe(false);
     expect(state.clean).toBe(true);
     expect(state.files).toEqual([]);
+    expect(existsSync(join(plain, '.git'))).toBe(false);
   });
 
   it('offers the distinct cwds of the room\'s agent members', async () => {

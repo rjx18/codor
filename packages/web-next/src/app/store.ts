@@ -65,6 +65,13 @@ export interface ClientState {
   roomSummariesLoaded: boolean;
   /** Root room id → last-good registered worktree projection. */
   worktreeGroups: Record<string, WorktreeGroupSlice>;
+  // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-room-readiness-state
+  /** Exact-room live evidence for the connector's CURRENT socket generation:
+   *  a room appears here only after its own addressed sync_complete since the
+   *  latest generation start. Retained room slices are last-good content and
+   *  never mark readiness; the connector clears this evidence on every socket
+   *  replacement, so rows re-render connecting until each room re-proves. */
+  roomLive: Record<string, true>;
   applyFrame(frame: ServerFrame, fallbackRoom?: string): void;
   mergeHistoryPage(room: string, messages: Message[]): void;
   setActiveRoom(room: string): void;
@@ -72,6 +79,14 @@ export interface ClientState {
   setAuthRefused(authRefused: boolean): void;
   setRoomSummaries(summaries: RoomSummary[]): void;
   setWorktreeGroup(root: string, group: { repositoryId?: string; registered: RegisteredWorktree[] }): void;
+  /** Withdraw current-generation live evidence for the listed rooms (socket
+   *  replacement or a fresh desire): they read connecting until their own new
+   *  sync_complete. */
+  markRoomsConnecting(rooms: readonly string[]): void;
+  /** Record that a room's own addressed sync_complete arrived in the current
+   *  generation. */
+  markRoomLive(room: string): void;
+  // harn:end worktree-conversation-status-is-live-and-independent
   reset(): void;
 }
 
@@ -191,6 +206,7 @@ export function createClientStore(): ClientStore {
   roomSummaries: [],
   roomSummariesLoaded: false,
   worktreeGroups: {},
+  roomLive: {},
 
   applyFrame: (frame, fallbackRoom) => {
     if (frame.type === 'rooms') {
@@ -427,9 +443,19 @@ export function createClientStore(): ClientStore {
       },
     },
   })),
+  // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-room-readiness-state
+  markRoomsConnecting: (rooms) => set((state) => {
+    const roomLive = { ...state.roomLive };
+    for (const room of rooms) delete roomLive[room];
+    return { roomLive };
+  }),
+  markRoomLive: (room) => set((state) => state.roomLive[room] === true
+    ? {}
+    : { roomLive: { ...state.roomLive, [room]: true } }),
+  // harn:end worktree-conversation-status-is-live-and-independent
   reset: () => {
     staging.clear();
-    set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {} });
+    set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
   },
   }));
 }

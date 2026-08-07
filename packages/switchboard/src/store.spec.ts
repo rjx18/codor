@@ -3930,6 +3930,65 @@ describe('worktree child metadata follows stable identity', () => {
     expect(store.getWorktree('eng', worktree.id)?.alias).toBe('renamed-label');
   });
 
+  it('preserves child-local configuration through reopen, alias edit, tombstone, and re-adoption', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const child = worktree.conversation_id;
+    // Room-local state the reconciliation must never touch.
+    store.updateRoomConfig(child, {
+      turn_brake: 3,
+      spend_brake_usd: 5,
+      stall_minutes: 9,
+      redaction_enabled: false,
+      color: '#a1b2c3',
+      bridged: true,
+    });
+    const localConfig = store.getRoom(child)!.config;
+    expect(localConfig).toMatchObject({
+      turn_brake: 3,
+      spend_brake_usd: 5,
+      stall_minutes: 9,
+      redaction_enabled: false,
+      color: '#a1b2c3',
+      bridged: true,
+      cwd: join(dir, 'child'),
+    });
+    const rootBefore = JSON.stringify(store.getRoom('eng'));
+
+    // Active reopen: migration finds no drift and preserves everything.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom(child)!.config).toEqual(localConfig);
+
+    // Alias edit: only the display name follows; config is byte-identical.
+    store.updateWorktreeAlias('eng', worktree.id, 'renamed');
+    expect(store.getRoom(child)!.name).toBe('Engineering · renamed');
+    expect(store.getRoom(child)!.config).toEqual(localConfig);
+
+    // Tombstone reopen: inactive mapped children keep their room-local state.
+    store.unregisterWorktree('eng', worktree.id, '2026-08-06T01:00:00.000Z');
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom(child)!.config).toEqual(localConfig);
+
+    // Re-adoption at a moved path patches ONLY the canonical cwd (and name).
+    store.registerWorktree(
+      'eng',
+      repoObs(),
+      mainObs(),
+      { ...childObs('child'), path: join(dir, 'moved-child') },
+      'renamed',
+      'adopted',
+      '2026-08-06T01:01:00.000Z',
+    );
+    const readopted = store.getRoom(child)!;
+    expect(readopted.config).toEqual({ ...localConfig, cwd: join(dir, 'moved-child') });
+    expect(readopted.name).toBe('Engineering · renamed');
+
+    // The root never moved.
+    expect(JSON.stringify(store.getRoom('eng'))).toBe(rootBefore);
+  });
+
   it('appends a child change only when an alias update visibly differs', () => {
     openRoom(store);
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');

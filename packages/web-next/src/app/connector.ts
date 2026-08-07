@@ -21,14 +21,17 @@ export interface RoomConnector extends Connection {
   /** What this connector is doing — resume legality depends on it. */
   state(): ConnectorState;
   // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-observed-room-subscriptions
-  /** Maintain the desired hidden-observation set (registered child
-   *  conversations). Members subscribe on the existing multiplexed socket from
-   *  their own committed cursors and are resubscribed after EVERY legal
-   *  reconnect; rooms dropped from the set simply stop being resubscribed. The
-   *  connector's public-root identity is unchanged. */
+  /** Maintain the desired observation set: the public root PLUS its registered
+   *  child conversations, so a reconnect while a child is selected still
+   *  observes main and every active sibling. Members subscribe on the existing
+   *  multiplexed socket from their own committed cursors and are resubscribed
+   *  after EVERY legal reconnect; rooms dropped from the set simply stop being
+   *  resubscribed. The connector's public-root identity is unchanged. */
   setDesiredRooms(rooms: readonly string[]): void;
-  /** Exact-room subscription readiness for group rows: offline while the
-   *  socket is down, connecting until the room's own hydration completes. */
+  /** Exact-room readiness for the CURRENT socket generation: offline while the
+   *  socket is down, connecting until THIS generation delivers that room's own
+   *  addressed sync_complete. Retained hydration from a prior generation is
+   *  last-good content only and never marks a room live. */
   roomReadiness(room: string): 'connecting' | 'connected' | 'offline' | 'unsubscribed';
   // harn:end worktree-conversation-status-is-live-and-independent
   /** Release every listener, timer and socket this connector owns. */
@@ -95,6 +98,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   // Rooms with an in-flight reconciliation resync, mapped to the server seq we
   // are catching up to. One resync per room; reset with the socket generation.
   let resyncing = new Map<string, number>();
+  // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-observed-room-subscriptions
+  // Rooms proven live in the CURRENT socket generation by their own addressed
+  // sync_complete. Reset on every replacement; a hydrated slice retained from a
+  // prior generation is last-good content, never readiness evidence. The same
+  // evidence is mirrored into the client store for reactive row projection.
+  let liveRooms = new Set<string>();
+  // harn:end worktree-conversation-status-is-live-and-independent
   let state: ConnectorState = 'disconnected';
   let retryMs = 500;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -245,6 +255,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     retire(socket);
     subscribed = new Set();
     resyncing = new Map();
+    // A new socket generation withdraws every prior live proof: each desired
+    // room reads connecting (or offline until server evidence) until THIS
+    // generation delivers its own addressed sync_complete. Retained hydration
+    // keeps rendering last-good content but never marks readiness.
+    clientStore.getState().markRoomsConnecting([...liveRooms, currentRoom, ...desiredRooms]);
+    liveRooms = new Set();
     socket = socketFactory(`${origin}/ws?token=${encodeURIComponent(token)}`);
     const live = (): boolean => mine === generation && state !== 'disposed';
 
@@ -278,6 +294,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // trust `connected` and admit a post.
       clientStore.getState().setConnected(true);
       clientStore.getState().applyFrame(frame, currentRoom);
+      if (frame.type === 'sync_complete') {
+        // Only THIS room's own addressed completion marks it live — one frame
+        // never stands in for a sibling's hydration. Frames from a retired
+        // socket are already dropped by the live() guard above.
+        const completed = frame.room ?? currentRoom;
+        liveRooms.add(completed);
+        clientStore.getState().markRoomLive(completed);
+      }
       if (frame.type === 'rooms') {
         awaitingProbe = false;
         if (probeDeadline !== undefined) clearTimeout(probeDeadline);
@@ -413,7 +437,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     roomReadiness: (room: string) => {
       if (room !== currentRoom && !desiredRooms.has(room)) return 'unsubscribed';
       if (state !== 'connected') return 'offline';
-      return clientStore.getState().rooms[room]?.hydrated === true ? 'connected' : 'connecting';
+      // Live requires THIS generation's own sync_complete: a room rejoining
+      // the desired set mid-generation keeps the proof it already earned this
+      // generation, while a replaced socket cleared every prior proof.
+      return liveRooms.has(room) ? 'connected' : 'connecting';
     },
     dispose: () => {
       state = 'disposed';

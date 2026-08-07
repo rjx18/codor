@@ -74,14 +74,15 @@ export function ContextPanel(props: {
   room: string;
   token: () => string;
   connection: Connection;
-  /** Opens the worktree manager (Find). Offered only pre-promotion, from the
-   *  Diff tab's confirmed Git context, to humans who may manage worktrees. */
-  onManageWorktrees?: () => void;
+  /** Opens a pre-promotion lifecycle dialog (first Create or explicit Find).
+   *  Offered only from the Diff tab's confirmed Git context, to humans who may
+   *  manage worktrees, while the group itself stays hidden. */
+  onOpenWorktreeDialog?: (dialog: 'create' | 'find') => void;
 }) {
   const [tab, setTab] = useState<Tab>('members');
   // harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-git-context-entry
   const worktreeEntry = useClientStore((state) => {
-    if (props.onManageWorktrees === undefined) return undefined;
+    if (props.onOpenWorktreeDialog === undefined) return undefined;
     const groups = state.worktreeGroups;
     const isChild = Object.values(groups).some((group) =>
       group.registered.some((worktree) => !worktree.primary && worktree.conversation_id === props.room));
@@ -93,7 +94,7 @@ export function ContextPanel(props: {
       ? slice.members[slice.selfMemberId]?.role
       : undefined;
     if (!roleAtLeast(role, 'admin')) return undefined;
-    return props.onManageWorktrees;
+    return props.onOpenWorktreeDialog;
   });
   // harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
 
@@ -116,7 +117,7 @@ export function ContextPanel(props: {
         <DiffTab
           room={props.room}
           token={props.token}
-          {...(worktreeEntry !== undefined && { onManageWorktrees: worktreeEntry })}
+          {...(worktreeEntry !== undefined && { onOpenWorktreeDialog: worktreeEntry })}
         />
       )}
       {/* Key by room so a room switch remounts Preview with fresh state — no stale
@@ -1358,7 +1359,11 @@ function commitLabel(commit: GitCommit): string {
 }
 
 // harn:assume diff-panel-floats-refresh-and-overlays-history ref=git-history-panel-state
-function DiffTab(props: { room: string; token: () => string; onManageWorktrees?: () => void }) {
+function DiffTab(props: {
+  room: string;
+  token: () => string;
+  onOpenWorktreeDialog?: (dialog: 'create' | 'find') => void;
+}) {
   const [selectedCwd, setSelectedCwd] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [pickedPath, setPickedPath] = useState<string>();
@@ -1525,19 +1530,32 @@ function DiffTab(props: { room: string; token: () => string; onManageWorktrees?:
           <RefreshCw className={refreshing ? 'nx-spin' : ''} size={15} aria-hidden="true" />
         </button>
       )}
-      {/* The pre-promotion manager entry appears only after this read-only Git
-          context has independently confirmed a repository; a non-Git room
-          stays on the ordinary channel path. */}
-      {props.onManageWorktrees !== undefined && state?.selected != null && (
-        <button
-          type="button"
-          className="nx-wt-entry"
-          data-testid="worktree-entry"
-          onClick={props.onManageWorktrees}
-        >
-          <GitBranch size={14} aria-hidden="true" />
-          Worktrees…
-        </button>
+      {/* The pre-promotion entries appear only after this read-only Git
+          context has independently confirmed a REPOSITORY; a known existing
+          cwd that is not Git reveals nothing, and a non-Git room stays on the
+          ordinary channel path. Both first Create and explicit Find are
+          reachable here while the group itself remains hidden. */}
+      {props.onOpenWorktreeDialog !== undefined && state?.repository === true && (
+        <div className="nx-wt-entry-row">
+          <button
+            type="button"
+            className="nx-wt-entry"
+            data-testid="worktree-entry-create"
+            onClick={() => props.onOpenWorktreeDialog?.('create')}
+          >
+            <GitBranch size={14} aria-hidden="true" />
+            New worktree…
+          </button>
+          <button
+            type="button"
+            className="nx-wt-entry"
+            data-testid="worktree-entry"
+            onClick={() => props.onOpenWorktreeDialog?.('find')}
+          >
+            <GitBranch size={14} aria-hidden="true" />
+            Find worktrees…
+          </button>
+        </div>
       )}
 
       <section className="nx-git-history" aria-label="Git revision">

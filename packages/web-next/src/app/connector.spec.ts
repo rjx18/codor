@@ -62,7 +62,7 @@ const fireVisible = (): void => {
 beforeEach(() => {
   FakeSocket.instances = [];
   vi.stubGlobal('WebSocket', FakeSocket);
-  useClientStore.setState({ rooms: {}, activeRoom: undefined, connected: false } as never);
+  useClientStore.setState({ rooms: {}, activeRoom: undefined, connected: false, roomLive: {} } as never);
 });
 
 afterEach(() => {
@@ -547,7 +547,7 @@ describe('connector hidden-room observation', () => {
     connector.dispose();
   });
 
-  it('reports exact-room readiness without changing the public-root identity', () => {
+  it('marks a room live only after its own addressed sync_complete', () => {
     const connector = build('eng');
     const socket = latest();
     expect(connector.roomReadiness('wt-child-a')).toBe('unsubscribed');
@@ -558,15 +558,73 @@ describe('connector hidden-room observation', () => {
     expect(connector.roomReadiness('wt-elsewhere')).toBe('unsubscribed');
     expect(connector.room()).toBe('eng');
 
-    // Hydration of the exact room flips only that room's readiness.
-    useClientStore.setState({
-      rooms: { 'wt-child-a': { ...useClientStore.getState().rooms['wt-child-a'], hydrated: true } },
-    } as never);
+    // A sibling's completion — and even retained hydrated content — never
+    // marks this room live; only its own addressed sync_complete does.
+    socket.deliver({ type: 'sync_complete', seq: 1, room: 'eng' });
+    expect(connector.roomReadiness('eng')).toBe('connected');
+    expect(connector.roomReadiness('wt-child-a')).toBe('connecting');
+    socket.deliver({ type: 'sync_complete', seq: 2, room: 'wt-child-a' });
     expect(connector.roomReadiness('wt-child-a')).toBe('connected');
-    expect(connector.roomReadiness('eng')).toBe('connecting');
 
     socket.drop(1006);
     expect(connector.roomReadiness('wt-child-a')).toBe('offline');
+    connector.dispose();
+  });
+
+  it('requires each exact new sync_complete after socket replacement despite retained hydration', async () => {
+    const connector = build('eng');
+    const first = latest();
+    first.accept();
+    first.deliver({ type: 'rooms', rooms: [] });
+    connector.setDesiredRooms(['wt-child-a', 'wt-child-b']);
+    first.deliver({ type: 'sync_complete', seq: 1, room: 'eng' });
+    first.deliver({ type: 'sync_complete', seq: 2, room: 'wt-child-a' });
+    first.deliver({ type: 'sync_complete', seq: 3, room: 'wt-child-b' });
+    expect(connector.roomReadiness('wt-child-a')).toBe('connected');
+    expect(connector.roomReadiness('wt-child-b')).toBe('connected');
+    // The prior generation's hydration is retained as last-good content.
+    expect(useClientStore.getState().rooms['wt-child-a']?.hydrated).toBe(true);
+
+    // Replacement: every desired room falls back to connecting even though its
+    // hydrated slice is still in the store.
+    fireVisible();
+    await flush();
+    const second = latest();
+    second.accept();
+    expect(connector.roomReadiness('eng')).toBe('connecting');
+    expect(connector.roomReadiness('wt-child-a')).toBe('connecting');
+    expect(connector.roomReadiness('wt-child-b')).toBe('connecting');
+    expect(useClientStore.getState().rooms['wt-child-a']?.hydrated).toBe(true);
+
+    // A completion addressed to one sibling leaves the other connecting.
+    second.deliver({ type: 'sync_complete', seq: 4, room: 'wt-child-a' });
+    expect(connector.roomReadiness('wt-child-a')).toBe('connected');
+    expect(connector.roomReadiness('wt-child-b')).toBe('connecting');
+
+    // And a late completion from the RETIRED socket proves nothing.
+    first.deliver({ type: 'sync_complete', seq: 5, room: 'wt-child-b' });
+    expect(connector.roomReadiness('wt-child-b')).toBe('connecting');
+    connector.dispose();
+  });
+
+  it('keeps the public root observed while a hidden child is the selected conversation', async () => {
+    const connector = build('eng');
+    const first = latest();
+    first.accept();
+    first.deliver({ type: 'rooms', rooms: [] });
+    // The page-level desired set carries the public root PLUS active children.
+    connector.setDesiredRooms(['eng', 'wt-child-a']);
+    connector.switchRoom('wt-child-a');
+    expect(connector.room()).toBe('wt-child-a');
+
+    fireVisible();
+    await flush();
+    const second = latest();
+    second.accept();
+    // Reconnect while the child is selected still subscribes main and every
+    // desired child: current conversation first, then the whole desired set.
+    expect(second.subscriptions().map((sub) => sub.room))
+      .toEqual(['wt-child-a', 'eng']);
     connector.dispose();
   });
 
@@ -583,10 +641,11 @@ describe('connector hidden-room observation', () => {
     connector.setDesiredRooms(['wt-hosted-child']);
     expect(latest().subscriptions().map((sub) => sub.room)).toEqual(['root', 'wt-hosted-child']);
     expect(connector.roomReadiness('wt-hosted-child')).toBe('connecting');
-    isolated.setState({
-      rooms: { 'wt-hosted-child': { ...isolated.getState().rooms['wt-hosted-child'], hydrated: true } },
-    } as never);
+    latest().deliver({ type: 'sync_complete', seq: 1, room: 'wt-hosted-child' });
     expect(connector.roomReadiness('wt-hosted-child')).toBe('connected');
+    // The reactive evidence lives in the ISOLATED store, never the legacy one.
+    expect(isolated.getState().roomLive['wt-hosted-child']).toBe(true);
+    expect(useClientStore.getState().roomLive['wt-hosted-child']).toBeUndefined();
     expect(useClientStore.getState().rooms['wt-hosted-child']).toBeUndefined();
     connector.dispose();
   });

@@ -457,6 +457,14 @@ gitOps(['worktree', 'add', '-b', 'feature/found', wtopsFoundPath, 'HEAD']);
 daemon.createRoom({ id: 'wtops', name: 'Worktree Ops', owner, cwd: wtopsRepo });
 crypto.roomKeys.ensureRoom('wtops');
 
+// A KNOWN existing cwd that is NOT a Git repository: the bounded inspection
+// reports repository:false and the pre-promotion entry must stay hidden, with
+// the read never turning the directory into a repository.
+const plainCwd = join(dir, 'plain-cwd');
+mkdirSync(plainCwd, { recursive: true });
+daemon.createRoom({ id: 'plain', name: 'Plain Known Cwd', owner, cwd: plainCwd });
+crypto.roomKeys.ensureRoom('plain');
+
 const resetWtops = () => {
   // Re-run safety only: unregister every secondary and restore the seeded
   // discovery candidate. Created test branches are left in place (tests use
@@ -1615,6 +1623,17 @@ createServer((req, res) => {
       }
       if (url.pathname === '/wt-ops-reset') {
         resetWtops();
+      }
+      if (url.pathname === '/wt-plain-git') {
+        // Proof the read-only inspection never turned the known plain cwd into
+        // a repository.
+        payload = { git: existsSync(join(plainCwd, '.git')) };
+      }
+      if (url.pathname === '/wt-ops-target') {
+        // A missing absolute path beside the disposable wtops repository, for
+        // first-creation flows that run before any registration exists.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = { path: join(dir, String(body.name ?? 'wt-target')) };
       }
       if (url.pathname === '/wt-branch') {
         const body = raw === '' ? {} : JSON.parse(raw);

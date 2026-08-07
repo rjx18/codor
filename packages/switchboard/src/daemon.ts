@@ -186,6 +186,9 @@ export interface RoomGitFile {
 export interface RoomGitWorkingState {
   cwds: string[];
   selected: string | null;
+  /** Honest repository truth for the selected cwd: a known existing directory
+   *  that is not a Git repository reports false with an empty, clean tree. */
+  repository: boolean;
   clean: boolean;
   files: RoomGitFile[];
 }
@@ -5847,9 +5850,10 @@ export class Daemon {
    */
   async gitWorkingState(room: string, requestedCwd?: string): Promise<RoomGitWorkingState> {
     const { cwds, selected } = this.resolveRoomGitCwd(room, requestedCwd);
-    if (selected === null) return { cwds, selected, clean: true, files: [] };
-    const files = await this.readGitWorkingFiles(selected);
-    return { cwds, selected, clean: files.length === 0, files };
+    if (selected === null) return { cwds, selected, repository: false, clean: true, files: [] };
+    const repository = await this.isGitRepository(selected);
+    const files = repository ? await this.readGitWorkingFiles(selected) : [];
+    return { cwds, selected, repository, clean: files.length === 0, files };
   }
 
   /** A bounded newest-first union of commits reachable from local branches or

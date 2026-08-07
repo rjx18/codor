@@ -1866,10 +1866,12 @@ export class Store {
    * only when the visible name/config actually drifts; root rows are read,
    * never written, and root ids/history are untouched. */
   private reconcileWorktreeChildMetadata(): void {
+    // Active AND tombstoned mapped children: a durable conversation keeps its
+    // truthful metadata through unregister/removal as well.
     const rows = this.db.prepare(
       `SELECT room, alias, path, conversation_id
        FROM worktrees
-       WHERE primary_checkout = 0 AND lifecycle = 'active'
+       WHERE primary_checkout = 0
          AND conversation_id IS NOT NULL AND conversation_id != ''`,
     ).all() as { room: string; alias: string; path: string; conversation_id: string }[];
     if (rows.length === 0) return;
@@ -1879,16 +1881,16 @@ export class Store {
         const childRow = this.db.prepare('SELECT * FROM rooms WHERE id = ?')
           .get(row.conversation_id) as RoomRow | undefined;
         if (rootRoom === undefined || childRow === undefined) continue;
-        const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, row.alias, row.path);
         const currentConfig = RoomConfigSchema.parse(JSON.parse(childRow.config) as unknown);
-        if (
-          childRow.name === projection.name
-          && JSON.stringify(currentConfig) === JSON.stringify(projection.config)
-        ) {
-          continue;
-        }
+        const patch = this.childMetadataPatch(
+          { name: childRow.name, config: currentConfig },
+          rootRoom.name,
+          row.alias,
+          row.path,
+        );
+        if (patch === undefined) continue;
         this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
-          .run(projection.name, JSON.stringify(projection.config), row.conversation_id);
+          .run(patch.name, JSON.stringify(patch.config), row.conversation_id);
         this.appendChange(row.conversation_id, 'room', row.conversation_id);
       }
     })();
@@ -2086,9 +2088,10 @@ export class Store {
     });
   }
 
-  /** A child's visible metadata derives from the root but belongs to the exact
-   * secondary: its canonical registered path is the cwd, and a root-only
-   * starting agent handle never leaks across. */
+  /** A NEW child inherits the root configuration exactly once: its canonical
+   * registered path is the cwd, and a root-only starting agent handle never
+   * leaks across. After creation the child's configuration is room-local
+   * state that only the narrow patch below may touch. */
   private childRoomProjection(rootName: string, rootConfig: RoomConfig, alias: string, canonicalPath: string): {
     name: string;
     config: RoomConfig;
@@ -2098,6 +2101,34 @@ export class Store {
       name: `${rootName} · ${alias}`,
       config: RoomConfigSchema.parse({ ...inherited, cwd: canonicalPath }),
     };
+  }
+
+  /** The ONLY reconciliation an existing child may receive: its display name
+   * follows the alias, its cwd follows the canonical registered path, and a
+   * stale root-only starting handle is cleared. Brakes, stall interval,
+   * redaction, color, bridged state, and every other room-local field are
+   * preserved byte-for-byte. Returns undefined when nothing visibly drifts. */
+  private childMetadataPatch(
+    existing: { name: string; config: RoomConfig },
+    rootName: string,
+    alias: string,
+    canonicalPath: string,
+    options: { reconcileConfig: boolean } = { reconcileConfig: true },
+  ): { name: string; config: RoomConfig } | undefined {
+    const name = `${rootName} · ${alias}`;
+    // An alias edit reconciles the display name ONLY; migration/re-adoption
+    // additionally patch exactly the canonical cwd and a stale root-only
+    // starting handle, preserving every other room-local field byte-for-byte.
+    const config = options.reconcileConfig
+      ? RoomConfigSchema.parse((() => {
+          const { starting_agent_handle: _stale, ...preserved } = existing.config;
+          return { ...preserved, cwd: canonicalPath };
+        })())
+      : existing.config;
+    if (existing.name === name && JSON.stringify(existing.config) === JSON.stringify(config)) {
+      return undefined;
+    }
+    return { name, config };
   }
   // harn:end worktree-alias-and-child-metadata-follow-stable-identity
 
@@ -2110,19 +2141,22 @@ export class Store {
   ): void {
     const rootRoom = this.getRoom(root);
     if (rootRoom === undefined) throw new Error(`no root room: ${root}`);
-    const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, alias, canonicalPath);
     const existing = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(conversationId) as
       RoomRow | undefined;
     if (existing !== undefined) {
-      // Explicit re-adoption reconciles the durable child projection (name and
-      // canonical cwd) and appends one ordinary room change only on real drift.
+      // Explicit re-adoption patches ONLY the name, canonical cwd, and a stale
+      // root starting handle; every other child-local field is preserved, and
+      // one ordinary room change lands only on visible drift.
       const currentConfig = RoomConfigSchema.parse(JSON.parse(existing.config) as unknown);
-      if (
-        existing.name !== projection.name
-        || JSON.stringify(currentConfig) !== JSON.stringify(projection.config)
-      ) {
+      const patch = this.childMetadataPatch(
+        { name: existing.name, config: currentConfig },
+        rootRoom.name,
+        alias,
+        canonicalPath,
+      );
+      if (patch !== undefined) {
         this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
-          .run(projection.name, JSON.stringify(projection.config), conversationId);
+          .run(patch.name, JSON.stringify(patch.config), conversationId);
         this.appendChange(conversationId, 'room', conversationId);
       }
       for (const member of this.db.prepare(
@@ -2135,6 +2169,7 @@ export class Store {
       }
       return;
     }
+    const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, alias, canonicalPath);
     this.db.prepare(
       'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
     ).run(conversationId, projection.name, now, JSON.stringify(projection.config));
@@ -2576,18 +2611,17 @@ export class Store {
       if (rootRoom === undefined) throw new Error(`no root room: ${room}`);
       const child = this.getRoom(existing.conversation_id);
       if (child !== undefined) {
-        const projection = this.childRoomProjection(
+        // An alias edit touches ONLY the child display name; room-local
+        // configuration is never rewritten from main.
+        const patch = this.childMetadataPatch(
+          { name: child.name, config: child.config },
           rootRoom.name,
-          rootRoom.config,
           normalized,
           existing.path,
+          { reconcileConfig: false },
         );
-        if (
-          child.name !== projection.name
-          || JSON.stringify(child.config) !== JSON.stringify(projection.config)
-        ) {
-          this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
-            .run(projection.name, JSON.stringify(projection.config), child.id);
+        if (patch !== undefined) {
+          this.db.prepare('UPDATE rooms SET name = ? WHERE id = ?').run(patch.name, child.id);
           this.appendChange(child.id, 'room', child.id);
         }
       }

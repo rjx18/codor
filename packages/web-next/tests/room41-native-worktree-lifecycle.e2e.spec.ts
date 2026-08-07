@@ -59,9 +59,12 @@ test.describe('native worktree lifecycle UI', () => {
   test('adopts one discovered candidate from the explicit pre-promotion entry', async ({ page }) => {
     await control('/wt-ops-reset');
     await openRoom(page, `/?room=wtops&token=${TOKEN}`);
-    // Unpromoted: no group, but the confirmed Git context offers the entry.
+    // Unpromoted: no group, but the confirmed Git context offers BOTH
+    // lifecycle starts while the group stays hidden.
     await expect(page.getByTestId('worktree-group')).toHaveCount(0);
     await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('worktree-entry-create')).toBeVisible();
+    await expect(page.getByTestId('worktree-entry')).toBeVisible();
     await page.getByTestId('worktree-entry').click();
 
     const dialog = page.getByTestId('worktree-find-dialog');
@@ -70,7 +73,12 @@ test.describe('native worktree lifecycle UI', () => {
     const candidate = page.getByTestId(/^worktree-candidate-feature\/found/);
     await expect(candidate).toBeVisible();
     await candidate.click();
+    // Adoption requires a NONEMPTY alias: clearing the prefill disables the
+    // act until the operator names the child deliberately.
+    await page.getByTestId('worktree-adopt-alias').fill('');
+    await expect(page.getByTestId('worktree-adopt-submit')).toBeDisabled();
     await page.getByTestId('worktree-adopt-alias').fill('Found Review');
+    await expect(page.getByTestId('worktree-adopt-submit')).toBeEnabled();
     await page.getByTestId('worktree-adopt-submit').click();
 
     // Promotion follows the one selected adoption; the child is selected.
@@ -79,6 +87,41 @@ test.describe('native worktree lifecycle UI', () => {
     const adopted = list.find((worktree) => worktree.alias === 'found-review');
     expect(adopted).toBeDefined();
     expect(page.url()).toContain(`worktree=${adopted!.id}`);
+  });
+
+  test('creates the first child directly from the confirmed pre-promotion entry', async ({ page }) => {
+    await control('/wt-ops-reset');
+    const suffix = String(Date.now());
+    await openRoom(page, `/?room=wtops&token=${TOKEN}`);
+    await expect(page.getByTestId('worktree-group')).toHaveCount(0);
+    await page.getByTestId('context-tab-diff').click();
+
+    // First Create without ANY prior adoption: the group appears only after
+    // the creation promotes the root.
+    await page.getByTestId('worktree-entry-create').click();
+    const createDialog = page.getByTestId('worktree-create-dialog');
+    await expect(createDialog).toBeVisible();
+    await page.getByTestId('worktree-create-alias').fill(`First ${suffix}`);
+    await page.getByTestId('worktree-create-branch').fill(`feature/first-${suffix}`);
+    const target = await control<{ path: string }>('/wt-ops-target', { name: `created-first-${suffix}` });
+    await page.getByTestId('worktree-create-path').fill(target.path);
+    await page.getByTestId('worktree-create-submit').click();
+    await expect(createDialog).toHaveCount(0);
+
+    // The first creation promotes the group and selects the new child.
+    await expect(page.getByTestId('worktree-group')).toBeVisible();
+    const list = await registered('wtops');
+    const created = list.find((worktree) => worktree.alias === `first-${suffix.toLowerCase()}`);
+    expect(created).toBeDefined();
+    expect(page.url()).toContain(`worktree=${created!.id}`);
+    await expect(page.getByTestId(`worktree-link-${created!.id}`)).toHaveAttribute('aria-current', 'page');
+
+    // Promoted now: the pre-promotion entries are gone from the (child's)
+    // confirmed Git context; the group owns the controls.
+    await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('worktree-entry')).toHaveCount(0);
+    await expect(page.getByTestId('worktree-entry-create')).toHaveCount(0);
+    await expect(page.getByTestId('worktree-create-open')).toBeVisible();
   });
 
   test('creates an empty child and adds an individual preset agent afterwards', async ({ page }) => {
@@ -307,6 +350,18 @@ test.describe('native worktree lifecycle UI', () => {
     await page.goto(`${SPA_ORIGIN}/?room=workspace`);
     await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('worktree-group')).toBeVisible({ timeout: 30_000 });
+
+    // Pre-promotion access rides the same tunnel: the bounded Git read
+    // confirms the repository, BOTH entries appear, and explicit discovery
+    // runs — all without a single escaped direct API request.
+    await control('/wt-ops-reset');
+    await page.goto(`${SPA_ORIGIN}/?room=wtops`);
+    await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('context-tab-diff').click();
+    await expect(page.getByTestId('worktree-entry')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('worktree-entry-create')).toBeVisible();
+    await page.getByTestId('worktree-entry').click();
+    await expect(page.getByTestId(/^worktree-candidate-feature\/found/)).toBeVisible({ timeout: 30_000 });
     expect(directApiHits).toEqual([]);
   });
 });

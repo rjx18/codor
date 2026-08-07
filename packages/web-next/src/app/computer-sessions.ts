@@ -68,6 +68,10 @@ interface SessionEntry {
   store: ClientStore;
   token: string;
   connector?: RoomConnector;
+  /** The session's remembered PUBLIC root. The warm connector may have a
+   *  hidden registered child selected as its current conversation; that
+   *  selection is conversation-local and must never replace this root. */
+  publicRoot?: string;
   upgrade?: Extract<ServerFrame, { type: 'upgrade_required' }>;
   disposed: boolean;
   ready: Promise<void>;
@@ -175,7 +179,9 @@ export class ComputerSessionManager {
     if (!entry?.connector) return undefined;
     return {
       id: entry.material.computer.id,
-      room: entry.connector.room(),
+      // The remembered room is the session's public root — never the hidden
+      // child conversation its warm connector may currently have selected.
+      room: entry.publicRoot ?? entry.connector.room(),
       token: entry.token,
       connector: entry.connector,
     };
@@ -210,7 +216,14 @@ export class ComputerSessionManager {
     await this.deps.switchStored(id);
     this.activeId = id;
     this.applyActiveRuntime();
-    if (entry.connector) rememberRoom(entry.connector.room(), id);
+    // Activation restores the session's PUBLIC root: the warm connector keeps
+    // whatever hidden child it had selected only as conversation-local state,
+    // and the remembered room is always the root.
+    const publicRoot = entry.publicRoot ?? entry.connector?.room();
+    if (entry.connector !== undefined && publicRoot !== undefined && entry.connector.room() !== publicRoot) {
+      entry.connector.switchRoom(publicRoot);
+    }
+    if (publicRoot !== undefined) rememberRoom(publicRoot, id);
     if (entry.upgrade) requireBrowserUpgrade(entry.upgrade);
     this.publish();
     return entry.connector !== undefined;
@@ -218,7 +231,12 @@ export class ComputerSessionManager {
   // harn:end hosted-computer-switching-reuses-warm-session
 
   rememberActiveRoom(room: string): void {
-    if (this.activeId !== undefined) rememberRoom(room, this.activeId);
+    // Top-level switches name public roots only; keep both the durable
+    // remembered room and this session's in-memory root in step.
+    if (this.activeId === undefined) return;
+    const entry = this.entries.get(this.activeId);
+    if (entry) entry.publicRoot = room;
+    rememberRoom(room, this.activeId);
   }
 
   async add(code: string, relayUrl: string): Promise<boolean> {
@@ -350,6 +368,9 @@ export class ComputerSessionManager {
           this.publish();
           return;
         }
+        // The startup resolution names a public root; it is the session's
+        // remembered room regardless of which conversation gets selected later.
+        entry.publicRoot = room;
         rememberRoom(room, entry.material.computer.id);
         entry.connector = this.deps.makeConnector({
           room,
