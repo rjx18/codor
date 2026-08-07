@@ -6,6 +6,8 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 
 import type {
+  AgentPreset,
+  AgentPresetInput,
   AcpLaunchConfig,
   AgentLimit,
   AgentUsage,
@@ -33,6 +35,8 @@ import type {
   VoiceNote,
   WireEvent,
   CreateRoomRequest,
+  DefaultRoster,
+  DefaultRosterInput,
   WorktreeAdoptRequest,
   WorktreeCreateRequest,
   WorktreeListResponse,
@@ -41,7 +45,9 @@ import type {
 } from '@codor/protocol';
 
 import {
+  AgentPresetInputSchema,
   AttachmentSchema,
+  CreateRoomRequestSchema,
   MemberStatusResponseSchema,
   ProducedArtifactSchema,
   ProducedArtifactErrorSchema,
@@ -58,6 +64,7 @@ import {
 import { BlobStore } from './blobs.js';
 import {
   executableOnPath,
+  resolveAcpExecutable,
   type RegisteredHarnessAdapter,
   validateSpawnOptions,
 } from './adapter-registry.js';
@@ -91,7 +98,9 @@ import {
   type ResolvedRef,
 } from './router.js';
 import {
+  AgentPresetNotFoundError,
   Store,
+  type InitialAgent,
   type FanoutDelivery,
   type RoutedMessagePlan,
   type TurnOutputPatch,
@@ -362,6 +371,19 @@ export interface MemberDetails {
 }
 
 export type FrameListener = (room: string, frame: ServerFrame) => void;
+
+type InitialAgentSpec = {
+  harness: string;
+  handle: string;
+  display_name: string;
+  cwd: string;
+  policy?: string;
+  model?: string;
+  thinking?: Session['thinking'];
+  acp_provider?: string;
+  /** Resolved private launch; never projected through Member or REST. */
+  acp_launch?: AcpLaunchConfig;
+};
 
 interface TurnCompletion {
   status: 'completed' | 'failed' | 'interrupted';
@@ -1008,75 +1030,37 @@ export class Daemon {
 
   // harn:assume channel-creation-derived-and-seeded ref=derived-channel-creation
   createRoom(opts: CreateRoomRequest): ReturnType<Store['createRoom']> {
-    // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-validation
-    if (opts.starting_agent?.handle === opts.owner.handle) {
-      throw new Error(
-        `starting agent handle @${opts.starting_agent.handle} is already in use by the channel owner`,
-      );
+    const request = CreateRoomRequestSchema.parse(opts);
+    if (request.default_roster === true && request.starting_agent !== undefined) {
+      throw new Error('default_roster and starting_agent are mutually exclusive');
     }
-    // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-preflight
-    // A native harness must be installed; an acp request must resolve to exactly one of
-    // a currently-detected named provider or an authorized custom launch — all before
-    // any room or member is persisted.
-    if (opts.starting_agent !== undefined) {
-      this.requireNewAgentAdapter(opts.starting_agent.harness);
-      this.resolveAcpLaunch(opts.starting_agent);
-    }
-    // harn:end new-agent-requests-require-available-native-or-detected-acp
-    // harn:end starting-agent-name-derives-one-valid-identity-v6
-    const baseId = opts.id ?? deriveRoomId(opts.name);
+    const prepared = this.prepareInitialAgents(request);
+    const baseId = request.id ?? deriveRoomId(request.name);
     let id = baseId;
-    if (opts.id === undefined) {
+    if (request.id === undefined) {
       for (let suffix = 2; this.store.getRoom(id); suffix++) id = `${baseId}-${String(suffix)}`;
-    }
-    // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd
-    const cwd = opts.cwd !== undefined
-      ? normalizeWorkingDirectory(opts.cwd, this.homeDir)
-      : opts.starting_agent !== undefined
-        ? normalizeWorkingDirectory(process.cwd(), this.homeDir)
-        : undefined;
-    // harn:end spawn-default-cwd-is-absolute-or-empty
-    if (opts.starting_agent?.harness === 'acp') {
-      const adapter = this.requireNewAgentAdapter('acp');
-      const { acp_launch } = this.resolveAcpLaunch(opts.starting_agent);
-      const spawnOpts = {
-        cwd: cwd!,
-        policy: opts.starting_agent.policy,
-        model: opts.starting_agent.model,
-        thinking: opts.starting_agent.thinking,
-        acp_launch,
-      };
-      validateSpawnOptions(adapter, spawnOpts);
-      adapter.spawn(spawnOpts);
     }
     const created = this.store.createRoom({
       id,
-      name: opts.name,
-      owner: opts.owner,
+      name: request.name,
+      owner: request.owner,
       config: {
-        ...(opts.color !== undefined && { color: opts.color }),
-        ...(cwd !== undefined && { cwd }),
+        ...(request.color !== undefined && { color: request.color }),
+        ...(prepared.cwd !== undefined && { cwd: prepared.cwd }),
         // harn:assume channel-starting-agent-handle-persisted ref=starting-agent-creation-record
-        ...(opts.starting_agent !== undefined && {
-          starting_agent_handle: opts.starting_agent.handle,
+        ...(request.starting_agent !== undefined && {
+          starting_agent_handle: request.starting_agent.handle,
         }),
         // harn:end channel-starting-agent-handle-persisted
       },
+      initialAgents: prepared.seededAgents,
     });
-    if (opts.starting_agent) {
-      try {
-        this.spawnMember(id, {
-          ...opts.starting_agent,
-          cwd: cwd!,
-        });
-      } catch (error) {
-        this.postSystemMessage(
-          id,
-          `could not spawn @${opts.starting_agent.handle}: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    }
-    return created;
+    // harn:assume initial-roster-runtime-failures-are-member-local-and-actionable ref=initial-agent-runtime-activation
+    const activated = created.initialAgents.map((member, index) =>
+      this.activateInitialAgent(id, member, prepared.initialAgents[index]!),
+    );
+    // harn:end initial-roster-runtime-failures-are-member-local-and-actionable
+    return { ...created, initialAgents: activated };
   }
   // harn:end channel-creation-derived-and-seeded
 
@@ -1190,6 +1174,86 @@ export class Daemon {
     if (!owner) throw new Error(`room ${room} has no owner`);
     return owner;
   }
+
+  // harn:assume individual-agent-presets-are-bounded-catalog-validated-configurations ref=individual-agent-preset-catalog-validation
+  /** Validate reusable configuration against the current daemon catalog only. */
+  validateAgentPreset(input: unknown): AgentPresetInput {
+    const validated = AgentPresetInputSchema.parse(input);
+    const adapter = validated.harness === 'acp'
+      ? this.requireNewAgentAdapter(validated.harness)
+      : this.requireInstalledAdapter(validated.harness);
+    if (
+      validated.harness === 'acp'
+      && (adapter as RegisteredHarnessAdapter).configurable !== true
+    ) {
+      throw new Error("harness 'acp' is not registered as configurable");
+    }
+
+    // The existing spawn validator remains the single source for canonical policy,
+    // thinking, and ACP launch shape. The cwd is deliberately a validation-only value.
+    validateSpawnOptions(adapter, {
+      cwd: this.homeDir,
+      model: validated.model,
+      policy: validated.policy,
+      thinking: validated.thinking,
+      acp_launch: validated.acp_launch,
+    });
+
+    if (validated.model !== undefined) {
+      if (!MODEL_ID.test(validated.model)) {
+        throw new Error(`invalid model id '${validated.model}'`);
+      }
+      const catalog = this.modelCatalogs.get(validated.harness);
+      if (catalog !== undefined && catalog.models.length > 0 && !catalog.models.includes(validated.model)) {
+        throw new Error(
+          `model '${validated.model}' is not currently offered by harness '${validated.harness}'`,
+        );
+      }
+    }
+
+    // Named providers reuse the same frozen provider registry and current PATH
+    // detection as ordinary new-agent creation. Custom launches use ACP's exact
+    // no-invocation resolver so validation and the eventual ACP spawn agree.
+    if (validated.harness === 'acp') {
+      this.resolveAcpLaunch(validated);
+      if (validated.acp_launch !== undefined) resolveAcpExecutable(validated.acp_launch.executable);
+    }
+    return validated;
+  }
+
+  createAgentPreset(input: AgentPresetInput): AgentPreset {
+    return this.store.createAgentPreset(this.validateAgentPreset(input));
+  }
+
+  listAgentPresets(): AgentPreset[] {
+    return this.store.listAgentPresets();
+  }
+
+  getAgentPreset(id: string): AgentPreset | undefined {
+    return this.store.getAgentPreset(id);
+  }
+
+  updateAgentPreset(id: string, input: AgentPresetInput): AgentPreset {
+    // Store performs the not-found check before its atomic replacement. Validation
+    // still runs before any Store mutation, so a rejected full replacement is a no-op.
+    if (this.store.getAgentPreset(id) === undefined) {
+      throw new AgentPresetNotFoundError(id);
+    }
+    return this.store.updateAgentPreset(id, this.validateAgentPreset(input));
+  }
+
+  deleteAgentPreset(id: string): void {
+    this.store.deleteAgentPreset(id);
+  }
+
+  getDefaultRoster(): DefaultRoster {
+    return this.store.getDefaultRoster();
+  }
+
+  replaceDefaultRoster(input: DefaultRosterInput | readonly string[]): DefaultRoster {
+    return this.store.replaceDefaultRoster(input);
+  }
+  // harn:end individual-agent-presets-are-bounded-catalog-validated-configurations
 
   // harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery
   /**
@@ -6356,4 +6420,224 @@ export class Daemon {
     if (snapped > 0) this.pruneArtifacts(room);
   }
   // harn:end descriptor-safe-durable-inert-snapshots-of-successful-output
+
+  private prepareInitialAgents(request: CreateRoomRequest): {
+    cwd?: string;
+    initialAgents: InitialAgentSpec[];
+    seededAgents: InitialAgent[];
+  } {
+    // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-expansion-preflight
+    // Expand and validate every initial member before the first room or member
+    // mutation. Roster entries are current catalog snapshots, not spawn probes.
+    const unboundInitialAgents = request.default_roster === true
+      ? this.expandDefaultRoster(request.owner.handle)
+      : request.starting_agent === undefined
+        ? []
+        : [this.expandStartingAgent(request.starting_agent, request.owner.handle)];
+    const needsAgentCwd = unboundInitialAgents.length > 0;
+    // harn:assume spawn-default-cwd-is-absolute-or-empty ref=implicit-starting-agent-cwd
+    // Explicit room metadata is retained even for an empty roster. An implicit
+    // cwd is introduced only when an initial runtime actually needs one.
+    const cwd = request.cwd !== undefined
+      ? normalizeWorkingDirectory(request.cwd, this.homeDir)
+      : needsAgentCwd
+        ? normalizeWorkingDirectory(process.cwd(), this.homeDir)
+        : undefined;
+    // harn:end spawn-default-cwd-is-absolute-or-empty
+    const initialAgents = unboundInitialAgents.map((agent) => {
+      const bound = { ...agent, cwd: cwd! };
+      // The final concrete cwd is validated before Store.createRoom as well as
+      // before activation; no adapter is invoked by this check.
+      this.validateInitialAgentSpawn(bound);
+      return bound;
+    });
+    // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
+    return { cwd, initialAgents, seededAgents: this.seedInitialAgents(initialAgents) };
+  }
+
+  private expandStartingAgent(
+    agent: NonNullable<CreateRoomRequest['starting_agent']>,
+    ownerHandle: string,
+  ): Omit<InitialAgentSpec, 'cwd'> {
+    // harn:assume starting-agent-name-derives-one-valid-identity-v6 ref=starting-agent-create-validation
+    if (agent.handle === ownerHandle) {
+      throw new Error(
+        `starting agent handle @${agent.handle} is already in use by the channel owner`,
+      );
+    }
+    // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-preflight
+    const adapter = this.requireNewAgentAdapter(agent.harness);
+    const { acp_launch } = this.resolveAcpLaunch(agent);
+    if (acp_launch !== undefined && agent.acp_provider === undefined) {
+      // ACP's resolver is a no-invocation check and catches slash-bearing or
+      // otherwise unavailable custom paths before the room transaction.
+      resolveAcpExecutable(acp_launch.executable);
+    }
+    validateSpawnOptions(adapter, {
+      cwd: this.homeDir,
+      policy: agent.policy,
+      model: agent.model,
+      thinking: agent.thinking,
+      acp_launch,
+    });
+    // harn:end new-agent-requests-require-available-native-or-detected-acp
+    // harn:end starting-agent-name-derives-one-valid-identity-v6
+    return {
+      harness: agent.harness,
+      handle: agent.handle,
+      display_name: agent.display_name ?? agent.handle,
+      policy: agent.policy,
+      model: agent.model,
+      thinking: agent.thinking,
+      acp_provider: agent.acp_provider,
+      acp_launch,
+    };
+  }
+
+  private expandDefaultRoster(ownerHandle: string): Omit<InitialAgentSpec, 'cwd'>[] {
+    const roster = this.store.getDefaultRoster();
+    const handles = new Set<string>();
+    return roster.preset_ids.map((presetId) => {
+      const preset = this.store.getAgentPreset(presetId);
+      if (preset === undefined) {
+        throw new Error(`default roster references missing agent preset '${presetId}'`);
+      }
+      const validated = this.validateAgentPreset({
+        label: preset.label,
+        handle: preset.handle,
+        display_name: preset.display_name,
+        harness: preset.harness,
+        model: preset.model,
+        thinking: preset.thinking,
+        policy: preset.policy,
+        acp_provider: preset.acp_provider,
+        acp_launch: preset.acp_launch,
+      });
+      if (validated.handle === ownerHandle) {
+        throw new Error(
+          `default roster preset '${presetId}' handle @${validated.handle} is already in use by the channel owner`,
+        );
+      }
+      if (handles.has(validated.handle)) {
+        throw new Error(`default roster contains duplicate member handle @${validated.handle}`);
+      }
+      handles.add(validated.handle);
+      const resolved = validated.harness === 'acp'
+        ? this.resolveAcpLaunch(validated).acp_launch
+        : undefined;
+      return {
+        harness: validated.harness,
+        handle: validated.handle,
+        display_name: validated.display_name ?? validated.handle,
+        // A reusable preset without an explicit policy must remain safe when
+        // detached into a channel member.
+        policy: validated.policy ?? 'read-only',
+        model: validated.model,
+        thinking: validated.thinking,
+        acp_provider: validated.acp_provider,
+        acp_launch: resolved,
+      };
+    });
+  }
+
+  private validateInitialAgentSpawn(agent: InitialAgentSpec): void {
+    const adapter = this.requireNewAgentAdapter(agent.harness);
+    validateSpawnOptions(adapter, {
+      cwd: agent.cwd,
+      policy: agent.policy,
+      model: agent.model,
+      thinking: agent.thinking,
+      acp_launch: agent.acp_launch,
+    });
+  }
+
+  private seedInitialAgents(initialAgents: readonly InitialAgentSpec[]): InitialAgent[] {
+    // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
+    // harn:assume owner-and-system-members-seeded ref=room-seeding
+    // Every initial row is a concrete, detached snapshot. The ACP launch is
+    // written only to the private runtime column by Store.createRoom.
+    const seededAgents = initialAgents.map((agent): InitialAgent => ({
+      member: {
+        kind: 'agent',
+        handle: agent.handle,
+        display_name: agent.display_name,
+        harness: agent.harness,
+        cwd: agent.cwd,
+        policy: agent.policy,
+        model: agent.model,
+        thinking: agent.thinking,
+        acp_provider: agent.acp_provider,
+        host: this.hostId,
+        state: 'dead',
+        custody: 'owned',
+      },
+      ...(agent.acp_launch !== undefined && { runtime: { acp_launch: agent.acp_launch } }),
+    }));
+    // harn:end owner-and-system-members-seeded
+    // harn:end default-roster-channel-members-are-detached-ordered-snapshots
+    return seededAgents;
+  }
+
+  private activateInitialAgent(
+    room: string,
+    member: Member,
+    agent: InitialAgentSpec,
+  ): Member {
+    // harn:assume initial-roster-runtime-failures-are-member-local-and-actionable ref=initial-agent-runtime-activation
+    let adapter: HarnessAdapter | undefined;
+    let session: Session | undefined;
+    try {
+      adapter = this.requireNewAgentAdapter(agent.harness);
+      this.validateInitialAgentSpawn(agent);
+      session = adapter.spawn({
+        cwd: agent.cwd,
+        policy: agent.policy,
+        model: agent.model,
+        thinking: agent.thinking,
+        acp_launch: agent.acp_launch,
+      });
+      // Keep the exact private launch on the isolated session until the first
+      // turn; it is never part of the public Member projection.
+      session.acp_launch = agent.acp_launch;
+      session.cwd = agent.cwd;
+      session.policy = agent.policy;
+      session.model = agent.model;
+      session.thinking = agent.thinking;
+      this.issueMemberCredential(room, member, session);
+      const activated = this.store.updateMember(room, member.id, {
+        state: 'idle',
+        custody: 'owned',
+        ...(session.session_ref !== undefined && { session_ref: session.session_ref }),
+      });
+      this.sessions.set(member.id, session);
+      this.markRostersStale(room);
+      this.emitMember(room, activated);
+      return activated;
+    } catch (error) {
+      this.sessions.delete(member.id);
+      if (session !== undefined && adapter !== undefined) {
+        try {
+          adapter.interrupt(session);
+        } catch {
+          // A failed initial runtime is already fenced by the durable dead state.
+        }
+      }
+      const current = this.store.getMember(room, member.id);
+      const dead = current?.state === 'dead'
+        ? current
+        : this.store.updateMember(room, member.id, { state: 'dead' });
+      this.emitMember(room, dead);
+      // ACP launch material is intentionally not copied into an error message.
+      // Native adapter diagnostics retain their existing actionable detail.
+      const detail = agent.harness === 'acp'
+        ? 'ACP runtime initialization failed'
+        : error instanceof Error ? error.message : String(error);
+      this.postSystemMessage(
+        room,
+        `could not spawn @${agent.handle}: ${detail}; remove it and spawn a replacement`,
+      );
+      return dead;
+    }
+    // harn:end initial-roster-runtime-failures-are-member-local-and-actionable
+  }
 }

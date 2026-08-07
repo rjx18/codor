@@ -1,4 +1,4 @@
-import type { AgentLimit, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
+import type { AgentLimit, AgentPreset, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
 import {
   Bot,
   ChevronRight,
@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { artifactUrl, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
+import { artifactUrl, fetchAgentPreset, fetchAgentPresets, fetchArtifacts, fetchRunEvents, refreshUsage, type AdapterRegistration, type ArtifactFeed, type MemberDetail } from '@runtime/api.js';
 import { formatAttachmentSize, isImageAttachment, useAttachmentDownload, useAttachmentObjectUrl } from './attachments.js';
 import { AgentControls, AgentIdentityControls, RolePresetControls, Section } from './AgentControls.js';
 import { FolderPicker } from './FolderPicker.js';
@@ -29,6 +29,7 @@ import {
   DEFAULT_POLICY,
   type AgentConfig,
   type SpawnSpec,
+  applyAgentPreset,
   buildSpawnSpec,
   applyPreset,
   asPolicy,
@@ -198,14 +199,16 @@ function MembersTab(props: { room: string; token: () => string; connection: Conn
             disabled={usageBusy}
             onClick={refreshUsageLimits}
           />
-          <IconButton
-            icon={Plus}
-            label="Spawn agent"
-            size="sm"
-            variant="quiet"
-            data-testid="spawn-agent"
-            onClick={() => setSpawning(true)}
-          />
+          {canManage && (
+            <IconButton
+              icon={Plus}
+              label="Spawn agent"
+              size="sm"
+              variant="quiet"
+              data-testid="spawn-agent"
+              onClick={() => setSpawning(true)}
+            />
+          )}
         </div>
       </div>
       {usageError !== undefined && (
@@ -924,6 +927,16 @@ function SpawnDialog(props: {
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
   const [handle, setHandle] = useState('');
+  const [agentPresets, setAgentPresets] = useState<AgentPreset[]>([]);
+  const [presetLoading, setPresetLoading] = useState(true);
+  const [presetError, setPresetError] = useState<string>();
+  const [presetBusyId, setPresetBusyId] = useState<string>();
+  const presetRequest = useRef(0);
+  const invalidatePresetSelection = useCallback(() => {
+    presetRequest.current += 1;
+    setPresetBusyId(undefined);
+    setPresetError(undefined);
+  }, []);
   // The operator should not retype the project path on every spawn. "Use current
   // directory" is on by default and inherits the channel's folder; turning it
   // off reveals the picker, pre-seeded with that same directory to edit from.
@@ -941,6 +954,81 @@ function SpawnDialog(props: {
   // Reconciliation spans both grids: a custom-ACP selection (id `acp`) lives in
   // `advanced`, so healing and adapter lookups must see the combined list.
   const all = [...props.adapters, ...props.advanced];
+  // A delayed addressed read must resolve against the current draft/catalog/roster,
+  // not the render in which its tile happened to be clicked.
+  const latestConfig = useRef(config);
+  const latestAdapters = useRef(all);
+  const latestMembers = useRef(props.members);
+  latestConfig.current = config;
+  latestAdapters.current = all;
+  latestMembers.current = props.members;
+
+  const updateConfig = useCallback((next: AgentConfig) => {
+    invalidatePresetSelection();
+    setConfig(next);
+  }, [invalidatePresetSelection]);
+
+  // Saved presets are intentionally read on every dialog mount. The list is only
+  // a set of labels; selection performs its own addressed read below so edits and
+  // deletion between these two requests cannot silently produce an old draft.
+  useEffect(() => {
+    let active = true;
+    setPresetLoading(true);
+    setPresetError(undefined);
+    void fetchAgentPresets({ token: props.token() })
+      .then((presets) => {
+        if (!active) return;
+        setAgentPresets(presets);
+        setPresetLoading(false);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setAgentPresets([]);
+        setPresetLoading(false);
+        setPresetError(error instanceof Error ? error.message : 'Could not load saved presets.');
+      });
+    return () => {
+      active = false;
+      presetRequest.current += 1;
+    };
+  }, [props.token]);
+
+  const selectAgentPreset = (listed: AgentPreset): void => {
+    const request = ++presetRequest.current;
+    setPresetBusyId(listed.id);
+    setPresetError(undefined);
+    void fetchAgentPreset(listed.id, { token: props.token() })
+      .then((preset) => {
+        if (request !== presetRequest.current) return;
+        if (preset.id !== listed.id) {
+          throw new Error(`Saved preset response did not match requested preset “${listed.id}”.`);
+        }
+        const currentAdapters = latestAdapters.current;
+        const currentConfig = latestConfig.current;
+        const applied = applyAgentPreset({
+          preset,
+          config: {
+            ...currentConfig,
+            harness: effectiveHarness(currentConfig.harness, currentAdapters),
+          },
+          adapters: currentAdapters,
+          members: latestMembers.current,
+        });
+        if (!applied.ok) throw new Error(applied.message);
+        // Commit the complete result only after every field has validated. A
+        // failed/stale selection therefore cannot partially change the draft.
+        setConfig(applied.config);
+        setHandle(applied.handle);
+      })
+      .catch((error: unknown) => {
+        if (request !== presetRequest.current) return;
+        setPresetError(error instanceof Error ? error.message : 'Could not apply saved preset.');
+      })
+      .finally(() => {
+        if (request === presetRequest.current) setPresetBusyId(undefined);
+      });
+  };
+
   // Adapter discovery is asynchronous; a selection made before the list arrives
   // heals rather than sticking at a dead value.
   const harness = effectiveHarness(config.harness, all);
@@ -959,6 +1047,7 @@ function SpawnDialog(props: {
   const submit = (event: { preventDefault: () => void }) => {
     event.preventDefault();
     if (!canSpawn) return;
+    invalidatePresetSelection();
     props.onSpawn(buildSpawnSpec({
       config: { ...config, harness },
       handle: derived,
@@ -993,7 +1082,7 @@ function SpawnDialog(props: {
           adapters={props.adapters}
           advanced={props.advanced}
           config={{ ...config, harness }}
-          onChange={setConfig}
+          onChange={updateConfig}
           idPrefix="spawn"
           onRefresh={props.onRefresh}
           refreshing={props.refreshing}
@@ -1010,10 +1099,27 @@ function SpawnDialog(props: {
             value={handle}
             pattern={HANDLE_PATTERN}
             maxLength={31}
-            onChange={(e) => setHandle(e.target.value)}
+            onChange={(e) => {
+              invalidatePresetSelection();
+              setHandle(e.target.value);
+            }}
             placeholder="e.g. scout"
             required
             data-testid="spawn-handle"
+          />
+        </label>
+        <label className="nx-field">
+          <span className="nx-label">Display name <span className="nx-opt">· optional</span></span>
+          <input
+            className="nx-input"
+            value={config.displayName ?? ''}
+            maxLength={120}
+            onChange={(event) => {
+              invalidatePresetSelection();
+              setConfig((current) => ({ ...current, displayName: event.target.value }));
+            }}
+            placeholder="Shown in the member list"
+            data-testid="spawn-display-name"
           />
         </label>
         {ownerClash && (
@@ -1029,7 +1135,10 @@ function SpawnDialog(props: {
               type="checkbox"
               role="switch"
               checked={useCurrentDir}
-              onChange={(event) => { setUseCurrentDir(event.target.checked); }}
+              onChange={(event) => {
+                invalidatePresetSelection();
+                setUseCurrentDir(event.target.checked);
+              }}
               data-testid="spawn-use-current-dir"
             />
             <span>Use current directory</span>
@@ -1038,11 +1147,25 @@ function SpawnDialog(props: {
             ? inheritedCwd !== '' && (
               <span className="nx-field-note" data-testid="spawn-inherited-cwd">Inherits {inheritedCwd}</span>
             )
-            : <FolderPicker token={props.token} value={pickedCwd} onChange={setPickedCwd} idPrefix="spawn" />}
+            : <FolderPicker
+              token={props.token}
+              value={pickedCwd}
+              onChange={(next) => {
+                invalidatePresetSelection();
+                setPickedCwd(next);
+              }}
+              idPrefix="spawn"
+            />}
         </div>
         <RolePresetControls
           idPrefix="spawn"
+          customPresets={agentPresets}
+          customLoading={presetLoading}
+          customError={presetError}
+          customBusyId={presetBusyId}
+          onApplyCustom={selectAgentPreset}
           onApply={(preset) => {
+            invalidatePresetSelection();
             const applied = applyPreset({
               preset,
               config: { ...config, harness },
@@ -1059,7 +1182,7 @@ function SpawnDialog(props: {
         <AgentControls
           adapters={all}
           config={{ ...config, harness }}
-          onChange={setConfig}
+          onChange={updateConfig}
           hideHarness
           behaviourSection={2}
           permissionsSection={3}
@@ -1072,7 +1195,10 @@ function SpawnDialog(props: {
           <textarea
             value={purpose}
             rows={3}
-            onChange={(e) => setPurpose(e.target.value)}
+            onChange={(e) => {
+              invalidatePresetSelection();
+              setPurpose(e.target.value);
+            }}
             placeholder="What this agent should focus on…"
             data-testid="spawn-purpose"
           />

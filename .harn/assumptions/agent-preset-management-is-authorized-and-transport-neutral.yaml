@@ -1,0 +1,22 @@
+id: agent-preset-management-is-authorized-and-transport-neutral
+hash: a-b3e8b944f57f
+title: Preset and default-roster management uses one manage-agents REST contract
+  in direct and hosted modes
+state: active
+statement: Every network read or mutation of individual presets or the default
+  roster must require the existing global manage_agents capability, reject
+  anonymous, observer, member, and agent principals, and return only through the
+  switchboard REST contract; web runtime callers must use relayFetch with the
+  caller's bearer so hosted mode reaches only the active computer's switchboard
+  and direct/self-hosted mode retains native fetch, while trusted direct daemon
+  calls use the same validation and atomic Store methods. No WebSocket act, CLI
+  command, relay record, or cloud/account synchronization may be added, because
+  local configuration must have one authorization and behavior contract
+  independent of browser topology.
+depends_on:
+  - individual-agent-presets-are-versioned-local-state
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+  - roles-gate-human-acts-not-agents
+  - agent-network-authority-is-narrow
+  - hosted-computer-sessions-keep-state-isolated
+created_by: native-worktrees-agent-presets-integration

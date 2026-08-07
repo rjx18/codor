@@ -1,0 +1,27 @@
+id: individual-agent-presets-are-bounded-catalog-validated-configurations
+hash: a-8d4af3718bfe
+title: An individual agent preset is reusable configuration, never runtime or
+  membership state
+state: active
+statement: An individual agent preset must be a strict schema-version-1
+  configuration with a stable server-issued ULID, bounded preset label,
+  assignable handle, runtime harness, optional display name, model, supported
+  thinking, canonical policy, and exactly one currently valid named ACP provider
+  or authorized structured custom launch for the acp harness; it must reject
+  cwd, purpose, credentials, native session references, runtime/member state,
+  usage, tasks, spend, host, custody, membership, room, and every unknown field.
+  Create and full-replacement update must validate the harness, model, thinking,
+  policy, and ACP selection against the daemon's current adapter/provider
+  catalog and existing spawn validators before persistence, without spawning a
+  process or member, because a reusable configuration must be safe and
+  meaningful without becoming a hidden runtime snapshot or a second hardcoded
+  adapter truth.
+depends_on:
+  - adapter-catalog-distinguishes-installed-and-configurable
+  - adapters-own-their-model-catalog
+  - canonical-spawn-controls-enforced
+  - harness-declares-supported-thinking-levels
+  - harness-declares-what-a-policy-becomes
+  - new-agent-requests-require-available-native-or-detected-acp
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+created_by: native-worktrees-agent-presets-integration

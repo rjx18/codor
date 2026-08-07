@@ -1,0 +1,14 @@
+id: default-roster-references-block-preset-deletion
+hash: a-75f5f7f30958
+title: A preset referenced by the default roster cannot be deleted
+state: active
+statement: Deleting an individual preset whose stable id is present in the
+  default roster must fail with a deterministic reference-conflict result and
+  leave both the preset and complete roster unchanged; after an atomic roster
+  replacement removes that id, the same preset may be deleted normally, because
+  silently cascading a delete would rewrite the operator's ordered group while
+  allowing a dangling reference would make later channel creation
+  nondeterministic.
+depends_on:
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+created_by: native-worktrees-agent-presets-integration

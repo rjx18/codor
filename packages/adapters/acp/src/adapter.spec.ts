@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,6 +25,15 @@ async function collectTurn(adapter: AcpAdapter, session: Session): Promise<WireE
     }
   }
   return events;
+}
+
+async function waitForLogEntry(path: string, entry: string, timeoutMs = 10_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(path) && readFileSync(path, 'utf8').split(/\r?\n/).includes(entry)) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${entry} in ${path}`);
 }
 
 // harn:assume acp-v1-events-and-capabilities-are-negotiated ref=acp-adapter-regression
@@ -133,13 +142,14 @@ describe('ACP adapter', () => {
     })]);
   });
 
-  it('uses ACP cancellation and reports an interrupted terminal result', async () => {
+  it('uses ACP cancellation and reports an interrupted terminal result', { timeout: 15_000 }, async () => {
+    const log = join(mkdtempSync(join(tmpdir(), 'codor-acp-cancel-')), 'methods.txt');
     const adapter = new AcpAdapter();
-    const session = adapter.spawn({ cwd: process.cwd(), acp_launch: launch('--wait') });
+    const session = adapter.spawn({ cwd: process.cwd(), acp_launch: launch('--wait', '--log', log) });
     const events: WireEvent[] = [];
     const iterator = adapter.deliver(session, 'wait')[Symbol.asyncIterator]();
     const pending = iterator.next();
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitForLogEntry(log, 'session/prompt');
     adapter.interrupt(session);
     for (let next = await pending; !next.done; next = await iterator.next()) events.push(next.value);
     expect(events).toContainEqual(expect.objectContaining({ type: 'run.completed', status: 'interrupted' }));

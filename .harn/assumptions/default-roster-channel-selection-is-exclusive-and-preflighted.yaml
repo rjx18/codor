@@ -1,0 +1,23 @@
+id: default-roster-channel-selection-is-exclusive-and-preflighted
+hash: a-458a0990c46a
+title: Default-roster channel selection expands completely before creation
+state: active
+statement: An authenticated channel-create request may add the literal
+  default_roster true or the existing starting_agent but never both; when the
+  roster is selected, the daemon must synchronously expand the one current
+  ordered group into concrete safe-defaulted configurations and validate every
+  reference, handle, catalog field, policy, thinking level, and named/custom ACP
+  resolution before any adapter spawn, room/member persistence, room-key
+  creation, or other mutation, while an empty group and legacy omission remain
+  valid, because an invalid complete roster must never create a partial channel
+  and a singleton local group does not need a caller-supplied id or alternate
+  lifecycle.
+depends_on:
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+  - individual-agent-presets-are-bounded-catalog-validated-configurations
+  - channel-create-request-contract
+  - channel-creation-derived-and-seeded
+  - new-agent-requests-require-available-native-or-detected-acp
+  - canonical-spawn-controls-enforced
+  - spawn-default-cwd-is-absolute-or-empty
+created_by: native-worktrees-agent-presets-integration

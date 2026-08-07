@@ -112,6 +112,34 @@ const daemon = new Daemon({
   executableOnPath: (executable) => acpPresent.has(executable),
 });
 
+// Phase 2 fixture: these are individual presets only. The browser tests never
+// read the default roster, so this seed cannot accidentally exercise Phase 3.
+// Wait for the asynchronous thinky catalog before creating its model-bound preset;
+// the daemon uses the same live catalog check as a real management request.
+for (let attempt = 0; attempt < 100; attempt += 1) {
+  if (daemon.registeredAdapters().some((adapter) =>
+    adapter.id === 'thinky' && adapter.models?.includes('thinky/kappa'))) break;
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+const phase2Presets = {
+  native: daemon.createAgentPreset({
+    label: 'Saved native helper', handle: 'saved-native', display_name: 'Saved Native',
+    harness: 'fake', policy: 'workspace-write',
+  }),
+  model: daemon.createAgentPreset({
+    label: 'Model helper', handle: 'model-helper', display_name: 'Model Helper',
+    harness: 'thinky', model: 'thinky/kappa', thinking: 'high', policy: 'read-only',
+  }),
+  named: daemon.createAgentPreset({
+    label: 'Kimi saved helper', handle: 'kimi-helper', display_name: 'Kimi Helper',
+    harness: 'acp', acp_provider: 'kimi',
+  }),
+  custom: daemon.createAgentPreset({
+    label: 'Custom saved helper', handle: 'custom-helper', display_name: 'Custom Helper',
+    harness: 'acp', acp_launch: { executable: process.execPath, argv: ['--acp-fixture', '--literal=x'] },
+  }),
+};
+
 // ── Channels: distinct previews / working / failure / unread states ──────
 const owner = { handle: 'richard', display_name: 'Richard' };
 for (const [id, name] of [
@@ -190,6 +218,10 @@ const viewer = daemon.store.addMember('eng', {
   kind: 'human', handle: 'viewer', display_name: 'Viewer', role: 'member',
 });
 const VIEWER_TOKEN = 'next-e2e-viewer-token';
+const admin = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'admin', display_name: 'Admin', role: 'admin',
+});
+const ADMIN_TOKEN = 'next-e2e-admin-token';
 
 // Ops carries the failure state: its latest run failed and its author is dead.
 const relay = daemon.spawnMember('ops', { harness: 'fake', handle: 'relay', cwd: dir });
@@ -1236,6 +1268,7 @@ let relayLink;
 let cryptoB;
 let relayStoreB;
 let relayLinkB;
+let phase5Fixture;
 
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
@@ -1434,6 +1467,16 @@ createServer((req, res) => {
       }
       if (url.pathname === '/relay-down-b') { relayLinkB.stop(); payload = { ok: true }; }
       if (url.pathname === '/relay-up-b') { relayLinkB.start(); payload = { ok: true }; }
+      if (url.pathname === '/phase5-fixture') {
+        payload = createPhase5Fixture();
+      }
+      if (url.pathname === '/phase5-summary') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = phase5Summary(
+          body.host === 'b' ? 'b' : 'a',
+          Array.isArray(body.rooms) ? body.rooms.map((room) => String(room)) : [],
+        );
+      }
       if (url.pathname === '/fixture-ids') {
         payload = {
           oldInboxMention: oldInboxMention.id,
@@ -1672,6 +1715,94 @@ await startServer({
   },
 });
 
+// Phase 5 is opt-in: these native preset lists and rosters do not exist until
+// the dedicated room39 control endpoint is called. The response helpers expose
+// only safe public identity and room/member summaries; credentials, hashes,
+// private ACP/runtime data, room keys, and mutable Store handles never cross the
+// control boundary.
+function publicPhase5Preset(preset) {
+  return {
+    id: preset.id,
+    label: preset.label,
+    handle: preset.handle,
+    ...(preset.display_name !== undefined ? { display_name: preset.display_name } : {}),
+    harness: preset.harness,
+    ...(preset.policy !== undefined ? { policy: preset.policy } : {}),
+    ...(preset.model !== undefined ? { model: preset.model } : {}),
+    ...(preset.thinking !== undefined ? { thinking: preset.thinking } : {}),
+  };
+}
+
+function publicPhase5Member(member) {
+  return {
+    id: member.id,
+    kind: member.kind,
+    handle: member.handle,
+    display_name: member.display_name,
+    harness: member.harness,
+    ...(member.policy !== undefined ? { policy: member.policy } : {}),
+    ...(member.model !== undefined ? { model: member.model } : {}),
+    ...(member.thinking !== undefined ? { thinking: member.thinking } : {}),
+    state: member.state,
+    task_ids: member.tasks?.items.map((item) => item.id) ?? [],
+  };
+}
+
+function phase5HostSnapshot(host) {
+  const target = host === 'b' ? daemonB : daemon;
+  const presetIds = phase5Fixture?.[host]?.presetIds ?? [];
+  return {
+    presets: presetIds.map((id) => publicPhase5Preset(target.getAgentPreset(id))),
+    roster: target.getDefaultRoster().preset_ids.map((id) => {
+      const preset = target.getAgentPreset(id);
+      return preset === undefined ? { id } : publicPhase5Preset(preset);
+    }),
+  };
+}
+
+function createPhase5Fixture() {
+  if (phase5Fixture === undefined) {
+    const inputs = {
+      a: [
+        { label: 'P5 A North', handle: 'p5-a-north', display_name: 'P5 A North Display', harness: 'fake', policy: 'workspace-write' },
+        { label: 'P5 A South', handle: 'p5-a-south', display_name: 'P5 A South Display', harness: 'fake', policy: 'read-only' },
+      ],
+      b: [
+        { label: 'P5 B East', handle: 'p5-b-east', display_name: 'P5 B East Display', harness: 'fake', policy: 'workspace-write' },
+        { label: 'P5 B West', handle: 'p5-b-west', display_name: 'P5 B West Display', harness: 'fake', policy: 'read-only' },
+      ],
+    };
+    const aPresets = inputs.a.map((input) => daemon.createAgentPreset(input));
+    const bPresets = inputs.b.map((input) => daemonB.createAgentPreset(input));
+    daemon.replaceDefaultRoster({ preset_ids: aPresets.map((preset) => preset.id) });
+    daemonB.replaceDefaultRoster({ preset_ids: bPresets.map((preset) => preset.id) });
+    phase5Fixture = {
+      a: { presetIds: aPresets.map((preset) => preset.id) },
+      b: { presetIds: bPresets.map((preset) => preset.id) },
+    };
+  }
+  return {
+    a: phase5HostSnapshot('a'),
+    b: phase5HostSnapshot('b'),
+  };
+}
+
+function phase5Summary(host, roomIds) {
+  const target = host === 'b' ? daemonB : daemon;
+  const rooms = roomIds.map((id) => {
+    const room = target.store.getRoom(id);
+    return {
+      id,
+      ...(room === undefined ? { missing: true } : {
+        name: room.name,
+        members: target.store.listMembers(id).map(publicPhase5Member),
+        run_count: target.store.listRunMessages(id, { limit: Number.MAX_SAFE_INTEGER }).length,
+      }),
+    };
+  });
+  return { host, ...phase5HostSnapshot(host), rooms };
+}
+
 // A stub voice provider: the real /api/voice/transcribe endpoint, but a
 // distinct counter-suffixed transcript per call (so multi-segment assertions are
 // real) with a small delay (so the "waiting for transcription" state is
@@ -1707,6 +1838,7 @@ await startServer({
   },
   principals: [
     { token: VIEWER_TOKEN, member_id: viewer.id },
+    { token: ADMIN_TOKEN, member_id: admin.id },
     { token: RECOVERY_VIEWER_TOKEN, member_id: onlooker.id },
   ],
   voiceProvider: 'codex',

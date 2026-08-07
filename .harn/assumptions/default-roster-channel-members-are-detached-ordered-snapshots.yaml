@@ -1,0 +1,19 @@
+id: default-roster-channel-members-are-detached-ordered-snapshots
+hash: a-92fe6ec226ca
+title: A roster selection seeds concrete ordered members without source references
+state: active
+statement: After complete preflight, channel creation must atomically seed the
+  room, owner, system member, and each expanded roster agent in stored order
+  with a fresh member id, one normalized channel cwd, concrete public
+  configuration, and any resolved private runtime launch, while persisting no
+  preset/roster reference and no starting_agent_handle for the group; later
+  preset or roster edits cannot mutate those members, because the ordered group
+  is a creation input snapshot rather than live membership state or a hidden
+  first Starting agent.
+depends_on:
+  - default-roster-channel-selection-is-exclusive-and-preflighted
+  - owner-and-system-members-seeded
+  - individual-agent-presets-are-versioned-local-state
+  - durable-agent-runtime-configuration
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+created_by: native-worktrees-agent-presets-integration

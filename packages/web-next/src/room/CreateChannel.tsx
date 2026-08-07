@@ -8,6 +8,7 @@ import {
 } from '@runtime/api.js';
 
 import { AgentControls, AgentIdentityControls, Section } from './AgentControls.js';
+import { DefaultRosterChoice } from './DefaultRosterChoice.js';
 import { FolderPicker } from './FolderPicker.js';
 import {
   DEFAULT_POLICY,
@@ -42,6 +43,9 @@ export function CreateChannelDialog(props: {
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
   const hiddenAgentConfig = useRef<AgentConfig>();
+  const rosterDraft = useRef<AgentConfig>();
+  const skipCatalogReconcile = useRef(false);
+  const [defaultRosterSelected, setDefaultRosterSelected] = useState(false);
   // Default name matches legacy: most channels want one agent called `codor`.
   const [agentName, setAgentName] = useState('codor');
   const [busy, setBusy] = useState(false);
@@ -49,8 +53,10 @@ export function CreateChannelDialog(props: {
   // A server error about the starting agent belongs beside the agent name, not in
   // a generic banner at the bottom where it reads as unrelated to the field.
   const [agentError, setAgentError] = useState<string>();
+  const nameRef = useRef<HTMLInputElement>(null);
 
   const owner = me(members, selfId);
+  const canReadDefaultRoster = owner?.kind === 'human' && owner.role === 'owner';
   // A blank name is not an error — it falls back to "Agent", so the handle is
   // derived from the effective name rather than from what was literally typed.
   // Requiring a non-empty name here is what made the fallback unreachable.
@@ -68,12 +74,32 @@ export function CreateChannelDialog(props: {
     }
     setAgentConfig(next);
   };
+  const changeRosterSelection = (selected: boolean): void => {
+    if (selected) {
+      rosterDraft.current = agentConfig;
+      setDefaultRosterSelected(true);
+      setError(undefined);
+      return;
+    }
+    const preserved = rosterDraft.current;
+    rosterDraft.current = undefined;
+    if (preserved !== undefined) {
+      skipCatalogReconcile.current = true;
+      setAgentConfig(preserved);
+    }
+    setDefaultRosterSelected(false);
+  };
   // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=create-provider-selection
   useEffect(() => {
+    if (defaultRosterSelected) return;
+    if (skipCatalogReconcile.current) {
+      skipCatalogReconcile.current = false;
+      return;
+    }
     if (agentConfig.harness === '' || all.some((adapter) => adapter.id === agentConfig.harness)) return;
     hiddenAgentConfig.current = agentConfig;
     setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
-  }, [all, agentConfig]);
+  }, [all, agentConfig, defaultRosterSelected]);
   // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const effectiveAgentName = agentName.trim() === '' ? 'Agent' : agentName.trim();
   const derivedHandle = useMemo(
@@ -87,8 +113,10 @@ export function CreateChannelDialog(props: {
     && collidesWithOwner(derivedHandle, owner);
   const acpLaunch = acpLaunchFromConfig(agentConfig);
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && owner !== undefined && !busy
-    && !ownerClash && (agentHarness === '' || derivedHandle !== undefined)
-    && (agentHarness !== 'acp' || acpLaunch !== undefined);
+    && (defaultRosterSelected || (
+      !ownerClash && (agentHarness === '' || derivedHandle !== undefined)
+      && (agentHarness !== 'acp' || acpLaunch !== undefined)
+    ));
 
   const submit = (): void => {
     if (!canCreate || owner === undefined) return;
@@ -99,7 +127,9 @@ export function CreateChannelDialog(props: {
       name: name.trim(),
       owner: { handle: owner.handle, display_name: owner.display_name },
       cwd: cwd.trim(),
-      ...(agentHarness !== '' && derivedHandle !== undefined && {
+      ...(defaultRosterSelected
+        ? { default_roster: true as const }
+        : agentHarness !== '' && derivedHandle !== undefined && {
         starting_agent: {
           // A named tile's selector id (`acp:kimi`) resolves to the `acp` harness plus a
           // safe provider id; the generic tile keeps its custom launch. Never send the
@@ -129,14 +159,15 @@ export function CreateChannelDialog(props: {
       (room) => props.onCreated(room),
       (failure: unknown) => {
         const message = failure instanceof Error ? failure.message : String(failure);
-        if (isAgentFieldError(message)) setAgentError(message);
+        if (defaultRosterSelected) setError(message);
+        else if (isAgentFieldError(message)) setAgentError(message);
         else setError(message);
       },
     ).finally(() => setBusy(false));
   };
 
   return (
-    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" structured>
+    <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" structured initialFocus={nameRef}>
       {/* Native form so Enter submits from any field. */}
       <form onSubmit={(event) => { event.preventDefault(); submit(); }}>
       <div className="nx-dialog-head">
@@ -158,6 +189,7 @@ export function CreateChannelDialog(props: {
       <label className="nx-field">
         <span className="nx-label">Name</span>
         <input
+          ref={nameRef}
           value={name}
           required
           onChange={(e) => setName(e.target.value)}
@@ -174,6 +206,19 @@ export function CreateChannelDialog(props: {
         <FolderPicker token={props.token} value={cwd} onChange={setCwd} idPrefix="create" />
       </div>
       </Section>
+      <DefaultRosterChoice
+        token={props.token}
+        enabled={canReadDefaultRoster}
+        selected={defaultRosterSelected}
+        onSelectedChange={changeRosterSelection}
+        idPrefix="create"
+      />
+      {defaultRosterSelected ? (
+        <div className="nx-roster-selected-note" data-testid="create-roster-selected" role="status">
+          <strong>Starting agent draft saved</strong>
+          <span>The saved roster is exclusive for this channel. Deselect it to restore your exact draft.</span>
+        </div>
+      ) : (
       <Section n={2} title="Starting agent">
       <div className="nx-agent-panel">
           <AgentIdentityControls
@@ -235,6 +280,7 @@ export function CreateChannelDialog(props: {
           )}
       </div>
       </Section>
+      )}
       {error !== undefined && <p className="nx-field-note is-error" role="alert">{error}</p>}
       </div>
       <div className="nx-dialog-actions">

@@ -1,0 +1,18 @@
+id: initial-roster-runtime-failures-are-member-local-and-actionable
+hash: a-0df2a049aabb
+title: Initial roster runtime failures preserve every durable member snapshot
+state: active
+statement: After the initial room/member transaction, the daemon must activate
+  each seeded roster member separately in roster order with a fresh session and
+  credential; success moves only that member to idle, while a thrown runtime
+  spawn leaves only that member visible and dead, records one safe actionable
+  system diagnostic, and continues activating later members without rolling back
+  the room, deleting identities, or sharing runtime state, because an external
+  harness failure after valid configuration is a member lifecycle event rather
+  than a channel-create transaction failure.
+depends_on:
+  - default-roster-channel-members-are-detached-ordered-snapshots
+  - agent-member-credentials-stay-secret
+  - durable-agent-runtime-configuration
+  - canonical-spawn-controls-enforced
+created_by: native-worktrees-agent-presets-integration

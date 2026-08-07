@@ -410,6 +410,63 @@ describe('registry storage neutrality', () => {
       expect(store.listDeliveries(worktree.conversation_id)).toEqual([]);
     }
   });
+
+  it('keeps populated presets and the ordered default roster neutral across lifecycle and reopen', async () => {
+    // Preset configuration is independent durable state: lifecycle operations
+    // must neither read nor disturb it, and both domains survive a Store reopen.
+    const first = store.createAgentPreset({ label: 'Review helper', handle: 'review-helper', harness: 'codex' });
+    const second = store.createAgentPreset({
+      label: 'Docs writer', handle: 'docs-writer', harness: 'claude', display_name: 'Docs Writer',
+    });
+    store.replaceDefaultRoster([first.id, second.id]);
+    const configuration = () => JSON.stringify({
+      presets: store.listAgentPresets(),
+      roster: store.getDefaultRoster(),
+    });
+    const mainRoster = () => JSON.stringify(store.listMembers('eng', { includeRemoved: true }));
+    // Child conversation ids are captured while registered; after unregister and
+    // removal the durable conversations are queried directly by those ids.
+    const childRosters = (conversationIds: readonly string[]) => JSON.stringify(Object.fromEntries(
+      conversationIds.map((conversationId) => [
+        conversationId,
+        store.listMembers(conversationId, { includeRemoved: true }),
+      ]),
+    ));
+    const configurationBefore = configuration();
+    const mainRosterBefore = mainRoster();
+
+    // Discovery alone registers nothing and disturbs nothing.
+    const secondaryPath = join(fixtureRoot, 'roster neutral secondary');
+    git(repositoryPath, ['worktree', 'add', '-b', 'roster-neutral', secondaryPath, 'HEAD']);
+    const discovered = await manager.list('eng', repositoryPath);
+    expect(discovered.registered).toEqual([]);
+    expect(discovered.discovered.map((candidate) => candidate.path)).toContain(secondaryPath);
+
+    await manager.adopt('eng', repositoryPath, { path: secondaryPath, alias: 'roster-neutral' });
+    const created = await manager.create('eng', repositoryPath, {
+      alias: 'roster-neutral-created',
+      branch: 'feature/roster-neutral-created',
+      path: join(fixtureRoot, 'roster-neutral-created'),
+    });
+    const childIds = store.listRegisteredWorktrees('eng')
+      .filter((worktree) => !worktree.primary)
+      .map((worktree) => worktree.conversation_id);
+    expect(childIds).toHaveLength(2);
+    const childRostersBefore = childRosters(childIds);
+    manager.unregister('eng', adoptedId(store, 'roster-neutral'));
+    await manager.remove('eng', repositoryPath, created.worktree.id);
+
+    expect(configuration()).toBe(configurationBefore);
+    expect(mainRoster()).toBe(mainRosterBefore);
+    expect(childRosters(childIds)).toBe(childRostersBefore);
+
+    // Reopen: both domains persist exactly as the lifecycle left them.
+    store.close();
+    store = new Store(join(fixtureRoot, 'codor.sqlite'));
+    expect(configuration()).toBe(configurationBefore);
+    expect(mainRoster()).toBe(mainRosterBefore);
+    expect(childRosters(childIds)).toBe(childRostersBefore);
+  });
 });
 // harn:end worktree-lifecycle-is-roster-neutral
 

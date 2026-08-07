@@ -3908,6 +3908,52 @@ describe('named ACP providers over REST', () => {
   // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 });
 
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-server-regression
+describe('ordinary WebSocket spawn display names', () => {
+  it('atomically persists a supplied name, defaults omission, and rejects a member principal', async () => {
+    const ownerClient = await connect();
+    ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await ownerClient.next((frame) => frame.type === 'sync_complete');
+
+    ownerClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng',
+      act: {
+        act: 'spawn', harness: 'fake', handle: 'display-scout', display_name: 'Display Scout',
+        cwd: testCwd('display-scout'), policy: 'read-only',
+      },
+    }));
+    const named = await ownerClient.next((frame) =>
+      frame.type === 'member' && frame.member.handle === 'display-scout');
+    expect(named.type === 'member' ? named.member.display_name : undefined).toBe('Display Scout');
+    expect(daemon.store.getMemberByHandle('eng', 'display-scout')?.display_name).toBe('Display Scout');
+
+    ownerClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng',
+      act: { act: 'spawn', harness: 'fake', handle: 'handle-name', cwd: testCwd('handle-name') },
+    }));
+    const defaulted = await ownerClient.next((frame) =>
+      frame.type === 'member' && frame.member.handle === 'handle-name');
+    expect(defaulted.type === 'member' ? defaulted.member.display_name : undefined).toBe('handle-name');
+    ownerClient.ws.close();
+
+    const spawn = vi.spyOn(fake, 'spawn');
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await memberClient.next((frame) => frame.type === 'sync_complete');
+    memberClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng',
+      act: { act: 'spawn', harness: 'fake', handle: 'member-spawn', cwd: testCwd('member-spawn') },
+    }));
+    const denied = await memberClient.next((frame) => frame.type === 'error');
+    expect(denied.type === 'error' ? denied.message : '').toMatch(/forbidden/);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(daemon.store.getMemberByHandle('eng', 'member-spawn')).toBeUndefined();
+    spawn.mockRestore();
+    memberClient.ws.close();
+  });
+});
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+
 describe('universal pairing mint (relay-enabled routes)', () => {
   it('serves the dual-door offer from /api/pairing/offers and maps /api/relay/pair to the code line', async () => {
     const canned = {

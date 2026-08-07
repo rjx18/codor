@@ -147,6 +147,21 @@ export const CreateRoomRequestSchema = z.object({
   color: z.string().min(1).optional(),
   cwd: z.string().min(1).optional(),
   starting_agent: StartingAgentSchema.optional(),
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-request-contract
+  // A literal true is deliberately the only accepted spelling. Omission retains
+  // the complete legacy request, while false must not silently select that path.
+  default_roster: z.literal(true).optional(),
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
+}).superRefine((request, ctx) => {
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-request-contract
+  if (request.default_roster === true && request.starting_agent !== undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['default_roster'],
+      message: 'default_roster and starting_agent are mutually exclusive',
+    });
+  }
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
 });
 export type CreateRoomRequest = z.infer<typeof CreateRoomRequestSchema>;
 // harn:end channel-create-request-contract
