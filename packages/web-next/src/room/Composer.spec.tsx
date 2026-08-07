@@ -144,6 +144,10 @@ describe('qualified composer refusal', () => {
     '~review:\r\n@codex',
     '~review:',
     '~review:@',
+    '~:',
+    '~ :',
+    '~::',
+    '~ ::',
   ])('owns malformed scoped syntax without leaking the inner mention (%s)', (draft) => {
     const parsed = parseBody(draft, [{
       id: '01J00000000000000000000010', kind: 'agent', handle: 'codex',

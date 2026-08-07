@@ -113,9 +113,10 @@ export function parseBody(
   // whitespace around the separators (`~a:\n@x`, `~\na:@x`) — so an inner
   // @handle can never leak into local routing. The first alternative owns
   // attempts that reach an @handle across whitespace; the second owns a
-  // dangling selector+colon with no handle at all, but only when the colon is
-  // not glued to more prose (`~5:30` and `~note:check` stay ordinary).
-  const candidateRe = /~(?:\s*[^:\s`]*(?:\s*:\s*)+@[^\s`]*|\s*[^:\s`]+(?:\s*:\s*)+(?![^\s`@]))/g;
+  // dangling selector+colon with no handle at all — including the colon-only
+  // empty form (`~:`, `~ :`, `~::`) — but only when the colon is not glued to
+  // more prose (`~5:30` and `~note:check` stay ordinary).
+  const candidateRe = /~(?:\s*[^:\s`]*(?:\s*:\s*)+@[^\s`]*|\s*[^:\s`]*(?:\s*:\s*)+(?![^\s`@]))/g;
   const validPrefixRe = /^~([a-z0-9][a-z0-9._-]*):@([a-z0-9][a-z0-9-]*)/;
   const malformedPartsRe = /^~\s*([^:\s`]*?)(?:\s*:\s*)+@?([^\s`]*)/;
   const punctuationOnly = /^[.,!?;:)\]}]*$/;

@@ -8555,6 +8555,10 @@ describe('qualified refusal boundary', () => {
     '~missing:\r\n@local-fallback',
     '~missing:',
     '~missing:@',
+    '~:',
+    '~ :',
+    '~::',
+    '~ ::',
   ])('allocates no message or delivery for an attempted incomplete token (%s)', (token) => {
     const local = spawnAgent('local-fallback');
     const messagesBefore = daemon.store.listMessages('eng').length;
@@ -8564,6 +8568,120 @@ describe('qualified refusal boundary', () => {
     expect(daemon.store.listDeliveries('eng')).toHaveLength(deliveriesBefore);
     expect(fake.deliveries).toHaveLength(0);
     expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+  });
+
+  // Two rows of one stale run-bound attempt: every operator recovery seam
+  // settles the whole attempt once, preserving bindings as evidence.
+  const seedStaleBoundAttempt = (alias: string, runStatus: 'running' | 'failed', rowState: 'held' | 'consumed') => {
+    const worktree = registerQualifiedFixture(alias, alias);
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: `${alias}-agent`, cwd: testCwd(`${alias}-agent`),
+    });
+    const staleTarget = {
+      worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+      member_id: target.id, alias, handle: target.handle,
+    } as const;
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const first = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'batch one' });
+    const second = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'batch two' });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id,
+      author_target: staleTarget,
+      kind: 'run',
+      body: '',
+      run: {
+        status: runStatus, started_ts: '2026-08-06T00:00:00.000Z',
+        ...(runStatus === 'failed'
+          ? { ended_ts: '2026-08-06T00:01:00.000Z', error: 'boom' }
+          : {}),
+        tool_calls: 0, events_ref: `runs/${first.id}.jsonl`,
+      },
+    });
+    const d1 = daemon.store.createDelivery('eng', { message_id: first.id, recipient: target.id, target: staleTarget });
+    const d2 = daemon.store.createDelivery('eng', { message_id: second.id, recipient: target.id, target: staleTarget });
+    for (const d of [d1, d2]) {
+      daemon.store.updateDelivery('eng', d.id, { state: rowState, run_msg_id: run.id, attempt_count: 1 });
+    }
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T01:00:00.000Z');
+    return { worktree, target, run, d1, d2 };
+  };
+  const qualifiedRefusals = () =>
+    daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'));
+
+  it('settles every stale held row of a run-bound attempt once on release_hold', async () => {
+    const { run, d1, d2 } = seedStaleBoundAttempt('stale-release', 'running', 'held');
+
+    daemon.releaseHold('eng', d1.id);
+
+    expect(daemon.store.getDelivery('eng', d1.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(qualifiedRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    // A second release finds truthful consumed evidence, not a duplicate refusal.
+    expect(() => daemon.releaseHold('eng', d2.id)).toThrow(/not held/);
+    expect(qualifiedRefusals()).toHaveLength(1);
+
+    // ... and a restart reconciles nothing further.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(qualifiedRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('settles every stale held row of a run-bound attempt once on direct redelivery', () => {
+    const { run, d1, d2 } = seedStaleBoundAttempt('stale-redeliver', 'running', 'held');
+
+    daemon.redeliver('eng', d1.id);
+
+    expect(daemon.store.getDelivery('eng', d1.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(qualifiedRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    // The settled sibling is terminal evidence: redelivering it refuses
+    // without mutation instead of requeueing or duplicating the refusal.
+    expect(() => daemon.redeliver('eng', d2.id)).toThrow(/qualified target refused/);
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(qualifiedRefusals()).toHaveLength(1);
+  });
+
+  it('refuses a stale scoped retry before reviving, clearing, queuing, or creating a run', () => {
+    const { worktree, target, run, d1, d2 } = seedStaleBoundAttempt('stale-retry', 'failed', 'consumed');
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'dead' });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const messagesBefore = daemon.store.listMessages('eng').length;
+
+    expect(() => daemon.retryRun('eng', run.id, owner.id)).toThrow(/qualified target refused/);
+
+    // Zero mutation: no refusal row, no new run, no revival, bindings preserved.
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(daemon.store.getMember(worktree.conversation_id, target.id)?.state).toBe('dead');
+    for (const d of [d1, d2]) {
+      expect(daemon.store.getDelivery('eng', d.id))
+        .toMatchObject({ state: 'consumed', run_msg_id: run.id, attempt_count: 1 });
+    }
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('refuses direct redelivery of a stale consumed terminal row without mutation', () => {
+    const { d1 } = seedStaleBoundAttempt('stale-consumed', 'failed', 'consumed');
+    const before = daemon.store.getDelivery('eng', d1.id);
+    const messagesBefore = daemon.store.listMessages('eng').length;
+
+    expect(() => daemon.redeliver('eng', d1.id)).toThrow(/qualified target refused/);
+
+    expect(daemon.store.getDelivery('eng', d1.id)).toEqual(before);
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(qualifiedRefusals()).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(0);
   });
 });
 // harn:end invalid-qualified-targets-never-fallback

@@ -259,6 +259,18 @@ describe('qualified body grammar', () => {
     }
   });
 
+  it('owns colon-only attempts with empty selector and handle as one malformed issue', () => {
+    for (const body of ['~:', '~ :', '~::', '~ ::', '~: still not a mention']) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified, body).toEqual([]);
+      expect(parsed.mentions, body).toEqual([]);
+      expect(parsed.qualified_issues, body).toEqual([
+        expect.objectContaining({ reason: 'malformed', selector: '', handle: '' }),
+      ]);
+      expect(body.startsWith(parsed.qualified_issues![0]!.token), body).toBe(true);
+    }
+  });
+
   it('leaves colon-bearing ordinary prose outside qualified-token ownership', () => {
     for (const body of ['meet at ~5:30 sharp', '~note:check the ledger', '~http://x@y', '~user:pass@host']) {
       const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
@@ -650,6 +662,20 @@ describe('resolveRecipients', () => {
     expect(result.qualified_refusal).toBeDefined();
     expect(result.agents).toEqual([]);
     expect(result.agentTargets).toEqual([]);
+  });
+
+  it('refuses a colon-only attempt instead of falling back to the configured default', () => {
+    for (const body of ['~:', '~ :', '~::', '~ ::']) {
+      const m = msg({ author: richard.id, kind: 'chat', body });
+      const result = resolveRecipients(m, ctx({
+        author: richard,
+        roomConfig: RoomConfigSchema.parse({ starting_agent_handle: 'codex' }),
+        qualifiedTargets: qualifiedCatalog,
+      }));
+      expect(result.qualified_refusal, body).toContain('qualified target refused');
+      expect(result.agents, body).toEqual([]);
+      expect(result.agentTargets, body).toEqual([]);
+    }
   });
 
   it('refuses a qualified mention when its stable member is absent from the runtime map', () => {

@@ -32,12 +32,12 @@ notes: >-
   tests, 39 focused web tests, the complete 813-test switchboard suite, the
   complete 464-test web suite, and both recursive builds. The normalized real
   worktree inventory was byte-identical before and after those gates. The two
-  gaps above were reproduced separately with disposable temporary databases
-  and paths: colon-only attempts fell through to the configured local default;
+  gaps above were reproduced separately with disposable temporary databases and
+  paths: colon-only attempts fell through to the configured local default;
   releasing one of two stale held rows left its sibling held and its run
-  running, and the second release created a duplicate refusal. Direct
-  redelivery behaved the same way, while retry_run cleared both terminal
-  bindings and posted two refusals.
+  running, and the second release created a duplicate refusal. Direct redelivery
+  behaved the same way, while retry_run cleared both terminal bindings and
+  posted two refusals.
 
   Do not change catalog shape, valid qualified routing, group conversations,
   collaboration barriers, WebSocket authority, presets, Phase 4 UI/navigation,
@@ -50,8 +50,8 @@ assumptions:
   reviewed:
     - id: body-parser-shared-across-router-and-web
       outcome: unchanged
-      reason: Router and Composer must share the corrected colon-only ownership
-        rule without consumer-specific parsing.
+      reason: Router and Composer must share the corrected colon-only ownership rule
+        without consumer-specific parsing.
     - id: qualified-member-target-identity-is-durable
       outcome: unchanged
       reason: Even the empty-selector/empty-handle form is owned as attempted
@@ -106,8 +106,8 @@ anchors:
         configured local agent.
     qualified-composer-refusal-regression:
       action: change
-      reason: Mirror colon-only malformed ownership through the shared Composer
-        parser without clearing or rerouting the draft.
+      reason: Mirror colon-only malformed ownership through the shared Composer parser
+        without clearing or rerouting the draft.
   default-recipient-fallback-chain:
     substantive-default-recipient:
       action: keep
@@ -154,10 +154,12 @@ verification: Before implementation, run harn find --plan
   evidence, no queued/held/running orphan, no new run, no member revival, and no
   adapter call. All such state must live in disposable temporary databases and
   paths. Run harn find --file for body.ts, daemon.ts, router.spec.ts,
-  daemon.spec.ts, and Composer.spec.tsx and confirm the planned source/regression
-  delimiters after apply. Capture a normalized git worktree list --porcelain
-  path/branch inventory immediately before and after all gates; require identical
-  bytes, count, and SHA-256. No gate may mutate a real worktree or branch. Stage
-  only this plan and the five declared files, run harn check --staged, let the
-  pre-commit hook apply the plan, and create exactly one review-fix implementation
-  commit.
+  daemon.spec.ts, and Composer.spec.tsx and confirm the planned
+  source/regression delimiters after apply. Capture a normalized git worktree
+  list --porcelain path/branch inventory immediately before and after all gates;
+  require identical bytes, count, and SHA-256. No gate may mutate a real
+  worktree or branch. Stage only this plan and the five declared files, run harn
+  check --staged, let the pre-commit hook apply the plan, and create exactly one
+  review-fix implementation commit.
+applied:
+  applied_at: 2026-08-07T03:49:41.552Z

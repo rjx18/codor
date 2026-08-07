@@ -2954,7 +2954,23 @@ export class Daemon {
   /** Settle a target that changed after posting; never re-resolve or fall back. */
   private refuseQualifiedDelivery(room: string, delivery: Delivery, reason: string): void {
     if (delivery.state === 'delivering' || delivery.run_msg_id !== undefined) {
-      this.refuseStaleScopedAttempt(room, [delivery], reason);
+      // One attempt settles as one unit: gather every stale row still bound to
+      // the same run so a later release or redelivery of a sibling row finds
+      // only truthful consumed evidence instead of posting a duplicate refusal.
+      const attempt = [delivery];
+      if (delivery.run_msg_id !== undefined) {
+        for (const bound of this.store.listDeliveries(room)) {
+          if (
+            bound.id !== delivery.id
+            && bound.run_msg_id === delivery.run_msg_id
+            && bound.target !== undefined
+            && !this.store.routingTargetIsActive(bound.target, room)
+          ) {
+            attempt.push(bound);
+          }
+        }
+      }
+      this.refuseStaleScopedAttempt(room, attempt, reason);
       return;
     }
     const settled = this.store.settleStaleScopedDelivery(room, {
@@ -5217,6 +5233,14 @@ export class Daemon {
   redeliver(room: string, deliveryId: string): void {
     const delivery = this.store.getDelivery(room, deliveryId);
     if (!delivery) throw new Error(`no such delivery ${deliveryId}`);
+    // A stale scoped target is never re-queued: terminal rows fail without
+    // mutation; live rows settle their whole run-bound attempt atomically.
+    if (delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room)) {
+      const reason = `registered target ${delivery.target.alias}:@${delivery.target.handle} is no longer valid`;
+      if (delivery.state === 'consumed') throw new Error(`qualified target refused: ${reason}`);
+      this.refuseQualifiedDelivery(room, delivery, reason);
+      return;
+    }
     const targetRoom = delivery.target?.conversation_id ?? room;
     const abandonedRunId = delivery.run_msg_id;
     this.releasedDeliveries.delete(deliveryId);
@@ -5285,6 +5309,15 @@ export class Daemon {
       .filter((delivery) => this.store.getMessage(room, delivery.message_id)?.deleted !== true);
     if (survivors.length === 0) {
       throw new Error('nothing to retry: the run has no surviving instructions to re-deliver');
+    }
+    // A stale scoped target refuses the whole retry before ANY mutation — no
+    // revival, no cleared binding, no requeue, no new run, no durable row.
+    const stale = survivors.find((delivery) =>
+      delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room));
+    if (stale?.target !== undefined) {
+      throw new Error(
+        `qualified target refused: registered target ${stale.target.alias}:@${stale.target.handle} is no longer valid`,
+      );
     }
     // A failed run killed its agent; bring it back so the re-queue can run.
     const targetRoom = message.author_target?.conversation_id ?? room;
