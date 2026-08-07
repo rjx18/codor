@@ -5798,13 +5798,43 @@ export class Daemon {
     return this.worktrees.previewRemoval(room, cwd, worktreeId);
   }
 
-  removeWorktree(
+  // harn:assume worktree-removal-refuses-live-child-runtime ref=worktree-runtime-removal-guard
+  // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-runtime-removal-guard
+  /** Filesystem removal is refused before WorktreeManager (and therefore
+   * before Git) while the exact child still owns runtime or durable work. */
+  private assertWorktreeRemovalSafe(room: string, worktreeId: string): void {
+    const worktree = this.store.getWorktree(room, worktreeId);
+    if (worktree === undefined || worktree.lifecycle !== 'active' || worktree.primary) return;
+    const childRoom = worktree.conversation_id;
+    if (childRoom === undefined) return;
+
+    const members = this.store.listMembers(childRoom, { includeRemoved: true });
+    const agents = members.filter((member) => member.kind === 'agent');
+    const liveAgents = agents.filter((member) => member.removed_ts === undefined);
+    const hasLiveSession = liveAgents.some((member) => this.sessions.has(member.id));
+    const hasInflightTurn = liveAgents.some((member) => this.inflight.has(member.id));
+    const hasDurableInvocation = liveAgents.some((member) =>
+      this.store.listActiveInvocations(member.id).length > 0);
+    const unresolvedStates = new Set<Delivery['state']>(['queued', 'held', 'delivering']);
+    const hasUnresolvedWork = members.some((member) =>
+      this.store.listDeliveriesForTarget(childRoom, member.id)
+        .some((delivery) => unresolvedStates.has(delivery.state)));
+
+    if (hasLiveSession || hasInflightTurn || hasDurableInvocation || hasUnresolvedWork) {
+      throw new Error(`cannot remove worktree ${worktree.alias}: live child runtime or unresolved work remains`);
+    }
+  }
+  // harn:end worktree-removal-is-clean-and-branch-preserving
+  // harn:end worktree-removal-refuses-live-child-runtime
+
+  async removeWorktree(
     room: string,
     worktreeId: string,
     requestedCwd?: string,
   ): ReturnType<WorktreeManager['remove']> {
     const cwd = this.resolveWorktreeCwd(room, requestedCwd);
     if (cwd === undefined) throw new Error('room has no existing repository cwd');
+    this.assertWorktreeRemovalSafe(room, worktreeId);
     return this.worktrees.remove(room, cwd, worktreeId);
   }
 

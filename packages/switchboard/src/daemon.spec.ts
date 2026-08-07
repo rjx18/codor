@@ -8894,3 +8894,307 @@ describe('worktree child default roster', () => {
   });
 });
 // harn:end worktree-child-default-roster-is-an-explicit-snapshot
+
+// harn:assume qualified-member-target-identity-is-durable ref=phase5-qualified-integration-regression
+// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=phase5-qualified-integration-regression
+// harn:assume child-members-own-isolated-runtime ref=phase5-qualified-integration-regression
+// harn:assume cross-worktree-runtime-stays-target-local ref=phase5-qualified-integration-regression
+// harn:assume cross-worktree-output-stays-in-origin ref=phase5-qualified-integration-regression
+// harn:assume target-member-turns-serialize-across-origins ref=phase5-qualified-integration-regression
+// harn:assume agent-authority-follows-one-active-invocation ref=phase5-qualified-integration-regression
+// harn:assume invalid-qualified-targets-never-fallback ref=phase5-qualified-integration-regression
+// harn:assume delivery-attempt-wal-reconcile ref=phase5-qualified-integration-regression
+describe('Phase 5 qualified integration hardening', () => {
+  it('keeps an accepted target on stable identity across alias/path/branch changes and restart', async () => {
+    const worktree = registerQualifiedFixture('old-scope', 'old-scope');
+    const child = worktree.conversation_id;
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: 'stable-target', cwd: testCwd('stable-target'),
+    });
+    daemon.pauseMember(child, target.id);
+    const accepted = daemon.postHumanMessage('eng', '~old-scope:@stable-target accepted before rename');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === accepted.id)!;
+    expect(delivery.target?.alias).toBe('old-scope');
+
+    daemon.updateWorktreeAlias('eng', worktree.id, 'new-scope');
+    daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+      path: join(dir, 'moved-stable-target'),
+      git_admin_id: join(dir, 'qualified-repository', '.git', 'worktrees', 'old-scope'),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: 'feature/moved-stable-target',
+    });
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    fake.enqueue({ kind: 'complete', final_text: 'accepted after metadata change' });
+    daemon.unpauseMember(child, target.id);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]?.cwd).toBe(testCwd('stable-target'));
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('accepted after metadata change');
+    expect(daemon.store.listMessages(child).map((message) => message.body))
+      .not.toContain('accepted after metadata change');
+
+    // The historical alias is not a second selector after the edit; only the
+    // current alias can create a new delivery.
+    expect(() => daemon.postHumanMessage('eng', '~old-scope:@stable-target must refuse old alias'))
+      .toThrow(/qualified target refused/);
+    fake.enqueue({ kind: 'complete', final_text: 'new alias accepted' });
+    daemon.postHumanMessage('eng', '~new-scope:@stable-target use current alias');
+    await daemon.settle();
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('new alias accepted');
+  });
+
+  it('runs equal main and child handles concurrently with target-local runtime authority', async () => {
+    const worktree = registerQualifiedFixture('equal-child', 'equal-child');
+    const sessions: Session[] = [];
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      const session = originalSpawn(opts);
+      sessions.push(session);
+      return session;
+    });
+    const main = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'equal-handle', cwd: testCwd('equal-main'),
+    });
+    const child = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'equal-handle', cwd: testCwd('equal-child'),
+    });
+    spawnSpy.mockRestore();
+    fake.enqueue(
+      { kind: 'complete', final_text: 'main concurrent result', delay_ms: 50 },
+      { kind: 'complete', final_text: 'child concurrent result', delay_ms: 50 },
+    );
+
+    daemon.postHumanMessage('eng', '@equal-handle main concurrent request');
+    daemon.postHumanMessage('eng', '~equal-child:@equal-handle child concurrent request');
+    await until(() => fake.deliveries.length === 2 ? true : undefined);
+
+    expect(daemon.store.getMember('eng', main.id)?.state).toBe('running');
+    expect(daemon.store.getMember(worktree.conversation_id, child.id)?.state).toBe('running');
+    expect(new Set(fake.deliveries.map((delivery) => delivery.cwd))).toEqual(new Set([
+      testCwd('equal-main'), testCwd('equal-child'),
+    ]));
+    expect(new Set(fake.deliveries.map((delivery) => delivery.session_ref)).size).toBe(2);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]?.env?.CODOR_MEMBER_TOKEN).not.toBe(sessions[1]?.env?.CODOR_MEMBER_TOKEN);
+    expect(fake.deliveries.every((delivery) => delivery.payload.includes('channel=eng'))).toBe(true);
+    const childToken = sessions.find((session) => session.env?.CODOR_MEMBER_ID === child.id)
+      ?.env?.CODOR_MEMBER_TOKEN;
+    expect(childToken).toBeDefined();
+    expect(daemon.authenticateAgentToken(childToken!)).toMatchObject({
+      room: 'eng', homeRoom: worktree.conversation_id,
+      member: { id: child.id }, invocation: { targetRoom: worktree.conversation_id },
+    });
+
+    await daemon.settle();
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toEqual(expect.arrayContaining(['main concurrent result', 'child concurrent result']));
+    expect(daemon.store.listMessages(worktree.conversation_id).map((message) => message.body))
+      .not.toEqual(expect.arrayContaining(['main concurrent result', 'child concurrent result']));
+  });
+});
+// harn:end delivery-attempt-wal-reconcile
+// harn:end invalid-qualified-targets-never-fallback
+// harn:end agent-authority-follows-one-active-invocation
+// harn:end target-member-turns-serialize-across-origins
+// harn:end cross-worktree-output-stays-in-origin
+// harn:end cross-worktree-runtime-stays-target-local
+// harn:end child-members-own-isolated-runtime
+// harn:end worktree-alias-and-child-metadata-follow-stable-identity
+// harn:end qualified-member-target-identity-is-durable
+
+// harn:assume qualified-execution-requires-usable-checkout ref=qualified-target-usability-daemon-regression
+describe('qualified checkout usability at daemon admission and recovery', () => {
+  it.each(['missing', 'prunable'] as const)('refuses a %s checkout without fallback or execution', async (availability) => {
+    const worktree = registerQualifiedFixture(`unusable-${availability}`, `unusable-${availability}`);
+    const child = worktree.conversation_id;
+    const local = spawnAgent(`unusable-${availability}-agent`);
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: local.handle, cwd: testCwd(`unusable-${availability}`),
+    });
+    daemon.pauseMember(child, target.id);
+    const root = daemon.postHumanMessage(
+      'eng', `~${worktree.alias}:@${target.handle} refuse ${availability}`,
+    );
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === root.id)!;
+    daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+      path: worktree.path,
+      git_admin_id: worktree.git_admin_id,
+      primary: false,
+      availability,
+      locked: false,
+      branch: worktree.branch,
+    });
+
+    await daemon.maybeStartTurn(child, target.id);
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+  });
+
+  it('settles a recovered delivering attempt against an unavailable checkout exactly once', async () => {
+    const worktree = registerQualifiedFixture('unavailable-recovery', 'unavailable-recovery');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'unavailable-recovery-agent', cwd: testCwd('unavailable-recovery'),
+    });
+    const owner = daemon.ownerOf('eng');
+    const trigger = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '~unavailable-recovery:@unavailable-recovery-agent recover',
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id,
+      recipient: target.id,
+      target: {
+        worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+        member_id: target.id, alias: worktree.alias, handle: target.handle,
+      },
+    });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id, author_target: delivery.target, kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:15:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
+    daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+      path: worktree.path,
+      git_admin_id: worktree.git_admin_id,
+      primary: false,
+      availability: 'missing',
+      locked: false,
+      branch: worktree.branch,
+    });
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const refusalCount = () => daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused')).length;
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(refusalCount()).toBe(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(refusalCount()).toBe(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+});
+// harn:end qualified-execution-requires-usable-checkout
+
+// harn:assume child-members-own-isolated-runtime ref=worktree-runtime-removal-regression
+describe('worktree removal refuses live child runtime before Git', () => {
+  const registerRuntimeChild = () => {
+    const root = join(dir, 'removal-root');
+    const childPath = join(dir, 'removal-child');
+    mkdirSync(root, { recursive: true });
+    mkdirSync(childPath, { recursive: true });
+    daemon.store.updateRoomConfig('eng', { cwd: root });
+    const result = daemon.store.registerWorktree(
+      'eng',
+      {
+        common_path: join(root, '.git'),
+        primary_path: root,
+        primary_git_admin_id: join(root, '.git'),
+      },
+      {
+        path: root, git_admin_id: join(root, '.git'), primary: true,
+        availability: 'available', locked: false, branch: 'main',
+      },
+      {
+        path: childPath, git_admin_id: join(root, '.git', 'worktrees', 'removal-child'),
+        primary: false, availability: 'available', locked: false, branch: 'feature/removal-child',
+      },
+      'removal-child', 'adopted',
+    );
+    return { ...result.worktree, root, childPath };
+  };
+
+  const expectPreGitRefusal = async (worktreeId: string, setup: () => void) => {
+    const remove = vi.spyOn(daemon.worktrees, 'remove').mockImplementation(async () => {
+      throw new Error('Git removal reached');
+    });
+    const before = JSON.stringify(daemon.store.listRegisteredWorktrees('eng'));
+    setup();
+    await expect(daemon.removeWorktree('eng', worktreeId)).rejects.toThrow(/live child runtime/);
+    expect(remove).not.toHaveBeenCalled();
+    expect(JSON.stringify(daemon.store.listRegisteredWorktrees('eng'))).toBe(before);
+    remove.mockRestore();
+  };
+
+  it('refuses an idle cached session and keeps DB-only unregister available', async () => {
+    const worktree = registerRuntimeChild();
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'idle-session', cwd: worktree.childPath,
+    });
+    await expectPreGitRefusal(worktree.id, () => undefined);
+    expect(daemon.store.getMember(worktree.conversation_id, target.id)).toBeDefined();
+    expect(daemon.unregisterWorktree('eng', worktree.id).lifecycle).toBe('unregistered');
+  });
+
+  it.each(['queued', 'held', 'delivering'] as const)('refuses unresolved %s work before Git', async (state) => {
+    const worktree = registerRuntimeChild();
+    const target = daemon.store.addMember(worktree.conversation_id, {
+      kind: 'agent', handle: `unresolved-${state}`, display_name: `Unresolved ${state}`,
+      harness: 'fake', cwd: worktree.childPath, state: 'idle', custody: 'owned',
+    });
+    const owner = daemon.ownerOf('eng');
+    const message = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: `unresolved ${state}`,
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: message.id,
+      recipient: target.id,
+      target: {
+        worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+        member_id: target.id, alias: worktree.alias, handle: target.handle,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, { state });
+    await expectPreGitRefusal(worktree.id, () => undefined);
+  });
+
+  it('refuses an active in-flight invocation before Git', async () => {
+    const worktree = registerRuntimeChild();
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'inflight-child', cwd: worktree.childPath,
+    });
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Keep the child turn live?', options: [{ label: 'continue' }] },
+      reply: () => 'finished',
+    });
+    const remove = vi.spyOn(daemon.worktrees, 'remove').mockImplementation(async () => {
+      throw new Error('Git removal reached');
+    });
+    daemon.postHumanMessage('eng', '~removal-child:@inflight-child keep running');
+    await until(() => fake.deliveries.length === 1 &&
+      daemon.store.getMember(worktree.conversation_id, target.id)?.state === 'running'
+      ? true : undefined);
+    await expect(daemon.removeWorktree('eng', worktree.id)).rejects.toThrow(/live child runtime/);
+    expect(remove).not.toHaveBeenCalled();
+    daemon.interruptMember(worktree.conversation_id, target.id);
+    await daemon.settle();
+    remove.mockRestore();
+  });
+});
+// harn:end child-members-own-isolated-runtime

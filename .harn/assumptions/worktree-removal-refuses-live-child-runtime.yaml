@@ -1,0 +1,15 @@
+id: worktree-removal-refuses-live-child-runtime
+hash: a-24f81074e52f
+title: Filesystem removal refuses a child with live or unresolved runtime
+state: active
+statement: Before any Git filesystem removal, the daemon must refuse an active
+  secondary whose child still owns a live agent session, inflight or durable
+  invocation, or unresolved queued, held, or delivering work; refusal occurs
+  before Git and preserves registry state, filesystem, branches, agents,
+  sessions, tasks, deliveries, and usage, while DB-only unregister remains
+  non-mutating and distinct.
+depends_on:
+  - worktree-removal-is-clean-and-branch-preserving
+  - child-members-own-isolated-runtime
+  - worktree-lifecycle-preserves-existing-state-by-default
+created_by: native-worktrees-phase5-integration-hardening

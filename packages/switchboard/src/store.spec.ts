@@ -4117,3 +4117,76 @@ describe('child default roster seeding', () => {
 // harn:end default-roster-channel-members-are-detached-ordered-snapshots
 // harn:end default-roster-channel-members-are-detached-ordered-snapshots
 // harn:end worktree-child-default-roster-is-an-explicit-snapshot
+
+// harn:assume qualified-execution-requires-usable-checkout ref=qualified-target-usability-store-regression
+describe('qualified target usability and stable identity', () => {
+  it('keeps accepted identity stable while requiring current aliases for new delivery and usable checkouts', () => {
+    openRoom(store);
+    const registered = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'old-label', 'adopted',
+    );
+    const child = registered.worktree.conversation_id;
+    const member = store.addMember(child, {
+      kind: 'agent', handle: 'stable-agent', display_name: 'Stable Agent', state: 'idle',
+    });
+    const acceptedTarget = {
+      worktree_id: registered.worktree.id,
+      conversation_id: child,
+      member_id: member.id,
+      alias: 'old-label',
+      handle: member.handle,
+    } as const;
+    const owner = store.getMemberByHandle('eng', 'richard')!;
+    const acceptedMessage = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'accepted before metadata changed',
+    });
+    const accepted = store.createDelivery('eng', {
+      message_id: acceptedMessage.id, recipient: member.id, target: acceptedTarget,
+    });
+
+    store.updateWorktreeAlias('eng', registered.worktree.id, 'new-label');
+    store.refreshWorktreeObservation('eng', registered.worktree.id, {
+      ...childObs('child'),
+      path: join(dir, 'moved-child'),
+      branch: 'feature/moved-child',
+    });
+    expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
+
+    // The stable target remains valid over a store restart and keeps its old
+    // alias only as historical delivery attribution.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
+    expect(store.getDelivery('eng', accepted.id)?.target).toEqual(acceptedTarget);
+
+    const newMessage = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'new message after alias change',
+    });
+    const currentTarget = { ...acceptedTarget, alias: 'new-label' };
+    expect(store.createDelivery('eng', {
+      message_id: newMessage.id, recipient: member.id, target: currentTarget,
+    }).target).toEqual(currentTarget);
+
+    for (const availability of ['available', 'locked'] as const) {
+      store.refreshWorktreeObservation('eng', registered.worktree.id, {
+        ...childObs('child'),
+        path: join(dir, 'moved-child'),
+        branch: 'feature/moved-child',
+        availability,
+        locked: availability === 'locked',
+      });
+      expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
+    }
+    for (const availability of ['missing', 'prunable'] as const) {
+      store.refreshWorktreeObservation('eng', registered.worktree.id, {
+        ...childObs('child'),
+        path: join(dir, 'moved-child'),
+        branch: 'feature/moved-child',
+        availability,
+        locked: false,
+      });
+      expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(false);
+    }
+  });
+});
+// harn:end qualified-execution-requires-usable-checkout

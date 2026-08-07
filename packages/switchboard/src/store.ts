@@ -2298,7 +2298,6 @@ export class Store {
       || worktree.room !== root
       || worktree.repository_id !== targetRepository.id
       || worktree.conversation_id !== target.conversation_id
-      || worktree.alias !== target.alias
     ) return undefined;
     const member = this.getMember(target.conversation_id, target.member_id);
     if (
@@ -2317,8 +2316,10 @@ export class Store {
     const located = this.routingTargetRecord(target, originRoom);
     return located !== undefined
       && located.worktree.lifecycle === 'active'
+      && (located.worktree.availability === 'available' || located.worktree.availability === 'locked')
       && located.member.removed_ts === undefined;
   }
+
   // harn:end qualified-member-target-identity-is-durable
 
   getWorktreeByGitAdmin(

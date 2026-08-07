@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -619,3 +619,94 @@ function adoptedId(current: Store, alias: string): string {
   if (worktree === undefined) throw new Error(`fixture worktree ${alias} was not registered`);
   return worktree.id;
 }
+
+// harn:assume worktree-removal-is-clean-and-branch-preserving ref=phase5-git-fixture-safety-regression
+// harn:assume worktree-git-execution-is-argument-safe ref=phase5-git-fixture-safety-regression
+// harn:assume worktree-discovery-never-registers-candidates ref=phase5-git-fixture-safety-regression
+// harn:assume worktree-creation-registers-only-a-new-secondary ref=phase5-git-fixture-safety-regression
+describe('Phase 5 disposable Git fixture safety', () => {
+  it('keeps an unselected checkout and every branch intact across the full lifecycle', async () => {
+    const unselectedPath = join(fixtureRoot, 'unselected secondary with spaces');
+    const adoptedPath = join(fixtureRoot, 'selected secondary with spaces');
+    git(repositoryPath, ['worktree', 'add', '-b', 'feature/unselected', unselectedPath, 'HEAD']);
+    git(repositoryPath, ['worktree', 'add', '-b', 'feature/adopted', adoptedPath, 'HEAD']);
+
+    const unselectedBefore = {
+      gitFile: readFileSync(join(unselectedPath, '.git'), 'utf8'),
+      head: git(unselectedPath, ['rev-parse', 'HEAD']),
+      status: git(unselectedPath, ['status', '--porcelain=v1', '-z']),
+    };
+    const refsBefore = git(repositoryPath, ['show-ref'])
+      .split('\n').filter((line) => line !== '');
+    const calls: { cwd: string; args: readonly string[] }[] = [];
+    const traced = new WorktreeManager(store, {
+      git: async (cwd, args) => {
+        calls.push({ cwd, args: [...args] });
+        try {
+          return {
+            stdout: execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }),
+            stderr: '',
+          };
+        } catch (error) {
+          // WorktreeManager's runner contract exposes Git's exit status as
+          // `code`; execFileSync stores the same status as `status`.
+          const status = (error as { status?: number }).status;
+          if (status !== undefined && (error as { code?: number }).code === undefined) {
+            Object.defineProperty(error, 'code', { value: status });
+          }
+          throw error;
+        }
+      },
+    });
+
+    const discovered = await traced.list('eng', repositoryPath);
+    expect(discovered.registered).toEqual([]);
+    expect(discovered.discovered.map((candidate) => candidate.path)).toEqual(
+      expect.arrayContaining([unselectedPath, adoptedPath]),
+    );
+
+    const adopted = await traced.adopt('eng', repositoryPath, {
+      path: adoptedPath, alias: 'selected-adopted',
+    });
+    const created = await traced.create('eng', repositoryPath, {
+      alias: 'selected-created', branch: 'feature/created',
+      path: join(fixtureRoot, 'selected created secondary'),
+    });
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'selected-adopted', 'selected-created']);
+
+    // Unregister is database-only and does not touch the adopted checkout.
+    expect(traced.unregister('eng', adopted.worktree.id).lifecycle).toBe('unregistered');
+    expect(existsSync(adoptedPath)).toBe(true);
+
+    writeFileSync(join(created.worktree.path, 'dirty.txt'), 'must refuse\n');
+    await expect(traced.remove('eng', repositoryPath, created.worktree.id))
+      .rejects.toThrow('clean before removal');
+    expect(existsSync(created.worktree.path)).toBe(true);
+    rmSync(join(created.worktree.path, 'dirty.txt'));
+    const removed = await traced.remove('eng', repositoryPath, created.worktree.id);
+    expect(removed.worktree.lifecycle).toBe('removed');
+    expect(existsSync(created.worktree.path)).toBe(false);
+
+    const refsAfter = git(repositoryPath, ['show-ref']).split('\n').filter((line) => line !== '');
+    for (const ref of refsBefore) expect(refsAfter).toContain(ref);
+    expect(refsAfter.some((line) => line.endsWith('refs/heads/feature/created'))).toBe(true);
+    expect(readFileSync(join(unselectedPath, '.git'), 'utf8')).toBe(unselectedBefore.gitFile);
+    expect(git(unselectedPath, ['rev-parse', 'HEAD'])).toBe(unselectedBefore.head);
+    expect(git(unselectedPath, ['status', '--porcelain=v1', '-z'])).toBe(unselectedBefore.status);
+    expect(existsSync(unselectedPath)).toBe(true);
+
+    expect(calls.every(({ args }) => !args.includes('--force') && !args.includes('prune'))).toBe(true);
+    expect(calls.every(({ args }) => !(args[0] === 'branch' && args.some((arg) => arg === '-d' || arg === '-D'))))
+      .toBe(true);
+    const unselectedMutations = calls.filter(({ cwd, args }) =>
+      (cwd === unselectedPath || args.includes(unselectedPath)) &&
+      args[0] === 'worktree' && ['add', 'remove', 'move', 'lock', 'unlock'].includes(args[1] ?? ''));
+    expect(unselectedMutations).toEqual([]);
+    expect(calls.every(({ args }) => args.every((arg) => !/[;&|<>]/.test(arg)))).toBe(true);
+  });
+});
+// harn:end worktree-creation-registers-only-a-new-secondary
+// harn:end worktree-discovery-never-registers-candidates
+// harn:end worktree-git-execution-is-argument-safe
+// harn:end worktree-removal-is-clean-and-branch-preserving
