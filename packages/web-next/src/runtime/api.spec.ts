@@ -108,14 +108,24 @@ describe('qualified target catalog client', () => {
   it('fetches the path-free catalog with the bearer token and validates its projection', async () => {
     const catalog = {
       room: 'eng',
-      targets: [{
-        worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
-        conversation_id: 'wt-review',
-        alias: 'review',
-        primary: false,
-        lifecycle: 'active',
-        members: [{ member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ', handle: 'coder', kind: 'agent' }],
-      }],
+      targets: [
+        {
+          worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAA',
+          conversation_id: 'eng',
+          alias: 'main',
+          primary: true,
+          lifecycle: 'active',
+          members: [{ member_id: '01BX5ZZKBKACTAV9WEVGEMMVRY', handle: 'richard', kind: 'human' }],
+        },
+        {
+          worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+          conversation_id: 'wt-review',
+          alias: 'review',
+          primary: false,
+          lifecycle: 'active',
+          members: [{ member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ', handle: 'coder', kind: 'agent' }],
+        },
+      ],
       tombstones: [],
     };
     const fetch = vi.fn(() => Promise.resolve({
@@ -139,6 +149,26 @@ describe('qualified target catalog client', () => {
 
     vi.stubGlobal('fetch', () => Promise.resolve({
       ok: true, status: 200, json: () => Promise.resolve({ room: 'eng', targets: [{ path: '/tmp/leak' }], tombstones: [] }),
+    } as unknown as Response));
+    await expect(fetchRoutingCatalog('eng', { token: 'secret' })).rejects.toThrow();
+
+    // A secondary-only projection has no stable primary main target; the wire
+    // invariant rejects it instead of letting completion route around main.
+    vi.stubGlobal('fetch', () => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        room: 'eng',
+        targets: [{
+          worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+          conversation_id: 'wt-review',
+          alias: 'review',
+          primary: false,
+          lifecycle: 'active',
+          members: [{ member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ', handle: 'coder', kind: 'agent' }],
+        }],
+        tombstones: [],
+      }),
     } as unknown as Response));
     await expect(fetchRoutingCatalog('eng', { token: 'secret' })).rejects.toThrow();
   });

@@ -2953,11 +2953,21 @@ export class Daemon {
   // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal
   /** Settle a target that changed after posting; never re-resolve or fall back. */
   private refuseQualifiedDelivery(room: string, delivery: Delivery, reason: string): void {
-    if (delivery.group_id !== undefined) this.skipUnavailableGroupDelivery(room, delivery);
-    else this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
-    const settled = this.store.getDelivery(room, delivery.id);
-    if (settled !== undefined) this.emitInbox(room, settled);
-    this.postSystemMessage(room, `qualified target refused: ${reason}`);
+    if (delivery.state === 'delivering' || delivery.run_msg_id !== undefined) {
+      this.refuseStaleScopedAttempt(room, [delivery], reason);
+      return;
+    }
+    const settled = this.store.settleStaleScopedDelivery(room, {
+      deliveryId: delivery.id,
+      reason,
+      settledTs: new Date().toISOString(),
+    });
+    if (settled.settled) this.emitInbox(room, settled.delivery);
+    if (settled.refusal !== undefined) this.emitMessage(room, settled.refusal);
+    if (delivery.group_id !== undefined && delivery.group_round !== undefined) {
+      this.clearSatisfiedGroupWaits(room, delivery.group_id, delivery.group_round);
+      this.advanceCollaborationRound(room, delivery.group_id, delivery.group_round);
+    }
   }
   // harn:end invalid-qualified-targets-never-fallback
 
@@ -2969,7 +2979,7 @@ export class Daemon {
 
   private dispatchCreatedDeliveries(room: string, created: Delivery[]): void {
     for (const delivery of created) {
-      if (delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target)) {
+      if (delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room)) {
         this.refuseQualifiedDelivery(room, delivery, `target ${delivery.target.alias}:@${delivery.target.handle} is no longer active`);
         continue;
       }
@@ -3243,33 +3253,40 @@ export class Daemon {
       awaitingReply,
       executionRoom,
     );
+    // A message that may not START a group carries no refusal of its own: an
+    // interim note was already refused at the post boundary, and a group
+    // participant RESULT is refused exactly once by the barrier's atomic
+    // close — the finalization post must not say it a second time.
+    const result = !allowGroup && planned.result.qualified_refusal !== undefined
+      ? { ...planned.result, qualified_refusal: undefined }
+      : planned.result;
     const base: RoutedMessagePlan = {
       fanout: planned.fanout,
-      ...(planned.result.misaddressed && { markMisaddressed: true }),
+      ...(result.misaddressed && { markMisaddressed: true }),
     };
     if (
       !allowGroup
-      || planned.result.agents.length < 2
+      || result.agents.length < 2
     ) {
-      return { result: planned.result, plan: base };
+      return { result, plan: base };
     }
 
     const groupId = ulid();
     const context = this.groupPayloadContext(room, message, groupId, 1);
-    const humanIds = new Set(planned.result.humans.map((member) => member.id));
+    const humanIds = new Set(result.humans.map((member) => member.id));
     const agentFanout = new Map(
       planned.fanout
         .filter((delivery) => !humanIds.has(delivery.recipient))
         .map((delivery) => [delivery.recipient, delivery]),
     );
     return {
-      result: planned.result,
+      result,
       plan: {
         ...base,
         fanout: planned.fanout.filter((delivery) => humanIds.has(delivery.recipient)),
           collaboration: {
             groupId,
-            participants: planned.result.agents.map((agent) => ({
+            participants: result.agents.map((agent) => ({
               memberId: agent.id,
               target: agentFanout.get(agent.id)?.target,
               payloadSnapshot: this.groupPayloadSnapshot(
@@ -3459,11 +3476,9 @@ export class Daemon {
   async maybeStartTurn(room: string, memberId: string): Promise<void> {
     let queued = this.store.listDeliveriesForTarget(room, memberId, { state: 'queued' })
       .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
-    // Refuse every stale scoped row before selecting a batch. Refusing only
-    // the FIFO head could strand a later valid delivery behind it, and stale
-    // identity must never be re-resolved against the origin roster.
+    // Refuse every stale scoped row first: each validates against its own origin, never itself.
     const invalid = queued.filter((delivery) =>
-      delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target));
+      delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, delivery.room));
     for (const delivery of invalid) {
       this.refuseQualifiedDelivery(delivery.room, delivery, 'registered target was removed or unregistered');
     }
@@ -4501,24 +4516,17 @@ export class Daemon {
     }
 
     if (invalidQualifiedIssues.length > 0) {
-      const release = this.store.releaseCollaborationRound(room, {
+      // One barrier exit: the round/group close and the visible refusal commit
+      // in the same transaction, so a repeated advancement or a restart can
+      // neither lose nor duplicate the refusal nor open another round.
+      const uniqueIssues = [...new Set(invalidQualifiedIssues)];
+      const closed = this.store.closeCollaborationRoundWithRefusal(room, {
         groupId,
         roundNumber,
         releasedTs: new Date().toISOString(),
-        nextParticipants: [],
+        refusalBody: `qualified target refused in collaboration result: ${uniqueIssues.join(', ')}`,
       });
-      if (release.status === 'closed') {
-        const uniqueIssues = [...new Set(invalidQualifiedIssues)];
-        const existingRefusal = this.store.listMessages(room, { limit: Number.MAX_SAFE_INTEGER })
-          .some((message) => message.kind === 'system' && uniqueIssues
-            .every((issue) => message.body.includes(issue.split(' (', 1)[0]!)));
-        if (!existingRefusal) {
-          this.postSystemMessage(
-            room,
-            `qualified target refused in collaboration result: ${uniqueIssues.join(', ')}`,
-          );
-        }
-      }
+      if (closed.refusal !== undefined) this.emitMessage(room, closed.refusal);
       return;
     }
 
@@ -4578,6 +4586,37 @@ export class Daemon {
   }
 
   // harn:assume open-collaboration-groups-reconcile-without-resurrection ref=collaboration-member-skip-engine
+  /**
+   * The started counterpart of a scoped refusal: one durable settlement per
+   * attempt — consumed bound rows, interrupted run evidence with no remaining
+   * valid work, a truthful interrupted group slot, and one origin refusal.
+   */
+  private refuseStaleScopedAttempt(room: string, deliveries: Delivery[], reason: string): void {
+    if (deliveries.length === 0) return;
+    const settled = this.store.settleInvalidScopedAttempt(room, {
+      deliveryIds: deliveries.map((delivery) => delivery.id),
+      reason,
+      settledTs: new Date().toISOString(),
+    });
+    if (settled.settled) {
+      for (const delivery of settled.deliveries) this.emitInbox(room, delivery);
+    }
+    for (const run of settled.runs) {
+      this.runActivity.delete(`${room}:${run.id}`);
+      this.emitMessage(room, run);
+    }
+    if (settled.refusal !== undefined) this.emitMessage(room, settled.refusal);
+    for (const delivery of deliveries) {
+      if (delivery.group_id !== undefined && delivery.group_round !== undefined) {
+        this.clearSatisfiedGroupWaits(room, delivery.group_id, delivery.group_round);
+        this.advanceCollaborationRound(room, delivery.group_id, delivery.group_round);
+      }
+    }
+  }
+
+  /** Before-start group skips only — invalid ALREADY-DELIVERING scoped work
+   * settles through refuseStaleScopedAttempt, which preserves truthful
+   * interrupted evidence instead of throwing on the started slot. */
   private skipUnavailableGroupDelivery(room: string, delivery: Delivery): void {
     if (delivery.group_id === undefined || delivery.group_round === undefined) return;
     const skipped = this.store.skipCollaborationParticipant(
@@ -4803,44 +4842,26 @@ export class Daemon {
       // harn:end copilot-vscode-boot-admission-fails-closed-without-live-cache
       let delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
       // A durable target is revalidated before recovery decides whether a run
-      // may be retried. Invalid scoped rows are settled in their origin room;
-      // they must not keep a stale run eligible for adapter execution.
+      // may be retried. Each stale attempt settles as ONE durable unit in its
+      // origin room before any adapter retry; a repeated reconcile finds
+      // nothing left to transition.
       const staleDeliveries = delivering.filter((delivery) =>
         delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, delivery.room));
-      for (const delivery of staleDeliveries) {
-        this.refuseQualifiedDelivery(
-          room.id,
-          delivery,
-          `registered target ${delivery.target!.alias}:@${delivery.target!.handle} is no longer valid`,
-        );
-      }
       if (staleDeliveries.length > 0) {
-        const staleRunIds = new Set(
-          staleDeliveries
-            .map((delivery) => delivery.run_msg_id)
-            .filter((runId): runId is number => runId !== undefined),
-        );
-        for (const runMsgId of staleRunIds) {
-          const stillDelivering = this.store.listDeliveries(room.id, { state: 'delivering' })
-            .some((delivery) => delivery.run_msg_id === runMsgId);
-          if (stillDelivering) continue;
-          const run = this.store.getMessage(room.id, runMsgId);
-          if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
-          const interrupted = this.store.updateMessage(room.id, run.id, {
-            body: '',
-            mentions: [],
-            refs: [],
-            ledger_refs: [],
-            run: {
-              ...run.run,
-              status: 'interrupted',
-              ended_ts: new Date().toISOString(),
-              stalled_since: undefined,
-              final_text: undefined,
-            },
-          });
-          this.runActivity.delete(`${room.id}:${run.id}`);
-          this.emitMessage(room.id, interrupted);
+        const staleByAttempt = new Map<number | string, Delivery[]>();
+        for (const delivery of staleDeliveries) {
+          const key = delivery.run_msg_id ?? delivery.id;
+          const attempt = staleByAttempt.get(key) ?? [];
+          attempt.push(delivery);
+          staleByAttempt.set(key, attempt);
+        }
+        for (const attempt of staleByAttempt.values()) {
+          const target = attempt[0]!.target!;
+          this.refuseStaleScopedAttempt(
+            room.id,
+            attempt,
+            `registered target ${target.alias}:@${target.handle} is no longer valid`,
+          );
         }
         delivering = this.store.listDeliveries(room.id, { state: 'delivering' });
       }
@@ -5145,11 +5166,11 @@ export class Daemon {
   ): RetryTurnRefusal | undefined {
     const stale = group.filter((delivery) =>
       delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room));
-    for (const delivery of stale) {
-      this.refuseQualifiedDelivery(
+    if (stale.length > 0) {
+      this.refuseStaleScopedAttempt(
         room,
-        delivery,
-        `registered target ${delivery.target!.alias}:@${delivery.target!.handle} is no longer valid`,
+        stale,
+        `registered target ${[...new Set(stale.map((delivery) => `${delivery.target!.alias}:@${delivery.target!.handle}`))].join(', ')} is no longer valid`,
       );
     }
     group = group.filter((delivery) => !stale.some((candidate) => candidate.id === delivery.id));

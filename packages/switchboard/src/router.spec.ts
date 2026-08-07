@@ -227,6 +227,46 @@ describe('qualified body grammar', () => {
     }
   });
 
+  it('owns empty selectors, repeated colons, and line breaks without leaking the inner handle', () => {
+    const handled: [string, { selector: string; handle: string }][] = [
+      ['~:@codex', { selector: '', handle: 'codex' }],
+      ['~ :@codex', { selector: '', handle: 'codex' }],
+      ['~review::@codex', { selector: 'review', handle: 'codex' }],
+      ['~review: :@codex', { selector: 'review', handle: 'codex' }],
+      ['~review:\n@codex', { selector: 'review', handle: 'codex' }],
+      ['~\nreview:@codex', { selector: 'review', handle: 'codex' }],
+      ['~review:\r\n@codex', { selector: 'review', handle: 'codex' }],
+      ['~review:\t@codex', { selector: 'review', handle: 'codex' }],
+    ];
+    for (const [body, parts] of handled) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified, body).toEqual([]);
+      expect(parsed.mentions, body).toEqual([]);
+      expect(parsed.qualified_issues, body).toEqual([
+        expect.objectContaining({ reason: 'malformed', ...parts, token: body }),
+      ]);
+    }
+  });
+
+  it('owns a dangling selector with an empty handle instead of posting it', () => {
+    for (const body of ['~review:', '~review:@']) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified, body).toEqual([]);
+      expect(parsed.mentions, body).toEqual([]);
+      expect(parsed.qualified_issues, body).toEqual([
+        expect.objectContaining({ reason: 'malformed', selector: 'review', handle: '', token: body }),
+      ]);
+    }
+  });
+
+  it('leaves colon-bearing ordinary prose outside qualified-token ownership', () => {
+    for (const body of ['meet at ~5:30 sharp', '~note:check the ledger', '~http://x@y', '~user:pass@host']) {
+      const parsed = parseBody(body, ROSTER, { qualifiedTargets: qualifiedCatalog });
+      expect(parsed.qualified, body).toBeUndefined();
+      expect(parsed.qualified_issues, body).toBeUndefined();
+    }
+  });
+
   it('distinguishes ambiguous targets and removed members', () => {
     const ambiguous = parseBody('~review:@codex', ROSTER, {
       qualifiedTargets: {

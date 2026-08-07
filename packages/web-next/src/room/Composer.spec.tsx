@@ -109,6 +109,12 @@ describe('qualified composer completion', () => {
       caret: 24,
     });
   });
+
+  it('suggests nothing for an ordinary channel empty catalog', () => {
+    const query = qualifiedMentionQuery('~:@co', 5)!;
+    expect(qualifiedCompletionCandidates({ room: 'eng', targets: [], tombstones: [] }, query))
+      .toEqual([]);
+  });
 });
 // harn:end qualified-completion-lists-registered-targets-only
 
@@ -129,6 +135,15 @@ describe('qualified composer refusal', () => {
     '~review :@codex',
     '~ review:@codex',
     '~review: @codex',
+    '~:@codex',
+    '~ :@codex',
+    '~review::@codex',
+    '~review: :@codex',
+    '~review:\n@codex',
+    '~\nreview:@codex',
+    '~review:\r\n@codex',
+    '~review:',
+    '~review:@',
   ])('owns malformed scoped syntax without leaking the inner mention (%s)', (draft) => {
     const parsed = parseBody(draft, [{
       id: '01J00000000000000000000010', kind: 'agent', handle: 'codex',
@@ -142,6 +157,7 @@ describe('qualified composer refusal', () => {
     expect(parsed.qualified_issues).toEqual([
       expect.objectContaining({ reason: 'malformed' }),
     ]);
+    expect(draft).toContain(parsed.qualified_issues![0]!.token);
   });
 
   it('keeps an unknown scoped target as a structured issue for inline draft feedback', () => {

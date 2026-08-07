@@ -719,6 +719,84 @@ it('maps an active target session across home and origin selectors without widen
     .toMatchObject({ type: 'error' });
   client.ws.close();
 });
+
+it('drops effective-origin authority on the live socket once the durable target invalidates, restoring home only on fresh auth', async () => {
+  const fixture = join(dir, 'invalidated invocation fixture');
+  const primary = join(fixture, 'primary');
+  const childPath = join(fixture, 'child');
+  mkdirSync(primary, { recursive: true });
+  fixtureGit(primary, ['init', '-q', '-b', 'main']);
+  fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+  fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+  writeFileSync(join(primary, 'README.md'), 'invalidated invocation fixture\n');
+  fixtureGit(primary, ['add', 'README.md']);
+  fixtureGit(primary, ['commit', '-qm', 'invalidated invocation fixture']);
+  fixtureGit(primary, ['worktree', 'add', '-b', 'feature/invalidated-invocation', childPath, 'HEAD']);
+  daemon.store.updateRoomConfig('eng', { cwd: primary });
+  const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'invalid-target' });
+  const child = adopted.worktree.conversation_id;
+  const { agent, session } = spawnAgentWithToken('invalid-target-agent', child);
+  const sibling = daemon.spawnMember(child, {
+    harness: 'fake', handle: 'invalid-target-sibling', cwd: testCwd('invalid-target-sibling'),
+  });
+  daemon.pauseMember(child, sibling.id);
+
+  fake.enqueue({
+    kind: 'ask',
+    card: { kind: 'ask', prompt: 'Keep the doomed invocation active?' },
+    reply: () => 'too late',
+  });
+  daemon.postHumanMessage('eng', '~invalid-target:@invalid-target-agent begin scoped work');
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const activeToken = session.env?.CODOR_MEMBER_TOKEN;
+    if (activeToken !== undefined && daemon.authenticateAgentToken(activeToken)?.invocation !== undefined) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const activeToken = session.env?.CODOR_MEMBER_TOKEN!;
+  expect(daemon.authenticateAgentToken(activeToken)).toMatchObject({
+    room: 'eng', homeRoom: child,
+    invocation: { originRoom: 'eng', targetRoom: child },
+  });
+
+  const client = await connectAs(activeToken);
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  expect(await client.next((frame) => frame.type === 'self' && frame.room === 'eng'))
+    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
+
+  // The durable target invalidates mid-turn: the same socket loses every
+  // effective-origin mapping, including the home selector that used to remap.
+  daemon.store.unregisterWorktree('eng', adopted.worktree.id, '2026-08-06T00:40:00.000Z');
+  expect(daemon.authenticateAgentToken(activeToken)).toMatchObject({ room: child, homeRoom: child });
+  expect(daemon.authenticateAgentToken(activeToken)?.invocation).toBeUndefined();
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 1);
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 2);
+  client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'still here?' }));
+  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 3);
+  expect(client.frames.filter((frame) => frame.type === 'error')).toHaveLength(3);
+  client.ws.close();
+
+  // A sibling's queued row must never hydrate into the target agent's inbox;
+  // the agent's own queued row must.
+  daemon.postHumanMessage(child, '@invalid-target-sibling sibling work');
+  daemon.postHumanMessage(child, '@invalid-target-agent own queued work');
+
+  // Fresh authentication after settlement restores exactly the home scope.
+  const fresh = await connectAs(activeToken);
+  fresh.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+  expect(await fresh.next((frame) => frame.type === 'self'))
+    .toMatchObject({ type: 'self', member_id: agent.id });
+  await fresh.next((frame) => frame.type === 'sync_complete');
+  const freshInboxes = fresh.frames.filter(
+    (frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox',
+  );
+  expect(freshInboxes.length).toBeGreaterThan(0);
+  expect(freshInboxes.every((frame) => frame.delivery.recipient === agent.id)).toBe(true);
+  fresh.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  expect(await fresh.next((frame) => frame.type === 'error')).toMatchObject({ type: 'error' });
+  fresh.ws.close();
+});
 // harn:end agent-authority-follows-one-active-invocation
 
 afterEach(async () => {

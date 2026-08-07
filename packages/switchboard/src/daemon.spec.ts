@@ -4659,6 +4659,73 @@ describe('collaboration recovery and unavailable participants', () => {
     expect(fake.deliveries.filter((delivery) => delivery.payload.includes('round=2')))
       .toHaveLength(1);
   });
+
+  it('settles an invalid already-delivering group participant truthfully at boot without throwing', async () => {
+    const alpha = spawnAgent('boot-group-alpha');
+    const worktree = registerQualifiedFixture('boot-group-target', 'boot-group-target');
+    const remote = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'boot-group-remote', cwd: testCwd('boot-group-remote'),
+    });
+    daemon.pauseMember('eng', alpha.id);
+    daemon.pauseMember(worktree.conversation_id, remote.id);
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@boot-group-alpha ~boot-group-target:@boot-group-remote group up',
+    );
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const remoteParticipant = daemon.store
+      .listCollaborationParticipants('eng', group.id, 1)
+      .find((participant) => participant.member_id === remote.id)!;
+    const remoteDelivery = daemon.store.getDelivery('eng', remoteParticipant.delivery_id)!;
+    // The scoped attempt had already started when its target went stale.
+    const run = daemon.store.postMessage('eng', {
+      author: remote.id,
+      author_target: remoteDelivery.target,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:30:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(root.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', remoteDelivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, remote.id, { state: 'running' });
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:31:00.000Z');
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const refusals = () =>
+      daemon.store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(daemon.store.getDelivery('eng', remoteDelivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(daemon.store.findCollaborationParticipantByDelivery('eng', remoteDelivery.id))
+      .toMatchObject({ terminal_status: 'interrupted' });
+    expect(refusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+    // The surviving participant is not terminal, so the barrier holds: no
+    // closed round, no next round, no new deliveries.
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('collecting');
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+
+    // A repeated restart settles nothing twice and reopens nothing.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(refusals()).toHaveLength(1);
+    expect(daemon.store.findCollaborationParticipantByDelivery('eng', remoteDelivery.id))
+      .toMatchObject({ terminal_status: 'interrupted' });
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('collecting');
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
 });
 // harn:end open-collaboration-groups-reconcile-without-resurrection
 
@@ -8149,7 +8216,7 @@ describe('qualified target orchestration', () => {
     daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
     daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:13:00.000Z');
 
-    daemon.store.close();
+    await daemon.close({ force: true });
     daemon = newDaemon();
     await daemon.reconcile();
     await daemon.settle();
@@ -8186,10 +8253,282 @@ describe('qualified target orchestration', () => {
     expect(daemon.store.listMessages('eng').filter((message) =>
       message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
   });
+
+  it('persists exactly one barrier refusal across repeated advancement and restart', async () => {
+    const alpha = spawnAgent('barrier-refusal-alpha');
+    const beta = spawnAgent('barrier-refusal-beta');
+    const gamma = spawnAgent('barrier-refusal-gamma');
+    daemon.pauseMember('eng', gamma.id);
+    fake.enqueue(
+      { kind: 'complete', final_text: '~missing:@barrier-refusal-gamma invalid scoped intent' },
+      { kind: 'complete', final_text: 'beta clean result' },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@barrier-refusal-alpha @barrier-refusal-beta compare refusal durability',
+    );
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const refusals = () =>
+      daemon.store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(group.state).toBe('completed');
+    expect(refusals()).toHaveLength(1);
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    expect(fake.deliveries).toHaveLength(2);
+
+    // A restart repeats the barrier advancement over durable state: the
+    // refusal can neither be lost nor duplicated, and no next round appears.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(refusals()).toHaveLength(1);
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.getCollaborationGroup('eng', group.id)?.state).toBe('completed');
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    expect(fake.deliveries).toHaveLength(2);
+  });
+
+  it('drains a legacy foreign-repository row before the valid same-target batch', async () => {
+    const worktree = registerQualifiedFixture('fifo-target', 'fifo-target');
+    const targetRoom = worktree.conversation_id;
+    const target = daemon.spawnMember(targetRoom, {
+      harness: 'fake', handle: 'fifo-agent', cwd: testCwd('fifo-agent'),
+    });
+    // A second repository tree: a queued row living there can never validate
+    // an eng target against itself.
+    daemon.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'),
+      primary: true, availability: 'available' as const, locked: false, branch: 'main',
+    };
+    const opsSecondary = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available' as const, locked: false, branch: 'feature/ops-child',
+    };
+    daemon.store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const engTarget = {
+      worktree_id: worktree.id, conversation_id: targetRoom,
+      member_id: target.id, alias: 'fifo-target', handle: target.handle,
+    } as const;
+    // The legacy row sits AHEAD of the valid row in the target FIFO.
+    const legacyMessage = daemon.store.postMessage('ops', {
+      author: daemon.store.getMemberByHandle('ops', 'ops-owner')!.id,
+      kind: 'chat',
+      body: 'legacy foreign queued row',
+    });
+    const foreignId = `legacy-${legacyMessage.id}`;
+    const legacy = new Database(join(dir, 'switchboard.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'ops', ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        foreignId,
+        legacyMessage.id,
+        target.id,
+        engTarget.worktree_id,
+        engTarget.conversation_id,
+        engTarget.alias,
+        engTarget.handle,
+        new Date().toISOString(),
+      );
+    legacy.close();
+
+    fake.enqueue({ kind: 'complete', final_text: 'valid target work' });
+    daemon.postHumanMessage('eng', '~fifo-target:@fifo-agent valid request');
+    await daemon.settle();
+
+    // The foreign row settled in ITS origin — consumed with one visible
+    // refusal — without spinning the pump or invoking an adapter, and the
+    // later valid row still ran on the target's own session.
+    expect(daemon.store.getDelivery('ops', foreignId)?.state).toBe('consumed');
+    expect(daemon.store.listMessages('ops').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]?.cwd).toBe(testCwd('fifo-agent'));
+    expect(fake.deliveries[0]?.payload).toContain('channel=eng');
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('valid target work');
+  });
 });
 // harn:end target-member-turns-serialize-across-origins
 // harn:end cross-worktree-runtime-stays-target-local
 // harn:end cross-worktree-output-stays-in-origin
+
+// harn:assume delivery-attempt-wal-reconcile ref=scoped-boot-reconcile-regression
+describe('scoped boot reconcile settlement', () => {
+  const seedStaleDeliveringAttempt = (alias: string) => {
+    const worktree = registerQualifiedFixture(alias, alias);
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: `${alias}-agent`, cwd: testCwd(`${alias}-agent`),
+    });
+    const owner = daemon.ownerOf('eng');
+    const trigger = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: `~${alias}:@${alias}-agent recover once`,
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id,
+      recipient: target.id,
+      target: {
+        worktree_id: worktree.id,
+        conversation_id: worktree.conversation_id,
+        member_id: target.id,
+        alias,
+        handle: target.handle,
+      },
+    });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id,
+      author_target: delivery.target,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:12:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
+    return { worktree, target, delivery, run };
+  };
+
+  it('settles a stale delivering attempt exactly once across repeated restarts', async () => {
+    const { worktree, delivery, run } = seedStaleDeliveringAttempt('stale-restart');
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:13:00.000Z');
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const refusals = () =>
+      daemon.store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(refusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    // A second crash repeats the reconcile: nothing left to transition, so
+    // no duplicated refusal, no resurrected run, no adapter retry.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(refusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('settles a cross-repository delivering row in its origin without a retry', async () => {
+    const worktree = registerQualifiedFixture('foreign-boot', 'foreign-boot');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'foreign-boot-agent', cwd: testCwd('foreign-boot-agent'),
+    });
+    daemon.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'),
+      primary: true, availability: 'available' as const, locked: false, branch: 'main',
+    };
+    const opsSecondary = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available' as const, locked: false, branch: 'feature/ops-child',
+    };
+    daemon.store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const engTarget = {
+      worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+      member_id: target.id, alias: 'foreign-boot', handle: target.handle,
+    } as const;
+    // The legacy attempt lives in ops but is bound to the eng target.
+    const trigger = daemon.store.postMessage('ops', {
+      author: daemon.store.getMemberByHandle('ops', 'ops-owner')!.id,
+      kind: 'chat',
+      body: 'legacy foreign attempt',
+    });
+    const run = daemon.store.postMessage('ops', {
+      author: target.id,
+      author_target: engTarget,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:14:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    const foreignId = `legacy-${trigger.id}`;
+    const legacy = new Database(join(dir, 'switchboard.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'ops', ?, ?, ?, ?, ?, ?, 'delivering', 1, ?, ?, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        foreignId,
+        trigger.id,
+        target.id,
+        engTarget.worktree_id,
+        engTarget.conversation_id,
+        engTarget.alias,
+        engTarget.handle,
+        `batch-${run.id}`,
+        run.id,
+        new Date().toISOString(),
+      );
+    legacy.close();
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const opsRefusals = () =>
+      daemon.store.listMessages('ops').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(daemon.store.getDelivery('ops', foreignId)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('ops', run.id)?.run?.status).toBe('interrupted');
+    expect(opsRefusals()).toHaveLength(1);
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(0);
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('ops', foreignId)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('ops', run.id)?.run?.status).toBe('interrupted');
+    expect(opsRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+});
+// harn:end delivery-attempt-wal-reconcile
 
 // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal-regression
 // harn:assume invalid-qualified-targets-never-fallback ref=qualified-post-error-regression
@@ -8200,6 +8539,27 @@ describe('qualified refusal boundary', () => {
     const deliveriesBefore = daemon.store.listDeliveries('eng').length;
     expect(() => daemon.postHumanMessage('eng', '~missing:@local-fallback do not reroute'))
       .toThrow(/qualified target refused/);
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(daemon.store.listDeliveries('eng')).toHaveLength(deliveriesBefore);
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+  });
+
+  it.each([
+    '~:@local-fallback',
+    '~ :@local-fallback',
+    '~missing::@local-fallback',
+    '~missing: :@local-fallback',
+    '~missing:\n@local-fallback',
+    '~\nmissing:@local-fallback',
+    '~missing:\r\n@local-fallback',
+    '~missing:',
+    '~missing:@',
+  ])('allocates no message or delivery for an attempted incomplete token (%s)', (token) => {
+    const local = spawnAgent('local-fallback');
+    const messagesBefore = daemon.store.listMessages('eng').length;
+    const deliveriesBefore = daemon.store.listDeliveries('eng').length;
+    expect(() => daemon.postHumanMessage('eng', token)).toThrow(/qualified target refused/);
     expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
     expect(daemon.store.listDeliveries('eng')).toHaveLength(deliveriesBefore);
     expect(fake.deliveries).toHaveLength(0);

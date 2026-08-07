@@ -365,7 +365,7 @@ describe('qualified routing store projection', () => {
     });
     expect(projected.targets.find((item) => item.alias === 'child')?.members)
       .not.toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'old-coder' })]));
-    expect(store.routingTargetIsActive(target)).toBe(false);
+    expect(store.routingTargetIsActive(target, 'eng')).toBe(false);
     expect(() => store.createDelivery('eng', {
       message_id: message.id, recipient: childAgent.id, target,
     })).toThrow(/qualified delivery target is not active/);
@@ -433,6 +433,158 @@ describe('qualified routing store projection', () => {
     })).toThrow(/qualified delivery target is not active/);
     expect(store.listDeliveries('ops')).toEqual([]);
     expect(store.listDeliveriesForTarget(child, childAgent.id)).toEqual([]);
+  });
+
+  const seedLegacyForeignDelivery = () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const agent = store.addMember(child, {
+      kind: 'agent', handle: 'legacy-agent', display_name: 'Legacy Agent', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: agent.id,
+      alias: 'child', handle: agent.handle,
+    } as const;
+    // A legacy cross-repository row: it lives in ops but points at the eng
+    // repository tree, so no valid origin ever validates it against itself.
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const message = store.postMessage('ops', {
+      author: store.getMemberByHandle('ops', 'ops-owner')!.id, kind: 'chat', body: 'legacy foreign row',
+    });
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'ops', ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        `legacy-${message.id}`,
+        message.id,
+        agent.id,
+        target.worktree_id,
+        target.conversation_id,
+        target.alias,
+        target.handle,
+        new Date().toISOString(),
+      );
+    legacy.close();
+    return { owner, agent, target, message, foreignId: `legacy-${message.id}` };
+  };
+
+  it('settles a legacy cross-repository queued row with exactly one durable refusal', () => {
+    const { foreignId } = seedLegacyForeignDelivery();
+    expect(store.routingTargetIsActive(
+      store.getDelivery('ops', foreignId)!.target!,
+      'ops',
+    )).toBe(false);
+
+    const reason = 'registered target child:@legacy-agent is no longer valid';
+    const settled = store.settleStaleScopedDelivery('ops', {
+      deliveryId: foreignId,
+      reason,
+      settledTs: '2026-08-06T00:40:00.000Z',
+    });
+    expect(settled.settled).toBe(true);
+    expect(settled.delivery.state).toBe('consumed');
+    expect(settled.refusal).toMatchObject({ kind: 'system', body: `qualified target refused: ${reason}` });
+
+    // The refusal is created by the transition itself: a repeat settles
+    // nothing and says nothing, and the refusal stays only in the origin.
+    const repeat = store.settleStaleScopedDelivery('ops', {
+      deliveryId: foreignId,
+      reason,
+      settledTs: '2026-08-06T00:41:00.000Z',
+    });
+    expect(repeat.settled).toBe(false);
+    expect(repeat.refusal).toBeUndefined();
+    expect(store.listMessages('ops').filter((message) => message.kind === 'system')).toHaveLength(1);
+    expect(store.listMessages('eng').filter((message) => message.kind === 'system')).toHaveLength(0);
+
+    // A started row is rejected by this seam — it belongs to attempt settlement.
+    store.updateDelivery('ops', foreignId, { state: 'delivering', run_msg_id: 1 });
+    expect(() => store.settleStaleScopedDelivery('ops', {
+      deliveryId: foreignId,
+      reason,
+      settledTs: '2026-08-06T00:42:00.000Z',
+    })).toThrow(/already started/);
+  });
+
+  it('settles a started scoped attempt atomically with truthful group evidence', () => {
+    const { owner, agent, target } = seedLegacyForeignDelivery();
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'group-alpha', display_name: 'Group Alpha', state: 'idle',
+    });
+    const root = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@group-alpha scoped round' });
+    const group = store.createCollaborationGroup('eng', {
+      groupId: 'scoped-attempt-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha round' },
+        { memberId: agent.id, target, payloadSnapshot: 'scoped round' },
+      ],
+    });
+    const scopedDelivery = group.deliveries[1]!;
+    const run = store.postMessage('eng', {
+      author: agent.id, author_target: target, kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:45:00.000Z', tool_calls: 0,
+        events_ref: `runs/${String(root.id)}.jsonl`,
+      },
+    });
+    store.updateDelivery('eng', scopedDelivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    // The durable target goes stale after the attempt started.
+    store.unregisterWorktree('eng', target.worktree_id, '2026-08-06T00:46:00.000Z');
+
+    const reason = 'registered target child:@legacy-agent is no longer valid';
+    const settled = store.settleInvalidScopedAttempt('eng', {
+      deliveryIds: [scopedDelivery.id],
+      reason,
+      settledTs: '2026-08-06T00:47:00.000Z',
+    });
+    expect(settled.settled).toBe(true);
+    expect(settled.deliveries[0]?.state).toBe('consumed');
+    // The binding is preserved as evidence even after consumption.
+    expect(store.getDelivery('eng', scopedDelivery.id)?.run_msg_id).toBe(run.id);
+    expect(settled.runs).toHaveLength(1);
+    expect(store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(settled.participants).toHaveLength(1);
+    expect(settled.participants[0]).toMatchObject({
+      group_id: 'scoped-attempt-group',
+      member_id: agent.id,
+      terminal_status: 'interrupted',
+    });
+    expect(settled.refusal).toMatchObject({ kind: 'system', body: `qualified target refused: ${reason}` });
+
+    // A repeated settle is a truthful no-op: no duplicate refusal, no reopened
+    // run, no resurrected delivery.
+    const repeat = store.settleInvalidScopedAttempt('eng', {
+      deliveryIds: [scopedDelivery.id],
+      reason,
+      settledTs: '2026-08-06T00:48:00.000Z',
+    });
+    expect(repeat.settled).toBe(false);
+    expect(repeat.refusal).toBeUndefined();
+    expect(store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+    expect(store.getCollaborationRound('eng', 'scoped-attempt-group', 1)?.state).toBe('collecting');
   });
 });
 // harn:end qualified-member-target-identity-is-durable
@@ -2132,6 +2284,120 @@ describe('a consumed delivery is never resurrected into a turn', () => {
     expect(retried.deliveries[0]!.attempt_count).toBe(2);
   });
 
+  const seedForeignScopedRow = () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const agent = store.addMember(child, {
+      kind: 'agent', handle: 'scoped-agent', display_name: 'Scoped Agent', state: 'idle',
+    });
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain: WorktreeObservation = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const opsSecondary: WorktreeObservation = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available', locked: false, branch: 'feature/ops-child',
+    };
+    const opsRegistered = store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const validTarget = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: agent.id,
+      alias: 'child', handle: agent.handle,
+    } as const;
+    const foreignTarget = {
+      worktree_id: opsRegistered.worktree.id,
+      conversation_id: opsRegistered.worktree.conversation_id,
+      member_id: agent.id, alias: 'ops-child', handle: agent.handle,
+    } as const;
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'foreign admission' });
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'eng', ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        `legacy-${message.id}`,
+        message.id,
+        agent.id,
+        foreignTarget.worktree_id,
+        foreignTarget.conversation_id,
+        foreignTarget.alias,
+        foreignTarget.handle,
+        new Date().toISOString(),
+      );
+    legacy.close();
+    return { agent, validTarget, foreignTarget, message };
+  };
+
+  it('never admits a legacy foreign-repository queued row, and drains the later valid row', () => {
+    const { agent, validTarget, message } = seedForeignScopedRow();
+    const foreignId = `legacy-${message.id}`;
+    const valid = store.createDelivery('eng', {
+      message_id: message.id, recipient: agent.id, target: validTarget,
+    });
+
+    const started = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [foreignId, valid.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+
+    // The foreign row is invisible to admission — never executed, never
+    // consumed by the turn — while the valid row enters the batch.
+    expect(started.deliveries.map((item) => item.id)).toEqual([valid.id]);
+    expect(store.getDelivery('eng', foreignId)!.state).toBe('queued');
+    expect(store.getDelivery('eng', valid.id)!.state).toBe('delivering');
+  });
+
+  it('never re-admits a foreign-repository row bound to the reused run', () => {
+    const { agent, message } = seedForeignScopedRow();
+    const foreignId = `legacy-${message.id}`;
+    const run = store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:00:00.000Z', tool_calls: 0,
+        events_ref: `runs/${String(message.id)}.jsonl`,
+      },
+    });
+    store.updateDelivery('eng', foreignId, { state: 'delivering', run_msg_id: run.id, attempt_count: 1 });
+
+    const started = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [foreignId],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: run.id,
+    });
+
+    // A reused run may re-admit its own binding, but never a foreign one:
+    // nothing admissible means no turn and no second run message.
+    expect(started).toBeUndefined();
+    expect(store.getDelivery('eng', foreignId)!.state).toBe('delivering');
+    expect(store.listMessages('eng', { limit: 20 }).filter((item) => item.kind === 'run'))
+      .toHaveLength(1);
+  });
+
   // harn:assume unresolved-delivery-fences-fresh-member-turns ref=durable-delivery-turn-fence-regression
   it('fences a fresh run behind another durable active attempt but permits exact-run recovery', () => {
     const { owner } = openRoom(store);
@@ -2667,6 +2933,52 @@ describe('collaboration round materialization', () => {
     expect(store.getCollaborationRound('eng', 'group-rollback', 2)).toBeUndefined();
     expect(store.listDeliveries('eng')).toHaveLength(2);
   });
+
+  it('rejects a cross-repository participant without allocating any round rows', () => {
+    const { alpha, root } = seed();
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain: WorktreeObservation = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const opsSecondary: WorktreeObservation = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available', locked: false, branch: 'feature/ops-child',
+    };
+    const opsRegistered = store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const opsChild = opsRegistered.worktree.conversation_id;
+    const foreign = store.addMember(opsChild, {
+      kind: 'agent', handle: 'foreign-agent', display_name: 'Foreign Agent', state: 'idle',
+    });
+    const foreignTarget = {
+      worktree_id: opsRegistered.worktree.id, conversation_id: opsChild, member_id: foreign.id,
+      alias: 'ops-child', handle: foreign.handle,
+    } as const;
+
+    const expectNoPartialState = () => {
+      expect(store.getCollaborationGroup('eng', 'foreign-group')).toBeUndefined();
+      expect(store.listCollaborationRounds('eng', 'foreign-group')).toEqual([]);
+      expect(store.listDeliveries('eng')).toEqual([]);
+    };
+    expect(() => store.createCollaborationGroup('eng', {
+      groupId: 'foreign-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha round' },
+        { memberId: foreign.id, target: foreignTarget, payloadSnapshot: 'foreign round' },
+      ],
+    })).toThrow(`no active agent member: ${foreign.id}`);
+    expectNoPartialState();
+
+    // The rejection is durable: a reopen cannot reveal partial group, round,
+    // participant, delivery, or payload snapshot rows.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expectNoPartialState();
+  });
 });
 // harn:end group-round-creation-is-atomic-and-idempotent
 
@@ -2922,6 +3234,60 @@ describe('collaboration round release transaction', () => {
     expect(store.getCollaborationGroup('eng', 'closed-group')).toMatchObject({
       state: 'completed', completed_ts: '2026-07-14T13:11:00.000Z',
     });
+  });
+
+  it('commits the visible refusal in the same transaction as the close, exactly once', () => {
+    const seeded = seed('refusal-group');
+    expect(store.closeCollaborationRoundWithRefusal('eng', {
+      groupId: 'refusal-group',
+      roundNumber: 1,
+      releasedTs: '2026-08-06T00:20:00.000Z',
+      refusalBody: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    }).status).toBe('pending');
+    expect(store.listMessages('eng')).toHaveLength(1);
+
+    for (const participant of seeded.round.participants) {
+      store.updateCollaborationParticipant('eng', 'refusal-group', 1, participant.member_id, {
+        terminal_status: 'completed',
+        result_message_id: seeded.root.id,
+        completed_ts: '2026-08-06T00:20:30.000Z',
+      });
+    }
+    const closed = store.closeCollaborationRoundWithRefusal('eng', {
+      groupId: 'refusal-group',
+      roundNumber: 1,
+      releasedTs: '2026-08-06T00:21:00.000Z',
+      refusalBody: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    });
+    expect(closed.status).toBe('closed');
+    expect(closed.refusal).toMatchObject({
+      kind: 'system',
+      body: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    });
+    expect(store.getCollaborationRound('eng', 'refusal-group', 1)?.state).toBe('closed');
+    expect(store.getCollaborationGroup('eng', 'refusal-group')).toMatchObject({ state: 'completed' });
+    expect(store.listCollaborationRounds('eng', 'refusal-group')).toHaveLength(1);
+
+    // Repeated advancement cannot duplicate or lose the durable refusal.
+    const repeat = store.closeCollaborationRoundWithRefusal('eng', {
+      groupId: 'refusal-group',
+      roundNumber: 1,
+      releasedTs: '2026-08-06T00:22:00.000Z',
+      refusalBody: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    });
+    expect(repeat).toEqual({ status: 'already_released' });
+    const refusals = () =>
+      store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(refusals()).toHaveLength(1);
+
+    // A reopen sees the same settled state: one closed round, one refusal,
+    // and only the two round-one deliveries — no next round was allocated.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getCollaborationRound('eng', 'refusal-group', 1)?.state).toBe('closed');
+    expect(refusals()).toHaveLength(1);
+    expect(store.listDeliveries('eng')).toHaveLength(2);
   });
 });
 // harn:end collaboration-round-release-is-one-barrier

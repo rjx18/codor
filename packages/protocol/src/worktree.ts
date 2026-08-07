@@ -118,6 +118,9 @@ export const WorktreeRoutingCatalogSchema = z.object({
     if (target.primary && (target.alias !== 'main' || target.conversation_id !== catalog.room)) {
       ctx.addIssue({ code: 'custom', path: ['targets', index], message: 'primary target must be main at the catalog room' });
     }
+    if (!target.primary && target.alias === 'main') {
+      ctx.addIssue({ code: 'custom', path: ['targets', index, 'alias'], message: 'the main alias is reserved for the primary target' });
+    }
     const seenMembers = new Set<string>();
     for (const [memberIndex, member] of target.members.entries()) {
       if (seenMembers.has(member.member_id)) {
@@ -132,6 +135,12 @@ export const WorktreeRoutingCatalogSchema = z.object({
       if (seenMembers.has(member.member_id)) continue;
       seenMembers.add(member.member_id);
     }
+  }
+  // An empty catalog is an ordinary channel; a nonempty one always routes
+  // through exactly one stable primary main target.
+  const primaries = catalog.targets.filter((target) => target.primary);
+  if (catalog.targets.length > 0 && primaries.length !== 1) {
+    ctx.addIssue({ code: 'custom', path: ['targets'], message: 'a nonempty catalog must contain exactly one primary main target' });
   }
 });
 export type WorktreeRoutingCatalog = z.infer<typeof WorktreeRoutingCatalogSchema>;

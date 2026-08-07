@@ -2004,7 +2004,7 @@ export class Store {
     return WorktreeRoutingCatalogSchema.parse({ room: root, targets, tombstones });
   }
 
-  private routingTargetRecord(target: ScopedMemberTarget, originRoom = target.conversation_id): {
+  private routingTargetRecord(target: ScopedMemberTarget, originRoom: string): {
     root: string;
     worktree: RegisteredWorktree;
     member: Member;
@@ -2036,8 +2036,11 @@ export class Store {
     return { root, worktree, member };
   }
 
-  /** Re-check a persisted qualified target immediately before execution. */
-  routingTargetIsActive(target: ScopedMemberTarget, originRoom = target.conversation_id): boolean {
+  /** Re-check a persisted qualified target immediately before execution. The
+   * origin room is explicit and required: a target may only ever be validated
+   * against the repository of the conversation the work came from, never
+   * against itself. */
+  routingTargetIsActive(target: ScopedMemberTarget, originRoom: string): boolean {
     const located = this.routingTargetRecord(target, originRoom);
     return located !== undefined
       && located.worktree.lifecycle === 'active'
@@ -4033,6 +4036,7 @@ export class Store {
         return updated;
       });
       // harn:end only-an-admissible-delivery-becomes-delivering
+      // harn:end cross-worktree-output-stays-in-origin
       return { runMessage, deliveries };
     })();
   }
@@ -4400,6 +4404,154 @@ export class Store {
       return { delivery: consumed, participant: skipped };
     })();
   }
+
+  private postSystemRefusalMessage(room: string, body: string): Message {
+    const system = this.listMembers(room).find((member) => member.kind === 'system');
+    if (system === undefined) throw new Error(`room ${room} has no system member`);
+    return this.postMessage(room, { author: system.id, kind: 'system', body });
+  }
+
+  /**
+   * Settle a stale scoped QUEUED/HELD delivery as one durable unit: its
+   * consumed state, its group slot, and exactly one origin refusal commit
+   * together. A repeat call after a crash finds nothing to transition and
+   * posts nothing, so the refusal can never be lost or duplicated. Run-bound
+   * rows belong to settleInvalidScopedAttempt instead.
+   */
+  settleStaleScopedDelivery(
+    room: string,
+    opts: { deliveryId: string; reason: string; settledTs: string },
+  ): {
+    delivery: Delivery;
+    participant?: CollaborationParticipant;
+    refusal?: Message;
+    settled: boolean;
+  } {
+    return this.db.transaction(() => {
+      const delivery = this.getDelivery(room, opts.deliveryId);
+      if (!delivery) throw new Error(`no such delivery: ${opts.deliveryId}`);
+      if (
+        (delivery.state !== 'queued' && delivery.state !== 'held' && delivery.state !== 'consumed') ||
+        delivery.run_msg_id !== undefined
+      ) {
+        throw new Error(`scoped delivery ${opts.deliveryId} already started; settle the attempt instead`);
+      }
+      const participant = delivery.group_id === undefined
+        ? undefined
+        : this.findCollaborationParticipantByDelivery(room, delivery.id);
+      const settled = delivery.state !== 'consumed' ||
+        (participant !== undefined && participant.terminal_status === undefined);
+      if (!settled) {
+        return {
+          delivery,
+          ...(participant !== undefined && { participant }),
+          settled: false,
+        };
+      }
+      const consumed = delivery.state === 'consumed'
+        ? delivery
+        : this.updateDelivery(room, delivery.id, { state: 'consumed' });
+      const skipped = participant !== undefined && participant.terminal_status === undefined
+        ? this.updateCollaborationParticipant(
+            room,
+            participant.group_id,
+            participant.round_number,
+            participant.member_id,
+            { terminal_status: 'skipped', completed_ts: opts.settledTs },
+          )
+        : participant;
+      const refusal = this.postSystemRefusalMessage(room, `qualified target refused: ${opts.reason}`);
+      return {
+        delivery: consumed,
+        ...(skipped !== undefined && { participant: skipped }),
+        refusal,
+        settled: true,
+      };
+    })();
+  }
+
+  /**
+   * Settle a stale scoped attempt whose work had already started — the boot
+   * and retry seam: consume its bound delivery rows, interrupt run evidence
+   * that has no remaining valid work, mark any group participant truthfully
+   * `interrupted`, and append exactly one origin refusal, all in one
+   * transaction. Idempotent: once nothing transitions there is nothing to
+   * emit, so a repeated reconcile neither throws nor duplicates the refusal.
+   */
+  settleInvalidScopedAttempt(
+    room: string,
+    opts: { deliveryIds: string[]; reason: string; settledTs: string },
+  ): {
+    deliveries: Delivery[];
+    participants: CollaborationParticipant[];
+    runs: Message[];
+    refusal?: Message;
+    settled: boolean;
+  } {
+    return this.db.transaction(() => {
+      if (opts.deliveryIds.length === 0) throw new Error('no scoped attempt deliveries to settle');
+      const runIds = new Set<number>();
+      let transitioned = false;
+      const deliveries: Delivery[] = [];
+      const participants: CollaborationParticipant[] = [];
+      for (const deliveryId of opts.deliveryIds) {
+        const delivery = this.getDelivery(room, deliveryId);
+        if (!delivery) throw new Error(`no such delivery: ${deliveryId}`);
+        if (delivery.run_msg_id !== undefined) runIds.add(delivery.run_msg_id);
+        if (delivery.state === 'consumed') {
+          deliveries.push(delivery);
+        } else {
+          transitioned = true;
+          deliveries.push(this.updateDelivery(room, delivery.id, { state: 'consumed' }));
+        }
+        if (delivery.group_id === undefined) continue;
+        const participant = this.findCollaborationParticipantByDelivery(room, delivery.id);
+        if (participant === undefined || participant.terminal_status !== undefined) continue;
+        participants.push(this.updateCollaborationParticipant(
+          room,
+          participant.group_id,
+          participant.round_number,
+          participant.member_id,
+          { terminal_status: 'interrupted', completed_ts: opts.settledTs },
+        ));
+        transitioned = true;
+      }
+      const runs: Message[] = [];
+      for (const runId of runIds) {
+        const run = this.getMessage(room, runId);
+        if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
+        // Interrupt only when no valid bound work remains: a partially stale
+        // batch leaves its surviving rows to the normal recovery seam.
+        const remaining = this.listDeliveries(room)
+          .some((candidate) => candidate.run_msg_id === runId && candidate.state !== 'consumed');
+        if (remaining) continue;
+        runs.push(this.updateMessage(room, run.id, {
+          body: '',
+          mentions: [],
+          refs: [],
+          ledger_refs: [],
+          run: {
+            ...run.run,
+            status: 'interrupted',
+            ended_ts: opts.settledTs,
+            stalled_since: undefined,
+            final_text: undefined,
+          },
+        }));
+        transitioned = true;
+      }
+      const refusal = transitioned
+        ? this.postSystemRefusalMessage(room, `qualified target refused: ${opts.reason}`)
+        : undefined;
+      return {
+        deliveries,
+        participants,
+        runs,
+        ...(refusal !== undefined && { refusal }),
+        settled: transitioned,
+      };
+    })();
+  }
   // harn:end open-collaboration-groups-reconcile-without-resurrection
 
   // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-round-release-transaction
@@ -4463,6 +4615,44 @@ export class Store {
       return { status: 'released', deliveries: next.deliveries, projection: next };
     })();
   }
+
+  /**
+   * Close a terminal round/group and commit its one visible refusal in the
+   * SAME transaction — the invalid-qualified barrier exit. The refusal is
+   * created by the state transition itself, so repeated advancement or a
+   * restart returns `already_released` and can never lose, duplicate, or
+   * reorder the evidence. Returns the durable refusal row for emission.
+   */
+  closeCollaborationRoundWithRefusal(
+    room: string,
+    opts: {
+      groupId: string;
+      roundNumber: number;
+      releasedTs: string;
+      refusalBody: string;
+    },
+  ): { status: 'closed' | 'already_released' | 'pending'; refusal?: Message } {
+    return this.db.transaction((): { status: 'closed' | 'already_released' | 'pending'; refusal?: Message } => {
+      const projection = this.getCollaborationRoundProjection(room, opts.groupId, opts.roundNumber);
+      if (!projection) {
+        throw new Error(`no such collaboration round: ${opts.groupId}/${opts.roundNumber}`);
+      }
+      if (projection.round.state !== 'collecting') return { status: 'already_released' };
+      if (projection.participants.some((participant) => participant.terminal_status === undefined)) {
+        return { status: 'pending' };
+      }
+      this.updateCollaborationRound(room, opts.groupId, opts.roundNumber, {
+        state: 'closed',
+        released_ts: opts.releasedTs,
+      });
+      this.updateCollaborationGroup(room, opts.groupId, {
+        state: 'completed',
+        completed_ts: opts.releasedTs,
+      });
+      const refusal = this.postSystemRefusalMessage(room, opts.refusalBody);
+      return { status: 'closed', refusal };
+    })();
+  }
   // harn:end collaboration-round-release-is-one-barrier
 
   // harn:assume group-round-creation-is-atomic-and-idempotent ref=collaboration-round-materialization
@@ -4493,11 +4683,11 @@ export class Store {
     for (const participant of participants) {
       const member = participant.target === undefined
         ? this.getMember(room, participant.memberId)
-        : this.routingTargetRecord(participant.target)?.member;
+        : this.routingTargetRecord(participant.target, room)?.member;
       if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
         throw new Error(`no active agent member: ${participant.memberId}`);
       }
-      if (participant.target !== undefined && !this.routingTargetIsActive(participant.target)) {
+      if (participant.target !== undefined && !this.routingTargetIsActive(participant.target, room)) {
         throw new Error(`qualified collaboration target is not active: ${participant.target.alias}:@${participant.target.handle}`);
       }
     }

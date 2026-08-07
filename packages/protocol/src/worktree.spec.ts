@@ -114,6 +114,14 @@ it('rejects duplicate stable identities and an active/removed member collision',
     lifecycle: 'active' as const,
     members: [{ member_id: '01J00000000000000000000003', handle: 'richard', kind: 'human' as const }],
   };
+  const mainTarget = {
+    worktree_id: '01J00000000000000000000000',
+    conversation_id: repository.room,
+    alias: 'main',
+    primary: true,
+    lifecycle: 'active' as const,
+    members: [],
+  };
   expect(WorktreeRoutingCatalogSchema.safeParse({
     room: repository.room,
     targets: [target, { ...target, worktree_id: '01J00000000000000000000006', alias: 'other' }],
@@ -121,15 +129,16 @@ it('rejects duplicate stable identities and an active/removed member collision',
   }).success).toBe(false);
   const withRemovedMember = WorktreeRoutingCatalogSchema.parse({
     room: repository.room,
-    targets: [{
+    targets: [mainTarget, {
       ...target,
       removed_members: [{ member_id: '01J00000000000000000000005', handle: 'old-agent', kind: 'agent' as const }],
     }],
     tombstones: [],
   });
-  expect(withRemovedMember.targets[0]?.removed_members).toEqual([{
-    member_id: '01J00000000000000000000005', handle: 'old-agent', kind: 'agent',
-  }]);
+  expect(withRemovedMember.targets.find((candidate) => candidate.alias === 'review-a')?.removed_members)
+    .toEqual([{
+      member_id: '01J00000000000000000000005', handle: 'old-agent', kind: 'agent',
+    }]);
   expect(WorktreeRoutingCatalogSchema.safeParse({
     room: repository.room,
     targets: [{ ...target, primary: true, alias: 'review-a' }],
@@ -137,7 +146,7 @@ it('rejects duplicate stable identities and an active/removed member collision',
   }).success).toBe(false);
   expect(WorktreeRoutingCatalogSchema.safeParse({
     room: repository.room,
-    targets: [{
+    targets: [mainTarget, {
       ...target,
       removed_members: [{ member_id: '01J00000000000000000000003', handle: 'richard', kind: 'human' as const }],
     }],
@@ -224,6 +233,52 @@ describe('qualified routing projection protocol', () => {
         members: [],
         removed_members: members,
       }],
+      tombstones: [],
+    }).success).toBe(false);
+  });
+
+  it('requires exactly one primary main target for every nonempty catalog', () => {
+    const mainTarget = {
+      worktree_id: '01J00000000000000000000000',
+      conversation_id: repository.room,
+      alias: 'main',
+      primary: true,
+      lifecycle: 'active' as const,
+      members: [],
+    };
+    const secondaryTarget = {
+      worktree_id: worktree.id,
+      conversation_id: worktree.conversation_id,
+      alias: worktree.alias,
+      primary: false,
+      lifecycle: 'active' as const,
+      members: [],
+    };
+    // An ordinary channel keeps an empty catalog; a repository with only the
+    // primary checkout registered keeps a main-only catalog.
+    expect(WorktreeRoutingCatalogSchema.parse({ room: repository.room, targets: [], tombstones: [] }))
+      .toEqual({ room: repository.room, targets: [], tombstones: [] });
+    expect(WorktreeRoutingCatalogSchema.parse({
+      room: repository.room, targets: [mainTarget], tombstones: [],
+    }).targets.map((target) => target.alias)).toEqual(['main']);
+    expect(WorktreeRoutingCatalogSchema.parse({
+      room: repository.room, targets: [mainTarget, secondaryTarget], tombstones: [],
+    }).targets.map((target) => target.alias)).toEqual(['main', 'review-a']);
+
+    // A secondary-only projection has no stable primary to route main through.
+    expect(WorktreeRoutingCatalogSchema.safeParse({
+      room: repository.room, targets: [secondaryTarget], tombstones: [],
+    }).success).toBe(false);
+    // A main alias without the primary flag is not the stable primary.
+    expect(WorktreeRoutingCatalogSchema.safeParse({
+      room: repository.room,
+      targets: [{ ...mainTarget, primary: false }],
+      tombstones: [],
+    }).success).toBe(false);
+    // Two primaries can never both be the stable main checkout.
+    expect(WorktreeRoutingCatalogSchema.safeParse({
+      room: repository.room,
+      targets: [mainTarget, { ...mainTarget, worktree_id: '01J00000000000000000000008' }],
       tombstones: [],
     }).success).toBe(false);
   });
