@@ -130,8 +130,23 @@ docker run --rm --network none \
     "
     "$BIN" --help | grep -Fq "Usage: codor"
 
+    assert_json() {
+      local value="$1"
+      [[ "$(printf '%s\n' "$value" | wc -l)" -eq 1 ]]
+      JSON_TO_CHECK="$value" node --input-type=module -e "JSON.parse(process.env.JSON_TO_CHECK)"
+    }
+    assert_safe() {
+      local value="$1"
+      if grep -Fq "$PROOF_TOKEN" <<<"$value" ||
+        grep -Eq '"(acp_launch|acp_executable|acp_arg|executable|argv|session_ref|host|git_admin_id|primary_git_admin_id|common_path|room_key|sealed_key)"[[:space:]]*:' <<<"$value"; then
+        printf "packed management output leaked credentials or private fields\n" >&2
+        exit 1
+      fi
+    }
+
     # harn:assume structured-management-help-and-docs-are-complete ref=packed-management-help-regression
-    ROOT_HELP="$($BIN --help)"
+    ROOT_HELP="$("$BIN" --help)"
+    assert_safe "$ROOT_HELP"
     for family in channel agent agent-preset default-roster worktree; do
       grep -Fq "codor $family --help" <<<"$ROOT_HELP"
     done
@@ -144,10 +159,7 @@ docker run --rm --network none \
     grep -Fq "ordered roster" /proof/default-roster-help.out
     grep -Fq "Worktree add requires --create or --adopt" /proof/worktree-help.out
     for help_file in /proof/*-help.out; do
-      if grep -Eq 'PROOF_TOKEN|0123456789abcdef|acp_launch|session_ref|Bearer ' "$help_file"; then
-        printf "packed management help leaked credentials or private fields\n" >&2
-        exit 1
-      fi
+      assert_safe "$(<"$help_file")"
     done
     PACKAGED_README=/proof/install/node_modules/@richhardry/codor/README.md
     test -f "$PACKAGED_README"
@@ -389,29 +401,14 @@ docker run --rm --network none \
     # harn:end agent-add-selects-public-adapter-or-detached-preset
 
     # harn:assume packed-management-workflow-recovers-after-restart ref=packed-management-recovery-workflow
-    assert_json() {
-      local value="$1"
-      [[ "$(printf '%s\n' "$value" | wc -l)" -eq 1 ]]
-      JSON_TO_CHECK="$value" node --input-type=module -e "JSON.parse(process.env.JSON_TO_CHECK)"
-    }
-    assert_safe() {
-      local value="$1"
-      if grep -Fq "$PROOF_TOKEN" <<<"$value" || grep -Eq 'acp_launch|session_ref|git_admin_id|room_key|sealed_key' <<<"$value"; then
-        printf "packed management output leaked credentials or private fields\n" >&2
-        exit 1
-      fi
-    }
-
     export PHASE5_PRIMARY=/proof/phase5-primary
-    export PHASE5_CHILD=/proof/phase5-child
     node --input-type=module <<'NODE'
       import { execFileSync } from 'node:child_process';
       import { mkdirSync, writeFileSync } from 'node:fs';
       import { join } from 'node:path';
 
       const primary = process.env.PHASE5_PRIMARY;
-      const child = process.env.PHASE5_CHILD;
-      if (!primary || !child) throw new Error('missing phase 5 repository paths');
+      if (!primary) throw new Error('missing phase 5 primary repository path');
       mkdirSync(primary, { recursive: true });
       const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' });
       git(primary, ['init', '-q', '-b', 'main']);
@@ -420,10 +417,8 @@ docker run --rm --network none \
       writeFileSync(join(primary, 'README.md'), 'phase 5 packed proof\n');
       git(primary, ['add', 'README.md']);
       git(primary, ['commit', '-qm', 'phase 5 packed proof']);
-      execFileSync('git', ['-C', primary, 'worktree', 'add', '--no-track', '-b', 'phase5-child', child, 'HEAD'], {
-        stdio: 'pipe',
-      });
 NODE
+    export PHASE5_CHILD=/proof/phase5-child
 
     PHASE5_PRESET_JSON="$($BIN --data-dir "$DATA" agent-preset create "Phase 5 Helper" \
       --handle phase5-helper --adapter housecat --policy workspace-write --json)"
@@ -457,6 +452,23 @@ NODE
     grep -Fq '"alias":"child"' <<<"$PHASE5_CHILD_JSON"
     grep -Fq "\"path\":\"$PHASE5_CHILD\"" <<<"$PHASE5_CHILD_JSON"
     grep -Fq '"branch":"phase5-child"' <<<"$PHASE5_CHILD_JSON"
+    test -d "$PHASE5_CHILD"
+    PHASE5_WORKTREES_CREATED="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree list --channel phase5-root --json)"
+    assert_json "$PHASE5_WORKTREES_CREATED"
+    assert_safe "$PHASE5_WORKTREES_CREATED"
+    grep -Fq '"alias":"child"' <<<"$PHASE5_WORKTREES_CREATED"
+    grep -Fq "\"path\":\"$PHASE5_CHILD\"" <<<"$PHASE5_WORKTREES_CREATED"
+    grep -Fq '"branch":"phase5-child"' <<<"$PHASE5_WORKTREES_CREATED"
+    node --input-type=module <<'NODE'
+      import { execFileSync } from 'node:child_process';
+      import { existsSync } from 'node:fs';
+
+      const primary = process.env.PHASE5_PRIMARY;
+      const child = process.env.PHASE5_CHILD;
+      if (!primary || !child || !existsSync(child)) throw new Error('packed CLI did not create the child checkout');
+      execFileSync('git', ['-C', primary, 'show-ref', '--verify', 'refs/heads/phase5-child'], { stdio: 'pipe' });
+NODE
     PHASE5_CHILD_ROOM="$(PHASE5_CHILD_JSON="$PHASE5_CHILD_JSON" node --input-type=module -e \
       "console.log(JSON.parse(process.env.PHASE5_CHILD_JSON).conversation_id)")"
     PHASE5_CHILD_AGENTS="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
@@ -518,6 +530,7 @@ NODE
     grep -Fq '"status":"archived"' <<<"$PHASE5_ARCHIVED"
     PHASE5_ACTIVE="$($BIN --data-dir "$DATA" channel list --json)"
     assert_json "$PHASE5_ACTIVE"
+    assert_safe "$PHASE5_ACTIVE"
     if grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ACTIVE"; then
       printf "packed archived phase 5 channel remained in default discovery\n" >&2
       exit 1
@@ -528,7 +541,10 @@ NODE
     grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ALL"
 
     kill -TERM "$DAEMON_PID"
-    wait "$DAEMON_PID" || true
+    if ! wait "$DAEMON_PID"; then
+      printf "packed phase 5 daemon did not shut down successfully\n" >&2
+      exit 1
+    fi
     DAEMON_PID=""
     CODOR_TOKEN="$PROOF_TOKEN" "$BIN" --data-dir "$DATA" up \
       --host 127.0.0.1 --port "$PORT" \
@@ -551,6 +567,7 @@ NODE
 
     PHASE5_ACTIVE_AFTER="$($BIN --data-dir "$DATA" channel list --json)"
     assert_json "$PHASE5_ACTIVE_AFTER"
+    assert_safe "$PHASE5_ACTIVE_AFTER"
     if grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ACTIVE_AFTER"; then
       printf "packed archived phase 5 channel reappeared in default discovery after restart\n" >&2
       exit 1
@@ -571,11 +588,14 @@ NODE
     PHASE5_ROOT_AGENTS_AFTER="$($BIN --data-dir "$DATA" agent list --channel phase5-root --json)"
     assert_json "$PHASE5_ROOT_AGENTS_AFTER"
     assert_safe "$PHASE5_ROOT_AGENTS_AFTER"
+    grep -Fq '"handle":"phase5-helper"' <<<"$PHASE5_ROOT_AGENTS_AFTER"
+    grep -Fq '"handle":"explicit-worker"' <<<"$PHASE5_ROOT_AGENTS_AFTER"
     grep -Fq "\"cwd\":\"$PHASE5_PRIMARY\"" <<<"$PHASE5_ROOT_AGENTS_AFTER"
     PHASE5_CHILD_AGENTS_AFTER="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
       agent list --channel "$PHASE5_CHILD_ROOM" --json)"
     assert_json "$PHASE5_CHILD_AGENTS_AFTER"
     assert_safe "$PHASE5_CHILD_AGENTS_AFTER"
+    grep -Fq '"handle":"phase5-helper"' <<<"$PHASE5_CHILD_AGENTS_AFTER"
     grep -Fq "\"cwd\":\"$PHASE5_CHILD\"" <<<"$PHASE5_CHILD_AGENTS_AFTER"
     PHASE5_WORKTREES_AFTER="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
       worktree list --channel phase5-root --json)"

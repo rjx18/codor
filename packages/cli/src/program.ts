@@ -2178,14 +2178,14 @@ defaultRosterManagement
     'Existing flat commands remain compatible.',
     '',
     'Examples:',
-    '  codor channel list --channel desk',
-    '  codor channel list --channel desk --json',
+    '  codor channel list',
+    '  codor channel list --json',
     '  codor --url <loopback-url> --token <token> channel show desk --json',
   ].join('\n'));
   addManagementHelp(structuredChannelManagement, [
     'Archive is soft retention only; there is no hard-delete or restore command.',
     'Examples:',
-    '  codor channel list --channel desk',
+    '  codor channel show desk --json',
     '  codor channel archive desk --yes --json',
   ].join('\n'));
   addManagementHelp(agentManagement, [

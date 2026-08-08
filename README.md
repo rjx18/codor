@@ -266,7 +266,7 @@ worktree-removal commands ask for confirmation unless `--yes` is supplied.
 
 ```sh
 # Channels: archive is soft retention only; there is no hard-delete or restore.
-codor channel list --channel desk
+codor channel list
 codor channel list --json
 codor channel archive desk --yes --json
 

@@ -2700,6 +2700,21 @@ describe('Phase 5 management help', () => {
     for (const secret of ['help-member-secret', 'help-operator-secret', 'acp_launch', 'session_ref', 'Bearer ']) {
       expect(rendered).not.toContain(secret);
     }
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8');
+    const packedScript = readFileSync(join(repoRoot, 'scripts', 'packed-install-test.sh'), 'utf8');
+    const documented = `${rendered}\n${readme}\n${packedScript}`;
+    expect(documented).not.toContain('codor channel list --channel');
+    expect(documented).toContain('codor channel list --json');
+    expect(documented).toContain('codor channel show desk --json');
+    const rawGitSetup = packedScript.match(
+      /export PHASE5_PRIMARY=[\s\S]*?node --input-type=module <<'NODE'\n([\s\S]*?)\nNODE/,
+    )?.[1] ?? '';
+    expect(rawGitSetup).toContain("git(primary, ['init', '-q', '-b', 'main'])");
+    expect(rawGitSetup).not.toContain('worktree add');
+    expect(rawGitSetup).not.toContain('phase5-child');
+    expect(packedScript).toContain('PHASE5_CHILD_JSON=');
+    expect(packedScript).toContain('worktree add --channel phase5-root --create');
   });
 });
 // harn:end structured-management-help-and-docs-are-complete
