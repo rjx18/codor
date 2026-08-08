@@ -166,6 +166,21 @@ describe('worktree management client and projections', () => {
       { method: 'POST', path: `/api/rooms/eng/worktrees/${beta.id}/remove?cwd=%2Frepo`, body: {} },
     ]);
   });
+
+  it('sorts Unicode paths by UTF-8 bytes rather than UTF-16 code units', () => {
+    const supplementary = '/repo/\u{10000}';
+    const bmp = '/repo/\uE000';
+    const projected = projectWorktreeList({
+      ...response,
+      registered: [],
+      discovered: [
+        { ...response.discovered[0]!, path: supplementary },
+        { ...response.discovered[0]!, path: bmp },
+      ],
+    });
+
+    expect(projected.discovered.map((worktree) => worktree.path)).toEqual([bmp, supplementary]);
+  });
 });
 // harn:end structured-worktree-cli-uses-accepted-lifecycle
 
@@ -216,6 +231,23 @@ describe('worktree removal consent and selectors', () => {
       isTTY: false,
       stderr: () => undefined,
     })).resolves.toBeUndefined();
+  });
+
+  it('rejects a removal preview for another stable id before any mutation', async () => {
+    const client: WorktreeRestClient = {
+      get: vi.fn(async () => ({
+        repository: response.repository,
+        worktree: beta,
+        state: 'clean',
+        branch_preserved: true,
+      } satisfies WorktreeRemovalPreviewResponse)),
+      post: vi.fn(),
+    };
+
+    await expect(previewWorktreeRemoval(client, 'eng', alpha.id)).rejects.toMatchObject({
+      exitCode: MANAGEMENT_EXIT_CODES.transport,
+    });
+    expect(client.post).not.toHaveBeenCalled();
   });
 });
 // harn:end worktree-cli-removal-requires-previewed-consent

@@ -103,9 +103,16 @@ export function escapeWorktreeHumanCell(value: string): string {
   }).join('');
 }
 
-const compareBytes = (left: string, right: string): number => (
-  left < right ? -1 : left > right ? 1 : 0
-);
+const compareBytes = (left: string, right: string): number => {
+  const leftBytes = Buffer.from(left, 'utf8');
+  const rightBytes = Buffer.from(right, 'utf8');
+  const sharedLength = Math.min(leftBytes.length, rightBytes.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const difference = leftBytes[index]! - rightBytes[index]!;
+    if (difference !== 0) return difference;
+  }
+  return leftBytes.length - rightBytes.length;
+};
 
 function projectRegistered(worktree: RegisteredWorktree): WorktreeProjection {
   return {
@@ -137,7 +144,6 @@ function projectDiscovered(candidate: WorktreeListResponse['discovered'][number]
   };
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-rendering
 export function projectWorktreeList(response: WorktreeListResponse): WorktreeListProjection {
   const registered = response.registered
     .map(projectRegistered)
@@ -193,7 +199,6 @@ const discoveredHumanRow = (worktree: WorktreeDiscoveryProjection): string => [
   worktree.conversation_id ?? '',
 ].map(escapeWorktreeHumanCell).join('\t');
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-rendering
 export function renderWorktreeList(value: WorktreeListProjection, json: boolean): string {
   if (json) return JSON.stringify(value);
   const repository = value.repository === null
@@ -210,6 +215,7 @@ export function renderWorktree(value: WorktreeProjection, json: boolean): string
   if (json) return JSON.stringify(value);
   return registeredHumanRow(value);
 }
+// harn:end structured-worktree-cli-uses-accepted-lifecycle
 
 function apiPath(room: string): string {
   return `/api/rooms/${encodeURIComponent(room)}/worktrees`;
@@ -274,7 +280,6 @@ function projectLifecycle(value: unknown): WorktreeProjection {
   return projectRegistered(parseResponse(WorktreeLifecycleResponseSchema, value, 'lifecycle').worktree);
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
 export async function adoptWorktree(
   client: WorktreeRestClient,
   room: string,
@@ -287,7 +292,6 @@ export async function adoptWorktree(
   });
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
 export async function createWorktree(
   client: WorktreeRestClient,
   room: string,
@@ -300,7 +304,6 @@ export async function createWorktree(
   });
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
 export async function removeWorktree(
   client: WorktreeRestClient,
   room: string,
@@ -313,7 +316,6 @@ export async function removeWorktree(
   ));
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
 export async function previewWorktreeRemoval(
   client: WorktreeRestClient,
   room: string,
@@ -326,6 +328,12 @@ export async function previewWorktreeRemoval(
       await client.get(withCwd(`${apiPath(room)}/${encodeURIComponent(worktreeId)}/removal-preview`, cwd)),
       'removal preview',
     );
+    if (value.worktree.id !== worktreeId) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.transport,
+        'worktree removal preview identity mismatch',
+      );
+    }
     return {
       worktree: projectRegistered(value.worktree),
       state: value.state,
@@ -335,7 +343,6 @@ export async function previewWorktreeRemoval(
   });
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
 export async function removeFilesystemWorktree(
   client: WorktreeRestClient,
   room: string,
@@ -347,7 +354,6 @@ export async function removeFilesystemWorktree(
   ));
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
 export function resolveWorktreeSelector(
   registered: readonly WorktreeProjection[],
   selector: string,
@@ -371,6 +377,7 @@ export function resolveWorktreeSelector(
   }
   return found;
 }
+// harn:end structured-worktree-cli-uses-accepted-lifecycle
 
 // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-confirmation
 export async function confirmWorktreeRemoval(options: WorktreeRemovalConfirmationOptions): Promise<void> {
@@ -397,3 +404,4 @@ export async function confirmWorktreeRemoval(options: WorktreeRemovalConfirmatio
   if (typeof answer === 'boolean' ? answer : /^(?:y|yes)$/i.test(answer.trim())) return;
   throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'worktree removal cancelled');
 }
+// harn:end worktree-cli-removal-requires-previewed-consent

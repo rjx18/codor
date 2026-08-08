@@ -225,6 +225,15 @@ docker run --rm --network none \
     fi
     # harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-packed-smoke
     set +e
+    WORKTREE_CREATE="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree add --channel fresh --create --path /proof/not-a-worktree --alias packed-child --branch packed-branch --json \
+      2>/proof/worktree-create.out)"
+    WORKTREE_CREATE_STATUS=$?
+    set -e
+    [[ "$WORKTREE_CREATE_STATUS" -eq 6 ]]
+    [[ -z "$WORKTREE_CREATE" ]]
+    [[ "$(wc -l </proof/worktree-create.out)" -eq 1 ]]
+    set +e
     WORKTREE_ADD="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
       worktree add --channel fresh --path /proof/not-a-worktree 2>/proof/worktree-add.out)"
     WORKTREE_ADD_STATUS=$?
@@ -241,7 +250,7 @@ docker run --rm --network none \
     [[ -z "$WORKTREE_REMOVE" ]]
     [[ "$(wc -l </proof/worktree-remove.out)" -eq 1 ]]
     if grep -Eq '[[:space:]]at[[:space:]]|node:internal|Unhandled|PROOF_TOKEN|0123456789abcdef|git_admin_id|common_path' \
-      /proof/worktree-add.out /proof/worktree-remove.out; then
+      /proof/worktree-create.out /proof/worktree-add.out /proof/worktree-remove.out; then
       printf "packed worktree failure leaked a stack, secret, or private identity\n" >&2
       exit 1
     fi

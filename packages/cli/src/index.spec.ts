@@ -36,7 +36,7 @@ import {
 } from './index.js';
 import { parseLine, startOutpost } from './up.js';
 import { parseAdapterModules } from './program.js';
-import { probeCodorStatus, waitForCodor } from './setup.js';
+import { operatorTokenPath, probeCodorStatus, waitForCodor } from './setup.js';
 
 let dir: string;
 let daemon: Daemon;
@@ -2413,6 +2413,156 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     expect(agentAttempt).toMatchObject({ exitCode: 4 });
   });
 
+  it('uses the fresh preview identity for consent and refuses mismatched preview ids', async () => {
+    const fixture = restWorktreeFixture();
+    const calls: Array<{ method: string; path: string; body?: string; authorization?: string }> = [];
+    let mismatch = false;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const authorization = new Headers(init?.headers).get('authorization') ?? undefined;
+      calls.push({
+        method: init?.method ?? 'GET',
+        path: url.pathname,
+        ...(typeof init?.body === 'string' && { body: init.body }),
+        ...(authorization !== undefined && { authorization }),
+      });
+      if (url.pathname.endsWith('/removal-preview')) {
+        return new Response(JSON.stringify({
+          repository: fixture.repository,
+          worktree: mismatch ? { ...fixture.fresh, id: '01C4F6Y9J4QJ5F4KZ5T6X2V3W4' } : fixture.fresh,
+          state: 'clean',
+          branch_preserved: true,
+        }), { status: 200 });
+      }
+      if (url.pathname.endsWith('/remove')) {
+        return new Response(JSON.stringify({ repository: fixture.repository, worktree: fixture.fresh }), { status: 200 });
+      }
+      return new Response(JSON.stringify(fixture.list), { status: 200 });
+    });
+    try {
+      const prompt: string[] = [];
+      const stdout: string[] = [];
+      await runCli([
+        'node', 'codor', '--data-dir', dir, '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
+        'worktree', 'remove', fixture.selected.id, '--channel', 'eng', '--filesystem',
+      ], {
+        stdout: (line) => stdout.push(line),
+        stderr: (line) => prompt.push(line),
+        isTTY: true,
+        confirm: async (line) => {
+          prompt.push(`confirm:${line}`);
+          return 'yes';
+        },
+      });
+      expect(prompt[0]).toContain('fresh-child');
+      expect(prompt[0]).toContain('/repo/fresh-child');
+      expect(prompt[0]).not.toContain('stale-child');
+      expect(prompt[0]).not.toContain('/repo/stale-child');
+      expect(prompt.filter((line) => !line.startsWith('confirm:'))).toHaveLength(1);
+      expect(stdout).toHaveLength(1);
+      expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
+
+      mismatch = true;
+      calls.length = 0;
+      prompt.length = 0;
+      await expect(runCli([
+        'node', 'codor', '--data-dir', dir, '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
+        'worktree', 'remove', fixture.selected.id, '--channel', 'eng', '--filesystem',
+      ], {
+        stdout: () => undefined,
+        stderr: (line) => prompt.push(line),
+        isTTY: true,
+        confirm: async () => 'yes',
+      })).rejects.toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.transport });
+      expect(prompt).toEqual([]);
+      expect(calls.filter((call) => call.method === 'POST')).toEqual([]);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it('keeps credential locality, role refusals, default-roster forwarding, and no-mutation boundaries', async () => {
+    const fixture = restWorktreeFixture();
+    const home = join(dir, 'operator home');
+    mkdirSync(join(home, '.config', 'codor'), { recursive: true });
+    writeFileSync(operatorTokenPath(home), 'operator-token\n', { mode: 0o600 });
+    const requests: Array<{ method: string; path: string; authorization?: string; body?: unknown }> = [];
+    let successfulMutations = 0;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const authorization = new Headers(init?.headers).get('authorization') ?? undefined;
+      const token = authorization?.replace(/^Bearer /, '');
+      requests.push({
+        method: init?.method ?? 'GET',
+        path: url.pathname,
+        ...(authorization !== undefined && { authorization }),
+        ...(typeof init?.body === 'string' && { body: JSON.parse(init.body) as unknown }),
+      });
+      if (token !== 'operator-token' && token !== 'explicit-token') {
+        return new Response(JSON.stringify({ error: 'forbidden: worktree lifecycle is restricted to owners and admins' }), { status: 403 });
+      }
+      if (init?.method === 'POST') {
+        successfulMutations += 1;
+        return new Response(JSON.stringify({ repository: fixture.repository, worktree: fixture.selected }), { status: 200 });
+      }
+      return new Response(JSON.stringify(fixture.list), { status: 200 });
+    });
+    const invoke = async (args: string[], env: NodeJS.ProcessEnv) => {
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          env,
+          stdout: () => undefined,
+          stderr: () => undefined,
+          isTTY: false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return error;
+    };
+    try {
+      await invoke(['--url', 'http://127.0.0.1:8137', 'worktree', 'list', '--channel', 'eng', '--json'], { HOME: home });
+      expect(requests[0]).toMatchObject({ method: 'GET', authorization: 'Bearer operator-token' });
+
+      await invoke([
+        '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
+        'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/new',
+        '--alias', 'new-child', '--branch', 'feature/new', '--default-roster', '--json',
+      ], {});
+      expect(requests.at(-1)).toMatchObject({
+        method: 'POST',
+        authorization: 'Bearer explicit-token',
+        body: { path: '/repo/new', alias: 'new-child', branch: 'feature/new', default_roster: true },
+      });
+
+      const beforeRemote = requests.length;
+      expect(await invoke(['--url', 'https://remote.example.test', 'worktree', 'list', '--channel', 'eng', '--json'], { HOME: home }))
+        .toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authentication });
+      expect(requests).toHaveLength(beforeRemote);
+
+      const successfulPosts = successfulMutations;
+      for (const token of ['member-token', 'observer-token']) {
+        const refusal = await invoke([
+          '--url', 'http://127.0.0.1:8137', '--token', token,
+          'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/refused',
+          '--alias', 'refused-child', '--branch', 'feature/refused', '--json',
+        ], {});
+        expect(refusal).toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authorization });
+      }
+      for (const args of [
+        ['worktree', 'list', '--channel', 'eng', '--json'],
+        ['worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/agent-refused', '--alias', 'agent-refused', '--branch', 'feature/agent-refused', '--json'],
+      ]) {
+        const refusal = await invoke(['--url', 'http://127.0.0.1:8137', '--token', 'agent-token', ...args], {});
+        expect(refusal).toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authorization });
+      }
+      expect(successfulMutations).toBe(successfulPosts);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   // harn:assume qualified-cli-wait-preserves-scoped-peer-identity ref=qualified-post-wait-regression
   it('post --wait keeps an authoritative foreign peer with an equal local handle', async () => {
     const fixture = join(dir, 'qualified wait fixture');
@@ -2455,3 +2605,39 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     await daemon.settle();
   });
 });
+
+const restWorktreeFixture = () => {
+  const repository = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    room: 'eng',
+    common_path: '/repo',
+    primary_path: '/repo/main',
+    primary_git_admin_id: '/repo/main/.git',
+    created_ts: '2026-08-08T00:00:00.000Z',
+    updated_ts: '2026-08-08T00:00:00.000Z',
+  };
+  const selected = {
+    id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+    repository_id: repository.id,
+    room: 'eng',
+    conversation_id: 'eng',
+    alias: 'stale-child',
+    path: '/repo/stale-child',
+    git_admin_id: '/repo/main/.git/worktrees/child',
+    primary: false,
+    source: 'created' as const,
+    lifecycle: 'active' as const,
+    availability: 'available' as const,
+    locked: false,
+    head: '0123456789abcdef0123456789abcdef01234567',
+    branch: 'feature/child',
+    registered_ts: repository.created_ts,
+    updated_ts: repository.updated_ts,
+  };
+  return {
+    repository,
+    selected,
+    fresh: { ...selected, alias: 'fresh-child', path: '/repo/fresh-child' },
+    list: { repository, registered: [selected], discovered: [] },
+  };
+};

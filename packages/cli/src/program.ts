@@ -1136,6 +1136,7 @@ defaultRosterManagement
         const peers = [...new Set(posted.mentions.map((mention) => mention.member_id))]
           .filter((id) => id !== initial.self);
         if (peers.length === 0) throw new Error('post --wait requires at least one addressed member');
+        // harn:end qualified-cli-wait-preserves-scoped-peer-identity
         const deadline = Date.now() + options.timeout * 1_000;
         let registered = false;
         try {
@@ -2099,7 +2100,7 @@ defaultRosterManagement
       out(renderWorktree(worktree, options.json === true));
     });
 
-  // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-confirmation
+  // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-command-confirmation
   worktreeManagement
     .command('remove')
     .description('unregister or remove one secondary worktree')
@@ -2117,6 +2118,7 @@ defaultRosterManagement
     }) => {
       const listed = await listWorktrees(worktreeRestClient, options.channel, options.cwd);
       const selected = resolveWorktreeSelector(listed.registered, selector);
+      let confirmationWorktree = selected;
       if (options.filesystem === true) {
         const preview = await previewWorktreeRemoval(
           worktreeRestClient,
@@ -2130,11 +2132,12 @@ defaultRosterManagement
             : escapeWorktreeHumanCell(preview.detail);
           throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, detail);
         }
+        confirmationWorktree = preview.worktree;
       }
       const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
       await confirmWorktreeRemoval({
-        alias: selected.alias,
-        path: selected.path,
+        alias: confirmationWorktree.alias,
+        path: confirmationWorktree.path,
         yes: options.yes === true,
         json: options.json === true,
         isTTY,
@@ -2146,6 +2149,8 @@ defaultRosterManagement
         : await removeWorktree(worktreeRestClient, options.channel, selected.id);
       out(renderWorktree(removed, options.json === true));
     });
+  // harn:end worktree-cli-removal-requires-previewed-consent
+  // harn:end structured-worktree-cli-uses-accepted-lifecycle
 
   const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
   channelManagement.aliases().splice(0);

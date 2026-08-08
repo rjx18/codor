@@ -51,10 +51,16 @@ export function classifyManagementError(error: unknown): ManagementError {
   let code: number = MANAGEMENT_EXIT_CODES.transport;
   const schemaFailure = (error instanceof Error && error.name === 'ZodError')
     || (typeof error === 'object' && error !== null && Array.isArray((error as { issues?: unknown }).issues));
-  if (/no such (?:room|channel|agent(?: member)?|agent preset|worktree)|(?:agent )?preset [^ ]+ (?:not found|does not exist)|(?:missing|references missing).*agent preset|not found|does not exist/.test(lower)) {
+  const worktreeInvocationFailure = /worktree (?:target must be absolute|target parent must (?:already exist|be a directory)|path (?:must be absolute|does not exist|must be a directory)|alias must be|add requires)|invalid local branch name|cwd is not inside a git worktree|cwd is not one of the room's known directories/;
+  const worktreeConflictFailure = /worktree target already exists|worktree target is (?:dirty|missing|mismatched|locked|unavailable|prunable)|worktree path is not a discovered candidate|primary checkout is registered as main|only an available, unlocked worktree can be adopted|primary checkout is unavailable|worktree target overlaps (?:an existing checkout|git administrative state)|primary checkout has no commit head|created worktree belongs to a different repository|created worktree could not be rediscovered|worktree was created but registration failed|worktree repository (?:is not registered|is unavailable)|worktree belongs to a different or unavailable repository|registered worktree is missing or mismatched|worktree path is missing|worktree is locked, prunable, or unavailable|worktree must be clean before removal|worktree cannot be removed|worktree is unavailable|worktree alias is already in use|worktree alias .* ambiguous|worktree .* is not active|primary worktree cannot be removed|the main alias is reserved|a room may register only one git repository|local branch already exists|only an active secondary worktree can be removed|live child runtime|unresolved work|room has no existing repository cwd/;
+  if (worktreeInvocationFailure.test(lower)) {
+    code = MANAGEMENT_EXIT_CODES.invocation;
+  } else if (/no such (?:room|channel|agent(?: member)?|agent preset|worktree)|(?:agent )?preset [^ ]+ (?:not found|does not exist)|(?:missing|references missing).*agent preset|not found|does not exist/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.notFound;
   } else if (/token required|(?:codor_token|codor_member_token).*required/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
+  } else if (worktreeConflictFailure.test(lower)) {
+    code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (
     schemaFailure
     || /--url|--token|--acp-|argument|option|invalid frame|zoderror|invalid input|invalid (?:agent )?preset|must be|expected|does not support .*thinking|does not accept|valid (?:levels|policies)|working directory/.test(lower)
@@ -63,7 +69,7 @@ export function classifyManagementError(error: unknown): ManagementError {
   } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (
-    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|not currently offered|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc|worktree (?:repository|path|target|alias|checkout|identity)|primary (?:checkout|worktree)|only an available|a room may register|local branch|cwd is not one of the room|live child runtime|unresolved work|git administrative state/.test(lower)
+    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|not currently offered|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc/.test(lower)
   ) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {

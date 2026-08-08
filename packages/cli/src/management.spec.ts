@@ -158,7 +158,54 @@ describe('management failures', () => {
     );
     expect(cliExitCode(classifyManagementError(new Error('forbidden: admin cannot rename room')))).toBe(
       MANAGEMENT_EXIT_CODES.authorization,
-    ); expect(cliExitCode(classifyManagementError(new Error('worktree target is dirty')))).toBe(MANAGEMENT_EXIT_CODES.conflict); expect(cliExitCode(classifyManagementError(new Error('worktree target is missing')))).toBe(MANAGEMENT_EXIT_CODES.conflict); expect(cliExitCode(classifyManagementError(new Error('--token, CODOR_TOKEN, or CODOR_MEMBER_TOKEN is required')))).toBe(MANAGEMENT_EXIT_CODES.authentication);
+    );
+    expect(cliExitCode(classifyManagementError(new Error('--token, CODOR_TOKEN, or CODOR_MEMBER_TOKEN is required')))).toBe(
+      MANAGEMENT_EXIT_CODES.authentication,
+    );
+
+    const worktreeFailures = [
+      ['worktree target must be absolute', MANAGEMENT_EXIT_CODES.invocation],
+      ['worktree target parent must already exist', MANAGEMENT_EXIT_CODES.invocation],
+      ['worktree target parent must be a directory', MANAGEMENT_EXIT_CODES.invocation],
+      ['worktree path does not exist', MANAGEMENT_EXIT_CODES.invocation],
+      ['worktree path must be a directory', MANAGEMENT_EXIT_CODES.invocation],
+      ['worktree alias must be a non-main label', MANAGEMENT_EXIT_CODES.invocation],
+      ['invalid local branch name: bad branch', MANAGEMENT_EXIT_CODES.invocation],
+      ['cwd is not inside a Git worktree', MANAGEMENT_EXIT_CODES.invocation],
+      ["cwd is not one of the room's known directories", MANAGEMENT_EXIT_CODES.invocation],
+      ['worktree target already exists', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree target is dirty', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree target is missing', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree path is not a discovered candidate', MANAGEMENT_EXIT_CODES.conflict],
+      ['the primary checkout is registered as main, not adoptable', MANAGEMENT_EXIT_CODES.conflict],
+      ['only an available, unlocked worktree can be adopted', MANAGEMENT_EXIT_CODES.conflict],
+      ['the primary checkout is unavailable', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree target overlaps an existing checkout', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree target overlaps Git administrative state', MANAGEMENT_EXIT_CODES.conflict],
+      ['the primary checkout has no commit HEAD', MANAGEMENT_EXIT_CODES.conflict],
+      ['created worktree belongs to a different repository', MANAGEMENT_EXIT_CODES.conflict],
+      ['created worktree could not be rediscovered', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree repository is not registered', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree belongs to a different or unavailable repository', MANAGEMENT_EXIT_CODES.conflict],
+      ['registered worktree is missing or mismatched', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree path is missing', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree is locked, prunable, or unavailable', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree must be clean before removal', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree cannot be removed', MANAGEMENT_EXIT_CODES.conflict],
+      ['worktree alias is already in use: child', MANAGEMENT_EXIT_CODES.conflict],
+      ['the main alias is reserved', MANAGEMENT_EXIT_CODES.conflict],
+      ['a room may register only one Git repository', MANAGEMENT_EXIT_CODES.conflict],
+      ['local branch already exists: feature/main', MANAGEMENT_EXIT_CODES.conflict],
+      ['only an active secondary worktree can be removed', MANAGEMENT_EXIT_CODES.conflict],
+      ['cannot remove worktree child: live child runtime or unresolved work remains', MANAGEMENT_EXIT_CODES.conflict],
+      ['room has no existing repository cwd', MANAGEMENT_EXIT_CODES.conflict],
+      ['fetch failed', MANAGEMENT_EXIT_CODES.transport],
+      ['invalid worktree list response', MANAGEMENT_EXIT_CODES.transport],
+      ['protocol framing failed', MANAGEMENT_EXIT_CODES.transport],
+    ] as const;
+    for (const [messageText, expected] of worktreeFailures) {
+      expect(cliExitCode(classifyManagementError(new Error(messageText))), messageText).toBe(expected);
+    }
     for (const id of ['unauthorized', 'bearer', '401']) {
       expect(cliExitCode(classifyManagementError(new Error(`no such channel ${id}`)))).toBe(
         MANAGEMENT_EXIT_CODES.notFound,
