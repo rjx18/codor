@@ -1,0 +1,385 @@
+import { performance } from 'node:perf_hooks';
+
+import {
+  HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  TranscriptHistoryPageSchema,
+  type Message,
+  type TranscriptHistoryIndexedEvent,
+  type TranscriptHistoryPage,
+  type TranscriptHistoryUnit,
+  type WireEvent,
+} from '@codor/protocol';
+
+const MESSAGE_CHUNK_SIZE = 64;
+
+export interface TranscriptHistorySource {
+  listMessages(room: string, opts: { before: number; limit: number }): Message[];
+  getMessage(room: string, id: number): Message | undefined;
+  readRunJournal(room: string, rootMessageId: number): WireEvent[];
+}
+
+export interface TranscriptHistoryMetrics {
+  duration_ms: number;
+  response_bytes: number;
+  selected_units: number;
+  message_reads: number;
+  message_records_read: number;
+  journal_reads: number;
+  journal_events_scanned: number;
+}
+
+export interface TranscriptHistoryBuildResult {
+  page: TranscriptHistoryPage;
+  metrics: TranscriptHistoryMetrics;
+}
+
+interface CursorPayload {
+  v: 1;
+  room: string;
+  ceiling_message_id: number;
+  before: { message_id: number; unit_ordinal: number };
+}
+
+interface Entry {
+  sourceMessageId: number;
+  unitOrdinal: number;
+  positionMessageId: number;
+  journalOrder: number;
+  timestamp: number;
+  unit: TranscriptHistoryUnit;
+}
+
+type JournalEntry = Entry & {
+  unit: Exclude<TranscriptHistoryUnit, { kind: 'message' }>;
+};
+
+const terminalStatus = (message: Message): boolean =>
+  message.run?.status === 'completed'
+  || message.run?.status === 'failed'
+  || message.run?.status === 'interrupted';
+
+function encodeCursor(payload: CursorPayload): string {
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeCursor(cursor: string, room: string): CursorPayload {
+  try {
+    const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<CursorPayload>;
+    if (
+      value.v !== 1
+      || typeof value.room !== 'string'
+      || !Number.isSafeInteger(value.ceiling_message_id)
+      || (value.ceiling_message_id ?? -1) < 0
+      || typeof value.before !== 'object'
+      || value.before === null
+      || !Number.isSafeInteger(value.before.message_id)
+      || value.before.message_id < 1
+      || !Number.isSafeInteger(value.before.unit_ordinal)
+      || value.before.unit_ordinal < 0
+    ) throw new Error('invalid shape');
+    if (value.room !== room) throw new Error('cursor belongs to a different room');
+    return value as CursorPayload;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'cursor belongs to a different room') throw error;
+    throw new Error('invalid transcript history cursor');
+  }
+}
+
+function eventTarget(event: WireEvent, rootMessageId: number): number {
+  return event.type === 'run.item' || event.type === 'timeline' || event.type === 'run.completed'
+    ? (event.output_message_id ?? rootMessageId)
+    : rootMessageId;
+}
+
+function callId(event: WireEvent): string | undefined {
+  if (event.type !== 'run.item') return undefined;
+  if (event.item_type !== 'tool_call' && event.item_type !== 'tool_result') return undefined;
+  if (typeof event.payload !== 'object' || event.payload === null) return undefined;
+  const value = (event.payload as { call_id?: unknown }).call_id;
+  return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+function messageTime(message: Message): number {
+  if (message.kind === 'run' && terminalStatus(message)) {
+    return Date.parse(message.run?.ended_ts ?? message.ts);
+  }
+  return Date.parse(message.ts);
+}
+
+function unitizeRun(root: Message, events: readonly WireEvent[]): Entry[] {
+  const entries: Entry[] = [];
+  const calls = new Map<string, JournalEntry>();
+  const pendingCompactions: JournalEntry[] = [];
+  let prose: JournalEntry | undefined;
+  let lastTimestamp = messageTime(root);
+  let terminal: { indexed: TranscriptHistoryIndexedEvent; target: number } | undefined;
+
+  const add = (
+    kind: 'prose' | 'tool' | 'timeline',
+    index: number,
+    target: number,
+    timestamp: number,
+  ): JournalEntry => {
+    const entry: JournalEntry = {
+      sourceMessageId: root.id,
+      unitOrdinal: entries.length,
+      positionMessageId: target,
+      journalOrder: index,
+      timestamp,
+      unit: {
+        kind,
+        root_message_id: root.id,
+        output_message_id: target,
+        event_indices: [index],
+      },
+    };
+    entries.push(entry);
+    return entry;
+  };
+
+  events.forEach((event, index) => {
+    if (event.type === 'run.completed') {
+      prose = undefined;
+      terminal = { indexed: { index, event }, target: eventTarget(event, root.id) };
+      return;
+    }
+
+    if (event.type === 'run.item') {
+      const target = eventTarget(event, root.id);
+      const timestamp = event.ts === undefined ? lastTimestamp : Date.parse(event.ts);
+      if (event.ts !== undefined) lastTimestamp = timestamp;
+      if (event.item_type === 'text_delta') {
+        if (prose !== undefined && prose.positionMessageId === target) {
+          prose.unit.event_indices.push(index);
+        } else {
+          prose = add('prose', index, target, timestamp);
+        }
+        return;
+      }
+      prose = undefined;
+      if (event.item_type === 'reasoning_summary') return;
+      const id = callId(event);
+      if (event.item_type === 'tool_call') {
+        const entry = add('tool', index, target, timestamp);
+        if (id !== undefined) calls.set(id, entry);
+        return;
+      }
+      if (event.item_type === 'tool_result' && id !== undefined) {
+        const call = calls.get(id);
+        if (call !== undefined) {
+          call.unit.event_indices.push(index);
+          return;
+        }
+      }
+      add('tool', index, target, timestamp);
+      return;
+    }
+
+    prose = undefined;
+    if (event.type !== 'timeline' || event.item.type !== 'compaction') return;
+    const target = eventTarget(event, root.id);
+    if (event.item.status === 'completed') {
+      const pending = pendingCompactions.shift();
+      if (pending !== undefined) {
+        pending.unit.event_indices.push(index);
+        return;
+      }
+    }
+    const entry = add('timeline', index, target, lastTimestamp);
+    if (event.item.status === 'loading') pendingCompactions.push(entry);
+  });
+
+  const completedIndex = terminal?.indexed.index;
+  const terminalTarget = terminal?.target
+    ?? root.run?.result_message_id
+    ?? entries.at(-1)?.positionMessageId
+    ?? root.id;
+  entries.push({
+    sourceMessageId: root.id,
+    unitOrdinal: entries.length,
+    positionMessageId: terminalTarget,
+    journalOrder: completedIndex ?? Number.MAX_SAFE_INTEGER,
+    timestamp: messageTime(root),
+    unit: {
+      kind: 'terminal',
+      root_message_id: root.id,
+      output_message_id: terminalTarget,
+      event_indices: completedIndex === undefined ? [] : [completedIndex],
+    },
+  });
+  return entries;
+}
+
+function compareEntries(left: Entry, right: Entry, continuationFloor: number | undefined): number {
+  const leftStrict = continuationFloor !== undefined && left.positionMessageId >= continuationFloor;
+  const rightStrict = continuationFloor !== undefined && right.positionMessageId >= continuationFloor;
+  if (leftStrict !== rightStrict) return leftStrict ? 1 : -1;
+  if (leftStrict && rightStrict) {
+    return left.positionMessageId - right.positionMessageId
+      || left.journalOrder - right.journalOrder
+      || left.sourceMessageId - right.sourceMessageId
+      || left.unitOrdinal - right.unitOrdinal;
+  }
+  return left.timestamp - right.timestamp
+    || left.sourceMessageId - right.sourceMessageId
+    || left.unitOrdinal - right.unitOrdinal;
+}
+
+// harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-page-builder
+export function buildTranscriptHistoryPage(opts: {
+  room: string;
+  cursor?: string;
+  source: TranscriptHistorySource;
+}): TranscriptHistoryBuildResult {
+  const started = performance.now();
+  const cursor = opts.cursor === undefined ? undefined : decodeCursor(opts.cursor, opts.room);
+  let ceiling = cursor?.ceiling_message_id;
+  let before = ceiling === undefined ? Number.MAX_SAFE_INTEGER : ceiling + 1;
+  let exhausted = false;
+  let messageReads = 0;
+  let messageRecordsRead = 0;
+  let journalReads = 0;
+  let journalEventsScanned = 0;
+  const messages = new Map<number, Message>();
+  const journals = new Map<number, WireEvent[]>();
+  let entries: Entry[] = [];
+  let boundaryIndex = -1;
+
+  const loadMessage = (id: number): Message | undefined => {
+    const known = messages.get(id);
+    if (known !== undefined) return known;
+    const loaded = opts.source.getMessage(opts.room, id);
+    if (loaded !== undefined && (ceiling === undefined || loaded.id <= ceiling)) {
+      messages.set(loaded.id, loaded);
+      messageRecordsRead += 1;
+    }
+    return loaded;
+  };
+
+  const rebuildEntries = (): void => {
+    const roots = new Map<number, Message>();
+    for (const message of messages.values()) {
+      if (message.run_parent_id !== undefined) {
+        const root = loadMessage(message.run_parent_id);
+        if (root !== undefined) roots.set(root.id, root);
+      } else if (message.kind === 'run' && message.run !== undefined) {
+        roots.set(message.id, message);
+      }
+    }
+
+    const next: Entry[] = [];
+    for (const message of messages.values()) {
+      if (message.run_parent_id !== undefined || (message.kind === 'run' && message.run !== undefined)) continue;
+      next.push({
+        sourceMessageId: message.id,
+        unitOrdinal: 0,
+        positionMessageId: message.id,
+        journalOrder: 0,
+        timestamp: messageTime(message),
+        unit: { kind: 'message', message_id: message.id },
+      });
+    }
+    for (const root of roots.values()) {
+      if (!terminalStatus(root)) continue;
+      let events = journals.get(root.id);
+      if (events === undefined) {
+        events = opts.source.readRunJournal(opts.room, root.id);
+        journals.set(root.id, events);
+        journalReads += 1;
+        journalEventsScanned += events.length;
+      }
+      const family = unitizeRun(root, events);
+      for (const entry of family) {
+        loadMessage(entry.positionMessageId);
+        next.push(entry);
+      }
+    }
+    const floors = [...messages.values()].flatMap((message) => [
+      ...(message.run?.output_mode === 'messages' ? [message.id] : []),
+      ...(message.run_parent_id !== undefined ? [message.run_parent_id] : []),
+    ]);
+    const floor = floors.length === 0 ? undefined : Math.min(...floors);
+    entries = next.sort((left, right) => compareEntries(left, right, floor));
+    boundaryIndex = cursor === undefined
+      ? entries.length
+      : entries.findIndex((entry) =>
+          entry.sourceMessageId === cursor.before.message_id
+          && entry.unitOrdinal === cursor.before.unit_ordinal);
+  };
+
+  while (!exhausted) {
+    const chunk = opts.source.listMessages(opts.room, { before, limit: MESSAGE_CHUNK_SIZE });
+    messageReads += 1;
+    messageRecordsRead += chunk.length;
+    if (ceiling === undefined) ceiling = chunk.at(-1)?.id ?? 0;
+    for (const message of chunk) {
+      if (message.id <= ceiling) messages.set(message.id, message);
+    }
+    exhausted = chunk.length < MESSAGE_CHUNK_SIZE;
+    if (chunk.length > 0) before = chunk[0]!.id;
+    rebuildEntries();
+    const candidates = boundaryIndex < 0 ? [] : entries.slice(0, boundaryIndex);
+    if (boundaryIndex >= 0 && candidates.length > HISTORICAL_TRANSCRIPT_PAGE_SIZE) break;
+    if (chunk.length === 0) exhausted = true;
+  }
+
+  rebuildEntries();
+  if (cursor !== undefined && boundaryIndex < 0) throw new Error('invalid transcript history cursor boundary');
+  const candidates = entries.slice(0, boundaryIndex);
+  const selected = candidates.slice(-HISTORICAL_TRANSCRIPT_PAGE_SIZE);
+  const hasMore = candidates.length > HISTORICAL_TRANSCRIPT_PAGE_SIZE;
+  const selectedMessageIds = new Set<number>();
+  const selectedEvents = new Map<number, Set<number>>();
+  for (const entry of selected) {
+    if (entry.unit.kind === 'message') {
+      selectedMessageIds.add(entry.unit.message_id);
+      continue;
+    }
+    selectedMessageIds.add(entry.unit.root_message_id);
+    selectedMessageIds.add(entry.unit.output_message_id);
+    const indices = selectedEvents.get(entry.unit.root_message_id) ?? new Set<number>();
+    entry.unit.event_indices.forEach((index) => indices.add(index));
+    selectedEvents.set(entry.unit.root_message_id, indices);
+  }
+  const page: TranscriptHistoryPage = {
+    messages: [...selectedMessageIds]
+      .map((id) => loadMessage(id))
+      .filter((message): message is Message => message !== undefined)
+      .sort((left, right) => left.id - right.id),
+    journals: [...selectedEvents]
+      .map(([rootMessageId, indices]) => ({
+        root_message_id: rootMessageId,
+        events: [...indices]
+          .sort((left, right) => left - right)
+          .map((index) => ({ index, event: journals.get(rootMessageId)![index]! })),
+      }))
+      .filter((journal) => journal.events.length > 0),
+    units: selected.map((entry) => entry.unit),
+    before_cursor: hasMore && selected[0] !== undefined
+      ? encodeCursor({
+          v: 1,
+          room: opts.room,
+          ceiling_message_id: ceiling ?? 0,
+          before: {
+            message_id: selected[0].sourceMessageId,
+            unit_ordinal: selected[0].unitOrdinal,
+          },
+        })
+      : null,
+    has_more: hasMore,
+  };
+  const parsed = TranscriptHistoryPageSchema.parse(page);
+  return {
+    page: parsed,
+    metrics: {
+      duration_ms: performance.now() - started,
+      response_bytes: Buffer.byteLength(JSON.stringify(parsed)),
+      selected_units: parsed.units.length,
+      message_reads: messageReads,
+      message_records_read: messageRecordsRead,
+      journal_reads: journalReads,
+      journal_events_scanned: journalEventsScanned,
+    },
+  };
+}
+// harn:end historical-transcript-pages-are-unit-bounded-and-room-bound

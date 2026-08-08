@@ -90,6 +90,10 @@ import {
   type RoutedMessagePlan,
   type TurnOutputPatch,
 } from './store.js';
+import {
+  buildTranscriptHistoryPage,
+  type TranscriptHistoryBuildResult,
+} from './transcript-history.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
 
 const execFileAsync = promisify(execFile);
@@ -5028,6 +5032,49 @@ export class Daemon {
     if (!message?.run) return [];
     return this.project(room, this.blobs.read(room, message.run.events_ref));
   }
+
+  // harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-rest
+  transcriptHistoryPage(room: string, cursor?: string): TranscriptHistoryBuildResult {
+    if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
+    const built = buildTranscriptHistoryPage({
+      room,
+      cursor,
+      source: {
+        listMessages: (sourceRoom, opts) => this.store.listMessages(sourceRoom, opts),
+        getMessage: (sourceRoom, id) => this.store.getMessage(sourceRoom, id),
+        readRunJournal: (sourceRoom, rootMessageId) => {
+          const root = this.store.getMessage(sourceRoom, rootMessageId);
+          return root?.run === undefined ? [] : this.blobs.read(sourceRoom, root.run.events_ref);
+        },
+      },
+    });
+    const withoutRaw = {
+      ...built.page,
+      journals: built.page.journals.map((journal) => ({
+        ...journal,
+        events: journal.events.map((indexed) => {
+          const event = indexed.event;
+          if (
+            event.type !== 'run.item'
+            || typeof event.payload !== 'object'
+            || event.payload === null
+            || Array.isArray(event.payload)
+          ) return indexed;
+          const { raw: _raw, ...payload } = event.payload as Record<string, unknown>;
+          return { ...indexed, event: { ...event, payload } };
+        }),
+      })),
+    };
+    const page = this.project(room, withoutRaw);
+    return {
+      page,
+      metrics: {
+        ...built.metrics,
+        response_bytes: Buffer.byteLength(JSON.stringify(page)),
+      },
+    };
+  }
+  // harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
 
   // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-contract
   /**

@@ -12,6 +12,7 @@ import {
   type ServerFrame,
   type Session,
   type SpawnOpts,
+  type TranscriptHistoryPage,
 } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
@@ -1050,6 +1051,124 @@ describe('REST', () => {
     );
     expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
+
+  // harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-rest
+  describe('combined transcript history pages', () => {
+    it('serves only projected finalized evidence in bounded intra-run pages', async () => {
+      const owner = daemon.ownerOf('eng');
+      daemon.store.postMessage('eng', {
+        author: owner.id,
+        kind: 'chat',
+        body: 'credential sk-proj-abcdef1234567890abcdef',
+      });
+      const posted = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: '' });
+      const finalized = daemon.store.updateMessage('eng', posted.id, {
+        run: {
+          status: 'completed',
+          started_ts: '2026-08-08T00:00:00.000Z',
+          ended_ts: '2026-08-08T00:01:00.000Z',
+          tool_calls: 200,
+          events_ref: `runs/${String(posted.id)}.jsonl`,
+          output_mode: 'messages',
+        },
+      });
+      for (let index = 0; index < 200; index += 1) {
+        daemon.blobs.append('eng', finalized.run!.events_ref, {
+          type: 'run.item', item_type: 'tool_call', output_message_id: finalized.id,
+          payload: {
+            call_id: `call-${String(index)}`,
+            tool: 'Read',
+            title: index === 199 ? 'AKIAIOSFODNN7EXAMPLE' : `read ${String(index)}`,
+            raw: { bearer: 'Bearer abcdefghijklmnopqrstuvwxyz' },
+          },
+        });
+        daemon.blobs.append('eng', finalized.run!.events_ref, {
+          type: 'run.item', item_type: 'tool_result', output_message_id: finalized.id,
+          payload: { call_id: `call-${String(index)}`, status: 'ok', output_text: 'done' },
+        });
+      }
+      daemon.blobs.append('eng', finalized.run!.events_ref, {
+        type: 'run.completed', status: 'completed', output_message_id: finalized.id,
+      });
+      const mutable = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: '' });
+      daemon.store.updateMessage('eng', mutable.id, {
+        run: {
+          status: 'running', started_ts: '2026-08-08T00:02:00.000Z', tool_calls: 0,
+          events_ref: `runs/${String(mutable.id)}.jsonl`, output_mode: 'messages',
+        },
+      });
+      daemon.blobs.append('eng', `runs/${String(mutable.id)}.jsonl`, {
+        type: 'run.item', item_type: 'text_delta', output_message_id: mutable.id,
+        payload: { text: 'mutable secret' },
+      });
+
+      const samples = Array.from({ length: 6 }, () => daemon.transcriptHistoryPage('eng').metrics);
+      console.info('[transcript-history-server-scan]', JSON.stringify({
+        cold: samples[0], warm_ms: samples.slice(1).map((sample) => sample.duration_ms),
+      }));
+      expect(samples[0]).toMatchObject({
+        selected_units: 20,
+        message_reads: 1,
+        message_records_read: 3,
+        journal_reads: 1,
+        journal_events_scanned: 401,
+      });
+
+      const response = await fetch(`${base}/api/rooms/eng/transcript-history`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(response.status).toBe(200);
+      const page = await response.json() as TranscriptHistoryPage;
+      expect(page.units).toHaveLength(20);
+      expect(page.has_more).toBe(true);
+      expect(page.before_cursor).not.toBeNull();
+      expect(page.messages.map((message) => message.id)).not.toContain(mutable.id);
+      const serialized = JSON.stringify(page);
+      expect(serialized).not.toContain('AKIAIOSFODNN7EXAMPLE');
+      expect(serialized).not.toContain('Bearer abcdefghijklmnopqrstuvwxyz');
+      expect(serialized).not.toContain('"raw"');
+      expect(Buffer.byteLength(serialized)).toBeLessThan(20_000);
+      for (const unit of page.units) {
+        if (unit.kind === 'tool') expect(unit.event_indices).toHaveLength(2);
+      }
+    });
+
+    it('authorizes room reads and rejects malformed, cross-room, and missing-room cursors', async () => {
+      const owner = daemon.ownerOf('eng');
+      for (let index = 0; index < 25; index += 1) {
+        daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: `m${String(index)}` });
+      }
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const first = await fetch(`${base}/api/rooms/eng/transcript-history`, { headers });
+      const page = await first.json() as TranscriptHistoryPage;
+      expect(first.status).toBe(200);
+      expect(page.before_cursor).not.toBeNull();
+
+      expect((await fetch(`${base}/api/rooms/eng/transcript-history?cursor=bad`, { headers })).status)
+        .toBe(400);
+      expect((await fetch(`${base}/api/rooms/missing/transcript-history`, { headers })).status)
+        .toBe(404);
+      expect((await fetch(`${base}/api/rooms/eng/transcript-history`)).status).toBe(401);
+
+      daemon.createRoom({
+        id: 'other-history', name: 'Other History',
+        owner: { handle: 'other-history-owner', display_name: 'Other History Owner' },
+      });
+      expect((await fetch(
+        `${base}/api/rooms/other-history/transcript-history?cursor=${encodeURIComponent(page.before_cursor!)}`,
+        { headers },
+      )).status).toBe(400);
+
+      const { token: agentToken } = spawnAgentWithToken('history-agent');
+      expect((await fetch(`${base}/api/rooms/eng/transcript-history`, {
+        headers: { authorization: `Bearer ${agentToken}` },
+      })).status).toBe(200);
+      expect((await fetch(`${base}/api/rooms/other-history/transcript-history`, {
+        headers: { authorization: `Bearer ${agentToken}` },
+      })).status).toBe(403);
+    });
+  });
+  // harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
 
   // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-server-regression
   it('adds bounded projected run hits without changing message-only search', async () => {

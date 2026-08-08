@@ -915,6 +915,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end permalink-ids-stable
 
+  // harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-rest
+  app.get('/api/rooms/:room/transcript-history', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeRoom(principal, room, 'read', reply)) return;
+    if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
+    try {
+      const { cursor } = req.query as { cursor?: string };
+      return reply.send(daemon.transcriptHistoryPage(room, cursor).page);
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+
   app.get('/api/rooms/:room/runs/:msgId', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;
