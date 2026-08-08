@@ -1,7 +1,8 @@
 id: transcript-history-reliability-p2-browser-pages
 title: Transcript history reliability phase 2 - bounded browser history
 notes: >
-  Browser integration only, after accepted Phase 1 at a83dc563. Make the
+  Browser integration only, after the accepted Phase 1 cursor-completeness
+  correction. Make the
   authenticated combined transcript page the sole cold source for finalized
   history in the mounted transcript. Fetch only the active room's first page;
   keep complete message context, ordered unit descriptors, indexed excerpts,
@@ -76,6 +77,7 @@ assumptions:
         select the wrong evidence.
       depends_on:
         - historical-transcript-pages-match-output-scoped-rendering
+        - transcript-history-cursors-cover-complete-established-order
         - hosted-computer-sessions-keep-state-isolated
         - redaction-before-fanout
         - run-journals-own-evidence-across-output-messages
@@ -173,6 +175,11 @@ assumptions:
       outcome: unchanged
       reason: The browser consumes Phase 1's exact room-bound unit contract without
         changing it.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: >
+        Browser cursor walks consume the corrected server order and do not alter
+        its immutable ceiling, ordering, or gap-free boundary contract.
     - id: addressed-cold-hydration-is-strict-and-legacy-safe
       outcome: unchanged
       reason: >
@@ -364,8 +371,3 @@ anchors:
       action: change
       reason: Add direct-mode head reconciliation to the existing connector resume
         hook without remounting it.
-lock:
-  locked_at: 2026-08-08T14:51:36.218Z
-  base_commit: bf84880975140cec8473a97f49565ff652e639b7
-  hash: e37d1132e928f121ebc222106151697335fa89a083d1e4f4d3fe52cb28b358ce
-  dirty_at_lock: false
