@@ -31,8 +31,8 @@ notes: >
   extend the same message/output article. A still intersecting sentinel or
   height changes may not drain more pages. Search, pin, inbox, and #N targets
   walk combined pages sequentially until the target has a materialized unit or
-  history is exhausted. A message target is materialized by its ordinary unit
-  or by a journal unit whose permanent output id matches it; a lifecycle-root
+  history is exhausted. A message target is materialized by its ordinary unit or
+  by a journal unit whose permanent output id matches it; a lifecycle-root
   target may use the oldest currently materialized unit owned by that root's
   visible family as its existing #root anchor. A complete message supplied only
   as context for another selected unit is not a successful reveal. Then retain
@@ -126,8 +126,8 @@ assumptions:
         run finalized without complete locally preserved indexed and terminal
         evidence, the active room must deduplicate one combined-history head
         refresh, merge its units into the mounted range without discarding older
-        loaded pages, and follow the returned opaque cursor only until overlap or
-        exhaustion bridges any gap; it must never fetch finalized /runs/:id,
+        loaded pages, and follow the returned opaque cursor only until overlap
+        or exhaustion bridges any gap; it must never fetch finalized /runs/:id,
         concurrent resume/head signals must share the same work, and a failed
         head or bridge request must preserve rendered history and remain
         retryable rather than marking the room empty or exhausted.
@@ -329,8 +329,8 @@ anchors:
         mutable in direct and managed active sessions.
     combined-history-head-regression:
       action: change
-      reason: Prove disconnect-finalize-reconnect, gap bridging, request deduplication,
-        retry after failure, and zero finalized run fetches.
+      reason: Prove disconnect-finalize-reconnect, gap bridging, request
+        deduplication, retry after failure, and zero finalized run fetches.
   transcript-targets-walk-combined-pages:
     combined-history-target-reveal:
       action: change
@@ -362,5 +362,10 @@ anchors:
   settings-navigation-reuses-live-session:
     mounted-settings-route:
       action: change
-      reason: Add direct-mode head reconciliation to the existing connector resume hook
-        without remounting it.
+      reason: Add direct-mode head reconciliation to the existing connector resume
+        hook without remounting it.
+lock:
+  locked_at: 2026-08-08T14:51:36.218Z
+  base_commit: bf84880975140cec8473a97f49565ff652e639b7
+  hash: e37d1132e928f121ebc222106151697335fa89a083d1e4f4d3fe52cb28b358ce
+  dirty_at_lock: false
