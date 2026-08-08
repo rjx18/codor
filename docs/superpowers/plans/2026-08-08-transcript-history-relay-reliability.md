@@ -133,6 +133,8 @@ Record the large-journal scan latency, selected-unit count, serialized payload b
 
 Fetch the first page only for the mounted active room and store its complete messages, ordered units, indexed excerpts, cursor, loading state, and exhaustion state per room and per computer store. Do not request zero-message snapshots for inactive channels. Deduplicate concurrent first-page and older-page requests by room/cursor.
 
+A failed first-page or head-refresh request remains retryable. It must preserve any already-rendered range and must not be cached as an honestly empty or exhausted channel.
+
 ### Task 2: Retire full-journal reads for finalized history
 
 **Likely files:**
@@ -141,8 +143,13 @@ Fetch the first page only for the mounted active room and store its complete mes
 - Modify: `packages/web-next/src/room/run-journals.spec.ts`
 - Modify: `packages/web-next/src/room/Transcript.tsx`
 - Modify: `packages/web-next/src/room/Transcript.spec.tsx`
+- Modify: `packages/web-next/src/room/RoomPage.tsx`
+- Modify: `packages/web-next/src/app/computer-sessions.ts`
+- Modify: `packages/web-next/src/app/computer-sessions.spec.ts`
 
 Page-hydrated finalized runs must render only the server's selected indexed excerpts and must never trigger the current cold `GET /runs/:id` cache fill. Mutable/running journals may still use the existing full journal plus live buffer. When a visible live run settles, preserve the already-rendered evidence in place, accept any visible settled tail once, and transition it to immutable history without a duplicate unit or cold journal download.
+
+When a disconnect or background gap leaves a formerly mutable run without complete indexed and terminal evidence, deduplicate one combined-history head refresh before refreshing journals that remain mutable. Merge the new head without discarding older loaded pages, and follow the returned cursor only until overlap or exhaustion bridges the missing range. Concurrent reconnect/head signals share the same request. A failed head or bridge remains retryable and preserves the mounted range. This recovery path must never request finalized `/runs/:id` evidence.
 
 The store may retain broader WebSocket message metadata for synchronization, but the active transcript must render finalized history exclusively from the combined pages plus currently live material. Merely adding the REST endpoint while leaving the finalized-run cache eager is not acceptable.
 
@@ -155,13 +162,13 @@ The store may retain broader WebSocket message metadata for synchronization, but
 - Modify: `packages/web-next/tests/room21-hydration.e2e.spec.ts`
 - Create: `packages/web-next/tests/room-history-pagination.e2e.spec.ts`
 
-Initial history is at most 20 units. One deliberate top reach requests one preceding page and restores the same visible DOM anchor after prepending; a still-intersecting sentinel must not drain every page automatically. A live run remains unbounded.
+Initial history is at most 20 units. Give every rendered unit a stable DOM identity. One deliberate top reach requests one preceding page and restores the first pre-existing visible unit to the same viewport offset after prepending, including when both pages extend the same message/output article; a still-intersecting sentinel must not drain every page automatically. A live run remains unbounded.
 
-Search results, pins, and `#N` permalinks must reveal their target by walking bounded cursors until the target unit/message is present or history is exhausted, then retain existing focus/highlight behavior. Continuation attribution and interleaved rows must use their permanent IDs. Room/computer switches must not leak excerpts or cursors across stores; direct mode uses the same REST contract over native fetch.
+Search results, pins, inbox rows, and `#N` permalinks must reveal their target by walking bounded cursors until the target has a materialized/renderable unit or history is exhausted, then retain existing focus/highlight behavior. An ordinary unit materializes its message ID; a journal unit materializes its permanent output message ID; and a lifecycle-root target may resolve to the oldest currently materialized unit owned by that root's visible family, which carries the existing `#root` anchor. A complete message carried only as context for another unit is not a successful reveal and must not stop the walk. Continuation attribution and interleaved rows must use their permanent IDs. Room/computer switches must not leak excerpts or cursors across stores; direct mode uses the same REST contract over native fetch.
 
 ### Task 4: Verify Phase 2
 
-Add unit and Playwright regressions for a huge run, boundary within a run, continuation/interleaved messages, top-scroll anchoring, search, pins, permalinks, live-to-finalized settlement, computer/room isolation, and direct mode. Instrument requests to prove cold history makes one bounded transcript-page request and zero full `/runs/:id` requests for finalized runs; record browser payload bytes and request counts.
+Add unit and Playwright regressions for a huge run, boundary within a run, continuation/interleaved messages, an intra-message unit-level prepend anchor, context-only target records, search, pins, inbox, permalinks, complete live-to-finalized settlement, disconnect-finalize-reconnect head reconciliation, retryable first/head failures, computer/room isolation, and direct mode. Instrument requests to prove cold history makes one bounded transcript-page request and zero full `/runs/:id` requests for finalized runs—including after reconnect—and record browser payload bytes and request counts.
 
 Run affected units, all web-next units/build, focused hydration/history Playwright suites, and the Phase 2 Harn check. Apply and commit once, then stop for Investigator review.
 

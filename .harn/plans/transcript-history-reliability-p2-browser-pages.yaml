@@ -13,39 +13,49 @@ notes: >
   A page-hydrated finalized family must not call GET /runs/:id. Mutable runs
   keep their existing full redacted journal recovery plus indexed live buffer
   and are not limited to twenty historical units. When a run observed live
-  settles, preserve the evidence already painted, freeze/reconcile it by
-  lifecycle root, permanent output id, and journal index, and accept the visible
-  settled tail once without a terminal full-journal request or duplicate page
-  unit. Here "unbounded live" means outside the twenty-history-unit page cap;
-  preserve the existing bounded live event buffer and authoritative
-  mutable-journal recovery.
+  settles with complete local evidence, preserve the evidence already painted,
+  freeze/reconcile it by lifecycle root, permanent output id, and journal index,
+  and accept the visible settled tail once without a terminal full-journal
+  request or duplicate page unit. If a disconnect or background gap means the
+  terminal evidence is not complete locally, reconcile through a deduplicated,
+  retryable combined-history head refresh, then follow its opaque cursor only
+  far enough to overlap the already loaded range. Merge that head and bridge
+  without discarding older pages or ever fetching a finalized /runs/:id. Here
+  "unbounded live" means outside the twenty-history-unit page cap; preserve the
+  existing bounded live event buffer and authoritative mutable-journal recovery.
 
   The initial immutable page contains at most twenty visible units. One
   deliberate top reach may request exactly one preceding opaque cursor and must
-  keep the pre-existing visible DOM anchor at the same viewport offset. A still
-  intersecting sentinel or height changes may not drain more pages. Search, pin,
-  inbox, and #N targets walk combined pages sequentially only until the
-  permanent target appears or history is exhausted, then retain current
-  fragment, focus/highlight, and scroll behavior. Direct mode uses the same API
-  through relayFetch; hosted stores remain isolated and warm switching remains
-  in place.
+  give every rendered unit a stable DOM identity and keep the first pre-existing
+  visible unit at the same viewport offset, including when the prepended units
+  extend the same message/output article. A still intersecting sentinel or
+  height changes may not drain more pages. Search, pin, inbox, and #N targets
+  walk combined pages sequentially until the target has a materialized unit or
+  history is exhausted. A message target is materialized by its ordinary unit
+  or by a journal unit whose permanent output id matches it; a lifecycle-root
+  target may use the oldest currently materialized unit owned by that root's
+  visible family as its existing #root anchor. A complete message supplied only
+  as context for another selected unit is not a successful reveal. Then retain
+  current fragment, focus/highlight, and scroll behavior. Direct mode uses the
+  same API through relayFetch; hosted stores remain isolated and warm switching
+  remains in place.
+
+  A failed first-page or head-refresh request stays retryable and must not be
+  cached as an honestly empty or exhausted room. Existing rendered history
+  remains mounted across a failed refresh.
 
   Add deterministic unit and Playwright coverage for a huge intra-run page, page
-  boundaries, continuations/interleaving, top anchoring and one-request
-  latching, navigation targets, live settlement, same-room computer isolation,
-  and direct mode. Instrument cold browser traffic: one initial combined-page
-  request, no finalized /runs/:id request, bounded page bytes and units, with
-  mutable-run requests reported separately. Preserve search, pins, permalinks,
-  attachments, room support, read state, and live fanout. No inactive-channel
-  cold snapshots, server/protocol changes, startup optimization, persistent
-  index, unrelated UI redesign, or Phase 3 relay recovery.
+  boundaries, continuations/interleaving, an intra-message unit anchor and
+  one-request latching, context-only navigation records, live settlement,
+  disconnect-finalize-reconnect head reconciliation, retryable failures,
+  same-room computer isolation, and direct mode. Instrument cold browser
+  traffic: one initial combined-page request, no finalized /runs/:id request,
+  bounded page bytes and units, with mutable-run requests reported separately.
+  Preserve search, pins, permalinks, attachments, room support, read state, and
+  live fanout. No inactive-channel cold snapshots, server/protocol changes,
+  startup optimization, persistent index, unrelated UI redesign, or Phase 3
+  relay recovery.
 assumptions:
-  retire:
-    - id: history-cursor-tracks-only-the-contiguous-tail
-      reason: >
-        The supported transcript will no longer page finalized history from the
-        WebSocket hydration_floor/message-id cursor; it uses the room-bound
-        opaque combined-page cursor while WebSocket state remains live metadata.
   create:
     - id: finalized-browser-history-is-combined-page-owned
       title: Cold finalized browser history comes only from combined pages
@@ -57,7 +67,9 @@ assumptions:
         live inside that room's injected client store so direct mode uses the
         same API and same-named rooms on concurrent hosted computers cannot
         share history, cursors, tokens, or evidence, because the server page is
-        the bounded, redacted authority for immutable transcript history.
+        the bounded, redacted authority for immutable transcript history; a
+        failed first-page request remains retryable and does not establish an
+        empty or exhausted room.
       reason: >
         Merging the new endpoint beside the old finalized journal path would
         preserve the request storm and allow cross-computer room-local ids to
@@ -73,11 +85,13 @@ assumptions:
         The mounted transcript must request only its active room's first page,
         expose at most twenty immutable units initially, deduplicate requests by
         room and opaque cursor, and allow one deliberate top reach to prepend
-        exactly one preceding page while holding the first pre-existing visible
-        permanent message at the same viewport offset; the request latch must
-        remain closed while the sentinel stays intersecting or row heights
-        settle, and reopen only after the operator leaves and deliberately
-        reaches the top again, so one gesture cannot auto-drain history.
+        exactly one preceding page while giving each rendered unit a stable DOM
+        identity and holding the first pre-existing visible unit at the same
+        viewport offset, even when old and new units extend the same permanent
+        message/output article; the request latch must remain closed while the
+        sentinel stays intersecting or row heights settle, and reopen only after
+        the operator leaves and deliberately reaches the top again, so one
+        gesture cannot auto-drain history.
       reason: >
         A cursor may end inside one huge run, so message counts and an
         always-live top sentinel cannot enforce the operator's twenty-unit
@@ -104,16 +118,42 @@ assumptions:
         - run-events-merge-by-journal-index
         - live-run-event-cache-bounded
         - continuation-writer-follows-journaled-output-ownership
+        - missed-terminal-history-refreshes-through-combined-head
+    - id: missed-terminal-history-refreshes-through-combined-head
+      title: Missed terminal evidence reconciles through a retryable combined head
+      statement: >
+        When resume or live-state reconciliation finds that a formerly mutable
+        run finalized without complete locally preserved indexed and terminal
+        evidence, the active room must deduplicate one combined-history head
+        refresh, merge its units into the mounted range without discarding older
+        loaded pages, and follow the returned opaque cursor only until overlap or
+        exhaustion bridges any gap; it must never fetch finalized /runs/:id,
+        concurrent resume/head signals must share the same work, and a failed
+        head or bridge request must preserve rendered history and remain
+        retryable rather than marking the room empty or exhausted.
+      reason: >
+        A tab can miss the settlement frames while asleep, so locally freezing
+        an incomplete mutable cache loses terminal evidence, while re-reading
+        the full journal restores the unbounded request path Phase 2 removes.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - run-events-merge-by-journal-index
+        - client-syncs-by-seq
     - id: transcript-targets-walk-combined-pages
       title: Transcript targets resolve through bounded combined pages
       statement: >
         Search results, pinned messages, inbox rows, and #N permalinks outside
         the mounted immutable page must walk the room's combined opaque cursors
-        in order only until the permanent target message/unit appears or history
-        is exhausted, deduplicating concurrent walks and then preserving the
-        exact fragment, focus/highlight, and centered scroll behavior, because
-        bounded history must not turn existing navigation into dead links or
-        load the entire archive speculatively.
+        in order only until the target has a materialized renderable unit or
+        history is exhausted. An ordinary unit materializes its message id; a
+        journal unit materializes its permanent output message id; and a
+        lifecycle-root target may resolve to the oldest currently materialized
+        unit in that root's visible family, which carries the existing #root
+        anchor. A complete message present only as attribution context for
+        another unit must not stop the walk. Concurrent walks must deduplicate
+        and success must preserve the exact fragment, focus/highlight, and
+        centered scroll behavior, because bounded history must not turn existing
+        navigation into dead links or load the entire archive speculatively.
       reason: >
         Target metadata can name a permanent message outside the first twenty
         visible units, but the old integer message endpoint is no longer the
@@ -123,6 +163,12 @@ assumptions:
         - transcript-history-prepends-one-deliberate-page
         - permalink-ids-stable
   reviewed:
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      outcome: unchanged
+      reason: >
+        The legacy runtime/state.ts and runtime/ws.ts integer-cursor hydration
+        path remains unchanged and anchored; the mounted app's parallel
+        combined-page state exclusively owns finalized transcript rendering.
     - id: historical-transcript-pages-match-output-scoped-rendering
       outcome: unchanged
       reason: The browser consumes Phase 1's exact room-bound unit contract without
@@ -170,6 +216,10 @@ assumptions:
       outcome: unchanged
       reason: Each injected store owns its own room pages, cursors, requests, and
         token.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Managed resume reconciliation remains scoped to the active entry and
+        does not stop or disturb other warm sessions.
     - id: hosted-computer-switching-reuses-warm-session
       outcome: unchanged
       reason: Switching reveals the warm store's existing history without reload or
@@ -187,17 +237,26 @@ assumptions:
       reason: Inbox rows retain their exact permanent targets and highlight behavior.
     - id: empty-and-offline-are-shown-not-blank
       outcome: unchanged
-      reason: Initial page loading remains behind the existing honest skeleton/empty
-        surfaces.
+      reason: >
+        Initial page loading remains behind the existing honest skeleton/empty
+        surfaces, while failed first/head requests remain errors eligible for
+        retry rather than false empty/exhausted results.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: Direct-mode resume adds head reconciliation without replacing the
+        mounted connector or changing settings navigation.
 files:
   - packages/web-next/src/runtime/api.ts
   - packages/web-next/src/runtime/api.spec.ts
   - packages/web-next/src/app/store.ts
   - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
   - packages/web-next/src/room/transcript-history.ts
   - packages/web-next/src/room/transcript-history.spec.ts
   - packages/web-next/src/room/run-journals.ts
   - packages/web-next/src/room/run-journals.spec.ts
+  - packages/web-next/src/room/RoomPage.tsx
   - packages/web-next/src/room/Transcript.tsx
   - packages/web-next/src/room/Transcript.spec.tsx
   - packages/web-next/src/room/panels.tsx
@@ -255,6 +314,23 @@ anchors:
       action: change
       reason: Prove an uncapped live run settles without loss, duplication, or /runs
         refetch.
+  missed-terminal-history-refreshes-through-combined-head:
+    combined-history-head-refresh:
+      action: change
+      reason: Deduplicate retryable active-room head reconciliation and preserve
+        mounted older pages.
+    combined-history-gap-bridge:
+      action: change
+      reason: Follow the refreshed head cursor only to overlap/exhaustion and merge by
+        stable unit identity.
+    combined-history-resume:
+      action: change
+      reason: Reconcile finalized head evidence before refreshing journals that remain
+        mutable in direct and managed active sessions.
+    combined-history-head-regression:
+      action: change
+      reason: Prove disconnect-finalize-reconnect, gap bridging, request deduplication,
+        retry after failure, and zero finalized run fetches.
   transcript-targets-walk-combined-pages:
     combined-history-target-reveal:
       action: change
@@ -273,8 +349,18 @@ anchors:
       action: change
       reason: Existing compaction rendering receives explicit page-unit boundaries and
         live reconciliation.
-lock:
-  locked_at: 2026-08-08T14:40:39.182Z
-  base_commit: a83dc563c9429f4e538196e8e9df053496f0287f
-  hash: 73275eaed05c12962e5c73be867e738365fba557537f5d6e5392b5863e7c4315
-  dirty_at_lock: false
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Keep managed resume head reconciliation inside the existing warm-session
+        lifecycle.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Resume the active entry with its own store and token without touching
+        inactive sessions.
+  settings-navigation-reuses-live-session:
+    mounted-settings-route:
+      action: change
+      reason: Add direct-mode head reconciliation to the existing connector resume hook
+        without remounting it.
