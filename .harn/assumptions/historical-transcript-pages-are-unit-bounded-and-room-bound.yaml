@@ -1,7 +1,7 @@
 id: historical-transcript-pages-are-unit-bounded-and-room-bound
 hash: a-828314ad8504
 title: Finalized transcript pages are bounded by indivisible visible units
-state: active
+state: retired
 statement: >
   An authenticated room-history page must use an opaque cursor bound to that
   room and one immutable newest-message ceiling, return at most twenty visible
@@ -23,3 +23,4 @@ depends_on:
   - compaction-timeline-items-are-durable-run-evidence
   - run-events-merge-by-journal-index
 created_by: transcript-history-reliability-p1-server-pages
+retired_by: transcript-history-reliability-p1-review-fixes

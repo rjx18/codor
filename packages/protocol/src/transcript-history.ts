@@ -4,7 +4,7 @@ import { WireEventSchema } from './events.js';
 import { MessageIdSchema } from './ids.js';
 import { MessageSchema } from './message.js';
 
-// harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-protocol
+// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-protocol
 export const HISTORICAL_TRANSCRIPT_PAGE_SIZE = 20;
 
 export const TranscriptHistoryCursorSchema = z.string().min(1).max(4096);
@@ -40,7 +40,7 @@ export const TranscriptHistoryUnitSchema = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('timeline'), ...journalUnitFields }),
   z.object({
-    kind: z.literal('terminal'),
+    kind: z.literal('settled_tail'),
     root_message_id: MessageIdSchema,
     output_message_id: MessageIdSchema,
     /** Empty only when synthesized from the finalized root summary. */
@@ -131,4 +131,4 @@ export const TranscriptHistoryPageSchema = z.object({
   }
 });
 export type TranscriptHistoryPage = z.infer<typeof TranscriptHistoryPageSchema>;
-// harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+// harn:end historical-transcript-pages-match-renderable-units

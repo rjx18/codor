@@ -51,7 +51,7 @@ const validPage = () => ({
       event_indices: [3],
     },
     {
-      kind: 'terminal',
+      kind: 'settled_tail',
       root_message_id: 7,
       output_message_id: 7,
       event_indices: [4],
@@ -61,7 +61,7 @@ const validPage = () => ({
   has_more: true,
 });
 
-// harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-protocol
+// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-protocol
 describe('TranscriptHistoryPageSchema', () => {
   it('exports a complete indexed transcript page contract', () => {
     expect(HISTORICAL_TRANSCRIPT_PAGE_SIZE).toBe(20);
@@ -107,4 +107,4 @@ describe('TranscriptHistoryPageSchema', () => {
     }).success).toBe(false);
   });
 });
-// harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+// harn:end historical-transcript-pages-match-renderable-units

@@ -17,9 +17,9 @@ const chat = (id: number, second = id): Message => ({
 const run = (
   id: number,
   status: 'running' | 'completed' | 'failed' | 'interrupted',
-  opts: { outputMode?: boolean; ended?: number } = {},
+  opts: { outputMode?: boolean; ended?: number; finalText?: string; error?: string; body?: string } = {},
 ): Message => ({
-  id, room: 'eng', author: MEMBER, kind: 'run', body: '',
+  id, room: 'eng', author: MEMBER, kind: 'run', body: opts.body ?? '',
   mentions: [], refs: [], ledger_refs: [], ts: at(id), seq: id,
   run: {
     status,
@@ -27,6 +27,8 @@ const run = (
     ...(status !== 'running' && { ended_ts: at(opts.ended ?? id + 1) }),
     tool_calls: 0,
     events_ref: `runs/${String(id)}.jsonl`,
+    ...(opts.finalText !== undefined && { final_text: opts.finalText }),
+    ...(opts.error !== undefined && { error: opts.error }),
     ...(opts.outputMode && { output_mode: 'messages' as const }),
   },
 });
@@ -75,7 +77,7 @@ const toolPair = (call: number, outputMessageId: number): WireEvent[] => [
   },
 ];
 
-// harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-page-builder
+// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-page-builder
 describe('buildTranscriptHistoryPage', () => {
   it('walks a huge run internally without splitting tool pairs or duplicating units', () => {
     const events = Array.from({ length: 25 }, (_, index) => toolPair(index, 1)).flat();
@@ -96,8 +98,8 @@ describe('buildTranscriptHistoryPage', () => {
       cursor = result.page.before_cursor ?? undefined;
     } while (cursor !== undefined);
 
-    expect(fingerprints).toHaveLength(26);
-    expect(new Set(fingerprints)).toHaveLength(26);
+    expect(fingerprints).toHaveLength(25);
+    expect(new Set(fingerprints)).toHaveLength(25);
     expect(firstMetrics).toMatchObject({
       selected_units: 20,
       journal_reads: 1,
@@ -120,9 +122,9 @@ describe('buildTranscriptHistoryPage', () => {
     );
 
     const { page } = buildTranscriptHistoryPage({ room: 'eng', source });
-    expect(page.units.map((unit) => unit.kind)).toEqual(['prose', 'message', 'tool', 'terminal']);
+    expect(page.units.map((unit) => unit.kind)).toEqual(['prose', 'message', 'tool']);
     expect(page.units.map((unit) => unit.kind === 'message' ? unit.message_id : unit.output_message_id))
-      .toEqual([2, 3, 4, 4]);
+      .toEqual([2, 3, 4]);
     expect(page.messages.map((message) => message.id)).toEqual([2, 3, 4]);
   });
 
@@ -138,7 +140,118 @@ describe('buildTranscriptHistoryPage', () => {
     );
 
     const { page } = buildTranscriptHistoryPage({ room: 'eng', source });
-    expect(page.units.map((unit) => unit.kind)).toEqual(['prose', 'message', 'tool', 'terminal']);
+    expect(page.units.map((unit) => unit.kind)).toEqual(['prose', 'message', 'tool']);
+  });
+
+  it('keeps each legacy tool batch on its first segment timestamp', () => {
+    const source = new Source(
+      [run(1, 'completed', { ended: 6 }), chat(2, 4)],
+      new Map([[1, [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'before' }, ts: at(1) },
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'one', tool: 'Read', title: 'one' }, ts: at(2) },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'one', status: 'ok' }, ts: at(2) },
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'two', tool: 'Read', title: 'two' }, ts: at(5) },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'two', status: 'ok' }, ts: at(5) },
+        { type: 'run.completed', status: 'completed' },
+      ]]]),
+    );
+
+    expect(buildTranscriptHistoryPage({ room: 'eng', source }).page.units.map((unit) => unit.kind))
+      .toEqual(['prose', 'tool', 'tool', 'message']);
+  });
+
+  it('keeps tools-only legacy runs at ended time and a failure tail with its final segment', () => {
+    const toolsOnly = new Source(
+      [run(1, 'completed', { ended: 5 }), chat(2, 3)],
+      new Map([[1, toolPair(1, 1).map((event) => {
+        if (event.type !== 'run.item') return event;
+        const { output_message_id: _target, ...legacy } = event;
+        return { ...legacy, ts: at(2) };
+      })]]),
+    );
+    expect(buildTranscriptHistoryPage({ room: 'eng', source: toolsOnly }).page.units.map((unit) => unit.kind))
+      .toEqual(['message', 'tool']);
+
+    const failed = new Source(
+      [run(1, 'failed', { ended: 5, error: 'boom' }), chat(2, 3)],
+      new Map([[1, [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'before' }, ts: at(2) },
+        { type: 'run.completed', status: 'failed', error: 'boom' },
+      ]]]),
+    );
+    const failedUnits = buildTranscriptHistoryPage({ room: 'eng', source: failed }).page.units;
+    expect(failedUnits.map((unit) => unit.kind)).toEqual(['prose', 'settled_tail', 'message']);
+  });
+
+  it('keeps malformed normalized events as visible unpaired fallback units', () => {
+    const source = new Source(
+      [run(1, 'completed', { ended: 5 })],
+      new Map([[1, [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 42 } },
+        { type: 'run.item', item_type: 'tool_call', payload: { call_id: 'raw-only' } },
+        { type: 'run.item', item_type: 'tool_result', payload: { call_id: 'raw-only', status: 'ok' } },
+        { type: 'run.item', item_type: 'reasoning_summary', payload: { text: 42 } },
+        { type: 'run.completed', status: 'completed' },
+      ]]]),
+    );
+
+    const { page } = buildTranscriptHistoryPage({ room: 'eng', source });
+    expect(page.units.map((unit) => unit.kind)).toEqual(['tool', 'tool', 'tool', 'tool']);
+    expect(page.units.map((unit) => unit.kind === 'message' ? [] : unit.event_indices))
+      .toEqual([[0], [1], [2], [3]]);
+  });
+
+  it('counts twenty genuinely visible completed streamed runs per page', () => {
+    const messages = Array.from({ length: 25 }, (_, index) =>
+      run(index + 1, 'completed', {
+        outputMode: true,
+        body: `stream ${String(index + 1)}`,
+        finalText: `stream ${String(index + 1)}`,
+      }));
+    const journals = new Map(messages.map((message) => [message.id, [
+      {
+        type: 'run.item' as const,
+        item_type: 'text_delta' as const,
+        payload: { text: message.body },
+        output_message_id: message.id,
+      },
+      { type: 'run.completed' as const, status: 'completed' as const, output_message_id: message.id },
+    ]]));
+    const { page } = buildTranscriptHistoryPage({ room: 'eng', source: new Source(messages, journals) });
+
+    expect(page.units).toHaveLength(20);
+    expect(page.units.every((unit) => unit.kind === 'prose')).toBe(true);
+    expect(page.messages).toHaveLength(20);
+    expect(page.has_more).toBe(true);
+  });
+
+  it('combines fallback, trailing text, and failure status into one visible settled tail', () => {
+    const fallback = new Source(
+      [run(1, 'completed', { finalText: 'fallback', body: 'fallback' })],
+      new Map([[1, [{ type: 'run.completed', status: 'completed' }]]]),
+    );
+    expect(buildTranscriptHistoryPage({ room: 'eng', source: fallback }).page.units.map((unit) => unit.kind))
+      .toEqual(['settled_tail']);
+
+    const trailing = new Source(
+      [run(1, 'completed', { outputMode: true, finalText: 'hello tail', body: 'hello tail' })],
+      new Map([[1, [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'hello' }, output_message_id: 1 },
+        { type: 'run.completed', status: 'completed', final_text: 'hello tail', output_message_id: 1 },
+      ]]]),
+    );
+    expect(buildTranscriptHistoryPage({ room: 'eng', source: trailing }).page.units.map((unit) => unit.kind))
+      .toEqual(['prose', 'settled_tail']);
+
+    const trailingFailure = new Source(
+      [run(1, 'failed', { outputMode: true, finalText: 'hello tail', body: 'hello tail', error: 'boom' })],
+      new Map([[1, [
+        { type: 'run.item', item_type: 'text_delta', payload: { text: 'hello' }, output_message_id: 1 },
+        { type: 'run.completed', status: 'failed', final_text: 'hello tail', error: 'boom', output_message_id: 1 },
+      ]]]),
+    );
+    expect(buildTranscriptHistoryPage({ room: 'eng', source: trailingFailure }).page.units.map((unit) => unit.kind))
+      .toEqual(['prose', 'settled_tail']);
   });
 
   it('excludes a mutable family and upgrades compaction plus terminal exactly once', () => {
@@ -159,7 +272,7 @@ describe('buildTranscriptHistoryPage', () => {
 
     const { page, metrics } = buildTranscriptHistoryPage({ room: 'eng', source });
     expect(page.messages.map((message) => message.id)).toEqual([3, 4]);
-    expect(page.units.map((unit) => unit.kind)).toEqual(['message', 'timeline', 'terminal']);
+    expect(page.units.map((unit) => unit.kind)).toEqual(['message', 'timeline', 'settled_tail']);
     expect(page.units[1]).toMatchObject({ event_indices: [0, 1] });
     expect(metrics.journal_reads).toBe(1);
   });
@@ -180,6 +293,16 @@ describe('buildTranscriptHistoryPage', () => {
     expect(() => buildTranscriptHistoryPage({ room: 'other', cursor: first.page.before_cursor!, source }))
       .toThrow('cursor belongs to a different room');
     expect(() => buildTranscriptHistoryPage({ room: 'eng', cursor: 'not-a-cursor', source }))
+      .toThrow('invalid transcript history cursor');
+    const oversizedPayload = JSON.stringify({
+      v: 1,
+      room: 'eng',
+      ceiling_message_id: 25,
+      before: { message_id: 25, unit_ordinal: 0 },
+    }).replace(/}$/, `${' '.repeat(4096)}}`);
+    const oversizedCursor = Buffer.from(oversizedPayload, 'utf8').toString('base64url');
+    expect(oversizedCursor.length).toBeGreaterThan(4096);
+    expect(() => buildTranscriptHistoryPage({ room: 'eng', cursor: oversizedCursor, source }))
       .toThrow('invalid transcript history cursor');
   });
 
@@ -204,4 +327,4 @@ describe('buildTranscriptHistoryPage', () => {
     expect(cold.duration_ms).toBeGreaterThanOrEqual(0);
   });
 });
-// harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+// harn:end historical-transcript-pages-match-renderable-units

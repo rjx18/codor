@@ -915,7 +915,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end permalink-ids-stable
 
-  // harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-rest
+  // harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-rest
   app.get('/api/rooms/:room/transcript-history', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;
@@ -929,7 +929,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return reply.code(400).send({ error: String(error) });
     }
   });
-  // harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+  // harn:end historical-transcript-pages-match-renderable-units
 
   app.get('/api/rooms/:room/runs/:msgId', (req, reply) => {
     const principal = authed(req, reply);

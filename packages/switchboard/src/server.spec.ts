@@ -1052,7 +1052,7 @@ describe('REST', () => {
     expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
 
-  // harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-rest
+  // harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-rest
   describe('combined transcript history pages', () => {
     it('serves only projected finalized evidence in bounded intra-run pages', async () => {
       const owner = daemon.ownerOf('eng');
@@ -1146,6 +1146,16 @@ describe('REST', () => {
 
       expect((await fetch(`${base}/api/rooms/eng/transcript-history?cursor=bad`, { headers })).status)
         .toBe(400);
+      const decodedCursor = Buffer.from(page.before_cursor!, 'base64url').toString('utf8');
+      const oversizedCursor = Buffer.from(
+        decodedCursor.replace(/}$/, `${' '.repeat(4096)}}`),
+        'utf8',
+      ).toString('base64url');
+      expect(oversizedCursor.length).toBeGreaterThan(4096);
+      expect((await fetch(
+        `${base}/api/rooms/eng/transcript-history?cursor=${encodeURIComponent(oversizedCursor)}`,
+        { headers },
+      )).status).toBe(400);
       expect((await fetch(`${base}/api/rooms/missing/transcript-history`, { headers })).status)
         .toBe(404);
       expect((await fetch(`${base}/api/rooms/eng/transcript-history`)).status).toBe(401);
@@ -1168,7 +1178,7 @@ describe('REST', () => {
       })).status).toBe(403);
     });
   });
-  // harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+  // harn:end historical-transcript-pages-match-renderable-units
 
   // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-server-regression
   it('adds bounded projected run hits without changing message-only search', async () => {

@@ -5033,7 +5033,7 @@ export class Daemon {
     return this.project(room, this.blobs.read(room, message.run.events_ref));
   }
 
-  // harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-rest
+  // harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-rest
   transcriptHistoryPage(room: string, cursor?: string): TranscriptHistoryBuildResult {
     if (!this.store.getRoom(room)) throw new Error(`no such room ${room}`);
     const built = buildTranscriptHistoryPage({
@@ -5074,7 +5074,7 @@ export class Daemon {
       },
     };
   }
-  // harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+  // harn:end historical-transcript-pages-match-renderable-units
 
   // harn:assume room-git-inspection-read-only-from-known-cwds ref=room-git-inspection-contract
   /**

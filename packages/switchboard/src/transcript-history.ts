@@ -2,9 +2,9 @@ import { performance } from 'node:perf_hooks';
 
 import {
   HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  parseRunItemPayload,
   TranscriptHistoryPageSchema,
   type Message,
-  type TranscriptHistoryIndexedEvent,
   type TranscriptHistoryPage,
   type TranscriptHistoryUnit,
   type WireEvent,
@@ -63,6 +63,7 @@ function encodeCursor(payload: CursorPayload): string {
 }
 
 function decodeCursor(cursor: string, room: string): CursorPayload {
+  if (cursor.length > 4096) throw new Error('invalid transcript history cursor');
   try {
     const value = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as Partial<CursorPayload>;
     if (
@@ -91,14 +92,6 @@ function eventTarget(event: WireEvent, rootMessageId: number): number {
     : rootMessageId;
 }
 
-function callId(event: WireEvent): string | undefined {
-  if (event.type !== 'run.item') return undefined;
-  if (event.item_type !== 'tool_call' && event.item_type !== 'tool_result') return undefined;
-  if (typeof event.payload !== 'object' || event.payload === null) return undefined;
-  const value = (event.payload as { call_id?: unknown }).call_id;
-  return typeof value === 'string' && value !== '' ? value : undefined;
-}
-
 function messageTime(message: Message): number {
   if (message.kind === 'run' && terminalStatus(message)) {
     return Date.parse(message.run?.ended_ts ?? message.ts);
@@ -106,13 +99,23 @@ function messageTime(message: Message): number {
   return Date.parse(message.ts);
 }
 
-function unitizeRun(root: Message, events: readonly WireEvent[]): Entry[] {
+function unitizeRun(
+  root: Message,
+  events: readonly WireEvent[],
+  getMessage: (id: number) => Message | undefined,
+): Entry[] {
   const entries: Entry[] = [];
   const calls = new Map<string, JournalEntry>();
   const pendingCompactions: JournalEntry[] = [];
+  const proseTargets = new Set<number>();
+  const streamedText = new Map<number, string>();
   let prose: JournalEntry | undefined;
   let lastTimestamp = messageTime(root);
-  let terminal: { indexed: TranscriptHistoryIndexedEvent; target: number } | undefined;
+  let completion: {
+    index: number;
+    event: Extract<WireEvent, { type: 'run.completed' }>;
+    target: number;
+  } | undefined;
 
   const add = (
     kind: 'prose' | 'tool' | 'timeline',
@@ -140,7 +143,7 @@ function unitizeRun(root: Message, events: readonly WireEvent[]): Entry[] {
   events.forEach((event, index) => {
     if (event.type === 'run.completed') {
       prose = undefined;
-      terminal = { indexed: { index, event }, target: eventTarget(event, root.id) };
+      completion = { index, event, target: eventTarget(event, root.id) };
       return;
     }
 
@@ -149,27 +152,46 @@ function unitizeRun(root: Message, events: readonly WireEvent[]): Entry[] {
       const timestamp = event.ts === undefined ? lastTimestamp : Date.parse(event.ts);
       if (event.ts !== undefined) lastTimestamp = timestamp;
       if (event.item_type === 'text_delta') {
+        const parsed = parseRunItemPayload('text_delta', event.payload);
+        if (!parsed.success) {
+          prose = undefined;
+          add('tool', index, target, timestamp);
+          return;
+        }
         if (prose !== undefined && prose.positionMessageId === target) {
           prose.unit.event_indices.push(index);
         } else {
           prose = add('prose', index, target, timestamp);
         }
+        proseTargets.add(target);
+        streamedText.set(target, `${streamedText.get(target) ?? ''}${parsed.data.text}`);
         return;
       }
       prose = undefined;
-      if (event.item_type === 'reasoning_summary') return;
-      const id = callId(event);
-      if (event.item_type === 'tool_call') {
-        const entry = add('tool', index, target, timestamp);
-        if (id !== undefined) calls.set(id, entry);
+      if (event.item_type === 'reasoning_summary') {
+        if (!parseRunItemPayload('reasoning_summary', event.payload).success) {
+          add('tool', index, target, timestamp);
+        }
         return;
       }
-      if (event.item_type === 'tool_result' && id !== undefined) {
-        const call = calls.get(id);
-        if (call !== undefined) {
-          call.unit.event_indices.push(index);
-          return;
+      if (event.item_type === 'tool_call') {
+        const parsed = parseRunItemPayload('tool_call', event.payload);
+        const entry = add('tool', index, target, timestamp);
+        if (parsed.success) calls.set(parsed.data.call_id, entry);
+        return;
+      }
+      if (event.item_type === 'tool_result') {
+        const parsed = parseRunItemPayload('tool_result', event.payload);
+        if (parsed.success) {
+          const call = calls.get(parsed.data.call_id);
+          if (call !== undefined) {
+            if (call.unit.event_indices.length === 1) call.unit.event_indices.push(index);
+            else call.unit.event_indices[1] = index;
+            return;
+          }
         }
+        add('tool', index, target, timestamp);
+        return;
       }
       add('tool', index, target, timestamp);
       return;
@@ -189,24 +211,58 @@ function unitizeRun(root: Message, events: readonly WireEvent[]): Entry[] {
     if (event.item.status === 'loading') pendingCompactions.push(entry);
   });
 
-  const completedIndex = terminal?.indexed.index;
-  const terminalTarget = terminal?.target
-    ?? root.run?.result_message_id
+  const modern = root.run?.output_mode === 'messages';
+  const hasProse = proseTargets.size > 0;
+  if (!modern && hasProse) {
+    let toolBatchTimestamp: number | undefined;
+    for (const entry of entries) {
+      if (entry.unit.kind === 'tool') {
+        toolBatchTimestamp ??= entry.timestamp;
+        entry.timestamp = toolBatchTimestamp;
+      } else {
+        toolBatchTimestamp = undefined;
+      }
+    }
+  }
+
+  const settledTarget = root.run?.result_message_id
+    ?? completion?.target
     ?? entries.at(-1)?.positionMessageId
     ?? root.id;
-  entries.push({
-    sourceMessageId: root.id,
-    unitOrdinal: entries.length,
-    positionMessageId: terminalTarget,
-    journalOrder: completedIndex ?? Number.MAX_SAFE_INTEGER,
-    timestamp: messageTime(root),
-    unit: {
-      kind: 'terminal',
-      root_message_id: root.id,
-      output_message_id: terminalTarget,
-      event_indices: completedIndex === undefined ? [] : [completedIndex],
-    },
-  });
+  const targetHasProse = proseTargets.has(settledTarget);
+  const finalText = modern
+    ? (getMessage(settledTarget)?.body ?? '')
+    : (root.run?.final_text ?? root.body);
+  const targetStream = streamedText.get(settledTarget) ?? '';
+  const hasVisibleText = finalText.length > 0 && (
+    !targetHasProse
+    || (modern && finalText.startsWith(targetStream) && finalText.length > targetStream.length)
+  );
+  const failed = root.run?.status === 'failed' || root.run?.status === 'interrupted';
+
+  if (hasVisibleText || failed) {
+    const completionIndex = completion?.index;
+    entries.push({
+      sourceMessageId: root.id,
+      unitOrdinal: entries.length,
+      positionMessageId: settledTarget,
+      journalOrder: completionIndex ?? Number.MAX_SAFE_INTEGER,
+      timestamp: !modern && hasProse && entries.length > 0
+        ? entries.at(-1)!.timestamp
+        : messageTime(root),
+      unit: {
+        kind: 'settled_tail',
+        root_message_id: root.id,
+        output_message_id: settledTarget,
+        event_indices: completionIndex === undefined ? [] : [completionIndex],
+      },
+    });
+  }
+
+  if (!modern && !hasProse) {
+    const ended = messageTime(root);
+    for (const entry of entries) entry.timestamp = ended;
+  }
   return entries;
 }
 
@@ -225,7 +281,7 @@ function compareEntries(left: Entry, right: Entry, continuationFloor: number | u
     || left.unitOrdinal - right.unitOrdinal;
 }
 
-// harn:assume historical-transcript-pages-are-unit-bounded-and-room-bound ref=transcript-history-page-builder
+// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-page-builder
 export function buildTranscriptHistoryPage(opts: {
   room: string;
   cursor?: string;
@@ -288,7 +344,7 @@ export function buildTranscriptHistoryPage(opts: {
         journalReads += 1;
         journalEventsScanned += events.length;
       }
-      const family = unitizeRun(root, events);
+      const family = unitizeRun(root, events, loadMessage);
       for (const entry of family) {
         loadMessage(entry.positionMessageId);
         next.push(entry);
@@ -382,4 +438,4 @@ export function buildTranscriptHistoryPage(opts: {
     },
   };
 }
-// harn:end historical-transcript-pages-are-unit-bounded-and-room-bound
+// harn:end historical-transcript-pages-match-renderable-units
