@@ -256,6 +256,46 @@ Run `codor --help` for the complete CLI. Adapter authors can start with
 [docs/ADAPTERS.md](docs/ADAPTERS.md).
 <!-- harn:end source-cli-installers-remain-idempotent-fallback -->
 
+<!-- harn:assume structured-management-help-and-docs-are-complete ref=readme-management-examples -->
+### Structured management
+
+The structured management families are available over the protected local socket by default.
+Use `--json` for one machine-readable value; use `--url <loopback-url> --token <token>` when
+connecting to an explicit loopback origin. Mutating archive, preset-delete, agent-remove, and
+worktree-removal commands ask for confirmation unless `--yes` is supplied.
+
+```sh
+# Channels: archive is soft retention only; there is no hard-delete or restore.
+codor channel list --channel desk
+codor channel list --json
+codor channel archive desk --yes --json
+
+# Agents: add one public adapter or one reusable preset.
+codor agent list --channel desk
+codor agent list --channel desk --json
+codor agent add reviewer --channel desk --adapter housecat --cwd "$PWD"
+
+# Presets: individual CRUD is separate from the default roster.
+codor agent-preset create "Review helper" --handle reviewer --adapter housecat
+codor agent-preset list --json
+
+# The roster is an ordered full replacement, not an individual preset edit.
+codor default-roster show
+codor default-roster set <preset-id> --json
+
+# Worktrees: add explicitly creates or adopts; remove unregisters by default.
+codor worktree list --channel desk
+codor worktree add --channel desk --create --path <absolute-path> --alias child --branch <branch> --json
+codor worktree remove child --channel desk --filesystem --yes --json
+
+# Explicit loopback credentials are placeholders, never printed credentials.
+codor --url <loopback-url> --token <token> channel show desk --json
+```
+
+Existing flat commands, including `codor channels`, remain compatible. After upgrading, rerun
+`npx @richhardry/codor install` to refresh the installed service/runtime.
+<!-- harn:end structured-management-help-and-docs-are-complete -->
+
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=readme-agent-trust-boundary -->
 > [!IMPORTANT]
 > Agent credentials narrow Codor permissions; they are not a process sandbox. Agents still run as

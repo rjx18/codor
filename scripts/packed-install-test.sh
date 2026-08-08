@@ -15,6 +15,7 @@ if [[ -z "$SOURCE_REF" ]]; then
 fi
 
 IMAGE='node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3'
+GIT_RUNTIME_IMAGE='node:22-bookworm@sha256:0557ac14e0d45d02ed563067b82856ca5e7aa3437fa28d98d4350ea9c3d9494a'
 TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/codor-packed-install.XXXXXX")"
 CLONE_ROOT="$TEST_ROOT/source"
 PROOF_ROOT="$TEST_ROOT/proof"
@@ -103,7 +104,7 @@ docker run --rm \
 
 docker run --rm --network none \
   --mount "type=bind,src=$PROOF_ROOT,dst=/proof" \
-  "$IMAGE" bash -s <<'PACKED_OFFLINE'
+  "$GIT_RUNTIME_IMAGE" bash -s <<'PACKED_OFFLINE'
     set -Eeuo pipefail
     cd /proof/install
     export HOME=/proof/home
@@ -128,6 +129,31 @@ docker run --rm --network none \
       if (Object.keys(loaded).length < 20) throw new Error('native switchboard did not load');
     "
     "$BIN" --help | grep -Fq "Usage: codor"
+
+    # harn:assume structured-management-help-and-docs-are-complete ref=packed-management-help-regression
+    ROOT_HELP="$($BIN --help)"
+    for family in channel agent agent-preset default-roster worktree; do
+      grep -Fq "codor $family --help" <<<"$ROOT_HELP"
+    done
+    for family in channel agent agent-preset default-roster worktree; do
+      "$BIN" "$family" --help >/proof/"$family"-help.out
+    done
+    grep -Fq "archive is soft retention only" /proof/channel-help.out || grep -Fq "Archive is soft retention only" /proof/channel-help.out
+    grep -Fq "Agent add selects exactly one public adapter or preset" /proof/agent-help.out
+    grep -Fq "individual reusable preset CRUD" /proof/agent-preset-help.out
+    grep -Fq "ordered roster" /proof/default-roster-help.out
+    grep -Fq "Worktree add requires --create or --adopt" /proof/worktree-help.out
+    for help_file in /proof/*-help.out; do
+      if grep -Eq 'PROOF_TOKEN|0123456789abcdef|acp_launch|session_ref|Bearer ' "$help_file"; then
+        printf "packed management help leaked credentials or private fields\n" >&2
+        exit 1
+      fi
+    done
+    PACKAGED_README=/proof/install/node_modules/@richhardry/codor/README.md
+    test -f "$PACKAGED_README"
+    grep -Fq "### Structured management" "$PACKAGED_README"
+    grep -Fq "npx @richhardry/codor install" "$PACKAGED_README"
+    # harn:end structured-management-help-and-docs-are-complete
 
     DRY_RUN="$("$BIN" install --dry-run)"
     grep -Fq "node_modules/@richhardry/codor/node_modules/@codor/cli/runtime/web" <<<"$DRY_RUN"
@@ -361,6 +387,223 @@ docker run --rm --network none \
     # harn:end agent-management-does-not-invent-work
     # harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
     # harn:end agent-add-selects-public-adapter-or-detached-preset
+
+    # harn:assume packed-management-workflow-recovers-after-restart ref=packed-management-recovery-workflow
+    assert_json() {
+      local value="$1"
+      [[ "$(printf '%s\n' "$value" | wc -l)" -eq 1 ]]
+      JSON_TO_CHECK="$value" node --input-type=module -e "JSON.parse(process.env.JSON_TO_CHECK)"
+    }
+    assert_safe() {
+      local value="$1"
+      if grep -Fq "$PROOF_TOKEN" <<<"$value" || grep -Eq 'acp_launch|session_ref|git_admin_id|room_key|sealed_key' <<<"$value"; then
+        printf "packed management output leaked credentials or private fields\n" >&2
+        exit 1
+      fi
+    }
+
+    export PHASE5_PRIMARY=/proof/phase5-primary
+    export PHASE5_CHILD=/proof/phase5-child
+    node --input-type=module <<'NODE'
+      import { execFileSync } from 'node:child_process';
+      import { mkdirSync, writeFileSync } from 'node:fs';
+      import { join } from 'node:path';
+
+      const primary = process.env.PHASE5_PRIMARY;
+      const child = process.env.PHASE5_CHILD;
+      if (!primary || !child) throw new Error('missing phase 5 repository paths');
+      mkdirSync(primary, { recursive: true });
+      const git = (cwd, args) => execFileSync('git', ['-C', cwd, ...args], { stdio: 'pipe' });
+      git(primary, ['init', '-q', '-b', 'main']);
+      git(primary, ['config', 'user.email', 'packed-proof@example.test']);
+      git(primary, ['config', 'user.name', 'Packed Proof']);
+      writeFileSync(join(primary, 'README.md'), 'phase 5 packed proof\n');
+      git(primary, ['add', 'README.md']);
+      git(primary, ['commit', '-qm', 'phase 5 packed proof']);
+      execFileSync('git', ['-C', primary, 'worktree', 'add', '--no-track', '-b', 'phase5-child', child, 'HEAD'], {
+        stdio: 'pipe',
+      });
+NODE
+
+    PHASE5_PRESET_JSON="$($BIN --data-dir "$DATA" agent-preset create "Phase 5 Helper" \
+      --handle phase5-helper --adapter housecat --policy workspace-write --json)"
+    assert_json "$PHASE5_PRESET_JSON"
+    assert_safe "$PHASE5_PRESET_JSON"
+    grep -Fq '"adapter":"housecat"' <<<"$PHASE5_PRESET_JSON"
+    PHASE5_PRESET_ID="$(PHASE5_PRESET_JSON="$PHASE5_PRESET_JSON" node --input-type=module -e \
+      "console.log(JSON.parse(process.env.PHASE5_PRESET_JSON).id)")"
+    PHASE5_ROSTER_JSON="$($BIN --data-dir "$DATA" default-roster set "$PHASE5_PRESET_ID" --json)"
+    assert_json "$PHASE5_ROSTER_JSON"
+    assert_safe "$PHASE5_ROSTER_JSON"
+    grep -Fq "\"preset_ids\":[\"$PHASE5_PRESET_ID\"]" <<<"$PHASE5_ROSTER_JSON"
+
+    PHASE5_ROOT_JSON="$($BIN --data-dir "$DATA" channel create "Phase 5 Root" \
+      --owner proof --id phase5-root --cwd "$PHASE5_PRIMARY" --default-roster --json)"
+    assert_json "$PHASE5_ROOT_JSON"
+    assert_safe "$PHASE5_ROOT_JSON"
+    grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ROOT_JSON"
+    grep -Fq "\"cwd\":\"$PHASE5_PRIMARY\"" <<<"$PHASE5_ROOT_JSON"
+    PHASE5_ROOT_AGENTS="$($BIN --data-dir "$DATA" agent list --channel phase5-root --json)"
+    assert_json "$PHASE5_ROOT_AGENTS"
+    assert_safe "$PHASE5_ROOT_AGENTS"
+    grep -Fq '"handle":"phase5-helper"' <<<"$PHASE5_ROOT_AGENTS"
+    grep -Fq "\"cwd\":\"$PHASE5_PRIMARY\"" <<<"$PHASE5_ROOT_AGENTS"
+
+    PHASE5_CHILD_JSON="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree add --channel phase5-root --create --path "$PHASE5_CHILD" --alias child \
+      --branch phase5-child --default-roster --json)"
+    assert_json "$PHASE5_CHILD_JSON"
+    assert_safe "$PHASE5_CHILD_JSON"
+    grep -Fq '"alias":"child"' <<<"$PHASE5_CHILD_JSON"
+    grep -Fq "\"path\":\"$PHASE5_CHILD\"" <<<"$PHASE5_CHILD_JSON"
+    grep -Fq '"branch":"phase5-child"' <<<"$PHASE5_CHILD_JSON"
+    PHASE5_CHILD_ROOM="$(PHASE5_CHILD_JSON="$PHASE5_CHILD_JSON" node --input-type=module -e \
+      "console.log(JSON.parse(process.env.PHASE5_CHILD_JSON).conversation_id)")"
+    PHASE5_CHILD_AGENTS="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      agent list --channel "$PHASE5_CHILD_ROOM" --json)"
+    assert_json "$PHASE5_CHILD_AGENTS"
+    assert_safe "$PHASE5_CHILD_AGENTS"
+    grep -Fq '"handle":"phase5-helper"' <<<"$PHASE5_CHILD_AGENTS"
+    grep -Fq "\"cwd\":\"$PHASE5_CHILD\"" <<<"$PHASE5_CHILD_AGENTS"
+
+    PHASE5_EXPLICIT_AGENT="$($BIN --data-dir "$DATA" agent add explicit-worker --channel phase5-root \
+      --adapter housecat --cwd "$PHASE5_PRIMARY" --purpose packed-explicit-agent --json)"
+    assert_json "$PHASE5_EXPLICIT_AGENT"
+    assert_safe "$PHASE5_EXPLICIT_AGENT"
+    grep -Fq '"handle":"explicit-worker"' <<<"$PHASE5_EXPLICIT_AGENT"
+
+    "$BIN" --data-dir "$DATA" post -r phase5-root \
+      '~child:@phase5-helper please run the adapter boundary turn'
+    export PHASE5_ORIGIN="http://127.0.0.1:${PORT}"
+    export PHASE5_ROOT_ROOM=phase5-root
+    PHASE5_ROOT_MESSAGES="$(node --input-type=module <<'NODE'
+      const origin = process.env.PHASE5_ORIGIN;
+      const room = process.env.PHASE5_ROOT_ROOM;
+      const token = process.env.PROOF_TOKEN;
+      const needle = 'third-party adapter completed the boundary turn';
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        const response = await fetch(`${origin}/api/rooms/${encodeURIComponent(room)}/messages?limit=100`, {
+          headers: { authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const body = await response.json();
+          if (body.messages?.some((message) => typeof message.body === 'string' && message.body.includes(needle))) {
+            process.stdout.write(JSON.stringify(body.messages));
+            process.exit(0);
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error('packed qualified result did not reach the origin');
+NODE
+    )"
+    assert_json "$PHASE5_ROOT_MESSAGES"
+    assert_safe "$PHASE5_ROOT_MESSAGES"
+    grep -Fq 'third-party adapter completed the boundary turn' <<<"$PHASE5_ROOT_MESSAGES"
+    PHASE5_ROOT_HISTORY="$($BIN --data-dir "$DATA" tail -r phase5-root --once)"
+    PHASE5_CHILD_HISTORY="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      tail -r "$PHASE5_CHILD_ROOM" --once)"
+    grep -Fq 'third-party adapter completed the boundary turn' <<<"$PHASE5_ROOT_HISTORY"
+    if grep -Fq 'third-party adapter completed the boundary turn' <<<"$PHASE5_CHILD_HISTORY"; then
+      printf "packed qualified result was copied into the child transcript\n" >&2
+      exit 1
+    fi
+    assert_safe "$PHASE5_ROOT_HISTORY"
+    assert_safe "$PHASE5_CHILD_HISTORY"
+
+    PHASE5_ARCHIVED="$($BIN --data-dir "$DATA" channel archive phase5-root --yes --json)"
+    assert_json "$PHASE5_ARCHIVED"
+    assert_safe "$PHASE5_ARCHIVED"
+    grep -Fq '"status":"archived"' <<<"$PHASE5_ARCHIVED"
+    PHASE5_ACTIVE="$($BIN --data-dir "$DATA" channel list --json)"
+    assert_json "$PHASE5_ACTIVE"
+    if grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ACTIVE"; then
+      printf "packed archived phase 5 channel remained in default discovery\n" >&2
+      exit 1
+    fi
+    PHASE5_ALL="$($BIN --data-dir "$DATA" channel list --all --json)"
+    assert_json "$PHASE5_ALL"
+    assert_safe "$PHASE5_ALL"
+    grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ALL"
+
+    kill -TERM "$DAEMON_PID"
+    wait "$DAEMON_PID" || true
+    DAEMON_PID=""
+    CODOR_TOKEN="$PROOF_TOKEN" "$BIN" --data-dir "$DATA" up \
+      --host 127.0.0.1 --port "$PORT" \
+      --adapter housecat=/proof/third-party-adapter.mjs \
+      --channel fresh --channel-name Fresh --owner proof \
+      >/proof/daemon-restart.log 2>&1 &
+    DAEMON_PID=$!
+    node --input-type=module -e "
+      const origin = 'http://127.0.0.1:${PORT}';
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        try {
+          const response = await fetch(origin + '/api/pairing/status');
+          const body = await response.json();
+          if (response.ok && typeof body.trusted_enrollment === 'boolean') process.exit(0);
+        } catch {}
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      throw new Error('packed restarted daemon did not become ready');
+    "
+
+    PHASE5_ACTIVE_AFTER="$($BIN --data-dir "$DATA" channel list --json)"
+    assert_json "$PHASE5_ACTIVE_AFTER"
+    if grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ACTIVE_AFTER"; then
+      printf "packed archived phase 5 channel reappeared in default discovery after restart\n" >&2
+      exit 1
+    fi
+    PHASE5_ALL_AFTER="$($BIN --data-dir "$DATA" channel list --all --json)"
+    assert_json "$PHASE5_ALL_AFTER"
+    assert_safe "$PHASE5_ALL_AFTER"
+    grep -Fq '"id":"phase5-root"' <<<"$PHASE5_ALL_AFTER"
+    PHASE5_SHOW_AFTER="$($BIN --data-dir "$DATA" channel show phase5-root --json)"
+    assert_json "$PHASE5_SHOW_AFTER"
+    assert_safe "$PHASE5_SHOW_AFTER"
+    grep -Fq '"status":"archived"' <<<"$PHASE5_SHOW_AFTER"
+    grep -Fq "\"cwd\":\"$PHASE5_PRIMARY\"" <<<"$PHASE5_SHOW_AFTER"
+    PHASE5_ROSTER_AFTER="$($BIN --data-dir "$DATA" default-roster show --json)"
+    assert_json "$PHASE5_ROSTER_AFTER"
+    assert_safe "$PHASE5_ROSTER_AFTER"
+    grep -Fq "\"preset_ids\":[\"$PHASE5_PRESET_ID\"]" <<<"$PHASE5_ROSTER_AFTER"
+    PHASE5_ROOT_AGENTS_AFTER="$($BIN --data-dir "$DATA" agent list --channel phase5-root --json)"
+    assert_json "$PHASE5_ROOT_AGENTS_AFTER"
+    assert_safe "$PHASE5_ROOT_AGENTS_AFTER"
+    grep -Fq "\"cwd\":\"$PHASE5_PRIMARY\"" <<<"$PHASE5_ROOT_AGENTS_AFTER"
+    PHASE5_CHILD_AGENTS_AFTER="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      agent list --channel "$PHASE5_CHILD_ROOM" --json)"
+    assert_json "$PHASE5_CHILD_AGENTS_AFTER"
+    assert_safe "$PHASE5_CHILD_AGENTS_AFTER"
+    grep -Fq "\"cwd\":\"$PHASE5_CHILD\"" <<<"$PHASE5_CHILD_AGENTS_AFTER"
+    PHASE5_WORKTREES_AFTER="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree list --channel phase5-root --json)"
+    assert_json "$PHASE5_WORKTREES_AFTER"
+    assert_safe "$PHASE5_WORKTREES_AFTER"
+    grep -Fq '"alias":"child"' <<<"$PHASE5_WORKTREES_AFTER"
+    grep -Fq "\"path\":\"$PHASE5_CHILD\"" <<<"$PHASE5_WORKTREES_AFTER"
+    grep -Fq '"branch":"phase5-child"' <<<"$PHASE5_WORKTREES_AFTER"
+    node --input-type=module <<'NODE'
+      import { execFileSync } from 'node:child_process';
+      import { existsSync } from 'node:fs';
+
+      const primary = process.env.PHASE5_PRIMARY;
+      const child = process.env.PHASE5_CHILD;
+      if (!primary || !child || !existsSync(child)) throw new Error('packed child checkout did not survive restart');
+      execFileSync('git', ['-C', primary, 'show-ref', '--verify', 'refs/heads/phase5-child'], { stdio: 'pipe' });
+NODE
+    PHASE5_ROOT_HISTORY_AFTER="$($BIN --data-dir "$DATA" tail -r phase5-root --once)"
+    PHASE5_CHILD_HISTORY_AFTER="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      tail -r "$PHASE5_CHILD_ROOM" --once)"
+    grep -Fq 'third-party adapter completed the boundary turn' <<<"$PHASE5_ROOT_HISTORY_AFTER"
+    if grep -Fq 'third-party adapter completed the boundary turn' <<<"$PHASE5_CHILD_HISTORY_AFTER"; then
+      printf "packed qualified result was copied into the child transcript after restart\n" >&2
+      exit 1
+    fi
+    assert_safe "$PHASE5_ROOT_HISTORY_AFTER"
+    assert_safe "$PHASE5_CHILD_HISTORY_AFTER"
+    # harn:end packed-management-workflow-recovers-after-restart
 
     node --input-type=module -e "
       const origin = 'http://127.0.0.1:${PORT}';

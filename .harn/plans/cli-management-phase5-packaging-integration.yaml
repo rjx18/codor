@@ -1,0 +1,332 @@
+id: cli-management-phase5-packaging-integration
+title: Finish CLI management help, upgrade guidance, and packed recovery integration
+notes: |-
+  Implement only Phase 5 of .codor/PHASED-PLAN.md on the independently accepted, clean Phase 4 tip f141553e7c5130169c597d491e4443f02ee7e18f. This is the final packaging and integration phase. It documents and proves the already accepted Phase 1-4 command families; it must not introduce another command, wire frame, REST route, database transition, authorization rule, lifecycle, selector, output field, or recovery mechanism.
+  Make the accepted management surface discoverable through Commander metadata. Root help must name channel, agent, agent-preset, default-roster, and worktree as separate families and point at family help. Family help must enumerate only the accepted subcommands and explain their important distinctions: channel archive is soft retention and there is no hard-delete or restore command; agent add selects exactly one adapter or preset; agent-preset is individual reusable CRUD; default-roster is a separate ordered full replacement; and worktree add explicitly creates or adopts while remove defaults to DB-only unregister and requires --filesystem for the guarded checkout removal. Include compact safe examples without a bearer value, private ACP launch, native session reference, Git administrative id, or promise of a cloud service. Apply the metadata in one new LIFO Harn block after all five families have been constructed; do not edit or move their accepted registration blocks or historical markers. Preserve the exact current command names, order, aliases, options, parser routing, exit behavior, and every flat command including channels.
+  Add an explicitly anchored README management section after the existing Everyday CLI compatibility examples. It must show valid human and --json examples for all five families, ordinary local-switchboard use, optional explicit loopback URL/token use without a literal credential, confirmation/ --yes behavior, archive-only retention, ordered roster replacement, and the create/adopt versus unregister/filesystem worktree boundary. The upgrade note must say existing flat commands remain compatible and that rerunning `npx @richhardry/codor install` refreshes the installed service/runtime. Add a separate Unreleased changelog entry describing the same operator-visible addition without rewriting the existing nine-finding release-candidate record. The README copied into the public package must retain this section.
+  Extend scripts/packed-install-test.sh in place rather than creating a second release proof. Keep the existing pinned slim build/install image and all current checks. Add a separately named, digest-pinned Git-capable glibc Node 22 runtime image, node:22-bookworm@sha256:0557ac14e0d45d02ed563067b82856ca5e7aa3437fa28d98d4350ea9c3d9494a, for the existing --network none runtime container; the accepted artifact is still built and installed only once by the original image. Inside the bound /proof temporary root, initialize and commit one disposable primary Git checkout with argument-array Git commands and no shell interpolation of operator-controlled paths. Do not inspect, register, dirty, remove, or change any real user checkout or branch.
+  Through the installed CLI and packaged daemon, execute one coherent workflow: verify installed root/family help and packaged README; create at least one safe housecat preset and set the ordered default roster; create a new channel at the disposable primary cwd with that roster through the default Unix socket; create one named secondary worktree and snapshot the default roster through an explicit loopback --url plus --token; add another agent explicitly; send a qualified ~child:@handle message from the root conversation; wait boundedly until the fixture adapter's result appears only in the origin transcript; and archive the root channel with unattended --yes. Prove root and child public agent projections carry their respective canonical cwd, the child worktree and branch exist, the target transcript did not receive a copied qualified result, stdout is JSON-pure where requested, and neither success nor failure output contains the proof bearer, private ACP launch, native session, repository administrative identity, room key, or sealed key.
+  Then gracefully stop and restart the same installed daemon with the same data, socket, HTTP origin, adapter, and disposable repository. Recovery in this plan means proving after that restart that default channel discovery still hides the archived root, channel show and channel list --all retain it, the ordered roster and safe root/child agent snapshots persist, worktree list still identifies the same active child/canonical path/branch, Git still contains the child checkout and branch, and the completed qualified result remains only in the origin history. Do not add unarchive, hard delete, force, prune, recursive removal, branch deletion, session kill, or direct SQLite assertions. Finish the pre-existing browser/API/teardown checks and keep runtime networking off.
+  Preserve automatic installed-local socket behavior, explicit URL/token behavior, the rule that the local operator credential is never automatically sent to a non-loopback origin, Unix socket privacy, Windows named-pipe and argument-forwarding shims, owner/admin/member authorization, confirmation, exit codes, stderr, JSON projection, and secret redaction. Do not change the protocol, switchboard, management clients/renderers, setup/install code, Windows scripts, web clients, Agent Presets domain, Native Worktrees domain, dependencies, package versions, or release publishing. Produce exactly one implementation commit containing only this applied plan and the five declared files.
+assumptions:
+  create:
+    - id: structured-management-help-and-docs-are-complete
+      title: Structured management help and upgrade docs stay complete
+      statement: Root and per-family CLI help, the packaged README, and Unreleased
+        upgrade notes must enumerate only the accepted channel, agent,
+        agent-preset, default-roster, and worktree families and their exact
+        subcommands; explain archive-only retention, adapter-or-preset
+        selection, individual preset versus ordered roster semantics, explicit
+        worktree create/adopt versus unregister/filesystem removal, JSON and
+        confirmation behavior, ordinary local and optional explicit connection
+        modes, and flat-command compatibility; and never reveal a credential,
+        private launch, native session, hard delete, restore, or hosted control
+        plane, because an upgrade must make automation discoverable without
+        changing its contract.
+      reason: Phase 5 is the first accepted point at which every management family can
+        be documented and tested together.
+      depends_on:
+        - structured-channel-cli-preserves-flat-listing
+        - structured-agent-cli-preserves-flat-lifecycle-and-presets
+        - structured-preset-and-roster-cli-is-safe-and-ordered
+        - structured-worktree-cli-uses-accepted-lifecycle
+        - management-output-is-json-pure-and-safe
+        - management-failures-have-stable-redacted-exits
+        - cli-help-never-renders-selected-bearer
+        - public-package-readme-renders-on-npm
+        - member-env-selects-narrow-cli-identity
+    - id: packed-management-workflow-recovers-after-restart
+      title: The installed management workflow survives one offline daemon restart
+      statement: The clean packed-install gate must run the installed artifact in a
+        digest-pinned Git-capable glibc Node 22 container with networking off
+        and isolated data and repository roots; use both the default local
+        socket and an explicit loopback URL/token to create presets, an ordered
+        roster, a roster-backed channel, a roster-backed secondary worktree, and
+        additional agents; complete one qualified child-agent turn into the
+        origin; archive the channel; gracefully restart the same daemon; and
+        prove durable safe channel, roster, agent, worktree, branch, and
+        origin-only history state without printing credentials, private
+        launches, native sessions, Git administrative identity, keys, or
+        mutating any real checkout.
+      reason: Phase 5 must prove the separately accepted management domains compose in
+        the exact installed, offline, restartable runtime operators receive.
+      depends_on:
+        - packed-release-proof-runs-install-runtime
+        - structured-management-help-and-docs-are-complete
+        - channel-archive-is-durable-soft-state
+        - structured-channel-cli-preserves-flat-listing
+        - structured-agent-cli-preserves-flat-lifecycle-and-presets
+        - structured-preset-and-roster-cli-is-safe-and-ordered
+        - structured-worktree-cli-uses-accepted-lifecycle
+        - worktree-child-default-roster-is-an-explicit-snapshot
+        - qualified-member-target-identity-is-durable
+        - cross-worktree-output-stays-in-origin
+        - cross-worktree-runtime-stays-target-local
+        - management-output-is-json-pure-and-safe
+        - management-failures-have-stable-redacted-exits
+        - unix-socket-same-protocol
+  reviewed:
+    - id: structured-channel-cli-preserves-flat-listing
+      outcome: unchanged
+      reason: Only descriptions, examples, documentation, and installed integration
+        evidence change; channels and the five structured channel commands keep
+        their accepted syntax and behavior.
+    - id: structured-agent-cli-preserves-flat-lifecycle-and-presets
+      outcome: unchanged
+      reason: Help and the packed composition exercise the accepted seven agent
+        subcommands without changing flat lifecycle commands or selection rules.
+    - id: structured-preset-and-roster-cli-is-safe-and-ordered
+      outcome: unchanged
+      reason: The packed workflow retains exact preset ids, ordered full replacement,
+        detached snapshots, and bounded public projections.
+    - id: structured-worktree-cli-uses-accepted-lifecycle
+      outcome: unchanged
+      reason: A disposable installed create proves the existing explicit lifecycle; no
+        Git, REST, selector, projection, or removal implementation changes.
+    - id: channel-archive-is-durable-soft-state
+      outcome: unchanged
+      reason: Restart evidence proves archive retention and discovery filtering
+        without adding hard delete or restore.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: The explicit --default-roster create is exercised without changing its
+        authorization, preflight, atomicity, or detached child semantics.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: The packed qualified post uses current aliases and stable accepted ids;
+        routing grammar and persistence remain unchanged.
+    - id: cross-worktree-output-stays-in-origin
+      outcome: unchanged
+      reason: The packed workflow adds installed evidence that target execution still
+        writes only to the origin transcript.
+    - id: cross-worktree-runtime-stays-target-local
+      outcome: unchanged
+      reason: Root and child public cwd projections plus qualified output prove
+        composition without changing runtime ownership or exposing sessions.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: Help/docs contain placeholders only, and every new installed assertion
+        retains one-value JSON and the existing public projection boundaries.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: No classifier or wrapper changes; existing packed 2/5/6 and redaction
+        checks remain and the full suites must pass.
+    - id: cli-help-never-renders-selected-bearer
+      outcome: unchanged
+      reason: New root/family help adds no selected values and is tested with poisoned
+        token environment variables.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: The same clean-clone, pack, install, offline native/browser/CLI/API, and
+        teardown gate is strengthened with Git-capable management composition
+        and restart recovery; the original build image and checks remain.
+    - id: public-package-readme-renders-on-npm
+      outcome: unchanged
+      reason: The existing absolute marks and primary install command stay unchanged;
+        the installed artifact additionally proves its copied README contains
+        the new management section.
+    - id: source-cli-installers-remain-idempotent-fallback
+      outcome: unchanged
+      reason: Upgrade guidance keeps public npx install primary and does not change
+        the POSIX or Windows checkout fallback.
+    - id: windows-setup-installs-private-task-service
+      outcome: unchanged
+      reason: No Windows setup code changes; its service and argument tests are
+        required in the final gate.
+    - id: windows-named-pipe-shares-local-websocket-protocol
+      outcome: unchanged
+      reason: Phase 5 changes no transport; named-pipe regressions run alongside the
+        Unix-socket and explicit loopback installed proof.
+anchors:
+  structured-management-help-and-docs-are-complete:
+    management-help-metadata:
+      action: change
+      reason: Add safe root and family Commander descriptions/examples for the exact
+        accepted management grammar.
+    management-help-regression:
+      action: change
+      reason: Pin root and every family help, subcommand metadata, compatibility text,
+        and poisoned-token redaction without moving historical test anchors.
+    readme-management-examples:
+      action: change
+      reason: Add all five family examples, connection/confirmation/retention notes,
+        and the flat-compatible public-package upgrade guidance.
+    changelog-management-upgrade-notes:
+      action: change
+      reason: Add a separate Unreleased operator-visible management and compatibility
+        entry outside the existing release-candidate findings anchor.
+    packed-management-help-regression:
+      action: change
+      reason: Prove installed root/family help and the copied public README retain the
+        exact safe management documentation.
+  packed-management-workflow-recovers-after-restart:
+    packed-management-recovery-workflow:
+      action: change
+      reason: Run the installed local/explicit management composition, qualified turn,
+        archive, graceful restart, durable-state, redaction, and teardown proof.
+  structured-channel-cli-preserves-flat-listing:
+    structured-channel-command-surface:
+      action: keep
+      reason: The accepted registration block stays unchanged; metadata is applied
+        afterward without changing syntax, routing, order, flat channels output,
+        or behavior.
+    structured-channel-cli-regression:
+      action: keep
+      reason: Existing behavioral and compatibility coverage remains unchanged.
+    structured-channel-packed-smoke:
+      action: keep
+      reason: Existing installed create/rename/archive/list coverage stays intact.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: keep
+      reason: The historical registration region remains unchanged; the separate help
+        metadata uses channel terminology only.
+  structured-agent-cli-preserves-flat-lifecycle-and-presets:
+    structured-agent-command-surface:
+      action: keep
+      reason: The accepted agent registration block stays unchanged.
+    structured-agent-cli-regression:
+      action: keep
+      reason: Existing lifecycle, parser, authorization, and compatibility tests stay
+        unchanged.
+    structured-agent-packed-smoke:
+      action: keep
+      reason: Existing installed lifecycle coverage stays intact.
+  structured-preset-and-roster-cli-is-safe-and-ordered:
+    agent-preset-command-surface:
+      action: keep
+      reason: The accepted preset/default-roster registration block stays unchanged.
+    agent-preset-cli-regression:
+      action: keep
+      reason: Existing CRUD, ordering, authorization, correlation, and redaction
+        coverage stays unchanged.
+    agent-preset-packed-smoke:
+      action: keep
+      reason: Existing installed preset and roster checks stay intact.
+  structured-worktree-cli-uses-accepted-lifecycle:
+    worktree-command-surface:
+      action: keep
+      reason: The accepted worktree registration block stays unchanged.
+    worktree-cli-regression:
+      action: keep
+      reason: Existing real-Git, role, credential, roster, and selector tests stay
+        unchanged.
+    worktree-packed-smoke:
+      action: keep
+      reason: Existing Git-less installed refusal coverage stays intact before the new
+        Git-capable workflow.
+  cli-help-never-renders-selected-bearer:
+    redacted-token-option-default:
+      action: keep
+      reason: Token default selection and redacted rendering are untouched.
+    token-help-redaction-regression:
+      action: keep
+      reason: Existing root help secret check remains unchanged and the new help test
+        strengthens it.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Retain every existing proof while adding pinned Git-capable offline
+        management composition and restart recovery.
+  public-package-readme-renders-on-npm:
+    readme-registry-logo:
+      action: keep
+      reason: Absolute public logo URLs remain unchanged.
+    artifact-readme-regression:
+      action: keep
+      reason: Existing artifact staging proof remains unchanged; packed runtime adds
+        content verification.
+files:
+  - README.md
+  - CHANGELOG.md
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - scripts/packed-install-test.sh
+verification: >-
+  Work test-first. Add the dedicated end-of-file help regression and observe it
+
+  fail against the unmodified Commander metadata; then make the bounded program
+
+  changes and rerun it green through the repository test-environment wrapper.
+
+  Keep all new index.spec.ts markers at file end so historical duplicate-anchor
+
+  line mappings do not move. Validate the packed shell with `bash -n
+
+  scripts/packed-install-test.sh` before executing it.
+
+
+  Before any Git-backed command, capture a normalized inventory of every real
+
+  Git worktree under the user's existing worktree roots. Every repository and
+
+  linked checkout created by tests or the packed workflow must live under its
+
+  own mkdtemp or /proof bind root, and cleanup may remove only that exact root.
+
+  Compare the normalized inventory after each Git-backed gate and at completion;
+
+  any real path, HEAD, branch, or dirty-state change fails the phase.
+
+
+  Run the focused help regression with
+
+  `pnpm --filter @codor/cli exec node ../../scripts/test-env.mjs vitest run
+
+  src/index.spec.ts -t "Phase 5 management help"`. Run the Windows argument and
+
+  local-transport regressions explicitly with
+
+  `pnpm --filter @codor/cli exec node ../../scripts/test-env.mjs vitest run
+
+  src/install-win32.spec.ts src/setup-win32.spec.ts src/runtime-install.spec.ts
+
+  src/connection-pipe.spec.ts`. Run `pnpm --filter @codor/cli test`,
+
+  `pnpm --filter @codor/switchboard test`, `pnpm --filter '@codor/cli...'
+  build`,
+
+  `pnpm build`, and root `pnpm test` in isolated CODOR environment. Run the
+
+  focused accepted browser composition specs room37-agent-presets,
+
+  room40-native-worktree-group, and room41-native-worktree-lifecycle with fresh
+
+  harness state and non-overlapping four-port ranges.
+
+
+  Execute `scripts/packed-install-test.sh` end to end. It must
+  build/pack/install
+
+  from the clean selected branch, keep every prior assertion, run the installed
+
+  Git-capable management/restart workflow with runtime networking disabled, and
+
+  finish browser/API/teardown. Inspect captured success and failure output for
+
+  the proof token and private field vocabulary, assert one compact JSON value
+
+  per requested success, keep prompts/diagnostics off stdout, and use bounded
+
+  readiness/result polling instead of sleeps.
+
+
+  Run `harn find --plan cli-management-phase5-packaging-integration`, `harn plan
+
+  check cli-management-phase5-packaging-integration`, and `harn check
+
+  cli-management-phase5-packaging-integration`; resolve every plan, scope,
+
+  anchor, LIFO, and duplicate-identity issue without changing this locked plan.
+
+  Stage only this plan and the five declared files, run `git diff --cached
+
+  --check`, `harn find --staged`, and `harn check --staged`, and let the normal
+
+  Harn commit hook apply the plan. Create exactly one Phase 5 implementation
+
+  commit above f141553e7c5130169c597d491e4443f02ee7e18f and leave a clean
+
+  worktree.
+applied:
+  applied_at: 2026-08-08T04:42:25.597Z

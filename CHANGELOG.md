@@ -47,6 +47,15 @@ Nine findings from live phone testing of the release candidate, fixed.
   so no model id is hardcoded in the web app.
 <!-- harn:end the-changelog-records-what-the-operator-will-notice -->
 
+<!-- harn:assume structured-management-help-and-docs-are-complete ref=changelog-management-upgrade-notes -->
+### Structured management and upgrades
+
+- Added discoverable help and safe examples for channel, agent, agent-preset, default-roster,
+  and worktree management, including confirmation and JSON usage.
+- Existing flat commands remain compatible; rerun `npx @richhardry/codor install` after an
+  upgrade to refresh the installed service/runtime.
+<!-- harn:end structured-management-help-and-docs-are-complete -->
+
 ## 0.1.0 - 2026-07-11
 
 ### Changed

@@ -2641,3 +2641,65 @@ const restWorktreeFixture = () => {
     list: { repository, registered: [selected], discovered: [] },
   };
 };
+
+// harn:assume structured-management-help-and-docs-are-complete ref=management-help-regression
+describe('Phase 5 management help', () => {
+  it('documents every accepted family without selected credentials or private fields', () => {
+    const program = createProgram({
+      env: {
+        CODOR_MEMBER_TOKEN: 'help-member-secret',
+        CODOR_TOKEN: 'help-operator-secret',
+      },
+    });
+    const captureHelp = (command: ReturnType<typeof createProgram>): string => {
+      let rendered = '';
+      command.configureOutput({ writeOut: (value) => { rendered += value; } });
+      command.outputHelp();
+      return rendered;
+    };
+    const rootHelp = captureHelp(program);
+    for (const family of ['channel', 'agent', 'agent-preset', 'default-roster', 'worktree']) {
+      expect(rootHelp).toContain(`codor ${family} --help`);
+    }
+    expect(rootHelp).toContain('flat commands remain compatible');
+    expect(rootHelp).toContain('--token <token>');
+
+    const families = {
+      channel: {
+        commands: ['list', 'create', 'show', 'rename', 'archive'],
+        text: ['Archive is soft retention only', 'no hard-delete or restore command'],
+      },
+      agent: {
+        commands: ['list', 'add', 'configure', 'rename', 'pause', 'revive', 'remove'],
+        text: ['Agent add selects exactly one public adapter or preset'],
+      },
+      'agent-preset': {
+        commands: ['list', 'create', 'update', 'delete'],
+        text: ['individual reusable preset CRUD', 'separate from default-roster'],
+      },
+      'default-roster': {
+        commands: ['show', 'set'],
+        text: ['replaces the entire ordered roster', 'separate from individual presets'],
+      },
+      worktree: {
+        commands: ['list', 'add', 'remove'],
+        text: ['Worktree add requires --create or --adopt', 'Remove unregisters by default', '--filesystem'],
+      },
+    } as const;
+    for (const [family, expected] of Object.entries(families)) {
+      const command = program.commands.find((candidate) => candidate.name() === family);
+      expect(command, family).toBeDefined();
+      expect(command!.commands.map((child) => child.name())).toEqual(expected.commands);
+      const help = captureHelp(command!);
+      for (const phrase of expected.text) expect(help).toContain(phrase);
+    }
+
+    const rendered = rootHelp + Object.keys(families)
+      .map((family) => captureHelp(program.commands.find((candidate) => candidate.name() === family)!))
+      .join('\n');
+    for (const secret of ['help-member-secret', 'help-operator-secret', 'acp_launch', 'session_ref', 'Bearer ']) {
+      expect(rendered).not.toContain(secret);
+    }
+  });
+});
+// harn:end structured-management-help-and-docs-are-complete

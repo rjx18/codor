@@ -1,0 +1,30 @@
+id: packed-management-workflow-recovers-after-restart
+hash: a-5fb483fef563
+title: The installed management workflow survives one offline daemon restart
+state: active
+statement: The clean packed-install gate must run the installed artifact in a
+  digest-pinned Git-capable glibc Node 22 container with networking off and
+  isolated data and repository roots; use both the default local socket and an
+  explicit loopback URL/token to create presets, an ordered roster, a
+  roster-backed channel, a roster-backed secondary worktree, and additional
+  agents; complete one qualified child-agent turn into the origin; archive the
+  channel; gracefully restart the same daemon; and prove durable safe channel,
+  roster, agent, worktree, branch, and origin-only history state without
+  printing credentials, private launches, native sessions, Git administrative
+  identity, keys, or mutating any real checkout.
+depends_on:
+  - packed-release-proof-runs-install-runtime
+  - structured-management-help-and-docs-are-complete
+  - channel-archive-is-durable-soft-state
+  - structured-channel-cli-preserves-flat-listing
+  - structured-agent-cli-preserves-flat-lifecycle-and-presets
+  - structured-preset-and-roster-cli-is-safe-and-ordered
+  - structured-worktree-cli-uses-accepted-lifecycle
+  - worktree-child-default-roster-is-an-explicit-snapshot
+  - qualified-member-target-identity-is-durable
+  - cross-worktree-output-stays-in-origin
+  - cross-worktree-runtime-stays-target-local
+  - management-output-is-json-pure-and-safe
+  - management-failures-have-stable-redacted-exits
+  - unix-socket-same-protocol
+created_by: cli-management-phase5-packaging-integration

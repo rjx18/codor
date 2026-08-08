@@ -2158,6 +2158,64 @@ defaultRosterManagement
     .command('channel')
     .description('manage channels');
   for (const command of structuredChannelCommands) structuredChannelManagement.addCommand(command);
+
+  // harn:assume structured-management-help-and-docs-are-complete ref=management-help-metadata
+  const addManagementHelp = (command: Command, text: string): void => {
+    command.addHelpText('after', `\n${text}\n`);
+  };
+  program.addHelpText('after', [
+    '',
+    'Management families (use family help for accepted subcommands):',
+    '  codor channel --help       manage channels; archive is soft retention only',
+    '  codor agent --help         manage channel agents',
+    '  codor agent-preset --help  manage individual reusable presets',
+    '  codor default-roster --help  manage the ordered default roster',
+    '  codor worktree --help      manage create/adopt and unregister/filesystem worktrees',
+    '',
+    'Local commands use the protected local socket by default. For an explicit loopback',
+    'connection, use --url <loopback-url> --token <token>. Mutating archive, delete,',
+    'and removal actions require confirmation; use --yes for unattended JSON calls.',
+    'Existing flat commands remain compatible.',
+    '',
+    'Examples:',
+    '  codor channel list --channel desk',
+    '  codor channel list --channel desk --json',
+    '  codor --url <loopback-url> --token <token> channel show desk --json',
+  ].join('\n'));
+  addManagementHelp(structuredChannelManagement, [
+    'Archive is soft retention only; there is no hard-delete or restore command.',
+    'Examples:',
+    '  codor channel list --channel desk',
+    '  codor channel archive desk --yes --json',
+  ].join('\n'));
+  addManagementHelp(agentManagement, [
+    'Agent add selects exactly one public adapter or preset.',
+    'Examples:',
+    '  codor agent add reviewer --channel desk --adapter housecat --cwd "$PWD"',
+    '  codor agent add --channel desk --preset <preset-id> --cwd "$PWD"',
+  ].join('\n'));
+  addManagementHelp(agentPresetManagement, [
+    'Agent-preset is individual reusable preset CRUD and is separate from default-roster.',
+    'Examples:',
+    '  codor agent-preset create "Review helper" --handle reviewer --adapter housecat',
+    '  codor agent-preset list --json',
+  ].join('\n'));
+  addManagementHelp(defaultRosterManagement, [
+    'Default-roster set replaces the entire ordered roster and is separate from individual presets.',
+    'Examples:',
+    '  codor default-roster show --json',
+    '  codor default-roster set <preset-id> --json',
+  ].join('\n'));
+  addManagementHelp(worktreeManagement, [
+    'Worktree add requires --create or --adopt. Remove unregisters by default;',
+    '--filesystem enables guarded clean checkout removal after preview.',
+    'Examples:',
+    '  codor worktree list --channel desk --json',
+    '  codor worktree add --channel desk --create --path <absolute-path> --alias child --branch <branch>',
+    '  codor worktree remove child --channel desk --filesystem --yes --json',
+  ].join('\n'));
+  // harn:end structured-management-help-and-docs-are-complete
+
   const topLevelCommands = program.commands as Command[];
   const phase3Commands = [agentPresetManagement, defaultRosterManagement];
   for (const command of phase3Commands) {
