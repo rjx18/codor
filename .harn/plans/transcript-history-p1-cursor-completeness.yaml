@@ -1,0 +1,77 @@
+id: transcript-history-p1-cursor-completeness
+title: Transcript history phase 1 review fix - complete cursor order
+notes: >
+  Narrow server-side correction against accepted Phase 1 base a83dc563. The
+  current builder scans SQLite messages backward by id and may finalize a page
+  boundary before discovering an older-id ordinary message whose timestamp
+  places it after that boundary in established legacy transcript order. Build
+  the complete immutable-ceiling transcript order before selecting any page or
+  encoding its boundary. Preserve all Phase 1 unitization, modern permanent
+  output ordering, legacy timestamp interleaving, family exclusion, redaction,
+  authorization, fixed twenty-unit pages, and opaque room-bound cursors.
+
+  Add mixed ordinary/run history and REST regressions for an oldest-id message
+  with a newer timestamp. A complete cursor walk must return every visible unit
+  exactly once in established transcript order, with no gaps or duplicates;
+  only the true final page may report has_more false and before_cursor null.
+  Record duration, response bytes, selected units, message reads/records,
+  journal reads, and journal events for the reproduced 185-message shape. No
+  browser changes, legacy /messages fallback, protocol shape change, persistent
+  index, relay work, or Phase 2 implementation.
+assumptions:
+  create:
+    - id: transcript-history-cursors-cover-complete-established-order
+      title: Transcript history cursors cover the complete established order
+      statement: >
+        Before selecting a combined-history page or encoding its opaque
+        boundary, the server must establish every visible unit at the cursor's
+        immutable newest-message ceiling in the same modern-output and legacy
+        timestamp order used by transcript rendering, so walking cursors returns
+        every visible unit exactly once with no gap or duplicate and reports
+        has_more false with a null before_cursor only after the true oldest unit.
+      reason: >
+        Backward id discovery is not monotonic with legacy timestamp order, so a
+        boundary chosen from a partial scan can permanently skip a later-sorted
+        old-id message even though every individual page validates.
+      depends_on:
+        - historical-transcript-pages-match-output-scoped-rendering
+  reviewed:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: Unitization, ordering rules, cursor shape, and the fixed twenty-unit
+        response contract remain unchanged; page selection now sees their complete
+        established order.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Complete cursor coverage restores every permanent target without
+        changing any message or output id.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: REST pages still pass through the existing projection before response.
+files:
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  transcript-history-cursors-cover-complete-established-order:
+    complete-transcript-order-before-page-boundaries:
+      action: change
+      reason: Establish the complete ceiling-bounded entry order before selecting a
+        cursor page.
+    complete-transcript-cursor-regression:
+      action: change
+      reason: Prove mixed timestamp/id order walks every unit once with truthful
+        exhaustion and record the 185-message scan metrics.
+    complete-transcript-rest-regression:
+      action: change
+      reason: Prove the authorized REST cursor chain exposes the displaced oldest-id
+        message with no gaps or duplicates.
+  historical-transcript-pages-match-output-scoped-rendering:
+    transcript-history-page-builder:
+      action: change
+      reason: Keep existing unitization and ordering while moving page selection after
+        complete ceiling discovery.
+    transcript-history-rest:
+      action: change
+      reason: Extend the existing REST regression at its current authorization and
+        projection boundary.
