@@ -23,6 +23,10 @@ import { requireBrowserUpgrade } from './compatibility.js';
 import { rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
 import { createClientStore, mirrorClientStore, type ClientStore } from './store.js';
 import { refreshMutableRunJournals } from '../room/run-journals.js';
+import {
+  finalizedTranscriptRoots,
+  refreshTranscriptHistoryHead,
+} from '../room/transcript-history.js';
 
 export interface ComputerActivitySummary {
   connected: boolean;
@@ -361,7 +365,16 @@ export class ComputerSessionManager {
           refreshToken: () => this.refreshEntryToken(entry),
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {
-              refreshMutableRunJournals(room, () => entry.token);
+              // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-resume
+              void refreshTranscriptHistoryHead(entry.store, room, () => entry.token).then((refreshed) => {
+                if (!refreshed || entry.material.computer.id !== this.activeId) return;
+                refreshMutableRunJournals(
+                  room,
+                  () => entry.token,
+                  finalizedTranscriptRoots(entry.store, room),
+                );
+              });
+              // harn:end missed-terminal-history-refreshes-through-combined-head
             }
           },
           onUpgradeRequired: (frame) => {

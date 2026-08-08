@@ -97,6 +97,23 @@ describe('refreshMutableRunJournals', () => {
     expect(refreshed).not.toContain(2);
   });
 
+  // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-finalized-fetch-guard
+  it('never re-reads a formerly mutable root now owned by combined history', async () => {
+    api.fetchRunEvents.mockResolvedValue(journal('eng'));
+    activateRunJournalRoom('eng');
+    requestRunJournal('eng', token, 11, { terminal: false });
+    requestRunJournal('eng', token, 12, { terminal: false });
+    await settle();
+    const readsBefore = api.fetchRunEvents.mock.calls.length;
+
+    refreshMutableRunJournals('eng', token, new Set([11]));
+    await settle();
+
+    const refreshed = api.fetchRunEvents.mock.calls.slice(readsBefore).map((call) => call[1]);
+    expect(refreshed).toEqual([12]);
+  });
+  // harn:end finalized-browser-history-is-combined-page-owned
+
   it('queues exactly one follow-up read for an in-flight journal', async () => {
     let release: ((events: WireEvent[]) => void) | undefined;
     api.fetchRunEvents.mockImplementation(async () => await new Promise<WireEvent[]>((resolve) => {

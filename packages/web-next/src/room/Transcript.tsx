@@ -1,4 +1,13 @@
-import type { Attachment, Delivery, Member, Message, RunItemDiff, WireEvent } from '@codor/protocol';
+import type {
+  Attachment,
+  Delivery,
+  Member,
+  Message,
+  RunItemDiff,
+  TranscriptHistoryIndexedEvent,
+  TranscriptHistoryUnit,
+  WireEvent,
+} from '@codor/protocol';
 import { ArrowDown, AudioLines, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -6,7 +15,6 @@ import type { ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
 
-import { fetchMessageHistory } from '@runtime/api.js';
 import { relayFetch } from '@runtime/relay-transport.js';
 import {
   compactRunRow,
@@ -17,7 +25,7 @@ import {
 } from '@runtime/run-presenter.js';
 
 import { useIsMobile } from '../app/session.js';
-import { HISTORY_PAGE_SIZE, roomSlice, useClientStore } from '../app/store.js';
+import { roomSlice, useClientStore, type TranscriptHistoryState } from '../app/store.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { CompactionMarker } from './CompactionMarker.js';
@@ -41,6 +49,13 @@ import { MiniWaveform } from './MiniWaveform.js';
 import { formatElapsed } from './voice.js';
 import { presentRunTimeline, type CompactionRunTimelineItem } from './run-timeline.js';
 import { continuationFloor, transcriptMessages, transcriptTime } from './transcript-order.js';
+import {
+  ensureTranscriptHistory,
+  indexedEventsForUnit,
+  loadOlderTranscriptHistory,
+  refreshTranscriptHistoryHead,
+  transcriptUnitKey,
+} from './transcript-history.js';
 
 /** Consecutive same-author messages within this window collapse their header. */
 const GROUP_WINDOW_MS = 2 * 60_000;
@@ -52,7 +67,7 @@ const SEGMENT_CACHE_ROOMS = 3;
 
 interface HistoryRestore {
   room: string;
-  anchorId: string;
+  anchorUnit: string;
   anchorOffset: number;
   fallbackHeight: number;
   fallbackTop: number;
@@ -114,12 +129,16 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const messages = slice.messages;
   const members = slice.members;
   const selfId = slice.selfMemberId;
-  const historyCursor = slice.historyCursor;
   const hydrated = slice.hydrated;
   const support = slice.support;
+  const history = slice.transcriptHistory;
   const connected = useClientStore((state) => state.connected);
 
   useEffect(() => activateRunJournalRoom(props.room), [props.room]);
+  useEffect(() => {
+    if (!hydrated) return;
+    void ensureTranscriptHistory(useClientStore, props.room, props.token);
+  }, [hydrated, props.room, props.token]);
 
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -131,7 +150,6 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const [newCount, setNewCount] = useState(0);
   const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
-  const [hasOlder, setHasOlder] = useState(true);
   const historyRequestRef = useRef(false);
   const historyRestoreRef = useRef<HistoryRestore>();
   const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -149,6 +167,82 @@ export function Transcript(props: { room: string; token: () => string; connectio
     () => support?.interactions.filter((message) => messages[message.id] === undefined) ?? [],
     [messages, support],
   );
+
+  const historicalTargets = useMemo(() => {
+    const ids = new Set<number>();
+    for (const unit of history.units) {
+      ids.add(unit.kind === 'message' ? unit.message_id : unit.output_message_id);
+    }
+    return ids;
+  }, [history.units]);
+  const historicalRoots = useMemo(() => new Set(history.units.flatMap(
+    (unit) => unit.kind === 'message' ? [] : [unit.root_message_id],
+  )), [history.units]);
+  // harn:assume live-runs-settle-beside-paged-history-once ref=live-history-settlement-cache
+  const observedLiveRootsRef = useRef(new Set<number>());
+  for (const message of visible) {
+    const rootId = message.run_parent_id ?? message.id;
+    const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+    if (root?.kind === 'run' && root.run?.status === 'running') {
+      observedLiveRootsRef.current.add(rootId);
+    }
+  }
+  for (const rootId of [...observedLiveRootsRef.current]) {
+    const storedRoot = messages[rootId]
+      ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+    const pageRoot = history.messages[rootId];
+    // The combined page can observe settlement even when the replacement
+    // socket has no missed message frame to replay. Prefer that immutable
+    // terminal truth over a stale locally-running root.
+    const root = pageRoot?.run?.status !== undefined && pageRoot.run.status !== 'running'
+      ? pageRoot
+      : storedRoot;
+    if (root?.run?.status === undefined || root.run.status === 'running') continue;
+    const journalComplete = getRunJournal(props.room, rootId)?.some((event) => event.type === 'run.completed') === true;
+    const liveComplete = slice.runEvents[rootId]?.events.some((event) => event.type === 'run.completed') === true;
+    const headHasFamily = history.units.some(
+      (unit) => unit.kind !== 'message' && unit.root_message_id === rootId,
+    );
+    // A complete observed family remains frozen in place. If the tab missed its
+    // terminal evidence, the combined head becomes authoritative once it lands.
+    if (!journalComplete && !liveComplete && headHasFamily) observedLiveRootsRef.current.delete(rootId);
+  }
+  const renderedHistory = useMemo(() => ({
+    ...history,
+    units: history.units.filter((unit) => unit.kind === 'message'
+      || !observedLiveRootsRef.current.has(unit.root_message_id)),
+  }), [history]);
+  const liveVisible = useMemo(() => visible.filter((message) => {
+    if (message.kind !== 'run') {
+      return !historicalTargets.has(message.id)
+        && history.coldMessageIds?.[message.id] !== true;
+    }
+    const rootId = message.run_parent_id ?? message.id;
+    if (historicalRoots.has(rootId) && !observedLiveRootsRef.current.has(rootId)) return false;
+    const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+    return root?.run?.status === 'running' || observedLiveRootsRef.current.has(rootId);
+  }), [historicalRoots, historicalTargets, history.coldMessageIds, messages, support, visible]);
+  const preservedSettledRoots = useMemo(() => new Set(
+    [...observedLiveRootsRef.current].filter((rootId) => {
+      const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+      return root?.run?.status !== undefined && root.run.status !== 'running';
+    }),
+  ), [messages, support]);
+  const terminalRefreshRef = useRef(new Set<number>());
+  useEffect(() => {
+    for (const rootId of observedLiveRootsRef.current) {
+      const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+      if (root?.run?.status === undefined || root.run.status === 'running') continue;
+      const journalComplete = getRunJournal(props.room, rootId)?.some((event) => event.type === 'run.completed') === true;
+      const liveComplete = slice.runEvents[rootId]?.events.some((event) => event.type === 'run.completed') === true;
+      if (journalComplete || liveComplete || terminalRefreshRef.current.has(rootId)) continue;
+      terminalRefreshRef.current.add(rootId);
+      void refreshTranscriptHistoryHead(useClientStore, props.room, props.token).then((ok) => {
+        if (!ok) terminalRefreshRef.current.delete(rootId);
+      });
+    }
+  }, [messages, props.room, props.token, slice.runEvents, support]);
+  // harn:end live-runs-settle-beside-paged-history-once
 
   // Pins older than the loaded page are invisible from loaded messages alone, so
   // hydrate the whole pinned set at room load and union it with loaded truth.
@@ -188,37 +282,17 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const canRetry = selfRole === 'owner' || selfRole === 'admin';
   const selfHandle = selfId !== undefined ? members[selfId]?.handle : undefined;
 
-  // Finalized runs are flattened into per-segment entries so a human message
-  // posted mid-run lands between the run's blocks; running runs stay whole.
-  const finalizedRunIds = useMemo(
-    () => [...new Set(visible.flatMap((message) => {
-      if (message.ack === true) return [];
-      if (message.run_parent_id !== undefined) {
-        const root = messages[message.run_parent_id]
-          ?? support?.active_runs.find((candidate) => candidate.id === message.run_parent_id);
-        return root?.run?.status === 'running' ? [] : [message.run_parent_id];
-      }
-      return message.kind === 'run'
-        && message.run !== undefined
-        && message.run.status !== 'running'
-        ? [message.id]
-        : [];
-    }))],
-    [messages, support, visible],
-  );
-  const { segments: runSegments, version: journalVersion } = useFinalizedRunSegments(
-    props.room,
-    props.token,
-    finalizedRunIds,
-  );
-  const entries = useMemo(() => buildTimelineEntries(visible, runSegments), [visible, runSegments]);
+  // Combined pages own every cold finalized unit. The legacy renderer is kept
+  // only for current live material, so it can never trigger a cold finalized
+  // journal read.
+  const entries = useMemo(() => buildTimelineEntries(liveVisible, new Map()), [liveVisible]);
+  const journalVersion = useRunJournalVersion();
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
     initialBarrier.current = { room: props.room, ready: false };
   }
-  const journalsReady = finalizedRunIds.every((id) => getRunJournal(props.room, id) !== undefined);
-  if (hydrated && journalsReady) initialBarrier.current.ready = true;
-  const transcriptReady = hydrated && initialBarrier.current.ready;
+  if (hydrated && history.initialized) initialBarrier.current.ready = true;
+  const transcriptReady = hydrated && history.initialized && initialBarrier.current.ready;
 
   const cancelHistorySettle = useCallback((): void => {
     if (historySettleTimerRef.current !== undefined) clearTimeout(historySettleTimerRef.current);
@@ -228,7 +302,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
     const pending = historyRestoreRef.current;
     const node = scrollerRef.current;
     if (pending === undefined || !pending.merged || pending.room !== props.room || node === null) return;
-    const anchor = document.getElementById(pending.anchorId);
+    const anchor = pending.anchorUnit.startsWith('unit:')
+      ? [...node.querySelectorAll<HTMLElement>('[data-transcript-unit]')]
+          .find((candidate) => candidate.dataset.transcriptUnit === pending.anchorUnit.slice(5)) ?? null
+      : document.getElementById(pending.anchorUnit.slice(3));
     if (anchor !== null && node.contains(anchor)) {
       const offset = anchor.getBoundingClientRect().top - node.getBoundingClientRect().top;
       node.scrollTop += offset - pending.anchorOffset;
@@ -357,8 +434,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
     pinnedRef.current = true;
     historyRequestRef.current = false;
     historyRestoreRef.current = undefined;
+    terminalRefreshRef.current.clear();
     setHistoryBusy(false);
-    setHasOlder(true);
     return () => {
       cancelHistorySettle();
       historyRequestRef.current = false;
@@ -405,7 +482,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
         if (frame !== undefined) cancelAnimationFrame(frame);
         frame = requestAnimationFrame(() => {
           restoreHistoryAnchor();
-          if (journalsReady) settleHistoryAfterQuiet();
+          settleHistoryAfterQuiet();
         });
         return;
       }
@@ -424,7 +501,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       observer.disconnect();
       if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [cancelHistorySettle, journalsReady, markVisibleRowsRead, restoreHistoryAnchor, settleHistoryAfterQuiet]);
+  }, [cancelHistorySettle, markVisibleRowsRead, restoreHistoryAnchor, settleHistoryAfterQuiet]);
 
   // A permalink jump means the reader is deliberately looking away from the tail.
   // Bounded hydration made this load-bearing: an old target now pages in, and the
@@ -447,22 +524,24 @@ export function Transcript(props: { room: string; token: () => string; connectio
       if (detail.room !== props.room || node === null || target === null || !node.contains(target)) return;
       cancelHistorySettle();
       const viewport = node.getBoundingClientRect();
+      const unit = target.closest<HTMLElement>('[data-transcript-unit]');
       historyRestoreRef.current = {
         room: props.room,
-        anchorId: target.id,
+        anchorUnit: unit?.dataset.transcriptUnit === undefined
+          ? `id:${target.id}`
+          : `unit:${unit.dataset.transcriptUnit}`,
         anchorOffset: target.getBoundingClientRect().top - viewport.top,
         fallbackHeight: node.scrollHeight,
         fallbackTop: node.scrollTop,
         merged: true,
       };
       restoreHistoryAnchor();
-      if (journalsReady) settleHistoryAfterQuiet();
+      settleHistoryAfterQuiet();
     };
     window.addEventListener(JUMP_ANCHOR_EVENT, holdTarget);
     return () => window.removeEventListener(JUMP_ANCHOR_EVENT, holdTarget);
   }, [
     cancelHistorySettle,
-    journalsReady,
     props.room,
     restoreHistoryAnchor,
     settleHistoryAfterQuiet,
@@ -476,11 +555,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (pending === undefined || !pending.merged || pending.room !== props.room) return;
     cancelHistorySettle();
     restoreHistoryAnchor();
-    if (journalsReady) settleHistoryAfterQuiet();
+    settleHistoryAfterQuiet();
   }, [
     cancelHistorySettle,
+    history.units,
     journalVersion,
-    journalsReady,
     messages,
     props.room,
     restoreHistoryAnchor,
@@ -506,10 +585,12 @@ export function Transcript(props: { room: string; token: () => string; connectio
     markVisibleRowsRead();
     if (
       node.scrollTop < 80
+      && !pinnedRef.current
+      && upwardScrollRef.current > 0
       && !historyRequestRef.current
-      && hasOlder
-      && historyCursor !== undefined
-      && historyCursor > 1
+      && history.hasMore
+      && history.beforeCursor !== undefined
+      && history.beforeCursor !== null
     ) {
       cancelHistorySettle();
       historyRequestRef.current = true;
@@ -517,11 +598,13 @@ export function Transcript(props: { room: string; token: () => string; connectio
       pinnedRef.current = false;
       setShowJump(true);
       const viewport = node.getBoundingClientRect();
-      const firstVisible = [...columnRef.current?.querySelectorAll<HTMLElement>(':scope > [id]') ?? []]
+      const firstVisible = [...columnRef.current?.querySelectorAll<HTMLElement>('[data-transcript-unit]') ?? []]
         .find((row) => row.getBoundingClientRect().bottom > viewport.top);
       const pending: HistoryRestore = {
         room: props.room,
-        anchorId: firstVisible?.id ?? '',
+        anchorUnit: firstVisible?.dataset.transcriptUnit === undefined
+          ? 'id:'
+          : `unit:${firstVisible.dataset.transcriptUnit}`,
         anchorOffset: firstVisible === undefined
           ? 0
           : firstVisible.getBoundingClientRect().top - viewport.top,
@@ -530,11 +613,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
         merged: false,
       };
       historyRestoreRef.current = pending;
-      void fetchMessageHistory(props.room, { before: historyCursor, limit: HISTORY_PAGE_SIZE }, { token: props.token() })
-        .then((page) => {
+      void loadOlderTranscriptHistory(useClientStore, props.room, props.token)
+        .then((loaded) => {
           if (historyRestoreRef.current !== pending) return;
-          if (page.messages.length === 0) {
-            setHasOlder(false);
+          if (!loaded) {
             cancelHistorySettle();
             historyRestoreRef.current = undefined;
             historyRequestRef.current = false;
@@ -542,7 +624,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
             return;
           }
           pending.merged = true;
-          useClientStore.getState().mergeHistoryPage(props.room, page.messages);
+          requestAnimationFrame(() => {
+            if (historyRestoreRef.current !== pending) return;
+            restoreHistoryAnchor();
+            settleHistoryAfterQuiet();
+          });
         })
         .catch(() => {
           if (historyRestoreRef.current !== pending) return;
@@ -585,6 +671,15 @@ export function Transcript(props: { room: string; token: () => string; connectio
         data-testid="timeline"
         aria-busy={historyBusy}
         onScroll={onScroll}
+        onWheel={(event) => {
+          const node = scrollerRef.current;
+          if (node === null || event.deltaY >= 0 || node.scrollTop >= 80) return;
+          // A short first page may not overflow, so an upward wheel at its top
+          // produces no native scroll event. It is still an explicit top reach.
+          pinnedRef.current = false;
+          upwardScrollRef.current += Math.abs(event.deltaY);
+          onScroll();
+        }}
         tabIndex={0}
       >
         <div ref={columnRef} className="nx-column">
@@ -592,14 +687,22 @@ export function Transcript(props: { room: string; token: () => string; connectio
               socket-open, before a single frame lands, so gating on it flashed an
               empty transcript and then crawled rows in one at a time. */}
           {!transcriptReady && <TranscriptSkeleton />}
-          {transcriptReady && visible.length === 0 && (
+          {transcriptReady && history.units.length === 0 && liveVisible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
           )}
-          {transcriptReady && renderTimeline(entries, {
+          {/* harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-rendering */}
+          {transcriptReady && renderHistoricalTimeline(renderedHistory, {
             members, selfId, selfHandle, inbox,
             room: props.room, token: props.token, connection: props.connection,
             canPin, canDelete, canRetry,
           })}
+          {transcriptReady && renderTimeline(entries, {
+            members, selfId, selfHandle, inbox,
+            room: props.room, token: props.token, connection: props.connection,
+            canPin, canDelete, canRetry,
+            preservedRoots: preservedSettledRoots,
+          })}
+          {/* harn:end finalized-browser-history-is-combined-page-owned */}
           {transcriptReady && detachedInteractions.length > 0 && (
             <section className="nx-action-tray" aria-label="Needs your response" data-testid="interaction-tray">
               <p className="nx-action-tray-label">Needs your response</p>
@@ -691,16 +794,36 @@ function TurnBlock(props: {
   connection: Connection;
   deliveries: Record<string, Delivery>;
   members: Record<string, Member>;
+  preserveJournal?: boolean;
+  historical?: {
+    units: { unit: TranscriptHistoryUnit; events: TranscriptHistoryIndexedEvent[] }[];
+    root: Message | undefined;
+    targetIds: number[];
+  };
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
+  const historicalId = props.historical?.targetIds[0];
+  const articleUnit = props.historical?.units.length === 1
+    && props.historical.units[0]?.unit.kind === 'message'
+    ? props.historical.units[0].unit
+    : undefined;
+  const historyTargets = props.historical?.targetIds.slice(1).map((id) => (
+    <span key={id} id={String(id)} aria-hidden="true" />
+  ));
   // A message that @-mentions the viewer is highlighted so it stands out.
   const mentionsMe = props.viewerId !== undefined
     && message.mentions.some((mention) => mention.member_id === props.viewerId);
 
   if (message.kind === 'system') {
     return (
-      <p id={String(message.id)} data-testid={`msg-${message.id}`} className="nx-system">
+      <p
+        id={props.historical === undefined ? String(message.id) : historicalId === undefined ? undefined : String(historicalId)}
+        data-transcript-unit={articleUnit === undefined ? undefined : transcriptUnitKey(articleUnit)}
+        data-testid={`msg-${message.id}`}
+        className="nx-system"
+      >
+        {historyTargets}
         {message.body}
       </p>
     );
@@ -711,7 +834,13 @@ function TurnBlock(props: {
   // Acknowledgements collapse to one quiet line — the ack IS the content.
   if (message.ack === true) {
     return (
-      <p id={String(message.id)} data-testid={`ack-${handle}`} className="nx-system nx-ack">
+      <p
+        id={props.historical === undefined ? String(message.id) : historicalId === undefined ? undefined : String(historicalId)}
+        data-transcript-unit={articleUnit === undefined ? undefined : transcriptUnitKey(articleUnit)}
+        data-testid={`ack-${handle}`}
+        className="nx-system nx-ack"
+      >
+        {historyTargets}
         <Check size={13} aria-hidden="true" /> @{handle} acknowledged
       </p>
     );
@@ -722,10 +851,12 @@ function TurnBlock(props: {
   if (message.deleted === true) {
     return (
       <article
-        id={String(message.id)}
+        id={props.historical === undefined ? String(message.id) : historicalId === undefined ? undefined : String(historicalId)}
+        data-transcript-unit={articleUnit === undefined ? undefined : transcriptUnitKey(articleUnit)}
         data-testid={`msg-${message.id}`}
         className={`nx-turn is-deleted ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''}`}
       >
+        {historyTargets}
         {!props.grouped && !isMobile && (
           <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
         )}
@@ -756,12 +887,14 @@ function TurnBlock(props: {
 
   return (
     <article
-      id={String(message.id)}
+      id={props.historical === undefined ? String(message.id) : historicalId === undefined ? undefined : String(historicalId)}
+      data-transcript-unit={articleUnit === undefined ? undefined : transcriptUnitKey(articleUnit)}
       data-testid={message.kind === 'run' ? `run-${message.id}` : `msg-${message.id}`}
       data-read-seq={messageReadSeq(message, props.mine)}
       data-mentions-me={mentionsMe ? 'true' : undefined}
       className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''} ${mentionsMe ? 'is-mentioned' : ''}`}
     >
+      {historyTargets}
       {!props.grouped && !isMobile && (
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
       )}
@@ -829,7 +962,16 @@ function TurnBlock(props: {
           </div>
         )}
         {message.kind === 'run'
-          ? <RunContent message={message} room={props.room} token={props.token} />
+          ? <RunContent
+              message={message}
+              room={props.room}
+              token={props.token}
+              historical={props.historical === undefined ? undefined : {
+                units: props.historical.units,
+                root: props.historical.root,
+              }}
+              preserveJournal={props.preserveJournal}
+            />
           : message.kind === 'ask' || message.kind === 'approval'
             ? <AskCardView message={message} connection={props.connection} />
             : message.voice !== undefined
@@ -1237,13 +1379,23 @@ function runFamilyOwners(
   return { newestId, terminalOwnerId: journalOwner ?? newestId };
 }
 
-function RunContent(props: { message: Message; room: string; token: () => string }) {
+function RunContent(props: {
+  message: Message;
+  room: string;
+  token: () => string;
+  historical?: {
+    units: { unit: TranscriptHistoryUnit; events: TranscriptHistoryIndexedEvent[] }[];
+    root: Message | undefined;
+  };
+  preserveJournal?: boolean;
+}) {
   const rootId = props.message.run_parent_id ?? props.message.id;
-  const root = useClientStore((state) => {
+  const storedRoot = useClientStore((state) => {
     const slice = roomSlice(state, props.room);
     return slice.messages[rootId]
       ?? slice.support?.active_runs.find((message) => message.id === rootId);
   });
+  const root = props.historical?.root ?? storedRoot;
   // Every row of this family that the client currently holds. A continuation
   // arriving later moves ownership without anything being re-fetched.
   const familyIds = useClientStore((state) => {
@@ -1269,14 +1421,18 @@ function RunContent(props: { message: Message; room: string; token: () => string
   // A live run jumps the queue; when it settles, the effect re-runs once with
   // terminal=true so the cache picks up the completed journal exactly once.
   useEffect(() => {
+    if (props.historical !== undefined || props.preserveJournal === true) return;
     requestRunJournal(props.room, props.token, rootId, {
       terminal: !running,
       priority: running,
     });
-  }, [props.room, props.token, rootId, running]);
+  }, [props.historical, props.preserveJournal, props.room, props.token, rootId, running]);
 
-  const journalEvents = getRunJournal(props.room, rootId);
+  const journalEvents = props.historical === undefined
+    ? getRunJournal(props.room, rootId)
+    : props.historical.units.flatMap((selected) => selected.events.map((indexed) => indexed.event));
   const timeline = useMemo(() => {
+    if (props.historical !== undefined) return [];
     const merged = mergeRunEvents(journalEvents, live ?? { events: [], dropped_count: 0 });
     const targeted = outputMessages
       ? merged.filter(({ event }) => {
@@ -1293,16 +1449,28 @@ function RunContent(props: { message: Message; room: string; token: () => string
     // here; `live` is a fresh object per streamed frame, so it stays keyed on
     // counts to avoid re-presenting an unchanged list on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journalEvents, live?.events.length, live?.dropped_count, outputMessages, props.message.id, rootId, version]);
-  const segments = useMemo(() => segmentTimeline(timeline), [timeline]);
+  }, [journalEvents, live?.events.length, live?.dropped_count, outputMessages, props.historical, props.message.id, rootId, version]);
+  // harn:assume live-runs-settle-beside-paged-history-once ref=live-history-settlement-renderer
+  const historicalSegments = useMemo(() => props.historical?.units.map((selected) => ({
+    ...selected,
+    segments: segmentTimeline(presentRunTimeline(selected.events)),
+  })) ?? [], [props.historical]);
+  const segments = useMemo(
+    () => props.historical === undefined
+      ? segmentTimeline(timeline)
+      : historicalSegments.flatMap((selected) => selected.segments),
+    [historicalSegments, props.historical, timeline],
+  );
   const storedDiffs = useMemo(() => segmentDiffs(segments), [segments]);
 
   // The prose already streams through text rows; only a run that produced no
   // prose at all (e.g. a failure) falls back to the settled final text.
   const hasProse = segments.some((s) => s.kind === 'prose');
-  const finalText = outputMessages
+  const settledTail = props.historical === undefined
+    || props.historical.units.some((selected) => selected.unit.kind === 'settled_tail');
+  const finalText = settledTail && outputMessages
     ? props.message.body
-    : props.message.run?.final_text ?? props.message.body;
+    : settledTail ? props.message.run?.final_text ?? props.message.body : '';
   const streamedText = segments
     .filter((segment): segment is Extract<RunSegment, { kind: 'prose' }> => segment.kind === 'prose')
     .map((segment) => segment.row.text ?? '')
@@ -1311,7 +1479,7 @@ function RunContent(props: { message: Message; room: string; token: () => string
   // harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence
   // Failed/interrupted runs have empty bodies by design — their reason lives
   // on run.error and must render, or failures are silently blank.
-  const runError = isRoot ? rootRun?.error : undefined;
+  const runError = settledTail ? rootRun?.error : undefined;
   // harn:end run-failure-evidence-is-surfaced
 
   // Who owns the family's terminal marker, and what it may claim.
@@ -1335,7 +1503,8 @@ function RunContent(props: { message: Message; room: string; token: () => string
     return { newestId, terminalOwnerId, status };
   }, [journalEvents, familyIds, rootId, rootRun?.status, rootRun?.result_message_id]);
 
-  const ownsTerminalMarker = props.message.id === terminal.terminalOwnerId
+  const ownsTerminalMarker = settledTail && (props.historical !== undefined
+    || props.message.id === terminal.terminalOwnerId)
     && (terminal.status === 'interrupted' || terminal.status === 'failed');
   // A running turn says nothing in the transcript: the sticky typing pill is
   // the one activity surface, with the one continuous clock. An in-row
@@ -1348,6 +1517,99 @@ function RunContent(props: { message: Message; room: string; token: () => string
   const evidenceFree = running && segments.length === 0
     && finalText.length === 0 && trailingText.length === 0;
 
+  const renderSegments = (selected: readonly RunSegment[], keyPrefix: string): ReactNode[] =>
+    selected.map((segment, index) => segment.kind === 'compaction'
+      ? (
+          <CompactionMarker
+            key={`${keyPrefix}-${segment.item.id}`}
+            status={segment.item.status}
+            trigger={segment.item.trigger}
+            preTokens={segment.item.preTokens}
+          />
+        )
+      : segment.kind === 'prose'
+      ? (
+          <RunTextBlock
+            key={`${keyPrefix}-${String(segment.row.eventIndex)}`}
+            messageId={props.message.id}
+            blockId={segment.row.eventIndex}
+            text={segment.row.text ?? ''}
+          />
+        )
+      : <ToolBatch
+          key={`${keyPrefix}-tools-${String(segment.rows[0]?.eventIndex ?? index)}`}
+          rows={segment.rows}
+          diffs={storedDiffs}
+        />);
+
+  const settledEvidence = !running && (
+    <>
+      {!hasProse && finalText.length > 0 && (
+        <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
+      )}
+      {trailingText.length > 0 && (
+        <RunTextBlock messageId={props.message.id} blockId="final" text={trailingText} />
+      )}
+      {/* harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence */}
+      {runError !== undefined && runError !== '' && (
+        <p className="nx-field-note is-error" role="alert" data-testid="run-error">
+          {runError}
+        </p>
+      )}
+      {/* harn:end run-failure-evidence-is-surfaced */}
+      {ownsTerminalMarker && (
+        <p className={`nx-run-status is-${terminal.status ?? ''}`} data-testid={`run-${props.message.id}-status`}>
+          run {terminal.status}
+        </p>
+      )}
+    </>
+  );
+
+  const historicalEvidence: ReactNode[] = [];
+  for (let index = 0; index < historicalSegments.length;) {
+    const selected = historicalSegments[index]!;
+    const onlyTools = selected.segments.length > 0
+      && selected.segments.every((segment) => segment.kind === 'tools');
+    if (onlyTools) {
+      const batch = [selected];
+      while (index + batch.length < historicalSegments.length) {
+        const candidate = historicalSegments[index + batch.length]!;
+        if (
+          candidate.segments.length === 0
+          || !candidate.segments.every((segment) => segment.kind === 'tools')
+        ) break;
+        batch.push(candidate);
+      }
+      const rows = batch.flatMap((entry) => entry.segments.flatMap(
+        (segment) => segment.kind === 'tools' ? segment.rows : [],
+      ));
+      historicalEvidence.push(
+        <div
+          key={batch.map((entry) => transcriptUnitKey(entry.unit)).join('|')}
+          data-transcript-unit={transcriptUnitKey(selected.unit)}
+        >
+          {batch.slice(1).map((entry) => (
+            <span key={transcriptUnitKey(entry.unit)} data-transcript-unit={transcriptUnitKey(entry.unit)} />
+          ))}
+          <ToolBatch rows={rows} diffs={storedDiffs} />
+        </div>,
+      );
+      index += batch.length;
+      continue;
+    }
+    historicalEvidence.push(
+      <div
+        key={transcriptUnitKey(selected.unit)}
+        data-transcript-unit={transcriptUnitKey(selected.unit)}
+      >
+        {renderSegments(selected.segments, transcriptUnitKey(selected.unit))}
+        {selected.unit.kind === 'settled_tail' && settledEvidence}
+      </div>,
+    );
+    index += 1;
+  }
+  // harn:end live-runs-settle-beside-paged-history-once
+
   return (
     <div
       className={`nx-run ${evidenceFree ? 'is-evidence-free' : ''}`}
@@ -1356,48 +1618,9 @@ function RunContent(props: { message: Message; room: string; token: () => string
       // whose root sat outside the window claim success it had no evidence for.
       {...(terminal.status !== undefined && { 'data-run-status': terminal.status })}
     >
-      {segments.map((segment, index) =>
-        segment.kind === 'compaction'
-          ? (
-              <CompactionMarker
-                key={segment.item.id}
-                status={segment.item.status}
-                trigger={segment.item.trigger}
-                preTokens={segment.item.preTokens}
-              />
-            )
-          : segment.kind === 'prose'
-          ? (
-              <RunTextBlock
-                key={segment.row.eventIndex}
-                messageId={props.message.id}
-                blockId={segment.row.eventIndex}
-                text={segment.row.text ?? ''}
-              />
-            )
-          : <ToolBatch key={`tools-${segment.rows[0]?.eventIndex ?? index}`} rows={segment.rows} diffs={storedDiffs} />,
-      )}
-      {!running && !hasProse && finalText.length > 0 && (
-        <RunTextBlock messageId={props.message.id} blockId="final" text={finalText} />
-      )}
-      {!running && trailingText.length > 0 && (
-        <RunTextBlock messageId={props.message.id} blockId="final" text={trailingText} />
-      )}
-      {/* harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence */}
-      {!running && runError !== undefined && runError !== '' && (
-        <p className="nx-field-note is-error" role="alert" data-testid="run-error">
-          {runError}
-        </p>
-      )}
-      {/* harn:end run-failure-evidence-is-surfaced */}
-      {/* The family's single terminal marker goes LAST — after prose, tools and
-          the error note — because it is the statement about everything above
-          it, not another piece of evidence competing with them. */}
-      {!running && ownsTerminalMarker && (
-        <p className={`nx-run-status is-${terminal.status ?? ''}`} data-testid={`run-${props.message.id}-status`}>
-          run {terminal.status}
-        </p>
-      )}
+      {props.historical === undefined
+        ? <>{renderSegments(segments, 'live')}{settledEvidence}</>
+        : historicalEvidence}
     </div>
   );
 }
@@ -1464,6 +1687,98 @@ interface TimelineCtx {
   canPin: boolean;
   canDelete: boolean;
   canRetry: boolean;
+  preservedRoots?: ReadonlySet<number>;
+}
+
+function renderHistoricalTimeline(
+  history: TranscriptHistoryState,
+  ctx: TimelineCtx,
+): ReactNode[] {
+  const out: ReactNode[] = [];
+  const anchoredOutputs = new Set<number>();
+  const anchoredRoots = new Set<number>();
+  const visibleIds = new Set(continuationVisibleMessages(
+    Object.values(history.messages),
+    history.messages,
+  ).map((message) => message.id));
+  let previousAuthor: string | undefined;
+  let previousTs = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < history.units.length;) {
+    const unit = history.units[index]!;
+    const message = unit.kind === 'message'
+      ? history.messages[unit.message_id]
+      : history.messages[unit.output_message_id];
+    if (message === undefined || !visibleIds.has(message.id)) {
+      index += 1;
+      continue;
+    }
+    const groupedUnits = [unit];
+    if (unit.kind !== 'message') {
+      while (index + groupedUnits.length < history.units.length) {
+        const candidate = history.units[index + groupedUnits.length]!;
+        if (candidate.kind === 'message' || candidate.output_message_id !== unit.output_message_id) break;
+        groupedUnits.push(candidate);
+      }
+    }
+    const root = unit.kind === 'message' ? undefined : history.messages[unit.root_message_id];
+    const outputId = message.id;
+    const firstOutput = !anchoredOutputs.has(outputId);
+    const targetIds: number[] = [];
+    if (firstOutput) {
+      anchoredOutputs.add(outputId);
+      targetIds.push(outputId);
+    }
+    if (
+      unit.kind !== 'message'
+      && root?.ack !== true
+      && !anchoredRoots.has(unit.root_message_id)
+    ) {
+      anchoredRoots.add(unit.root_message_id);
+      if (!targetIds.includes(unit.root_message_id)) targetIds.push(unit.root_message_id);
+    }
+    const ts = transcriptTime(message);
+    const standaloneRun = message.kind === 'run'
+      && (root?.run?.status === 'failed' || root?.run?.status === 'interrupted');
+    const grouped = !standaloneRun && (!firstOutput || (
+      previousAuthor === message.author
+      && message.kind !== 'system'
+      && Number.isFinite(ts)
+      && Number.isFinite(previousTs)
+      && ts - previousTs < GROUP_WINDOW_MS
+    ));
+    out.push(
+      <TurnBlock
+        key={groupedUnits.map(transcriptUnitKey).join('|')}
+        message={message}
+        author={ctx.members[message.author]}
+        mine={message.author === ctx.selfId}
+        grouped={grouped}
+        room={ctx.room}
+        token={ctx.token}
+        connection={ctx.connection}
+        deliveries={ctx.inbox}
+        members={ctx.members}
+        canPin={ctx.canPin}
+        canDelete={ctx.canDelete}
+        canRetry={ctx.canRetry}
+        viewerId={ctx.selfId}
+        viewerHandle={ctx.selfHandle}
+        historical={{
+          units: groupedUnits.map((selected) => ({
+            unit: selected,
+            events: selected.kind === 'message' ? [] : indexedEventsForUnit(history, selected),
+          })),
+          root,
+          targetIds,
+        }}
+      />,
+    );
+    previousAuthor = message.kind === 'system' ? undefined : message.author;
+    previousTs = ts;
+    index += groupedUnits.length;
+  }
+  return out;
 }
 
 function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[] {
@@ -1542,6 +1857,8 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
           canRetry={ctx.canRetry}
           viewerId={ctx.selfId}
           viewerHandle={ctx.selfHandle}
+          preserveJournal={message.kind === 'run'
+            && ctx.preservedRoots?.has(message.run_parent_id ?? message.id)}
         />,
       );
       prevAuthor = message.kind === 'system' ? undefined : message.author;

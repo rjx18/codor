@@ -1,0 +1,18 @@
+id: transcript-history-prepends-one-deliberate-page
+hash: a-20e0200faeaf
+title: One deliberate top reach prepends one bounded history page
+state: active
+statement: >
+  The mounted transcript must request only its active room's first page, expose
+  at most twenty immutable units initially, deduplicate requests by room and
+  opaque cursor, and allow one deliberate top reach to prepend exactly one
+  preceding page while giving each rendered unit a stable DOM identity and
+  holding the first pre-existing visible unit at the same viewport offset, even
+  when old and new units extend the same permanent message/output article; the
+  request latch must remain closed while the sentinel stays intersecting or row
+  heights settle, and reopen only after the operator leaves and deliberately
+  reaches the top again, so one gesture cannot auto-drain history.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+  - permalink-ids-stable
+created_by: transcript-history-reliability-p2-browser-pages

@@ -4,9 +4,15 @@ import { describe, expect, it, vi } from 'vitest';
 
 const recovery = vi.hoisted(() => ({
   refresh: vi.fn(),
+  refreshHead: vi.fn((_store: unknown, _room: string, _token: () => string) => Promise.resolve(true)),
+  finalizedRoots: vi.fn((_store: unknown, _room: string) => new Set<number>()),
   upgrade: vi.fn(),
 }));
 vi.mock('../room/run-journals.js', () => ({ refreshMutableRunJournals: recovery.refresh }));
+vi.mock('../room/transcript-history.js', () => ({
+  refreshTranscriptHistoryHead: recovery.refreshHead,
+  finalizedTranscriptRoots: recovery.finalizedRoots,
+}));
 vi.mock('./compatibility.js', () => ({ requireBrowserUpgrade: recovery.upgrade }));
 
 import type { HostedComputerMaterial } from '@runtime/crypto.js';
@@ -305,18 +311,26 @@ describe('ComputerSessionManager', () => {
 
   it('refreshes mutable journals only for the active connector with its own token', async () => {
     recovery.refresh.mockReset();
+    recovery.refreshHead.mockClear();
+    recovery.finalizedRoots.mockClear();
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
 
     h.connectorOptions.get('B')?.onResume?.('same-room');
     expect(recovery.refresh).not.toHaveBeenCalled();
+    expect(recovery.refreshHead).not.toHaveBeenCalled();
     h.connectorOptions.get('A')?.onResume?.('same-room');
+    await Promise.resolve();
+    expect(recovery.refreshHead).toHaveBeenCalledTimes(1);
+    expect(recovery.refreshHead.mock.calls[0]?.[2]()).toBe('token-A');
     expect(recovery.refresh).toHaveBeenCalledTimes(1);
     expect(recovery.refresh.mock.calls[0]?.[1]()).toBe('token-A');
 
     await manager.activate('B');
     h.connectorOptions.get('B')?.onResume?.('same-room');
+    await Promise.resolve();
+    expect(recovery.refreshHead.mock.calls[1]?.[2]()).toBe('token-B');
     expect(recovery.refresh.mock.calls[1]?.[1]()).toBe('token-B');
     manager.dispose();
   });

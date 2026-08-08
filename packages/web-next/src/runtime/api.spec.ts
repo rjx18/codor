@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createRoom, fetchAdapters, refreshAdapters } from './api.js';
+import { createRoom, fetchAdapters, fetchTranscriptHistory, refreshAdapters } from './api.js';
 
 // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-regression
 describe('adapter listing', () => {
@@ -100,3 +100,26 @@ describe('actionable REST errors', () => {
   });
 });
 // harn:end starting-agent-name-derives-one-valid-identity-v6
+
+// harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-api-client
+describe('combined transcript history client', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('routes an opaque cursor with bearer authentication and validates the response', async () => {
+    const fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        messages: [], journals: [], units: [], before_cursor: null, has_more: false,
+      }),
+    } as Response));
+    vi.stubGlobal('fetch', fetch);
+    const page = await fetchTranscriptHistory('a room', 'opaque/+ cursor', { token: 'secret' });
+    expect(page.units).toEqual([]);
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/rooms/a%20room/transcript-history?cursor=opaque%2F%2B%20cursor'),
+      expect.objectContaining({ headers: { authorization: 'Bearer secret' } }),
+    );
+  });
+});
+// harn:end finalized-browser-history-is-combined-page-owned

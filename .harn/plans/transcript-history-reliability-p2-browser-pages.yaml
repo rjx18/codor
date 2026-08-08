@@ -2,14 +2,13 @@ id: transcript-history-reliability-p2-browser-pages
 title: Transcript history reliability phase 2 - bounded browser history
 notes: >
   Browser integration only, after the accepted Phase 1 cursor-completeness
-  correction. Make the
-  authenticated combined transcript page the sole cold source for finalized
-  history in the mounted transcript. Fetch only the active room's first page;
-  keep complete message context, ordered unit descriptors, indexed excerpts,
-  opaque cursor, exhaustion, and request state inside that room's injected
-  ClientStore so same-named rooms on concurrent computers cannot share data or
-  credentials. The server's unit order and unit-owned journal indices are
-  authoritative: never regroup across page boundaries.
+  correction. Make the authenticated combined transcript page the sole cold
+  source for finalized history in the mounted transcript. Fetch only the active
+  room's first page; keep complete message context, ordered unit descriptors,
+  indexed excerpts, opaque cursor, exhaustion, and request state inside that
+  room's injected ClientStore so same-named rooms on concurrent computers cannot
+  share data or credentials. The server's unit order and unit-owned journal
+  indices are authoritative: never regroup across page boundaries.
 
   A page-hydrated finalized family must not call GET /runs/:id. Mutable runs
   keep their existing full redacted journal recovery plus indexed live buffer
@@ -371,3 +370,5 @@ anchors:
       action: change
       reason: Add direct-mode head reconciliation to the existing connector resume
         hook without remounting it.
+applied:
+  applied_at: 2026-08-08T15:57:23.424Z

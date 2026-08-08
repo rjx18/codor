@@ -1556,6 +1556,9 @@ createServer((req, res) => {
             author: daemon.ownerOf('hydration').id, kind: 'chat',
             body: 'oldest archive note: mariner beacon logged at the very start',
           }).id;
+          daemon.store.db
+            .prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+            .run(new Date(base - 60_000).toISOString(), 'hydration', oldestId);
           // A second sentinel ~40 messages from the end: past the bounded tail, but
           // with plenty of history BELOW it, so "parked on the target" and
           // "snapped back to the tail" are visibly different positions.

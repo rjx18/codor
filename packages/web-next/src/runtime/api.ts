@@ -6,8 +6,10 @@ import type {
   ProducedArtifact,
   ProducedArtifactError,
   Room,
+  TranscriptHistoryPage,
   WireEvent,
 } from '@codor/protocol';
+import { TranscriptHistoryPageSchema } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
 import { relayFetch } from './relay-transport.js';
@@ -63,6 +65,21 @@ export interface MessageHistoryPage {
   messages: Message[];
   has_more: boolean;
 }
+
+// harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-api-client
+export async function fetchTranscriptHistory(
+  room: string,
+  cursor: string | undefined,
+  options: ApiOptions,
+): Promise<TranscriptHistoryPage> {
+  const query = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/transcript-history${query}`,
+    options,
+  );
+  return TranscriptHistoryPageSchema.parse(body);
+}
+// harn:end finalized-browser-history-is-combined-page-owned
 
 export interface LocalDirectoryListing {
   path: string;

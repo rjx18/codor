@@ -1,0 +1,22 @@
+id: transcript-targets-walk-combined-pages
+hash: a-0bd9207c09e8
+title: Transcript targets resolve through bounded combined pages
+state: active
+statement: >
+  Search results, pinned messages, inbox rows, and #N permalinks outside the
+  mounted immutable page must walk the room's combined opaque cursors in order
+  only until the target has a materialized renderable unit or history is
+  exhausted. An ordinary unit materializes its message id; a journal unit
+  materializes its permanent output message id; and a lifecycle-root target may
+  resolve to the oldest currently materialized unit in that root's visible
+  family, which carries the existing #root anchor. A complete message present
+  only as attribution context for another unit must not stop the walk.
+  Concurrent walks must deduplicate and success must preserve the exact
+  fragment, focus/highlight, and centered scroll behavior, because bounded
+  history must not turn existing navigation into dead links or load the entire
+  archive speculatively.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+  - transcript-history-prepends-one-deliberate-page
+  - permalink-ids-stable
+created_by: transcript-history-reliability-p2-browser-pages
