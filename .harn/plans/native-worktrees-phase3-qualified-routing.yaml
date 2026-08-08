@@ -1,0 +1,901 @@
+id: native-worktrees-phase3-qualified-routing
+title: Native worktrees Phase 3 - stable qualified routing across worktree conversations
+notes: >-
+  Implement only Phase 3 of .codor/PHASED-PLAN.md. Extend the one shared body
+  grammar with the exact qualified form ~<worktree-alias>:@<handle>, including
+  the reserved ~main selector. An unqualified @handle resolves only against the
+  execution worktree's local roster. A qualified selector resolves against the
+  persisted registry, never Git discovery: it must name exactly one active
+  registered worktree and one active addressable member in that worktree.
+  Resolve the complete qualified token before scanning local @mentions so its
+  inner handle can never accidentally invoke a local agent. Preserve the
+  existing code-span exclusions, offsets, references, legacy unqualified
+  unresolved signal, and default-recipient chain. Any malformed, unknown,
+  ambiguous, unregistered, removed-worktree, unknown-member, or removed-member
+  qualified target invalidates the complete routing attempt; it must never
+  partially fan out or fall back to a local/default recipient.
+
+  Persist a path-free scoped member identity for every qualified mention,
+  delivery, and cross-worktree author: stable worktree id, conversation id, and
+  globally stable member id, plus bounded alias/handle display snapshots only
+  where transcript attribution needs them. Omitted scope remains the additive
+  legacy/local representation. Validate paired fields and identity agreement at
+  every wire and store boundary. Alias, branch, and path observations may
+  change after resolution without retargeting an already accepted delivery;
+  routing and recovery use the persisted ids, never mutable alias, branch, path,
+  cwd inference, or a fresh Git call. Re-resolve lifecycle before turn admission
+  so a worktree/member removed or unregistered after posting is not executed;
+  settle that delivery and any collaboration participant without resurrection
+  and append a visible refusal in the origin conversation.
+
+  Treat origin conversation and execution worktree as separate coordinates.
+  The chat message, delivery, run root/continuations, refs, pending interactions,
+  collaboration state, interim posts, final reply, refusal notice, and live
+  frames remain in the origin conversation only. The target member row, cwd,
+  native session/session_ref, credential hash and raw session token, adapter
+  cache, task projection, transient usage/wait state, and usage meter remain in
+  the target member's own conversation. Cross-worktree output carries durable
+  scoped author attribution so the origin transcript renders the qualified
+  author without adding that foreign agent to the origin roster or duplicating
+  any message into the target transcript. A cross-invoked agent parses its own
+  output with its execution-worktree roster, so unqualified replies stay local
+  to that worktree; the existing trigger-author fallback may deliberately reply
+  across scopes using the delivery's stable author identity.
+
+  Keep one cached native session and one inflight turn per globally stable
+  target member. Queue work for that member across every origin conversation in
+  a deterministic durable order, batch or steer only deliveries sharing the
+  same origin/routing context, and drain the next origin after the current turn
+  settles. Never steer a different origin into an active turn. Crash recovery,
+  collaboration barriers, skips, retries, and finalization must derive the
+  target scope from the durable delivery and keep their writes on the correct
+  origin/execution coordinate. New queue sequence assignment may become global
+  monotonic ordering while retaining per-room FIFO and deterministic legacy tie
+  handling.
+
+  A member token remains one secret credential for one member and one effective
+  conversation at a time. Long-lived session environments keep CODOR_CHANNEL at
+  the member's home conversation. While exactly one durable delivering run for
+  that member exists in another origin, the server maps either the home selector
+  or that exact origin selector to the active origin for the small existing
+  agent capability matrix, overlays only the authenticated self identity in
+  that agent's hydration, and rejects every other room and every management act.
+  Multiple candidate invocations fail closed. After the attempt settles or is
+  reconciled, the same credential returns to its home conversation. Do not put
+  an operator token in the session, mint a cross-worktree token, broaden the
+  role matrix, expose another agent's inbox, or create a second native session.
+
+  Add a path-free read-only routing-target catalog for an authorized human
+  viewer. It projects main and active explicitly registered worktrees with
+  stable ids, current aliases, and active addressable members, plus only the
+  bounded tombstone selectors needed to explain an unregistered/removed refusal;
+  it never calls Git, exposes paths/branches/admin ids, or lists merely
+  discovered candidates. Agents cannot call this catalog. The existing composer
+  keeps local @ completion and gains qualified completion that inserts the full
+  token and distinguishes identical handles by worktree. It uses the shared
+  grammar before send, shows a specific inline refusal, preserves the draft, and
+  waits for either the committed own-message echo or the existing post error
+  signal before clearing so a server-side lifecycle race is visible. Ordinary
+  non-Git/direct rooms receive an empty qualified catalog and retain their
+  current draft seeding, local completion, validation, voice, and send behavior.
+
+  This phase does not add group/worktree navigation, child switching, unread UI,
+  Create/Find/adopt/remove UI, preset or default-roster behavior, roster cloning,
+  alias-edit UI, lifecycle mutation, branch deletion, multi-repository routing,
+  or relay/cloud protocol changes. Existing worktree lifecycle methods stay
+  roster-neutral. Every Git-backed daemon/server acceptance fixture must create
+  its own mkdtemp repository and worktrees; tests and verification must compare
+  the real repository's worktree path/branch inventory before and after and must
+  never create, move, rename, unregister, remove, or modify a real user worktree.
+assumptions:
+  create:
+    - id: qualified-member-target-identity-is-durable
+      title: Qualified targets persist stable worktree and member identity
+      statement: A ~alias:@handle or ~main:@handle token must resolve through the
+        persisted registered-worktree catalog to exactly one active worktree and
+        active addressable member, and the accepted mention and delivery must
+        persist the stable worktree id, conversation id, and member id so later
+        alias, branch, or path changes and restart cannot retarget it; unqualified
+        handles remain limited to the execution worktree roster and qualified
+        inner handles are never scanned again as local mentions.
+      reason: Mutable Git and display metadata cannot safely identify the agent whose
+        isolated runtime is authorized to execute a cross-worktree request.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - registered-worktrees-materialize-stable-conversations
+        - mention-spans-survive-renames
+        - body-parser-shared-across-router-and-web
+    - id: invalid-qualified-targets-never-fallback
+      title: Invalid qualified targets refuse visibly without fallback
+      statement: If any qualified target is malformed, unknown, ambiguous,
+        unregistered, removed, or names an unknown/removed member, the complete
+        post must create no message or delivery and return a specific visible
+        refusal; if the invalidity appears after an accepted post or in final run
+        output, Codor must suppress downstream routing, settle affected durable
+        work without execution or resurrection, and append a visible refusal in
+        the origin while preserving final evidence.
+      reason: Partial routing or default fallback would silently send instructions to
+        a different agent than the operator named.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - default-recipient-fallback-chain
+        - worktree-discovery-never-registers-candidates
+    - id: cross-worktree-output-stays-in-origin
+      title: Cross-worktree output stays in one origin transcript
+      statement: A qualified delivery's chat, run roots and continuations,
+        interim/final replies, refs, interactions, collaboration state, refusal
+        notices, and live frames must be persisted and projected only in the
+        origin conversation, with scoped foreign-author attribution sufficient
+        to render the qualified author without adding that member to the origin
+        roster or copying any message to the target conversation.
+      reason: Cross-worktree routing is a request from one conversation to another
+        runtime, not transcript mirroring or roster cloning.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - child-conversation-state-is-room-isolated
+        - whole-message-delivery
+    - id: cross-worktree-runtime-stays-target-local
+      title: Cross-worktree execution uses only the target member runtime
+      statement: A qualified turn must use the target member's own conversation row,
+        cwd, native session and session_ref, credential, adapter cache, tasks,
+        transient wait/usage state, and usage meter while persisting its output
+        to the origin; equal handles in different worktrees must never share or
+        overwrite any of those runtime identities before or after restart.
+      reason: A worktree-local agent is defined by isolated execution state even when
+        another conversation invokes it.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - child-members-own-isolated-runtime
+        - member-task-projection-is-durable-and-session-scoped
+        - agent-member-credentials-stay-secret
+    - id: target-member-turns-serialize-across-origins
+      title: One target member serializes durable work across origin conversations
+      statement: All queued deliveries for one stable member must be admitted in a
+        deterministic durable order across origin conversations with at most one
+        adapter turn in flight; batching and active steering may combine only
+        compatible deliveries from the same origin/routing context, and settling
+        or recovering one origin must drain the next without loss, duplication,
+        cross-origin steering, or collaboration resurrection.
+      reason: A single native session cannot safely execute concurrent turns or mix
+        messages whose replies belong in different transcripts.
+      depends_on:
+        - cross-worktree-runtime-stays-target-local
+        - one-inflight-turn-per-member
+        - delivery-fifo-has-durable-sequence
+        - active-turn-steering-is-ordered-and-durable
+        - delivery-attempt-wal-reconcile
+    - id: agent-authority-follows-one-active-invocation
+      title: Agent authority follows exactly one durable active invocation
+      statement: An agent credential must authorize only its home conversation while
+        idle and only one effective origin conversation while exactly one durable
+        delivering run invokes it cross-worktree; the home selector may map to
+        that origin for the long-lived session CLI, but every other conversation,
+        member, inbox, global operation, and management act remains forbidden,
+        multiple active candidates fail closed, and recovery restores home scope.
+      reason: Interim posts and waits must land with the invocation without rotating
+        credentials, respawning the target session, or broadening agent authority.
+      depends_on:
+        - cross-worktree-runtime-stays-target-local
+        - agent-network-authority-is-narrow
+        - member-env-selects-narrow-cli-identity
+        - agent-sync-hydrates-only-own-queued-inbox
+    - id: qualified-completion-lists-registered-targets-only
+      title: Qualified completion lists only explicitly registered targets
+      statement: The browser may fetch a read-only path-free routing catalog
+        containing main and active explicitly registered worktrees and their
+        active addressable members, with bounded tombstone selectors only for
+        refusal explanations; completion must distinguish equal handles, insert
+        the complete qualified token, preserve drafts on parser/server refusal,
+        expose no discovery/path/branch/admin data, and leave ordinary local
+        completion and sending unchanged when no secondary is registered.
+      reason: Completion must help operators address stable scopes without becoming
+        the Phase 4 worktree UI or auto-importing Git observations.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - invalid-qualified-targets-never-fallback
+        - main-and-direct-conversations-stay-compatible
+        - worktree-discovery-never-registers-candidates
+  reviewed:
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: Router and composer continue using one protocol parser; it gains one
+        additive qualified-target context and structured refusal result.
+    - id: mention-spans-survive-renames
+      outcome: unchanged
+      reason: Every mention still stores stable member identity and byte offsets;
+        qualified spans add stable worktree/conversation scope rather than mutable
+        selector-only identity.
+    - id: extensions-not-addressable-v1
+      outcome: unchanged
+      reason: Extension members remain excluded from local and qualified catalogs.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Qualified resolution does not make system/cards/acknowledgements or
+        empty final results routable.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: The existing fallback chain remains for messages with no qualified
+        errors; a qualified refusal is an explicit hard stop, not zero mentions.
+    - id: human-deliveries-are-inbox-records
+      outcome: unchanged
+      reason: Qualified humans, if addressable, remain inbox-only and never receive
+        adapter turns.
+    - id: whole-message-delivery
+      outcome: unchanged
+      reason: Scoped recipients still receive the full identical body and resolved
+        context, never mention slices.
+    - id: codor-delivery-header-identifies-channel
+      outcome: unchanged
+      reason: The delivery header continues naming the origin conversation while
+        qualified labels clarify foreign author and recipient identity.
+    - id: ledger-home-only-refs-travel
+      outcome: unchanged
+      reason: Ledger refs remain resolved by the origin home and travel only as
+        bounded payload text; target runtime scope gains no vault authority.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: The origin payload remains immutable at queue time while its recipient
+        gains stable execution scope.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: Per-recipient FIFO remains durable; ordering is extended across origins
+        without weakening per-room order or rewriting legacy rows.
+    - id: turn-start-transactional
+      outcome: unchanged
+      reason: Origin run allocation and delivery WAL binding remain one transaction,
+        now validating the persisted target scope before admission.
+    - id: turn-output-finalization-is-atomic
+      outcome: unchanged
+      reason: Origin messages/delivery/collaboration and target meter/member/task
+        updates must still commit atomically or not at all.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Stable global member identity remains the single inflight/cache key
+        across every origin.
+    - id: active-turn-steering-is-ordered-and-durable
+      outcome: unchanged
+      reason: Steering remains ordered/durable but is allowed only for the active
+        turn's exact origin and compatible collaboration context.
+    - id: grouped-deliveries-have-an-isolated-batch-class
+      outcome: unchanged
+      reason: Grouped and ordinary deliveries still never batch together, and now
+        different origins are also incompatible batch classes.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Recovery continues deriving truth from durable delivering/run state and
+        now also uses the persisted target scope rather than origin-roster lookup.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: Multiple valid scoped agent recipients still create one origin-local
+        collaboration group transaction.
+    - id: collaboration-groups-are-durable-state
+      outcome: unchanged
+      reason: Group/round/participant truth stays in the origin and identifies a
+        participant through its stable member and scoped delivery.
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: Cross-worktree run roots and continuations still point to one
+        origin-owned journal and never put event payloads in SQLite.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Cross-worktree admission uses the target member's existing custody
+        lease and does not change its PID or release semantics.
+    - id: substantive-output-messages-drive-unread
+      outcome: unchanged
+      reason: Only substantive origin output advances origin activity/unread; target
+        runtime accounting never creates target transcript activity.
+    - id: group-participant-terminality-commits-with-the-turn
+      outcome: unchanged
+      reason: A scoped participant's terminal result remains atomic with its origin
+        delivery and result message.
+    - id: collaboration-round-release-is-one-barrier
+      outcome: unchanged
+      reason: The origin barrier releases at most one next round after all scoped
+        participants are terminal.
+    - id: open-collaboration-groups-reconcile-without-resurrection
+      outcome: unchanged
+      reason: Removed/unregistered scoped participants settle as skipped/terminal and
+        recovery never revives completed work.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: An invocation-scoped interim post remains ordinary origin chat and does
+        not finalize the active turn.
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: A wait remains transient per stable member while its active invocation
+        supplies the exact origin conversation.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: Only the authenticated target member may consume its origin delivery,
+        and consumption still races admission idempotently.
+    - id: member-status-is-bounded-and-identity-safe
+      outcome: unchanged
+      reason: Status continues projecting bounded stable-member runtime truth while
+        authorization uses one effective invocation conversation.
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: Task updates always land on the target member/session in its home
+        conversation, never the origin transcript scope.
+    - id: spend-meter-always-on
+      outcome: unchanged
+      reason: Every accepted target turn remains metered exactly once in the target
+        execution conversation.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: One raw token remains only in the target session and one hash remains on
+        its home member row; no scoped token is persisted or exposed.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: The principal remains exactly one member and one effective conversation
+        under the same small matrix; active invocation resolution chooses that one
+        conversation and rejects all others.
+    - id: member-session-masks-operator-token
+      outcome: unchanged
+      reason: Cross-worktree execution continues masking CODOR_TOKEN with the member
+        credential and never inherits the operator bearer.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: Long-lived sessions retain their home CODOR_CHANNEL and member token;
+        the server alone maps that selector to a unique active origin.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Invocation hydration overlays only the authenticated foreign self and
+        that member's deliveries in the effective origin, never another inbox.
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Routing consumes existing stable repository/worktree ids without
+        changing lifecycle identity or Git safety semantics.
+    - id: registered-worktrees-materialize-stable-conversations
+      outcome: unchanged
+      reason: The existing worktree-to-conversation mapping is the stable routing
+        scope; Phase 3 creates no additional child rooms.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: Routing and completion read only durable records and never invoke or
+        import discovery candidates.
+    - id: worktree-lifecycle-is-roster-neutral
+      outcome: unchanged
+      reason: Alias/path/branch observation and all lifecycle operations still never
+        copy, move, or rewrite member runtime state.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: Ordinary rooms keep the existing unqualified grammar, fallback, roster,
+        persistence, REST/WS, composer, and transcript path.
+    - id: child-conversation-state-is-room-isolated
+      outcome: unchanged
+      reason: Cross routing adds an explicit target coordinate but leaves every
+        conversation's transcript, ids, cursors, files, keys, and summaries isolated.
+    - id: child-members-own-isolated-runtime
+      outcome: unchanged
+      reason: Equal handles remain distinct stable members with separate runtime and
+        credentials even when invoked from a shared origin.
+    - id: room-home-single-authority
+      outcome: unchanged
+      reason: The home switchboard remains the only durable writer; Phase 3 changes no
+        relay/cloud envelope or residency authority contract.
+    - id: child-home-authority-survives-residency
+      outcome: unchanged
+      reason: Resident execution continues carrying the origin room in the existing
+        request while home finalization uses the durable target identity; no relay
+        protocol source changes are authorized.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: The new catalog is read-only and path-free; agents remain denied and all
+        adoption/creation/unregister/removal acts retain human-admin authorization.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: Target sessions receive their own current roster plus bounded qualified
+        routing conventions; lifecycle never clones another roster.
+anchors:
+  qualified-member-target-identity-is-durable:
+    qualified-member-target-protocol:
+      action: change
+      reason: Define paired stable worktree/conversation/member identity and the
+        path-free routing catalog wire contract.
+    qualified-member-target-protocol-regression:
+      action: change
+      reason: Validate paired scope fields, aliases, main, lifecycle projections,
+        active members, and reject malformed or path-bearing shapes.
+    qualified-body-grammar:
+      action: change
+      reason: Parse full qualified tokens before local mentions and return stable
+        spans plus structured target issues while preserving offsets/code spans.
+    qualified-body-grammar-regression:
+      action: change
+      reason: Cover boundaries, code blocks, duplicates, main, equal handles,
+        inactive/ambiguous/unknown selectors and local compatibility.
+    qualified-mention-schema:
+      action: change
+      reason: Add optional stable scope to a mention span with strict paired-field
+        validation and legacy omission.
+    qualified-message-author-schema:
+      action: change
+      reason: Add optional scoped author attribution for a foreign execution member
+        whose message remains in the origin.
+    qualified-delivery-target-schema:
+      action: change
+      reason: Add optional stable recipient scope to an origin-local delivery.
+    qualified-routing-resolution:
+      action: change
+      reason: Resolve local versus scoped recipients without reinterpreting the inner
+        qualified @handle or using mutable Git metadata.
+    qualified-routing-regression:
+      action: change
+      reason: Prove local/qualified equal-handle selection, stable ids, self/dedup,
+        strict errors, and unchanged defaults.
+    qualified-routing-store-query:
+      action: change
+      reason: Project all active/tombstoned registered scopes and resolve stable
+        member home identity without Git or origin-roster inference.
+    qualified-routing-store-regression:
+      action: change
+      reason: Prove catalog resolution, reopen, alias/branch/path observation changes,
+        tombstones, removed members, and no discovery side effect.
+  invalid-qualified-targets-never-fallback:
+    qualified-routing-refusal:
+      action: change
+      reason: Roll back invalid posts before message allocation and settle late/final
+        invalid targets with one visible origin refusal and no fanout.
+    qualified-routing-refusal-regression:
+      action: change
+      reason: Prove every refusal class, mixed valid/invalid atomicity, final-evidence
+        preservation, collaboration settlement, and no fallback/session start.
+    qualified-post-error-boundary:
+      action: change
+      reason: Return bounded specific post errors while preserving the existing WS
+        error reference and authorization boundary.
+    qualified-post-error-regression:
+      action: change
+      reason: Exercise browser and agent refusals, lifecycle races, no committed
+        message, and no unauthorized catalog or Git call.
+    qualified-composer-refusal:
+      action: change
+      reason: Use shared parser issues, keep one pending draft until echo/error, and
+        surface exact inline failure without clearing content.
+    qualified-composer-refusal-regression:
+      action: change
+      reason: Pin draft preservation, pending send, server-race errors, offline state,
+        and unchanged local refusal hints.
+  cross-worktree-output-stays-in-origin:
+    cross-worktree-message-storage:
+      action: change
+      reason: Persist/migrate scoped message authors and delivery targets additively
+        without rewriting existing room rows or transcripts.
+    cross-worktree-origin-transaction:
+      action: change
+      reason: Keep post, turn start/finalization, continuation, interaction,
+        collaboration, refusal, and fanout writes in the origin transaction while
+        applying target runtime updates deliberately.
+    cross-worktree-origin-regression:
+      action: change
+      reason: Prove interim/final/reply/refusal placement only in origin, stable
+        author attribution, independent ids/cursors, reopen, and no roster copy.
+    cross-worktree-turn-orchestration:
+      action: change
+      reason: Carry origin and target coordinates through payload, run, finalization,
+        follow-on routing, waits, interactions, and live frame emission.
+    cross-worktree-turn-orchestration-regression:
+      action: change
+      reason: Exercise local and qualified agent replies, trigger-author fallback,
+        multi-agent collaboration, interim posts, final output, and restart.
+    qualified-author-rendering:
+      action: change
+      reason: Render scoped foreign authors with qualified attribution without adding
+        them to the origin roster or breaking grouping/mine semantics.
+    qualified-author-rendering-regression:
+      action: change
+      reason: Cover equal handles, alias/handle snapshots, removed authors, run/chat
+        rows, pins, and unchanged local attribution.
+  cross-worktree-runtime-stays-target-local:
+    cross-worktree-runtime-target:
+      action: change
+      reason: Select the target home member for cwd/session/config/cache/task/wait and
+        meter while giving the adapter the origin payload.
+    cross-worktree-runtime-regression:
+      action: change
+      reason: In disposable repositories prove equal handles have isolated cwd,
+        session_ref, token/hash, cache, tasks, waits, usage/meter, and restart state.
+  target-member-turns-serialize-across-origins:
+    cross-origin-delivery-queue:
+      action: change
+      reason: Query and sequence one member's queued work across origins and preserve
+        deterministic legacy/per-room FIFO.
+    cross-origin-turn-scheduler:
+      action: change
+      reason: Admit one origin context at a time, restrict batching/steering, and
+        continue draining the target member across origins after settlement.
+    cross-origin-turn-scheduler-regression:
+      action: change
+      reason: Prove concurrent posts serialize, same-origin batches remain valid,
+        cross-origin steering never occurs, collaborations close, and crash
+        recovery neither loses nor duplicates work.
+  agent-authority-follows-one-active-invocation:
+    agent-active-invocation-resolution:
+      action: change
+      reason: Resolve one durable delivering target attempt to an effective origin,
+        map the home selector during that attempt, and fail closed on ambiguity.
+    agent-active-invocation-authorization:
+      action: change
+      reason: Apply the existing agent matrix to the effective origin, overlay only
+        authenticated self, and retain all other room/management denials.
+    agent-active-invocation-regression:
+      action: change
+      reason: Prove idle home access, active origin post/wait/consume/status/search,
+        home/other denial during invocation, ambiguity denial, settlement/restart
+        restoration, and credential isolation.
+  qualified-completion-lists-registered-targets-only:
+    qualified-target-catalog:
+      action: change
+      reason: Build a path-free active/tombstone routing projection from store rows
+        only, with no Git discovery or lifecycle mutation.
+    qualified-target-catalog-rest:
+      action: change
+      reason: Add authorized human read access and explicit agent/outsider denial.
+    qualified-target-catalog-regression:
+      action: change
+      reason: Prove only adopted/created active scopes complete, tombstones explain
+        refusal, discoveries and paths never appear, and ordinary rooms are empty.
+    qualified-target-catalog-client:
+      action: change
+      reason: Fetch and validate the routing catalog through the existing relay-aware
+        authenticated API helper.
+    qualified-target-catalog-client-regression:
+      action: change
+      reason: Pin endpoint, auth headers, response handling, and actionable failures.
+    qualified-composer-completion:
+      action: change
+      reason: Complete/filter/insert full qualified tokens with worktree labels while
+        retaining local @ completion, keyboard behavior, and ordinary seeding.
+    qualified-composer-completion-regression:
+      action: change
+      reason: Cover main/secondary identical handles, keyboard/mouse insertion,
+        filtering, refresh, empty catalogs, and accessible distinct labels.
+  body-parser-shared-across-router-and-web:
+    shared-body-parser:
+      action: change
+      reason: Extend the existing shared parser rather than introducing a second UI
+        grammar.
+  mention-spans-survive-renames:
+    mention-span-schema:
+      action: change
+      reason: Add stable worktree/conversation scope beside the existing stable member
+        id and offsets.
+  default-recipient-fallback-chain:
+    substantive-default-recipient:
+      action: change
+      reason: Carry scoped latest/trigger recipients and explicitly bypass fallback on
+        qualified errors without changing the valid zero-mention chain.
+    effective-default-regression:
+      action: change
+      reason: Extend router goldens for scoped trigger/latest candidates and strict
+        refusal while pinning legacy defaults.
+  human-deliveries-are-inbox-records:
+    recipient-split:
+      action: change
+      reason: Split scoped targets by their resolved member kind without starting
+        human turns.
+  whole-message-delivery:
+    payload-fanout:
+      action: change
+      reason: Key payload fanout by stable scoped target while keeping whole-body
+        bytes identical except recipient identity.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: change
+      reason: Brief a target with only its local roster and bounded qualified syntax,
+        never a cloned origin roster.
+  codor-delivery-header-identifies-channel:
+    delivery-header-template:
+      action: change
+      reason: Keep the header's channel as origin while identifying qualified
+        sender/recipient scope clearly.
+  ledger-home-only-refs-travel:
+    ledger-aware-payload:
+      action: change
+      reason: Thread scoped author/recipient presentation through the existing origin
+        payload without changing ledger lookup authority.
+  delivery-payload-snapshotted:
+    delivery-payload-storage:
+      action: change
+      reason: Add target-scope migration beside immutable payload and queue sequence
+        storage.
+    daemon-payload-snapshot:
+      action: change
+      reason: Compose the immutable origin payload using target-local roster and
+        stable scoped identities before admission.
+  eligible-multi-agent-routing-starts-one-group:
+    atomic-routed-message-commit:
+      action: change
+      reason: Commit scoped fanout and participants atomically in the origin or roll
+        back the invalid post completely.
+    multi-agent-group-ingress:
+      action: change
+      reason: Build one origin collaboration from local and qualified valid targets.
+  collaboration-groups-are-durable-state:
+    collaboration-store-schema:
+      action: change
+      reason: Schema enclosure gains scoped delivery/message columns while participant
+        identity remains globally stable.
+    collaboration-store-migration:
+      action: change
+      reason: Preserve collaboration indexes while adding scoped delivery migration.
+    collaboration-store-projection:
+      action: change
+      reason: Resolve participant delivery scope without origin-member assumptions.
+  group-participant-terminality-commits-with-the-turn:
+    collaboration-turn-finalization:
+      action: change
+      reason: Finalize scoped participant result in the origin alongside target
+        runtime accounting.
+    collaboration-finalization-engine:
+      action: change
+      reason: Carry target scope through daemon terminal settlement.
+  collaboration-round-release-is-one-barrier:
+    collaboration-round-materialization:
+      action: change
+      reason: Materialize next-round deliveries with each participant's stable target
+        scope.
+    collaboration-barrier-engine:
+      action: change
+      reason: Pump released participants by target member across origins.
+  open-collaboration-groups-reconcile-without-resurrection:
+    collaboration-member-skip-transaction:
+      action: change
+      reason: Settle inactive scoped targets without creating a run or reviving work.
+    collaboration-reconciliation-engine:
+      action: change
+      reason: Reconcile scoped participants from delivery identity rather than origin
+        roster membership.
+  delivery-fifo-has-durable-sequence:
+    delivery-queue-sequence:
+      action: change
+      reason: Extend durable member ordering across origins with deterministic legacy
+        ties while retaining each room's FIFO.
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: Bind an origin run to a target-scoped delivery only after lifecycle and
+        member validation in the same transaction.
+  turn-output-finalization-is-atomic:
+    atomic-turn-finalization:
+      action: change
+      reason: Atomically split origin output/delivery writes from explicit target
+        member/meter updates without partial commit.
+  one-inflight-turn-per-member:
+    inflight-guard:
+      action: change
+      reason: Guard and drain globally stable member ids across every origin rather
+        than a single room queue.
+  active-turn-steering-is-ordered-and-durable:
+    daemon-active-turn-steering:
+      action: change
+      reason: Require exact origin and routing-context compatibility before steering.
+  grouped-deliveries-have-an-isolated-batch-class:
+    group-batch-pump-integration:
+      action: change
+      reason: Treat origin conversation as an additional nonmixing batch dimension.
+  delivery-attempt-wal-reconcile:
+    wal-bind-before-spawn:
+      action: change
+      reason: Persist target scope before spawning its home session for an origin run.
+    boot-reconcile:
+      action: change
+      reason: Recover foreign-authored origin runs and resume target-member draining
+        from durable scope.
+  agent-member-credentials-stay-secret:
+    member-session-environment:
+      action: change
+      reason: Keep credentials issued from the target home while documenting that the
+        home channel selector is invocation-mapped server-side.
+    agent-principal-resolution:
+      action: change
+      reason: Resolve the credential's stable home member before deriving an effective
+        origin invocation.
+    member-credential-storage:
+      action: keep
+      reason: Credential hashes stay only on the existing target member row.
+  agent-network-authority-is-narrow:
+    agent-room-authorization:
+      action: change
+      reason: Apply the unchanged capability matrix to exactly one effective active
+        origin or idle home conversation.
+    agent-interim-post-ingress:
+      action: change
+      reason: Accept only the authenticated target member and persist its interim post
+        in the effective origin.
+    agent-authz-regression:
+      action: change
+      reason: Extend existing denials and allowed acts across idle/active scope.
+    agent-capability-matrix:
+      action: keep
+      reason: No permission or human-role capability is added.
+    agent-capability-regression:
+      action: keep
+      reason: The existing small operation matrix remains byte-for-byte unchanged.
+  member-session-masks-operator-token:
+    member-token-environment-mask:
+      action: keep
+      reason: Session token masking requires no source change.
+  agent-sync-hydrates-only-own-queued-inbox:
+    agent-own-queued-sync-overlay:
+      action: change
+      reason: Overlay only the authenticated target self and its origin deliveries
+        during one active invocation.
+    own-queued-sync-regression:
+      action: change
+      reason: Prove foreign self hydration cannot reveal another target's inbox.
+  interim-agent-posts-are-nonfinal-routing:
+    interim-post-classification:
+      action: change
+      reason: Route invocation-scoped posts as origin chat with target scoped author.
+    interim-post-regression:
+      action: change
+      reason: Cover cross-worktree interim reply placement and continued nonfinal
+        behavior.
+  live-agent-waits-are-transient:
+    transient-wait-registry:
+      action: change
+      reason: Associate the target member's transient wait with its effective origin
+        for the active invocation.
+    wait-server-regression:
+      action: change
+      reason: Prove wait registration/clear and peer matching use the origin without
+        widening credential access.
+  live-delivery-consumption-is-idempotent:
+    consume-delivery-daemon:
+      action: change
+      reason: Consume only the target member's delivery in the effective origin.
+    consume-act-dispatch:
+      action: change
+      reason: Dispatch agent consumption through invocation-scoped authorization.
+    consumption-server-regression:
+      action: change
+      reason: Prove cross-origin own consumption and all foreign delivery denials.
+  member-status-is-bounded-and-identity-safe:
+    status-aggregation:
+      action: change
+      reason: Resolve target runtime and origin-visible run/wait evidence explicitly.
+    status-rest-boundary:
+      action: change
+      reason: Authorize bounded status through the effective invocation conversation.
+    status-server-regression:
+      action: change
+      reason: Cover scoped self/peer status and cross-room denial.
+  member-task-projection-is-durable-and-session-scoped:
+    member-task-daemon-landing:
+      action: change
+      reason: Land task events in the target home conversation while finalizing output
+        in the origin.
+    member-task-storage:
+      action: change
+      reason: Expose explicit home-member task updates needed by cross-origin
+        finalization without changing task semantics.
+  spend-meter-always-on:
+    meter-cost-and-token-accounting:
+      action: change
+      reason: Charge accepted turns to the target execution conversation rather than
+        the origin transcript.
+  registered-worktree-identities-are-durable:
+    worktree-store-schema:
+      action: change
+      reason: The enclosing schema receives only path-free scoped message/delivery
+        columns; worktree identity rows remain unchanged.
+    worktree-store-lifecycle:
+      action: keep
+      reason: Phase 3 must not alter registration, refresh, unregister, or removal.
+  registered-worktrees-materialize-stable-conversations:
+    worktree-conversation-protocol:
+      action: change
+      reason: Reuse registered worktree/conversation identity in the routing catalog
+        without changing lifecycle mapping.
+    worktree-conversation-store-schema:
+      action: keep
+      reason: No new conversation is created and no mapping is rewritten.
+    worktree-conversation-migration:
+      action: keep
+      reason: Phase 2 conversation migration remains unchanged.
+  worktree-discovery-never-registers-candidates:
+    worktree-discovery-contract:
+      action: keep
+      reason: Routing catalog is separate and must not add identity to discovery.
+    worktree-discovery-rest:
+      action: keep
+      reason: Existing Git-backed discovery endpoint remains unchanged.
+  worktree-lifecycle-is-roster-neutral:
+    worktree-lifecycle-daemon-boundary:
+      action: keep
+      reason: Routing cannot make lifecycle methods mutate rosters or runtimes.
+  main-and-direct-conversations-stay-compatible:
+    conversation-shared-human-resolution:
+      action: change
+      reason: Resolve shared humans and foreign scoped authors without exposing
+        foreign agents as local roster members.
+    conversation-root-query:
+      action: keep
+      reason: Public room listing and hidden child behavior do not change.
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Extend direct-path proof through grammar, routing catalog, server, and
+        composer behavior.
+  child-members-own-isolated-runtime:
+    conversation-runtime-isolation-regression:
+      action: change
+      reason: Extend equal-handle runtime isolation to actual qualified invocation,
+        concurrent origins, and reopen.
+    conversation-agent-authorization-regression:
+      action: change
+      reason: Extend exact-member credentials to invocation scoping without sibling
+        authority.
+  room-home-single-authority:
+    remote-run-home-finalization:
+      action: keep
+      reason: No relay/residency production source change is authorized.
+  child-home-authority-survives-residency:
+    conversation-residency-regression:
+      action: keep
+      reason: Existing hosted child authority proof remains unchanged in Phase 3.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-role-gate:
+      action: change
+      reason: Add a separate read-only catalog gate while keeping lifecycle mutation
+        human-admin-only and agents denied.
+    worktree-lifecycle-authorization-regression:
+      action: change
+      reason: Prove catalog read authorization does not widen any lifecycle act.
+  run-journals-own-evidence-across-output-messages:
+    store-schema-no-blobs:
+      action: change
+      reason: The enclosing schema gains identity columns only and still stores no
+        event payloads.
+  attach-custody-lease-tracks-child-pid:
+    attach-lease-store:
+      action: change
+      reason: Account for the enclosing schema range; attach leases are semantically
+        unchanged and cross-worktree execution still uses the target member lease.
+  substantive-output-messages-drive-unread:
+    message-activity-storage:
+      action: change
+      reason: Account for the enclosing schema and ensure origin-only cross output
+        drives only origin unread activity.
+files:
+  - packages/protocol/src/body.ts
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/delivery.ts
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+verification: Run harn find --plan native-worktrees-phase3-qualified-routing and
+  harn check native-worktrees-phase3-qualified-routing; run pnpm --filter
+  @codor/protocol test, pnpm --filter @codor/switchboard test, and pnpm --filter
+  @codor/web-next test. Run pnpm --filter '@codor/switchboard...' build and pnpm
+  --filter '@codor/web-next...' build. The protocol suites must cover the shared
+  qualified grammar, scoped identity schemas, paired-field refusal, and legacy
+  compatibility. Switchboard suites must use only per-test data roots and
+  disposable mkdtemp Git repositories/worktrees to prove same-handle local and
+  qualified routing, alias/branch/path observation changes, strict refusal,
+  origin-only replies, target-only cwd/session/token/cache/task/meter state,
+  concurrent cross-origin serialization, collaboration, active-invocation
+  authorization, and queued/delivering restart recovery. Web suites must cover
+  accessible local/qualified completion, identical handles, full-token
+  insertion, shared-parser refusal, draft preservation through post errors,
+  scoped author rendering, and the unchanged ordinary room. Capture
+  `git worktree list --porcelain` path/branch mapping for the real repository
+  before and after all tests/builds and require an exact match; no test or
+  verification command may create, move, rename, unregister, remove, or modify
+  a real user worktree. Stage only the locked plan and its twenty declared
+  files, run harn check --staged, let the Harn hook apply the plan and generate
+  assumption truth, and create exactly one Phase 3 implementation commit.

@@ -1,5 +1,6 @@
 import type { AgentLimit, AgentPreset, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
 import {
+  GitBranch,
   Bot,
   ChevronRight,
   CircleDollarSign,
@@ -45,7 +46,7 @@ import {
 import { presentRunEvents, type RunRow } from '@runtime/run-presenter.js';
 import type { Connection } from '@runtime/ws.js';
 
-import { roomSlice, sortedMessages, useClientStore } from '../app/store.js';
+import { roleAtLeast, roomSlice, sortedMessages, useClientStore } from '../app/store.js';
 import { clockTime, compactCount, memberAccent, usd } from '../primitives/identity.js';
 import { Button, Chip, Eyebrow, IconButton, Modal, Segmented } from '../primitives/primitives.js';
 import { useAdapterCatalog, useMemberDetails } from '../app/session.js';
@@ -69,8 +70,33 @@ import { harnessLabel, harnessMark } from './harness-marks.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
-export function ContextPanel(props: { room: string; token: () => string; connection: Connection }) {
+export function ContextPanel(props: {
+  room: string;
+  token: () => string;
+  connection: Connection;
+  /** Opens a pre-promotion lifecycle dialog (first Create or explicit Find).
+   *  Offered only from the Diff tab's confirmed Git context, to humans who may
+   *  manage worktrees, while the group itself stays hidden. */
+  onOpenWorktreeDialog?: (dialog: 'create' | 'find') => void;
+}) {
   const [tab, setTab] = useState<Tab>('members');
+  // harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-git-context-entry
+  const worktreeEntry = useClientStore((state) => {
+    if (props.onOpenWorktreeDialog === undefined) return undefined;
+    const groups = state.worktreeGroups;
+    const isChild = Object.values(groups).some((group) =>
+      group.registered.some((worktree) => !worktree.primary && worktree.conversation_id === props.room));
+    if (isChild) return undefined;
+    const promoted = groups[props.room]?.registered.some((worktree) => !worktree.primary) === true;
+    if (promoted) return undefined;
+    const slice = roomSlice(state, props.room);
+    const role = slice.selfMemberId !== undefined
+      ? slice.members[slice.selfMemberId]?.role
+      : undefined;
+    if (!roleAtLeast(role, 'admin')) return undefined;
+    return props.onOpenWorktreeDialog;
+  });
+  // harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
 
   return (
     <aside className="nx-context" aria-label="Channel context">
@@ -87,7 +113,13 @@ export function ContextPanel(props: { room: string; token: () => string; connect
         />
       </div>
       {tab === 'members' && <MembersTab room={props.room} token={props.token} connection={props.connection} />}
-      {tab === 'diff' && <DiffTab room={props.room} token={props.token} />}
+      {tab === 'diff' && (
+        <DiffTab
+          room={props.room}
+          token={props.token}
+          {...(worktreeEntry !== undefined && { onOpenWorktreeDialog: worktreeEntry })}
+        />
+      )}
       {/* Key by room so a room switch remounts Preview with fresh state — no stale
           artifact/image frame from the previous room during the next fetch. */}
       {tab === 'preview' && <PreviewTab key={props.room} room={props.room} token={props.token} />}
@@ -1327,7 +1359,11 @@ function commitLabel(commit: GitCommit): string {
 }
 
 // harn:assume diff-panel-floats-refresh-and-overlays-history ref=git-history-panel-state
-function DiffTab(props: { room: string; token: () => string }) {
+function DiffTab(props: {
+  room: string;
+  token: () => string;
+  onOpenWorktreeDialog?: (dialog: 'create' | 'find') => void;
+}) {
   const [selectedCwd, setSelectedCwd] = useState<string>();
   const [refreshKey, setRefreshKey] = useState(0);
   const [pickedPath, setPickedPath] = useState<string>();
@@ -1493,6 +1529,33 @@ function DiffTab(props: { room: string; token: () => string }) {
         >
           <RefreshCw className={refreshing ? 'nx-spin' : ''} size={15} aria-hidden="true" />
         </button>
+      )}
+      {/* The pre-promotion entries appear only after this read-only Git
+          context has independently confirmed a REPOSITORY; a known existing
+          cwd that is not Git reveals nothing, and a non-Git room stays on the
+          ordinary channel path. Both first Create and explicit Find are
+          reachable here while the group itself remains hidden. */}
+      {props.onOpenWorktreeDialog !== undefined && state?.repository === true && (
+        <div className="nx-wt-entry-row">
+          <button
+            type="button"
+            className="nx-wt-entry"
+            data-testid="worktree-entry-create"
+            onClick={() => props.onOpenWorktreeDialog?.('create')}
+          >
+            <GitBranch size={14} aria-hidden="true" />
+            New worktree…
+          </button>
+          <button
+            type="button"
+            className="nx-wt-entry"
+            data-testid="worktree-entry"
+            onClick={() => props.onOpenWorktreeDialog?.('find')}
+          >
+            <GitBranch size={14} aria-hidden="true" />
+            Find worktrees…
+          </button>
+        </div>
       )}
 
       <section className="nx-git-history" aria-label="Git revision">

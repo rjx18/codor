@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Store } from './store.js';
+import { Store, type WorktreeObservation } from './store.js';
 import { estimateCostUsd } from './pricing.js';
 
 let dir: string;
@@ -14,6 +14,736 @@ let store: Store;
 
 const openRoom = (s: Store) =>
   s.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-schema
+describe('registered worktree store schema', () => {
+  it('creates the repository and active/tombstone tables without touching room sync state', () => {
+    openRoom(store);
+    const readonly = new Database(join(dir, 'test.sqlite'));
+    const tables = readonly
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('repositories', 'worktrees') ORDER BY name")
+      .all() as { name: string }[];
+    expect(tables.map((table) => table.name)).toEqual(['repositories', 'worktrees']);
+    readonly.close();
+    expect(store.currentSeq('eng')).toBe(3);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
+describe('registered worktree store lifecycle', () => {
+  const observations = () => {
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'),
+      git_admin_id: join(dir, 'repo', '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      head: '0123456789abcdef0123456789abcdef01234567',
+      branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'repo child'),
+      git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      head: main.head,
+      branch: 'feature/child',
+    };
+    return { main, secondary };
+  };
+
+  it('persists stable main/secondary identities, tombstones, re-adoption, and reopen', () => {
+    openRoom(store);
+    const beforeSeq = store.currentSeq('eng');
+    const { main, secondary } = observations();
+    const first = store.registerWorktree(
+      'eng',
+      {
+        common_path: join(dir, 'repo', '.git'),
+        primary_path: main.path,
+        primary_git_admin_id: main.git_admin_id,
+      },
+      main,
+      secondary,
+      'child-label',
+      'adopted',
+    );
+    expect(first.worktree.alias).toBe('child-label');
+    expect(first.worktree.conversation_id).toMatch(/^wt-[a-z0-9-]+$/);
+    expect(first.worktree.conversation_id).not.toBe('eng');
+    expect(store.listRegisteredWorktrees('eng').find((item) => item.primary)?.conversation_id)
+      .toBe('eng');
+    expect(store.getRoom(first.worktree.conversation_id)).toBeDefined();
+    expect(store.listPublicRooms().map((room) => room.id)).toEqual(['eng']);
+    expect(store.listMembers(first.worktree.conversation_id).map((member) => member.kind).sort())
+      .toEqual(['human', 'system'].sort());
+    expect(store.listRegisteredWorktrees('eng')).toHaveLength(2);
+    expect(store.currentSeq('eng')).toBe(beforeSeq);
+
+    const unregistered = store.unregisterWorktree('eng', first.worktree.id, '2026-08-06T00:01:00.000Z');
+    expect(unregistered).toMatchObject({ lifecycle: 'unregistered', unregistered_ts: '2026-08-06T00:01:00.000Z' });
+    const readopted = store.registerWorktree(
+      'eng',
+      {
+        common_path: join(dir, 'repo', '.git'),
+        primary_path: main.path,
+        primary_git_admin_id: main.git_admin_id,
+      },
+      main,
+      { ...secondary, path: join(dir, 'moved child') },
+      'child-renamed',
+      'adopted',
+      '2026-08-06T00:02:00.000Z',
+    );
+    expect(readopted.worktree.id).toBe(first.worktree.id);
+    expect(readopted.worktree.path).toBe(join(dir, 'moved child'));
+    expect(readopted.worktree.lifecycle).toBe('active');
+
+    const removed = store.removeWorktree('eng', first.worktree.id, '2026-08-06T00:03:00.000Z');
+    expect(removed).toMatchObject({ lifecycle: 'removed', branch: 'feature/child' });
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRepository('eng')?.id).toBe(first.repository.id);
+    expect(store.getWorktree('eng', first.worktree.id)).toMatchObject({
+      id: first.worktree.id,
+      lifecycle: 'removed',
+      removed_ts: '2026-08-06T00:03:00.000Z',
+      branch: 'feature/child',
+      conversation_id: first.worktree.conversation_id,
+    });
+    expect(store.getRoom(first.worktree.conversation_id)).toBeDefined();
+    expect(store.listPublicRooms().map((room) => room.id)).toEqual(['eng']);
+    expect(store.currentSeq('eng')).toBe(beforeSeq);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
+
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-regression
+describe('registered worktree store constraints', () => {
+  it('keeps active aliases unique while allowing a tombstone to retain history', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'same', 'created');
+    const second: WorktreeObservation = { ...secondary, path: join(dir, 'child-two'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child-two') };
+    expect(() => store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, second, 'same', 'created')).toThrow();
+    expect(store.listRegisteredWorktrees('eng')).toHaveLength(2);
+  });
+});
+// harn:end registered-worktree-identities-are-durable
+
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-migration
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-regression
+describe('worktree conversation migration and identity', () => {
+  it('backfills Phase 1 rows idempotently without rewriting the root transcript', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const rootMessage = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'root history' });
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const rootSeq = store.currentSeq('eng');
+    store.close();
+
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy.exec('DROP INDEX worktrees_conversation_unique; ALTER TABLE worktrees DROP COLUMN conversation_id');
+    legacy.exec(`
+      DELETE FROM changes WHERE room_id = '${registered.worktree.conversation_id}';
+      DELETE FROM room_read_cursors WHERE room = '${registered.worktree.conversation_id}';
+      DELETE FROM rooms WHERE id = '${registered.worktree.conversation_id}';
+    `);
+    legacy.close();
+    store = new Store(join(dir, 'test.sqlite'));
+
+    expect(store.getMessage('eng', rootMessage.id)).toEqual(rootMessage);
+    expect(store.currentSeq('eng')).toBe(rootSeq);
+    const migrated = store.getWorktree('eng', registered.worktree.id)!;
+    expect(migrated.conversation_id).toBe(`wt-${registered.worktree.id.toLowerCase()}`);
+    expect(store.getRoom(migrated.conversation_id)).toBeDefined();
+    expect(store.listMembers(migrated.conversation_id).map((member) => member.id))
+      .toEqual(store.listMembers('eng').map((member) => member.id));
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getWorktree('eng', registered.worktree.id)?.conversation_id)
+      .toBe(migrated.conversation_id);
+    expect(store.currentSeq('eng')).toBe(rootSeq);
+  });
+
+  it('keeps main and child room state independent across reopen', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'created');
+    const child = registered.worktree.conversation_id;
+    const mainAgent = store.addMember('eng', {
+      kind: 'agent', handle: 'same-handle', display_name: 'Main Agent', state: 'idle',
+    });
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'same-handle', display_name: 'Child Agent', state: 'idle',
+    });
+    expect(mainAgent.id).not.toBe(childAgent.id);
+    expect(store.getMember(child, owner.id)).toMatchObject({ id: owner.id, kind: 'human' });
+    expect(store.listMembers(child).filter((member) => member.kind === 'agent')).toEqual([childAgent]);
+
+    const mainMessage = store.postMessage('eng', { author: mainAgent.id, kind: 'chat', body: 'main-only' });
+    const childMessage = store.postMessage(child, { author: childAgent.id, kind: 'chat', body: 'child-only' });
+    expect(mainMessage.id).toBe(1);
+    expect(childMessage.id).toBe(1);
+    expect(store.listMessages('eng')).toEqual([mainMessage]);
+    expect(store.listMessages(child)).toEqual([childMessage]);
+    expect(store.roomSupport('eng', owner.id).summary.latest?.preview).toBe('main-only');
+    expect(store.roomSupport(child, owner.id).summary.latest?.preview).toBe('child-only');
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(1);
+    expect(store.countUnreadMessages(child, owner.id)).toBe(1);
+    store.markRoomRead('eng', owner.id, store.currentSeq('eng'));
+    expect(store.countUnreadMessages('eng', owner.id)).toBe(0);
+    expect(store.countUnreadMessages(child, owner.id)).toBe(1);
+
+    const day = '2026-08-06';
+    store.bumpMeter('eng', day, { turns: 1, input_tokens: 10 });
+    store.bumpMeter(child, day, { turns: 2, output_tokens: 20 });
+    expect(store.getMeter('eng', day)).toMatchObject({ turns: 1, input_tokens: 10, output_tokens: 0 });
+    expect(store.getMeter(child, day)).toMatchObject({ turns: 2, input_tokens: 0, output_tokens: 20 });
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.listMessages(child)).toMatchObject([{ id: 1, body: 'child-only' }]);
+    expect(store.countUnreadMessages(child, owner.id)).toBe(1);
+    expect(store.getMeter(child, day)).toMatchObject({ turns: 2, output_tokens: 20 });
+  });
+});
+// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end registered-worktrees-materialize-stable-conversations
+
+// harn:assume child-conversation-state-is-room-isolated ref=conversation-room-state-regression
+// harn:assume child-conversation-state-is-room-isolated ref=conversation-read-cursor-seeding
+describe('child conversation inherited identities and cursors', () => {
+  it('seeds root humans in every child and adds later root humans without cloning rows', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childOwner = store.getMember(child, owner.id)!;
+    expect(childOwner.id).toBe(owner.id);
+    expect(store.getRoomReadSeq(child, owner.id)).toBe(store.currentSeq(child));
+
+    const later = store.addMember('eng', {
+      kind: 'human', handle: 'later-human', display_name: 'Later Human', role: 'member',
+    });
+    expect(store.getMember(child, later.id)).toMatchObject({ id: later.id, handle: 'later-human' });
+    expect(store.listMembers(child).map((member) => member.id)).toContain(later.id);
+    expect(store.getRoomReadSeq(child, later.id)).toBe(store.currentSeq(child));
+    expect(store.listMembers(child).filter((member) => member.id === later.id)).toHaveLength(1);
+
+    store.updateMember('eng', owner.id, { display_name: 'Richard Renamed' });
+    expect(store.getMember(child, owner.id)?.display_name).toBe('Richard Renamed');
+    expect(store.sync(child, 0).members.find((member) => member.id === owner.id)?.display_name)
+      .toBe('Richard Renamed');
+  });
+});
+// harn:end child-conversation-state-is-room-isolated
+// harn:end child-conversation-state-is-room-isolated
+
+// harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-store-regression
+describe('qualified routing store projection', () => {
+  it('projects active scopes and tombstones from persisted rows without paths', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    const first = store.routingCatalog('eng');
+    expect(first.room).toBe('eng');
+    expect(first.targets.map((target) => target.alias)).toEqual(['main', 'child']);
+    const target = first.targets.find((candidate) => candidate.alias === 'child')!;
+    expect(target.members).toEqual(expect.arrayContaining([
+      expect.objectContaining({ member_id: childAgent.id, handle: 'coder', kind: 'agent' }),
+    ]));
+    expect(JSON.stringify(first)).not.toMatch(/path|branch|git_admin/i);
+
+    const refreshed = store.refreshWorktreeObservation('eng', registered.worktree.id, {
+      ...secondary, path: join(dir, 'moved-child'), branch: 'feature/moved-child',
+    });
+    expect(refreshed.id).toBe(registered.worktree.id);
+    expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === 'child')?.worktree_id)
+      .toBe(registered.worktree.id);
+
+    const tombstone = store.unregisterWorktree('eng', registered.worktree.id);
+    expect(store.routingCatalog('eng').targets.map((candidate) => candidate.alias)).toEqual(['main']);
+    expect(store.routingCatalog('eng').tombstones).toEqual([
+      expect.objectContaining({ alias: 'child', lifecycle: 'unregistered' }),
+    ]);
+    expect(tombstone.conversation_id).toBe(child);
+  });
+
+  it('projects removed members as bounded tombstones and refuses stale scoped rows', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'old-coder', display_name: 'Old Coder', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: 'old-coder',
+    } as const;
+    const message = store.postMessage('eng', {
+      author: store.getMemberByHandle('eng', 'richard')!.id,
+      kind: 'chat',
+      body: 'stale target',
+    });
+
+    store.updateMember(child, childAgent.id, { removed_ts: '2026-08-06T00:10:00.000Z', state: 'dead' });
+    const projected = store.routingCatalog('eng');
+    expect(projected.targets.find((item) => item.alias === 'child')).toMatchObject({
+      removed_members: [{ member_id: childAgent.id, handle: 'old-coder', kind: 'agent' }],
+    });
+    expect(projected.targets.find((item) => item.alias === 'child')?.members)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'old-coder' })]));
+    expect(store.routingTargetIsActive(target, 'eng')).toBe(false);
+    expect(() => store.createDelivery('eng', {
+      message_id: message.id, recipient: childAgent.id, target,
+    })).toThrow(/qualified delivery target is not active/);
+  });
+
+  it('bounds removed-member tombstones deterministically before protocol validation', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const removed = Array.from({ length: 260 }, (_, index) => store.addMember(child, {
+      kind: 'agent', handle: `old-${String(index)}`, display_name: `Old ${String(index)}`, state: 'idle',
+    }));
+    for (const member of removed) {
+      store.updateMember(child, member.id, {
+        removed_ts: '2026-08-06T00:00:00.000Z',
+        state: 'dead',
+      });
+    }
+    const projected = store.routingCatalog('eng').targets.find((target) => target.alias === 'child')!;
+    const expected = removed.map((member) => member.id).sort().slice(0, 256);
+    expect(projected.removed_members).toHaveLength(256);
+    expect(projected.removed_members?.map((member) => member.member_id)).toEqual(expected);
+  });
+
+  it('rejects a scoped delivery whose origin belongs to another repository', () => {
+    openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'foreign-check', display_name: 'Foreign Check', state: 'idle',
+    });
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: childAgent.handle,
+    } as const;
+    const message = store.postMessage('ops', {
+      author: store.getMemberByHandle('ops', 'ops-owner')!.id, kind: 'chat', body: 'foreign origin',
+    });
+    expect(store.routingTargetIsActive(target, 'ops')).toBe(false);
+    expect(() => store.createDelivery('ops', {
+      message_id: message.id, recipient: childAgent.id, target,
+    })).toThrow(/qualified delivery target is not active/);
+    expect(store.listDeliveries('ops')).toEqual([]);
+    expect(store.listDeliveriesForTarget(child, childAgent.id)).toEqual([]);
+  });
+
+  const seedLegacyForeignDelivery = () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const agent = store.addMember(child, {
+      kind: 'agent', handle: 'legacy-agent', display_name: 'Legacy Agent', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: agent.id,
+      alias: 'child', handle: agent.handle,
+    } as const;
+    // A legacy cross-repository row: it lives in ops but points at the eng
+    // repository tree, so no valid origin ever validates it against itself.
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const message = store.postMessage('ops', {
+      author: store.getMemberByHandle('ops', 'ops-owner')!.id, kind: 'chat', body: 'legacy foreign row',
+    });
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'ops', ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        `legacy-${message.id}`,
+        message.id,
+        agent.id,
+        target.worktree_id,
+        target.conversation_id,
+        target.alias,
+        target.handle,
+        new Date().toISOString(),
+      );
+    legacy.close();
+    return { owner, agent, target, message, foreignId: `legacy-${message.id}` };
+  };
+
+  it('settles a legacy cross-repository queued row with exactly one durable refusal', () => {
+    const { foreignId } = seedLegacyForeignDelivery();
+    expect(store.routingTargetIsActive(
+      store.getDelivery('ops', foreignId)!.target!,
+      'ops',
+    )).toBe(false);
+
+    const reason = 'registered target child:@legacy-agent is no longer valid';
+    const settled = store.settleStaleScopedDelivery('ops', {
+      deliveryId: foreignId,
+      reason,
+      settledTs: '2026-08-06T00:40:00.000Z',
+    });
+    expect(settled.settled).toBe(true);
+    expect(settled.delivery.state).toBe('consumed');
+    expect(settled.refusal).toMatchObject({ kind: 'system', body: `qualified target refused: ${reason}` });
+
+    // The refusal is created by the transition itself: a repeat settles
+    // nothing and says nothing, and the refusal stays only in the origin.
+    const repeat = store.settleStaleScopedDelivery('ops', {
+      deliveryId: foreignId,
+      reason,
+      settledTs: '2026-08-06T00:41:00.000Z',
+    });
+    expect(repeat.settled).toBe(false);
+    expect(repeat.refusal).toBeUndefined();
+    expect(store.listMessages('ops').filter((message) => message.kind === 'system')).toHaveLength(1);
+    expect(store.listMessages('eng').filter((message) => message.kind === 'system')).toHaveLength(0);
+
+    // A started row is rejected by this seam — it belongs to attempt settlement.
+    store.updateDelivery('ops', foreignId, { state: 'delivering', run_msg_id: 1 });
+    expect(() => store.settleStaleScopedDelivery('ops', {
+      deliveryId: foreignId,
+      reason,
+      settledTs: '2026-08-06T00:42:00.000Z',
+    })).toThrow(/already started/);
+  });
+
+  it('settles a started scoped attempt atomically with truthful group evidence', () => {
+    const { owner, agent, target } = seedLegacyForeignDelivery();
+    const alpha = store.addMember('eng', {
+      kind: 'agent', handle: 'group-alpha', display_name: 'Group Alpha', state: 'idle',
+    });
+    const root = store.postMessage('eng', { author: owner.id, kind: 'chat', body: '@group-alpha scoped round' });
+    const group = store.createCollaborationGroup('eng', {
+      groupId: 'scoped-attempt-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha round' },
+        { memberId: agent.id, target, payloadSnapshot: 'scoped round' },
+      ],
+    });
+    const scopedDelivery = group.deliveries[1]!;
+    const run = store.postMessage('eng', {
+      author: agent.id, author_target: target, kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:45:00.000Z', tool_calls: 0,
+        events_ref: `runs/${String(root.id)}.jsonl`,
+      },
+    });
+    store.updateDelivery('eng', scopedDelivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    // The durable target goes stale after the attempt started.
+    store.unregisterWorktree('eng', target.worktree_id, '2026-08-06T00:46:00.000Z');
+
+    const reason = 'registered target child:@legacy-agent is no longer valid';
+    const settled = store.settleInvalidScopedAttempt('eng', {
+      deliveryIds: [scopedDelivery.id],
+      reason,
+      settledTs: '2026-08-06T00:47:00.000Z',
+    });
+    expect(settled.settled).toBe(true);
+    expect(settled.deliveries[0]?.state).toBe('consumed');
+    // The binding is preserved as evidence even after consumption.
+    expect(store.getDelivery('eng', scopedDelivery.id)?.run_msg_id).toBe(run.id);
+    expect(settled.runs).toHaveLength(1);
+    expect(store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(settled.participants).toHaveLength(1);
+    expect(settled.participants[0]).toMatchObject({
+      group_id: 'scoped-attempt-group',
+      member_id: agent.id,
+      terminal_status: 'interrupted',
+    });
+    expect(settled.refusal).toMatchObject({ kind: 'system', body: `qualified target refused: ${reason}` });
+
+    // A repeated settle is a truthful no-op: no duplicate refusal, no reopened
+    // run, no resurrected delivery.
+    const repeat = store.settleInvalidScopedAttempt('eng', {
+      deliveryIds: [scopedDelivery.id],
+      reason,
+      settledTs: '2026-08-06T00:48:00.000Z',
+    });
+    expect(repeat.settled).toBe(false);
+    expect(repeat.refusal).toBeUndefined();
+    expect(store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+    expect(store.getCollaborationRound('eng', 'scoped-attempt-group', 1)?.state).toBe('collecting');
+  });
+});
+// harn:end qualified-member-target-identity-is-durable
+
+// harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-origin-regression
+describe('qualified origin storage', () => {
+  it('round-trips scoped authors and deliveries while keeping transcripts room-local', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'created');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id,
+      conversation_id: child,
+      member_id: childAgent.id,
+      alias: registered.worktree.alias,
+      handle: childAgent.handle,
+    } as const;
+    const origin = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '~child:@coder check this',
+    });
+    const attributed = store.postMessage('eng', {
+      author: childAgent.id, author_target: target, kind: 'chat', body: 'child answer',
+    });
+    const delivery = store.createDelivery('eng', {
+      message_id: origin.id, recipient: childAgent.id, target,
+    });
+    expect(attributed.author_target).toEqual(target);
+    expect(delivery.target).toEqual(target);
+    expect(store.listMessages('eng').map((message) => message.body)).toEqual([
+      '~child:@coder check this', 'child answer',
+    ]);
+    expect(store.listMessages(child)).toEqual([]);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getMessage('eng', attributed.id)?.author_target).toEqual(target);
+    expect(store.getDelivery('eng', delivery.id)?.target).toEqual(target);
+    expect(store.listDeliveriesForTarget(child, childAgent.id).map((item) => item.id)).toEqual([delivery.id]);
+
+    expect(() => store.createDelivery('eng', {
+      message_id: origin.id,
+      recipient: childAgent.id,
+      target: { ...target, handle: 'renamed' },
+    })).toThrow(/qualified delivery target is not active/);
+  });
+});
+// harn:end cross-worktree-output-stays-in-origin
+
+// harn:assume target-member-turns-serialize-across-origins ref=cross-origin-turn-scheduler
+describe('cross-origin target queue', () => {
+  it('orders qualified deliveries by one durable queue across visible origins', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    const second = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, { ...secondary, path: join(dir, 'second'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'second') }, 'second', 'adopted');
+    const secondOrigin = second.worktree.conversation_id;
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: childAgent.handle,
+    } as const;
+    const first = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'first' });
+    const secondMessage = store.postMessage(secondOrigin, { author: owner.id, kind: 'chat', body: 'second' });
+    const firstDelivery = store.createDelivery('eng', {
+      message_id: first.id, recipient: childAgent.id, target,
+    });
+    const secondDelivery = store.createDelivery(secondOrigin, {
+      message_id: secondMessage.id, recipient: childAgent.id, target,
+    });
+    expect(store.listDeliveriesForTarget(child, childAgent.id).map((item) => item.id))
+      .toEqual([firstDelivery.id, secondDelivery.id]);
+    expect(store.listDeliveries('eng', { recipient: childAgent.id })).toEqual([firstDelivery]);
+  });
+});
+// harn:end target-member-turns-serialize-across-origins
+
+// harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-regression
+describe('durable active invocation lookup', () => {
+  it('finds one target invocation and fails closed when two origins are active', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'created');
+    const child = registered.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'coder', display_name: 'Child Coder', state: 'idle',
+    });
+    const second = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, { ...secondary, path: join(dir, 'second'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'second') }, 'second', 'adopted');
+    const secondOrigin = second.worktree.conversation_id;
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: childAgent.handle,
+    } as const;
+    const first = store.postMessage('eng', {
+      author: childAgent.id, author_target: target, kind: 'run', body: '',
+      run: { status: 'running', started_ts: '2026-08-06T00:00:00.000Z', tool_calls: 0, events_ref: 'runs/1.jsonl' },
+    });
+    const firstDelivery = store.createDelivery('eng', {
+      message_id: first.id, recipient: childAgent.id, target,
+    });
+    store.updateDelivery('eng', firstDelivery.id, { state: 'delivering', run_msg_id: first.id });
+    expect(store.listActiveInvocations(childAgent.id)).toEqual([{
+      originRoom: 'eng', targetRoom: child, target,
+    }]);
+
+    const secondRun = store.postMessage(secondOrigin, {
+      author: owner.id, kind: 'run', body: '',
+      run: { status: 'running', started_ts: '2026-08-06T00:00:01.000Z', tool_calls: 0, events_ref: 'runs/2.jsonl' },
+    });
+    const secondDelivery = store.createDelivery(secondOrigin, {
+      message_id: secondRun.id, recipient: childAgent.id, target,
+    });
+    store.updateDelivery(secondOrigin, secondDelivery.id, { state: 'delivering', run_msg_id: secondRun.id });
+    expect(store.listActiveInvocations(childAgent.id)).toHaveLength(2);
+  });
+});
+// harn:end agent-authority-follows-one-active-invocation
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'codor-store-'));
@@ -1637,6 +2367,120 @@ describe('a consumed delivery is never resurrected into a turn', () => {
     expect(retried.deliveries[0]!.attempt_count).toBe(2);
   });
 
+  const seedForeignScopedRow = () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false, branch: 'feature/child',
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const agent = store.addMember(child, {
+      kind: 'agent', handle: 'scoped-agent', display_name: 'Scoped Agent', state: 'idle',
+    });
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain: WorktreeObservation = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const opsSecondary: WorktreeObservation = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available', locked: false, branch: 'feature/ops-child',
+    };
+    const opsRegistered = store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const validTarget = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: agent.id,
+      alias: 'child', handle: agent.handle,
+    } as const;
+    const foreignTarget = {
+      worktree_id: opsRegistered.worktree.id,
+      conversation_id: opsRegistered.worktree.conversation_id,
+      member_id: agent.id, alias: 'ops-child', handle: agent.handle,
+    } as const;
+    const message = store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'foreign admission' });
+    const legacy = new Database(join(dir, 'test.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'eng', ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        `legacy-${message.id}`,
+        message.id,
+        agent.id,
+        foreignTarget.worktree_id,
+        foreignTarget.conversation_id,
+        foreignTarget.alias,
+        foreignTarget.handle,
+        new Date().toISOString(),
+      );
+    legacy.close();
+    return { agent, validTarget, foreignTarget, message };
+  };
+
+  it('never admits a legacy foreign-repository queued row, and drains the later valid row', () => {
+    const { agent, validTarget, message } = seedForeignScopedRow();
+    const foreignId = `legacy-${message.id}`;
+    const valid = store.createDelivery('eng', {
+      message_id: message.id, recipient: agent.id, target: validTarget,
+    });
+
+    const started = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [foreignId, valid.id],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })!;
+
+    // The foreign row is invisible to admission — never executed, never
+    // consumed by the turn — while the valid row enters the batch.
+    expect(started.deliveries.map((item) => item.id)).toEqual([valid.id]);
+    expect(store.getDelivery('eng', foreignId)!.state).toBe('queued');
+    expect(store.getDelivery('eng', valid.id)!.state).toBe('delivering');
+  });
+
+  it('never re-admits a foreign-repository row bound to the reused run', () => {
+    const { agent, message } = seedForeignScopedRow();
+    const foreignId = `legacy-${message.id}`;
+    const run = store.postMessage('eng', {
+      author: agent.id, kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:00:00.000Z', tool_calls: 0,
+        events_ref: `runs/${String(message.id)}.jsonl`,
+      },
+    });
+    store.updateDelivery('eng', foreignId, { state: 'delivering', run_msg_id: run.id, attempt_count: 1 });
+
+    const started = store.beginTurn('eng', {
+      memberId: agent.id,
+      deliveryIds: [foreignId],
+      startedTs: new Date().toISOString(),
+      eventsRef: (id) => `runs/${String(id)}.jsonl`,
+      reuseRunMsgId: run.id,
+    });
+
+    // A reused run may re-admit its own binding, but never a foreign one:
+    // nothing admissible means no turn and no second run message.
+    expect(started).toBeUndefined();
+    expect(store.getDelivery('eng', foreignId)!.state).toBe('delivering');
+    expect(store.listMessages('eng', { limit: 20 }).filter((item) => item.kind === 'run'))
+      .toHaveLength(1);
+  });
+
   // harn:assume unresolved-delivery-fences-fresh-member-turns ref=durable-delivery-turn-fence-regression
   it('fences a fresh run behind another durable active attempt but permits exact-run recovery', () => {
     const { owner } = openRoom(store);
@@ -1682,6 +2526,83 @@ describe('a consumed delivery is never resurrected into a turn', () => {
     });
     expect(resumed?.runMessage.id).toBe(stale.runMessage.id);
     expect(resumed?.deliveries[0]?.attempt_count).toBe(2);
+  });
+
+  it('uses each delivering row origin for same-id false-negative and false-positive fences', () => {
+    const { owner } = openRoom(store);
+    const main: WorktreeObservation = {
+      path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+      availability: 'available', locked: false,
+    };
+    const secondary: WorktreeObservation = {
+      path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+      availability: 'available', locked: false,
+    };
+    const registered = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, secondary, 'child', 'adopted');
+    const child = registered.worktree.conversation_id;
+    const second = store.registerWorktree('eng', {
+      common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+      primary_git_admin_id: main.git_admin_id,
+    }, main, { ...secondary, path: join(dir, 'second'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'second') }, 'second', 'adopted');
+    const secondOrigin = second.worktree.conversation_id;
+    const childAgent = store.addMember(child, {
+      kind: 'agent', handle: 'collision-agent', display_name: 'Collision Agent', state: 'running',
+    });
+    const target = {
+      worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
+      alias: 'child', handle: childAgent.handle,
+    } as const;
+
+    const active = store.postMessage('eng', {
+      author: owner.id, kind: 'run', body: '',
+      run: { status: 'running', started_ts: '2026-08-06T00:00:00.000Z', tool_calls: 0, events_ref: 'runs/1.jsonl' },
+    });
+    const activeDelivery = store.createDelivery('eng', {
+      message_id: active.id, recipient: childAgent.id, target,
+    });
+    store.updateDelivery('eng', activeDelivery.id, { state: 'delivering', run_msg_id: active.id });
+    const freshTrigger = store.postMessage(secondOrigin, {
+      author: owner.id, kind: 'chat', body: 'same id must not hide the active origin',
+    });
+    const fresh = store.createDelivery(secondOrigin, {
+      message_id: freshTrigger.id, recipient: childAgent.id, target,
+    });
+    expect(store.beginTurn(secondOrigin, {
+      memberId: childAgent.id, targetRoom: child, deliveryIds: [fresh.id],
+      startedTs: '2026-08-06T00:01:00.000Z', eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    })).toBeUndefined();
+
+    store.updateMessage('eng', active.id, { run: { ...active.run!, status: 'completed' } });
+    store.updateDelivery('eng', activeDelivery.id, { state: 'consumed' });
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    const completed = store.postMessage('eng', {
+      author: owner.id, kind: 'run', body: 'already completed',
+      run: { status: 'completed', started_ts: '2026-08-06T00:02:00.000Z', tool_calls: 0, events_ref: 'runs/1.jsonl' },
+    });
+    const completedDelivery = store.createDelivery('eng', {
+      message_id: completed.id, recipient: childAgent.id, target,
+    });
+    store.updateDelivery('eng', completedDelivery.id, { state: 'delivering', run_msg_id: completed.id });
+    const unrelatedRunning = store.postMessage(secondOrigin, {
+      author: owner.id, kind: 'run', body: '',
+      run: { status: 'running', started_ts: '2026-08-06T00:03:00.000Z', tool_calls: 0, events_ref: 'runs/1.jsonl' },
+    });
+    const laterTrigger = store.postMessage(secondOrigin, {
+      author: owner.id, kind: 'chat', body: 'same id must not invent an active origin',
+    });
+    const later = store.createDelivery(secondOrigin, {
+      message_id: laterTrigger.id, recipient: childAgent.id, target,
+    });
+    const started = store.beginTurn(secondOrigin, {
+      memberId: childAgent.id, targetRoom: child, deliveryIds: [later.id],
+      startedTs: '2026-08-06T00:04:00.000Z', eventsRef: (id) => `runs/${String(id)}.jsonl`,
+    });
+    expect(unrelatedRunning.id).toBe(completed.id);
+    expect(started?.deliveries.map((delivery) => delivery.id)).toEqual([later.id]);
   });
   // harn:end unresolved-delivery-fences-fresh-member-turns
 });
@@ -2095,6 +3016,52 @@ describe('collaboration round materialization', () => {
     expect(store.getCollaborationRound('eng', 'group-rollback', 2)).toBeUndefined();
     expect(store.listDeliveries('eng')).toHaveLength(2);
   });
+
+  it('rejects a cross-repository participant without allocating any round rows', () => {
+    const { alpha, root } = seed();
+    store.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain: WorktreeObservation = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'), primary: true,
+      availability: 'available', locked: false, branch: 'main',
+    };
+    const opsSecondary: WorktreeObservation = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available', locked: false, branch: 'feature/ops-child',
+    };
+    const opsRegistered = store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const opsChild = opsRegistered.worktree.conversation_id;
+    const foreign = store.addMember(opsChild, {
+      kind: 'agent', handle: 'foreign-agent', display_name: 'Foreign Agent', state: 'idle',
+    });
+    const foreignTarget = {
+      worktree_id: opsRegistered.worktree.id, conversation_id: opsChild, member_id: foreign.id,
+      alias: 'ops-child', handle: foreign.handle,
+    } as const;
+
+    const expectNoPartialState = () => {
+      expect(store.getCollaborationGroup('eng', 'foreign-group')).toBeUndefined();
+      expect(store.listCollaborationRounds('eng', 'foreign-group')).toEqual([]);
+      expect(store.listDeliveries('eng')).toEqual([]);
+    };
+    expect(() => store.createCollaborationGroup('eng', {
+      groupId: 'foreign-group',
+      rootMessageId: root.id,
+      participants: [
+        { memberId: alpha.id, payloadSnapshot: 'alpha round' },
+        { memberId: foreign.id, target: foreignTarget, payloadSnapshot: 'foreign round' },
+      ],
+    })).toThrow(`no active agent member: ${foreign.id}`);
+    expectNoPartialState();
+
+    // The rejection is durable: a reopen cannot reveal partial group, round,
+    // participant, delivery, or payload snapshot rows.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expectNoPartialState();
+  });
 });
 // harn:end group-round-creation-is-atomic-and-idempotent
 
@@ -2160,6 +3127,69 @@ describe('collaboration state migration and reopen', () => {
   });
 });
 // harn:end collaboration-groups-are-durable-state
+
+it('keeps target scope in atomic round materialization and idempotent retries', () => {
+  const { owner } = openRoom(store);
+  const alpha = store.addMember('eng', {
+    kind: 'agent', handle: 'alpha', display_name: 'Alpha', state: 'idle',
+  });
+  const root = store.postMessage('eng', {
+    author: owner.id, kind: 'chat', body: '@alpha scoped round',
+  });
+  const main: WorktreeObservation = {
+    path: join(dir, 'repo'), git_admin_id: join(dir, 'repo', '.git'), primary: true,
+    availability: 'available', locked: false, branch: 'main',
+  };
+  const secondary: WorktreeObservation = {
+    path: join(dir, 'child'), git_admin_id: join(dir, 'repo', '.git', 'worktrees', 'child'), primary: false,
+    availability: 'available', locked: false, branch: 'feature/child',
+  };
+  const registered = store.registerWorktree('eng', {
+    common_path: join(dir, 'repo', '.git'), primary_path: main.path,
+    primary_git_admin_id: main.git_admin_id,
+  }, main, secondary, 'child', 'adopted');
+  const child = registered.worktree.conversation_id;
+  const remote = store.addMember(child, {
+    kind: 'agent', handle: 'remote', display_name: 'Remote', state: 'idle',
+  });
+  const target = {
+    worktree_id: registered.worktree.id, conversation_id: child, member_id: remote.id,
+    alias: 'child', handle: 'remote',
+  } as const;
+  const input = { memberId: remote.id, target, payloadSnapshot: 'remote round' };
+  const localInput = { memberId: alpha.id, payloadSnapshot: 'local round' };
+  const first = store.createCollaborationGroup('eng', {
+    groupId: 'scoped-group', rootMessageId: root.id, participants: [input, localInput],
+  });
+  expect(first.deliveries[0]?.target).toEqual(target);
+  const retry = store.createCollaborationGroup('eng', {
+    groupId: 'different-id-is-ignored', rootMessageId: root.id, participants: [input, localInput],
+  });
+  expect(retry.group.id).toBe('scoped-group');
+  expect(retry.deliveries.map((item) => item.id)).toEqual(first.deliveries.map((item) => item.id));
+
+  store.updateCollaborationParticipant('eng', 'scoped-group', 1, remote.id, {
+    terminal_status: 'completed', result_message_id: root.id, completed_ts: '2026-08-06T00:11:00.000Z',
+  });
+  store.updateCollaborationParticipant('eng', 'scoped-group', 1, localInput.memberId, {
+    terminal_status: 'completed', result_message_id: root.id, completed_ts: '2026-08-06T00:11:00.000Z',
+  });
+  const released = store.releaseCollaborationRound('eng', {
+    groupId: 'scoped-group', roundNumber: 1, releasedTs: '2026-08-06T00:12:00.000Z',
+    nextParticipants: [
+      { ...input, payloadSnapshot: 'remote next round' },
+      { ...localInput, payloadSnapshot: 'local next round' },
+    ],
+  });
+  expect(released.deliveries[0]?.target).toEqual(target);
+  expect(() => store.createCollaborationGroup('eng', {
+    groupId: 'scoped-group', rootMessageId: root.id,
+    participants: [
+      { memberId: remote.id, payloadSnapshot: 'remote round' },
+      localInput,
+    ],
+  })).toThrow(/different participants or payloads/);
+});
 
 // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-regression
 describe('atomic routed collaboration ingress', () => {
@@ -2287,6 +3317,60 @@ describe('collaboration round release transaction', () => {
     expect(store.getCollaborationGroup('eng', 'closed-group')).toMatchObject({
       state: 'completed', completed_ts: '2026-07-14T13:11:00.000Z',
     });
+  });
+
+  it('commits the visible refusal in the same transaction as the close, exactly once', () => {
+    const seeded = seed('refusal-group');
+    expect(store.closeCollaborationRoundWithRefusal('eng', {
+      groupId: 'refusal-group',
+      roundNumber: 1,
+      releasedTs: '2026-08-06T00:20:00.000Z',
+      refusalBody: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    }).status).toBe('pending');
+    expect(store.listMessages('eng')).toHaveLength(1);
+
+    for (const participant of seeded.round.participants) {
+      store.updateCollaborationParticipant('eng', 'refusal-group', 1, participant.member_id, {
+        terminal_status: 'completed',
+        result_message_id: seeded.root.id,
+        completed_ts: '2026-08-06T00:20:30.000Z',
+      });
+    }
+    const closed = store.closeCollaborationRoundWithRefusal('eng', {
+      groupId: 'refusal-group',
+      roundNumber: 1,
+      releasedTs: '2026-08-06T00:21:00.000Z',
+      refusalBody: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    });
+    expect(closed.status).toBe('closed');
+    expect(closed.refusal).toMatchObject({
+      kind: 'system',
+      body: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    });
+    expect(store.getCollaborationRound('eng', 'refusal-group', 1)?.state).toBe('closed');
+    expect(store.getCollaborationGroup('eng', 'refusal-group')).toMatchObject({ state: 'completed' });
+    expect(store.listCollaborationRounds('eng', 'refusal-group')).toHaveLength(1);
+
+    // Repeated advancement cannot duplicate or lose the durable refusal.
+    const repeat = store.closeCollaborationRoundWithRefusal('eng', {
+      groupId: 'refusal-group',
+      roundNumber: 1,
+      releasedTs: '2026-08-06T00:22:00.000Z',
+      refusalBody: 'qualified target refused in collaboration result: ~missing:@x (unknown-worktree)',
+    });
+    expect(repeat).toEqual({ status: 'already_released' });
+    const refusals = () =>
+      store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(refusals()).toHaveLength(1);
+
+    // A reopen sees the same settled state: one closed round, one refusal,
+    // and only the two round-one deliveries — no next round was allocated.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getCollaborationRound('eng', 'refusal-group', 1)?.state).toBe('closed');
+    expect(refusals()).toHaveLength(1);
+    expect(store.listDeliveries('eng')).toHaveLength(2);
   });
 });
 // harn:end collaboration-round-release-is-one-barrier
@@ -2748,3 +3832,403 @@ describe('a named ACP provider persists a public id while its launch stays priva
   });
 });
 // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+
+const mainObs = (over: Partial<WorktreeObservation> = {}): WorktreeObservation => ({
+  path: join(dir, 'repo'),
+  git_admin_id: join(dir, 'repo', '.git'),
+  primary: true,
+  availability: 'available',
+  locked: false,
+  ...over,
+});
+
+const childObs = (name: string, over: Partial<WorktreeObservation> = {}): WorktreeObservation => ({
+  path: join(dir, name),
+  git_admin_id: join(dir, 'repo', '.git', 'worktrees', name),
+  primary: false,
+  availability: 'available',
+  locked: false,
+  ...over,
+});
+
+const repoObs = () => ({
+  common_path: join(dir, 'repo', '.git'),
+  primary_path: join(dir, 'repo'),
+  primary_git_admin_id: join(dir, 'repo', '.git'),
+});
+
+// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-regression
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-regression
+describe('worktree child metadata follows stable identity', () => {
+  it('creates children with the canonical cwd and no root starting handle', () => {
+    store.createRoom({
+      id: 'eng',
+      name: 'Engineering',
+      owner: { handle: 'richard', display_name: 'Richard' },
+      config: { cwd: join(dir, 'repo'), starting_agent_handle: 'alpha' },
+    });
+    const rootBefore = store.getRoom('eng')!;
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const child = store.getRoom(worktree.conversation_id)!;
+    expect(child.name).toBe('Engineering · child-label');
+    expect(child.config.cwd).toBe(join(dir, 'child'));
+    expect(child.config.starting_agent_handle).toBeUndefined();
+    expect(store.getRoom('eng')).toEqual(rootBefore);
+  });
+
+  it('migrates a legacy child projection idempotently on reopen', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    // Simulate a Phase-1-era child: root config copied verbatim with a leaked handle.
+    const legacyConfig = { ...store.getRoom('eng')!.config, starting_agent_handle: 'alpha' };
+    const raw = new Database(join(dir, 'test.sqlite'));
+    raw.prepare('UPDATE rooms SET config = ? WHERE id = ?')
+      .run(JSON.stringify(legacyConfig), worktree.conversation_id);
+    raw.close();
+    const rootBefore = JSON.stringify(store.getRoom('eng'));
+    const childSeqBefore = store.currentSeq(worktree.conversation_id);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    const migrated = store.getRoom(worktree.conversation_id)!;
+    expect(migrated.config.starting_agent_handle).toBeUndefined();
+    expect(migrated.config.cwd).toBe(join(dir, 'child'));
+    expect(store.currentSeq(worktree.conversation_id)).toBe(childSeqBefore + 1);
+    expect(JSON.stringify(store.getRoom('eng'))).toBe(rootBefore);
+
+    // A second open finds no drift: no further change rows.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.currentSeq(worktree.conversation_id)).toBe(childSeqBefore + 1);
+  });
+
+  it('reconciles a moved canonical path on re-adoption and keeps history stable', () => {
+    openRoom(store);
+    const first = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const conversation = first.worktree.conversation_id;
+    store.postMessage(conversation, {
+      author: store.getMemberByHandle('eng', 'richard')!.id,
+      kind: 'chat',
+      body: 'child history',
+    });
+    store.unregisterWorktree('eng', first.worktree.id, '2026-08-06T00:06:00.000Z');
+    const readopted = store.registerWorktree(
+      'eng',
+      repoObs(),
+      mainObs(),
+      { ...childObs('child'), path: join(dir, 'moved-child') },
+      'child-label',
+      'adopted',
+      '2026-08-06T00:07:00.000Z',
+    );
+    expect(readopted.worktree.id).toBe(first.worktree.id);
+    expect(readopted.worktree.conversation_id).toBe(conversation);
+    expect(readopted.seeded).toEqual([]);
+    expect(store.getRoom(conversation)?.config.cwd).toBe(join(dir, 'moved-child'));
+    expect(store.listMessages(conversation).map((message) => message.body)).toEqual(['child history']);
+  });
+
+  it('orders actives main-first by alias and excludes tombstones through reopen', () => {
+    openRoom(store);
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('bravo'), 'bravo', 'created');
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('alpha'), 'alpha', 'created');
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'alpha', 'bravo']);
+    const alpha = store.listRegisteredWorktrees('eng').find((worktree) => worktree.alias === 'alpha')!;
+    store.unregisterWorktree('eng', alpha.id, '2026-08-06T00:04:00.000Z');
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'bravo']);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
+      .toEqual(['main', 'bravo']);
+    const withTombstones = store.listWorktrees('eng', { includeTombstones: true });
+    expect(withTombstones.map((worktree) => worktree.alias)).toEqual(['main', 'alpha', 'bravo']);
+    expect(withTombstones.find((worktree) => worktree.alias === 'alpha'))
+      .toMatchObject({ id: alpha.id, lifecycle: 'unregistered' });
+  });
+
+  it('updates an active secondary alias without moving any stable identity', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('other'), 'other-label', 'created');
+    const renamed = store.updateWorktreeAlias('eng', worktree.id, 'renamed-label', '2026-08-06T00:05:00.000Z');
+    expect(renamed).toMatchObject({
+      id: worktree.id,
+      conversation_id: worktree.conversation_id,
+      path: worktree.path,
+      git_admin_id: worktree.git_admin_id,
+      alias: 'renamed-label',
+    });
+    expect(store.getRoom(worktree.conversation_id)?.name).toBe('Engineering · renamed-label');
+    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'other-label')).toThrow(/already in use/);
+    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'main')).toThrow(/reserved/);
+    const mainRow = store.listRegisteredWorktrees('eng').find((entry) => entry.primary)!;
+    expect(() => store.updateWorktreeAlias('eng', mainRow.id, 'not-main')).toThrow(/active secondary/);
+    store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:05:30.000Z');
+    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'again')).toThrow(/active secondary/);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getWorktree('eng', worktree.id)?.alias).toBe('renamed-label');
+  });
+
+  it('preserves child-local configuration through reopen, alias edit, tombstone, and re-adoption', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const child = worktree.conversation_id;
+    // Room-local state the reconciliation must never touch.
+    store.updateRoomConfig(child, {
+      turn_brake: 3,
+      spend_brake_usd: 5,
+      stall_minutes: 9,
+      redaction_enabled: false,
+      color: '#a1b2c3',
+      bridged: true,
+    });
+    const localConfig = store.getRoom(child)!.config;
+    expect(localConfig).toMatchObject({
+      turn_brake: 3,
+      spend_brake_usd: 5,
+      stall_minutes: 9,
+      redaction_enabled: false,
+      color: '#a1b2c3',
+      bridged: true,
+      cwd: join(dir, 'child'),
+    });
+    const rootBefore = JSON.stringify(store.getRoom('eng'));
+
+    // Active reopen: migration finds no drift and preserves everything.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom(child)!.config).toEqual(localConfig);
+
+    // Alias edit: only the display name follows; config is byte-identical.
+    store.updateWorktreeAlias('eng', worktree.id, 'renamed');
+    expect(store.getRoom(child)!.name).toBe('Engineering · renamed');
+    expect(store.getRoom(child)!.config).toEqual(localConfig);
+
+    // Tombstone reopen: inactive mapped children keep their room-local state.
+    store.unregisterWorktree('eng', worktree.id, '2026-08-06T01:00:00.000Z');
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getRoom(child)!.config).toEqual(localConfig);
+
+    // Re-adoption at a moved path patches ONLY the canonical cwd (and name).
+    store.registerWorktree(
+      'eng',
+      repoObs(),
+      mainObs(),
+      { ...childObs('child'), path: join(dir, 'moved-child') },
+      'renamed',
+      'adopted',
+      '2026-08-06T01:01:00.000Z',
+    );
+    const readopted = store.getRoom(child)!;
+    expect(readopted.config).toEqual({ ...localConfig, cwd: join(dir, 'moved-child') });
+    expect(readopted.name).toBe('Engineering · renamed');
+
+    // The root never moved.
+    expect(JSON.stringify(store.getRoom('eng'))).toBe(rootBefore);
+  });
+
+  it('appends a child change only when an alias update visibly differs', () => {
+    openRoom(store);
+    const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    const seqBefore = store.currentSeq(worktree.conversation_id);
+    store.updateWorktreeAlias('eng', worktree.id, 'child-label');
+    expect(store.currentSeq(worktree.conversation_id)).toBe(seqBefore);
+    store.updateWorktreeAlias('eng', worktree.id, 'renamed');
+    expect(store.currentSeq(worktree.conversation_id)).toBe(seqBefore + 1);
+  });
+});
+// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
+// harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-root-neutral-regression
+describe('root-neutral registration', () => {
+  it('leaves root room, roster, history, config, presets, and roster unchanged across lifecycle', () => {
+    openRoom(store);
+    store.postMessage('eng', {
+      author: store.getMemberByHandle('eng', 'richard')!.id,
+      kind: 'chat',
+      body: 'root history',
+    });
+    const preset = store.createAgentPreset({ label: 'Alpha', handle: 'alpha', harness: 'fake' });
+    store.replaceDefaultRoster([preset.id]);
+    const snapshot = () => JSON.stringify({
+      room: store.getRoom('eng'),
+      members: store.listMembers('eng', { includeRemoved: true }),
+      messages: store.listMessages('eng'),
+      presets: store.listAgentPresets(),
+      roster: store.getDefaultRoster(),
+    });
+    const before = snapshot();
+    const first = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
+    store.updateWorktreeAlias('eng', first.worktree.id, 'renamed');
+    store.unregisterWorktree('eng', first.worktree.id);
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'adopted');
+    store.removeWorktree('eng', first.worktree.id);
+    expect(snapshot()).toBe(before);
+  });
+});
+// harn:end worktree-lifecycle-preserves-existing-state-by-default
+
+// harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-store-regression
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed-regression
+// harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-snapshot-regression
+describe('child default roster seeding', () => {
+  const makeSeed = (handle: string): import('./store.js').InitialAgent => ({
+    member: {
+      kind: 'agent',
+      handle,
+      display_name: handle,
+      harness: 'fake',
+      cwd: join(dir, 'child'),
+      policy: 'read-only',
+      host: 'test-host',
+      state: 'dead',
+      custody: 'owned',
+    },
+  });
+
+  it('seeds ordered detached members only into a brand-new child and survives reopen', () => {
+    openRoom(store);
+    const seed = [makeSeed('alpha'), makeSeed('beta')];
+    const first = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created',
+      '2026-08-06T00:08:00.000Z', seed,
+    );
+    expect(first.seeded.map((member) => member.handle)).toEqual(['alpha', 'beta']);
+    expect(first.seeded.every((member) => member.state === 'dead' && member.custody === 'owned'))
+      .toBe(true);
+    // The roster ORDER lives in the seeded registration result above; the
+    // durable member set is id-sorted, so compare it order-insensitively.
+    expect(
+      store.listMembers(first.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent')
+        .map((member) => member.handle)
+        .sort(),
+    ).toEqual(['alpha', 'beta']);
+    // Root roster untouched: no agent rows leak into the root.
+    expect(store.listMembers('eng').filter((member) => member.kind === 'agent')).toEqual([]);
+
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(
+      store.listMembers(first.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent')
+        .map((member) => member.handle)
+        .sort(),
+    ).toEqual(['alpha', 'beta']);
+
+    // Re-adoption of the same admin identity seeds nothing again.
+    store.unregisterWorktree('eng', first.worktree.id, '2026-08-06T00:09:00.000Z');
+    const readopted = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'adopted',
+      '2026-08-06T00:10:00.000Z', seed,
+    );
+    expect(readopted.seeded).toEqual([]);
+    expect(
+      store.listMembers(first.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toHaveLength(2);
+  });
+
+  it('keeps child snapshots detached from later preset and roster edits', () => {
+    openRoom(store);
+    const preset = store.createAgentPreset({ label: 'Alpha', handle: 'alpha', harness: 'fake', model: 'm-1' });
+    store.replaceDefaultRoster([preset.id]);
+    const first = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created',
+      '2026-08-06T00:11:00.000Z',
+      [{
+        member: {
+          kind: 'agent', handle: 'alpha', display_name: 'alpha', harness: 'fake',
+          cwd: join(dir, 'child'), policy: 'read-only', model: 'm-1',
+          host: 'test-host', state: 'dead', custody: 'owned',
+        },
+      }],
+    );
+    store.updateAgentPreset(preset.id, { label: 'Alpha', handle: 'alpha', harness: 'fake', model: 'm-2' });
+    store.replaceDefaultRoster([]);
+    const member = store.getMember(first.worktree.conversation_id, first.seeded[0]!.id)!;
+    expect(member.handle).toBe('alpha');
+    expect(member.model).toBe('m-1');
+  });
+});
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+// harn:end default-roster-channel-members-are-detached-ordered-snapshots
+// harn:end worktree-child-default-roster-is-an-explicit-snapshot
+
+// harn:assume qualified-execution-requires-usable-checkout ref=qualified-target-usability-store-regression
+describe('qualified target usability and stable identity', () => {
+  it('keeps accepted identity stable while requiring current aliases for new delivery and usable checkouts', () => {
+    openRoom(store);
+    const registered = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('child'), 'old-label', 'adopted',
+    );
+    const child = registered.worktree.conversation_id;
+    const member = store.addMember(child, {
+      kind: 'agent', handle: 'stable-agent', display_name: 'Stable Agent', state: 'idle',
+    });
+    const acceptedTarget = {
+      worktree_id: registered.worktree.id,
+      conversation_id: child,
+      member_id: member.id,
+      alias: 'old-label',
+      handle: member.handle,
+    } as const;
+    const owner = store.getMemberByHandle('eng', 'richard')!;
+    const acceptedMessage = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'accepted before metadata changed',
+    });
+    const accepted = store.createDelivery('eng', {
+      message_id: acceptedMessage.id, recipient: member.id, target: acceptedTarget,
+    });
+
+    store.updateWorktreeAlias('eng', registered.worktree.id, 'new-label');
+    store.refreshWorktreeObservation('eng', registered.worktree.id, {
+      ...childObs('child'),
+      path: join(dir, 'moved-child'),
+      branch: 'feature/moved-child',
+    });
+    expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
+
+    // The stable target remains valid over a store restart and keeps its old
+    // alias only as historical delivery attribution.
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
+    expect(store.getDelivery('eng', accepted.id)?.target).toEqual(acceptedTarget);
+
+    const newMessage = store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: 'new message after alias change',
+    });
+    const currentTarget = { ...acceptedTarget, alias: 'new-label' };
+    expect(store.createDelivery('eng', {
+      message_id: newMessage.id, recipient: member.id, target: currentTarget,
+    }).target).toEqual(currentTarget);
+
+    for (const availability of ['available', 'locked'] as const) {
+      store.refreshWorktreeObservation('eng', registered.worktree.id, {
+        ...childObs('child'),
+        path: join(dir, 'moved-child'),
+        branch: 'feature/moved-child',
+        availability,
+        locked: availability === 'locked',
+      });
+      expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
+    }
+    for (const availability of ['missing', 'prunable'] as const) {
+      store.refreshWorktreeObservation('eng', registered.worktree.id, {
+        ...childObs('child'),
+        path: join(dir, 'moved-child'),
+        branch: 'feature/moved-child',
+        availability,
+        locked: false,
+      });
+      expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(false);
+    }
+  });
+});
+// harn:end qualified-execution-requires-usable-checkout

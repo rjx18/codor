@@ -1,0 +1,19 @@
+id: settings-manages-one-separate-ordered-default-roster
+hash: a-b38bcc0c7884
+title: Settings edits one ordered roster of individual-preset references
+state: active
+statement: Authorized Settings must render the singleton default roster as a
+  separate ordered reference editor over the current individual-preset list,
+  allow duplicate-free add, remove, move-up, move-down, empty, reload, and one
+  atomic save, preserve a dirty retryable draft on conflicts or transport
+  failure, and reconcile only from an explicit reload or the authoritative
+  returned order; it must never copy preset fields into the group, silently
+  remove a missing reference, or mutate an individual preset as a side effect,
+  because the default roster is one ordered group choice rather than another
+  preset or a denormalized team snapshot.
+depends_on:
+  - settings-manages-individual-agent-presets-through-canonical-controls
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+  - default-roster-references-block-preset-deletion
+  - agent-preset-management-is-authorized-and-transport-neutral
+created_by: native-worktrees-agent-presets-integration

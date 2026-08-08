@@ -1,11 +1,12 @@
 import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
 import { ArrowRight, FolderPlus, Sparkles } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { createRoom } from '@runtime/api.js';
 
 import { Button, Code } from '../primitives/primitives.js';
 import { AgentControls, AgentIdentityControls, Section } from '../room/AgentControls.js';
+import { DefaultRosterChoice } from '../room/DefaultRosterChoice.js';
 import { FolderPicker } from '../room/FolderPicker.js';
 import {
   DEFAULT_POLICY,
@@ -39,6 +40,9 @@ export function NoChannels(props: { token: string }) {
   const [agentConfig, setAgentConfig] = useState<AgentConfig>({
     harness: '', model: '', thinking: '', policy: DEFAULT_POLICY,
   });
+  const rosterDraft = useRef<AgentConfig>();
+  const skipCatalogReconcile = useRef(false);
+  const [defaultRosterSelected, setDefaultRosterSelected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
 
@@ -52,17 +56,39 @@ export function NoChannels(props: { token: string }) {
     [effectiveAgentName],
   );
   const hasAgent = agentConfig.harness !== '';
+  const changeRosterSelection = (selected: boolean): void => {
+    if (selected) {
+      rosterDraft.current = agentConfig;
+      setDefaultRosterSelected(true);
+      setError(undefined);
+      return;
+    }
+    const preserved = rosterDraft.current;
+    rosterDraft.current = undefined;
+    if (preserved !== undefined) {
+      skipCatalogReconcile.current = true;
+      setAgentConfig(preserved);
+    }
+    setDefaultRosterSelected(false);
+  };
   // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=first-provider-selection
   useEffect(() => {
+    if (defaultRosterSelected) return;
+    if (skipCatalogReconcile.current) {
+      skipCatalogReconcile.current = false;
+      return;
+    }
     if (!hasAgent || all.some((adapter) => adapter.id === agentConfig.harness)) return;
     setAgentConfig({ ...agentConfig, harness: '', model: '', thinking: '' });
-  }, [all, agentConfig, hasAgent]);
+  }, [all, agentConfig, defaultRosterSelected, hasAgent]);
   // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
   const acpLaunch = acpLaunchFromConfig(agentConfig);
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
-    && (!hasAgent || (agentHandle !== undefined && !identityClash))
-    && (agentConfig.harness !== 'acp' || acpLaunch !== undefined);
+    && (defaultRosterSelected || (
+      (!hasAgent || (agentHandle !== undefined && !identityClash))
+      && (agentConfig.harness !== 'acp' || acpLaunch !== undefined)
+    ));
 
   const chooseFolder = (path: string): void => {
     setCwd(path);
@@ -79,7 +105,9 @@ export function NoChannels(props: { token: string }) {
       name: name.trim(),
       owner: { handle: ownerHandle, display_name: ownerName.trim() },
       cwd: cwd.trim(),
-      ...(hasAgent && agentHandle !== undefined && {
+      ...(defaultRosterSelected
+        ? { default_roster: true as const }
+        : hasAgent && agentHandle !== undefined && {
         starting_agent: {
           // A named tile's selector id (`acp:kimi`) resolves to the `acp` harness plus a
           // safe provider id; the generic tile keeps its custom launch.
@@ -162,6 +190,18 @@ export function NoChannels(props: { token: string }) {
           </div>
         </Section>
 
+        <DefaultRosterChoice
+          token={token}
+          selected={defaultRosterSelected}
+          onSelectedChange={changeRosterSelection}
+          idPrefix="first"
+        />
+        {defaultRosterSelected ? (
+          <div className="nx-roster-selected-note" data-testid="first-roster-selected" role="status">
+            <strong>Starting agent draft saved</strong>
+            <span>The saved roster is exclusive for this channel. Deselect it to restore your exact draft.</span>
+          </div>
+        ) : (
         <Section n={2} title="Starting agent" headingLevel={2}>
           <div className="nx-first-agent">
             <AgentIdentityControls
@@ -208,6 +248,7 @@ export function NoChannels(props: { token: string }) {
             )}
           </div>
         </Section>
+        )}
 
         {error !== undefined && <p className="nx-field-note is-error nx-first-error" role="alert">{error}</p>}
         <footer className="nx-onboarding-actions">

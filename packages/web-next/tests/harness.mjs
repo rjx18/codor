@@ -218,6 +218,10 @@ const viewer = daemon.store.addMember('eng', {
   kind: 'human', handle: 'viewer', display_name: 'Viewer', role: 'member',
 });
 const VIEWER_TOKEN = 'next-e2e-viewer-token';
+const admin = daemon.store.addMember('eng', {
+  kind: 'human', handle: 'admin', display_name: 'Admin', role: 'admin',
+});
+const ADMIN_TOKEN = 'next-e2e-admin-token';
 
 // Ops carries the failure state: its latest run failed and its author is dead.
 const relay = daemon.spawnMember('ops', { harness: 'fake', handle: 'relay', cwd: dir });
@@ -421,6 +425,58 @@ fake.enqueue({
 daemon.postHumanMessage('workspace', '@builder bump app.ts to version 2');
 await daemon.settle();
 dirtyWorkspace();
+
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-browser-fixture
+// Native worktree fixtures: 'workspace' gains one registered child so group
+// navigation is promoted with independent child activity; 'wtops' is a
+// git-backed room with NO registration for the explicit Find/Create flows.
+// Both repositories live below this harness's own mkdtemp root.
+const worktreeChildPath = join(dir, 'workspace-review');
+execFileSync('git', ['worktree', 'add', '-b', 'feature/review', worktreeChildPath, 'HEAD'], { cwd: workspaceRepo, env: gitEnv });
+const reviewRegistration = await daemon.adoptWorktree('workspace', { path: worktreeChildPath, alias: 'review' });
+const reviewChildRoom = reviewRegistration.worktree.conversation_id;
+crypto.roomKeys.ensureRoom(reviewChildRoom);
+const reviewer = daemon.spawnMember(reviewChildRoom, { harness: 'fake', handle: 'reviewer', cwd: worktreeChildPath });
+// Independent child activity the human has not read: posted directly as the
+// child agent so the owner's read cursor stays behind.
+daemon.store.postMessage(reviewChildRoom, {
+  author: reviewer.id,
+  kind: 'chat',
+  body: 'review notes live in the child conversation',
+});
+
+const wtopsRepo = join(dir, 'wtops-repo');
+mkdirSync(wtopsRepo, { recursive: true });
+const gitOps = (args) => execFileSync('git', args, { cwd: wtopsRepo, env: gitEnv });
+gitOps(['init', '-q', '-b', 'main']);
+writeFileSync(join(wtopsRepo, 'README.md'), '# ops fixture\n');
+gitOps(['add', '.']);
+gitOps(['commit', '-q', '-m', 'ops fixture']);
+const wtopsFoundPath = join(dir, 'wtops-found');
+gitOps(['worktree', 'add', '-b', 'feature/found', wtopsFoundPath, 'HEAD']);
+daemon.createRoom({ id: 'wtops', name: 'Worktree Ops', owner, cwd: wtopsRepo });
+crypto.roomKeys.ensureRoom('wtops');
+
+// A KNOWN existing cwd that is NOT a Git repository: the bounded inspection
+// reports repository:false and the pre-promotion entry must stay hidden, with
+// the read never turning the directory into a repository.
+const plainCwd = join(dir, 'plain-cwd');
+mkdirSync(plainCwd, { recursive: true });
+daemon.createRoom({ id: 'plain', name: 'Plain Known Cwd', owner, cwd: plainCwd });
+crypto.roomKeys.ensureRoom('plain');
+
+const resetWtops = () => {
+  // Re-run safety only: unregister every secondary and restore the seeded
+  // discovery candidate. Created test branches are left in place (tests use
+  // unique names); nothing force-removes or prunes.
+  for (const worktree of daemon.store.listRegisteredWorktrees('wtops').filter((item) => !item.primary)) {
+    try { daemon.unregisterWorktree('wtops', worktree.id); } catch { /* already tombstoned */ }
+  }
+  if (!existsSync(wtopsFoundPath)) {
+    try { gitOps(['worktree', 'add', '-b', `feature/found-${String(Date.now())}`, wtopsFoundPath, 'HEAD']); } catch { /* best effort */ }
+  }
+};
+// harn:end registered-worktree-navigation-is-promotion-gated
 
 // Files: an agent-free room seeded with a message carrying a rendered image and a
 // download chip (bytes + sidecars on disk) so the attachments e2e has real files
@@ -1264,6 +1320,7 @@ let relayLink;
 let cryptoB;
 let relayStoreB;
 let relayLinkB;
+let phase5Fixture;
 
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
@@ -1462,6 +1519,16 @@ createServer((req, res) => {
       }
       if (url.pathname === '/relay-down-b') { relayLinkB.stop(); payload = { ok: true }; }
       if (url.pathname === '/relay-up-b') { relayLinkB.start(); payload = { ok: true }; }
+      if (url.pathname === '/phase5-fixture') {
+        payload = createPhase5Fixture();
+      }
+      if (url.pathname === '/phase5-summary') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = phase5Summary(
+          body.host === 'b' ? 'b' : 'a',
+          Array.isArray(body.rooms) ? body.rooms.map((room) => String(room)) : [],
+        );
+      }
       if (url.pathname === '/fixture-ids') {
         payload = {
           oldInboxMention: oldInboxMention.id,
@@ -1546,6 +1613,50 @@ createServer((req, res) => {
       if (url.pathname === '/git-dirty') {
         // Re-dirty the workspace repo (inverse of /git-reset) for re-runs.
         dirtyWorkspace();
+      }
+      if (url.pathname === '/wt-dirty') {
+        // Dirty the seeded review child checkout for the removal-preview refusal.
+        writeFileSync(join(worktreeChildPath, 'wt-dirty.txt'), 'dirty\n');
+      }
+      if (url.pathname === '/wt-clean') {
+        rmSync(join(worktreeChildPath, 'wt-dirty.txt'), { force: true });
+      }
+      if (url.pathname === '/wt-ops-reset') {
+        resetWtops();
+      }
+      if (url.pathname === '/wt-plain-git') {
+        // Proof the read-only inspection never turned the known plain cwd into
+        // a repository.
+        payload = { git: existsSync(join(plainCwd, '.git')) };
+      }
+      if (url.pathname === '/wt-ops-target') {
+        // A missing absolute path beside the disposable wtops repository, for
+        // first-creation flows that run before any registration exists.
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = { path: join(dir, String(body.name ?? 'wt-target')) };
+      }
+      if (url.pathname === '/wt-branch') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const repo = String(body.room ?? 'wtops') === 'wtops' ? wtopsRepo : workspaceRepo;
+        let exists = false;
+        try {
+          execFileSync('git', ['show-ref', '--verify', '--quiet', `refs/heads/${String(body.branch)}`], { cwd: repo, env: gitEnv });
+          exists = true;
+        } catch { /* absent */ }
+        payload = { exists };
+      }
+      if (url.pathname === '/wt-registered') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        payload = {
+          registered: daemon.store.listRegisteredWorktrees(String(body.room ?? 'workspace'))
+            .map((worktree) => ({
+              id: worktree.id,
+              alias: worktree.alias,
+              primary: worktree.primary,
+              lifecycle: worktree.lifecycle,
+              conversation_id: worktree.conversation_id,
+            })),
+        };
       }
       if (url.pathname === '/run-progress') {
         // Report an agent's latest run: its id, status, and how many prose
@@ -1700,6 +1811,94 @@ await startServer({
   },
 });
 
+// Phase 5 is opt-in: these native preset lists and rosters do not exist until
+// the dedicated room39 control endpoint is called. The response helpers expose
+// only safe public identity and room/member summaries; credentials, hashes,
+// private ACP/runtime data, room keys, and mutable Store handles never cross the
+// control boundary.
+function publicPhase5Preset(preset) {
+  return {
+    id: preset.id,
+    label: preset.label,
+    handle: preset.handle,
+    ...(preset.display_name !== undefined ? { display_name: preset.display_name } : {}),
+    harness: preset.harness,
+    ...(preset.policy !== undefined ? { policy: preset.policy } : {}),
+    ...(preset.model !== undefined ? { model: preset.model } : {}),
+    ...(preset.thinking !== undefined ? { thinking: preset.thinking } : {}),
+  };
+}
+
+function publicPhase5Member(member) {
+  return {
+    id: member.id,
+    kind: member.kind,
+    handle: member.handle,
+    display_name: member.display_name,
+    harness: member.harness,
+    ...(member.policy !== undefined ? { policy: member.policy } : {}),
+    ...(member.model !== undefined ? { model: member.model } : {}),
+    ...(member.thinking !== undefined ? { thinking: member.thinking } : {}),
+    state: member.state,
+    task_ids: member.tasks?.items.map((item) => item.id) ?? [],
+  };
+}
+
+function phase5HostSnapshot(host) {
+  const target = host === 'b' ? daemonB : daemon;
+  const presetIds = phase5Fixture?.[host]?.presetIds ?? [];
+  return {
+    presets: presetIds.map((id) => publicPhase5Preset(target.getAgentPreset(id))),
+    roster: target.getDefaultRoster().preset_ids.map((id) => {
+      const preset = target.getAgentPreset(id);
+      return preset === undefined ? { id } : publicPhase5Preset(preset);
+    }),
+  };
+}
+
+function createPhase5Fixture() {
+  if (phase5Fixture === undefined) {
+    const inputs = {
+      a: [
+        { label: 'P5 A North', handle: 'p5-a-north', display_name: 'P5 A North Display', harness: 'fake', policy: 'workspace-write' },
+        { label: 'P5 A South', handle: 'p5-a-south', display_name: 'P5 A South Display', harness: 'fake', policy: 'read-only' },
+      ],
+      b: [
+        { label: 'P5 B East', handle: 'p5-b-east', display_name: 'P5 B East Display', harness: 'fake', policy: 'workspace-write' },
+        { label: 'P5 B West', handle: 'p5-b-west', display_name: 'P5 B West Display', harness: 'fake', policy: 'read-only' },
+      ],
+    };
+    const aPresets = inputs.a.map((input) => daemon.createAgentPreset(input));
+    const bPresets = inputs.b.map((input) => daemonB.createAgentPreset(input));
+    daemon.replaceDefaultRoster({ preset_ids: aPresets.map((preset) => preset.id) });
+    daemonB.replaceDefaultRoster({ preset_ids: bPresets.map((preset) => preset.id) });
+    phase5Fixture = {
+      a: { presetIds: aPresets.map((preset) => preset.id) },
+      b: { presetIds: bPresets.map((preset) => preset.id) },
+    };
+  }
+  return {
+    a: phase5HostSnapshot('a'),
+    b: phase5HostSnapshot('b'),
+  };
+}
+
+function phase5Summary(host, roomIds) {
+  const target = host === 'b' ? daemonB : daemon;
+  const rooms = roomIds.map((id) => {
+    const room = target.store.getRoom(id);
+    return {
+      id,
+      ...(room === undefined ? { missing: true } : {
+        name: room.name,
+        members: target.store.listMembers(id).map(publicPhase5Member),
+        run_count: target.store.listRunMessages(id, { limit: Number.MAX_SAFE_INTEGER }).length,
+      }),
+    };
+  });
+  return { host, ...phase5HostSnapshot(host), rooms };
+}
+
 // A stub voice provider: the real /api/voice/transcribe endpoint, but a
 // distinct counter-suffixed transcript per call (so multi-segment assertions are
 // real) with a small delay (so the "waiting for transcription" state is
@@ -1735,6 +1934,7 @@ await startServer({
   },
   principals: [
     { token: VIEWER_TOKEN, member_id: viewer.id },
+    { token: ADMIN_TOKEN, member_id: admin.id },
     { token: RECOVERY_VIEWER_TOKEN, member_id: onlooker.id },
   ],
   voiceProvider: 'codex',

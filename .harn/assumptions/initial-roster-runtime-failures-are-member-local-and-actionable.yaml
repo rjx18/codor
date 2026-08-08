@@ -15,4 +15,4 @@ depends_on:
   - agent-member-credentials-stay-secret
   - durable-agent-runtime-configuration
   - canonical-spawn-controls-enforced
-created_by: agent-presets-p3-default-roster-create
+created_by: native-worktrees-agent-presets-integration

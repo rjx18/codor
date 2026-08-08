@@ -90,6 +90,16 @@ export function messageReadSeq(message: Message, mine: boolean): number | undefi
   return undefined;
 }
 
+// harn:assume cross-worktree-output-stays-in-origin ref=qualified-author-rendering
+/** Foreign execution authors keep their persisted scope in the origin row. */
+export function qualifiedAuthorLabel(message: Message, author?: Member): string {
+  const handle = author?.handle ?? message.author_target?.handle ?? '…';
+  return message.author_target === undefined
+    ? `@${handle}`
+    : `~${message.author_target.alias}:@${handle}`;
+}
+// harn:end cross-worktree-output-stays-in-origin
+
 export function continuationVisibleMessages(
   ordered: readonly Message[],
   messages: Readonly<Record<number, Message>>,
@@ -571,7 +581,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
                   // history back to it rather than jumping to a dead fragment.
                   onClick={() => void jumpToMessage(props.room, message.id, props.token)}
                 >
-                  <span className="nx-pinned-who">@{members[message.author]?.handle ?? '…'}</span>
+                  <span className="nx-pinned-who">{qualifiedAuthorLabel(message, members[message.author])}</span>
                   <span className="nx-pinned-snippet">{pinnedSnippet(message)}</span>
                 </button>
               </li>
@@ -706,13 +716,14 @@ function TurnBlock(props: {
     );
   }
 
-  const handle = author?.handle ?? '…';
+  const handle = author?.handle ?? message.author_target?.handle ?? '…';
+  const authorLabel = qualifiedAuthorLabel(message, author);
 
   // Acknowledgements collapse to one quiet line — the ack IS the content.
   if (message.ack === true) {
     return (
       <p id={String(message.id)} data-testid={`ack-${handle}`} className="nx-system nx-ack">
-        <Check size={13} aria-hidden="true" /> @{handle} acknowledged
+        <Check size={13} aria-hidden="true" /> {authorLabel} acknowledged
       </p>
     );
   }
@@ -735,7 +746,7 @@ function TurnBlock(props: {
               {isMobile && (
                 <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />
               )}
-              <strong className="nx-turn-author">@{handle}</strong>
+              <strong className="nx-turn-author">{authorLabel}</strong>
               <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
               <span className="nx-turn-spacer" />
               <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
@@ -750,7 +761,7 @@ function TurnBlock(props: {
   const quote = (): void => {
     const line = message.body.split('\n', 1)[0] ?? '';
     window.dispatchEvent(new CustomEvent('nx-quote', {
-      detail: { text: `@${handle} > ${line}`, replyTo: message.id },
+      detail: { text: `${authorLabel} > ${line}`, replyTo: message.id },
     }));
   };
 
@@ -772,7 +783,7 @@ function TurnBlock(props: {
             {isMobile && (
               <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />
             )}
-            <strong className="nx-turn-author">@{handle}</strong>
+            <strong className="nx-turn-author">{authorLabel}</strong>
             {message.origin !== undefined && (
               <span className="nx-turn-origin" title={`via ${message.origin.platform}`}>
                 {message.origin.sender_name} · {message.origin.platform}
@@ -1569,13 +1580,14 @@ function RunStretch(props: {
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
-  const handle = author?.handle ?? '…';
+  const handle = author?.handle ?? message.author_target?.handle ?? '…';
+  const authorLabel = qualifiedAuthorLabel(message, author);
   const status = message.run?.status;
   const runError = message.run?.error;
   const quote = (): void => {
     const line = message.body.split('\n', 1)[0] ?? '';
     window.dispatchEvent(new CustomEvent('nx-quote', {
-      detail: { text: `@${handle} > ${line}`, replyTo: message.id },
+      detail: { text: `${authorLabel} > ${line}`, replyTo: message.id },
     }));
   };
   return (
@@ -1589,7 +1601,7 @@ function RunStretch(props: {
       <div className="nx-turn-main">
         <div className="nx-turn-meta">
           {isMobile && <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={24} />}
-          <strong className="nx-turn-author">@{handle}</strong>
+          <strong className="nx-turn-author">{authorLabel}</strong>
           <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
           {props.anchored && message.pinned === true && (
             <Pin size={12} className="nx-pin-glyph" aria-label="Pinned" data-testid={`msg-${message.id}-pinned`} />

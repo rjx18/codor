@@ -1,0 +1,11 @@
+id: worktree-git-execution-is-argument-safe
+hash: a-991c8745704e
+title: Worktree Git execution is bounded and shell-free
+state: active
+statement: Every repository and worktree discovery, validation, creation,
+  cleanliness check, and removal command must invoke Git through an executable
+  plus an argument array with fixed time and output bounds, parse machine-safe
+  NUL output where paths are returned, and never construct a shell command from
+  a repository path, worktree path, alias, branch, or revision.
+depends_on: []
+created_by: native-worktrees-phase1-registry

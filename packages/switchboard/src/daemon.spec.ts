@@ -4827,6 +4827,73 @@ describe('collaboration recovery and unavailable participants', () => {
     expect(fake.deliveries.filter((delivery) => delivery.payload.includes('round=2')))
       .toHaveLength(1);
   });
+
+  it('settles an invalid already-delivering group participant truthfully at boot without throwing', async () => {
+    const alpha = spawnAgent('boot-group-alpha');
+    const worktree = registerQualifiedFixture('boot-group-target', 'boot-group-target');
+    const remote = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'boot-group-remote', cwd: testCwd('boot-group-remote'),
+    });
+    daemon.pauseMember('eng', alpha.id);
+    daemon.pauseMember(worktree.conversation_id, remote.id);
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@boot-group-alpha ~boot-group-target:@boot-group-remote group up',
+    );
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const remoteParticipant = daemon.store
+      .listCollaborationParticipants('eng', group.id, 1)
+      .find((participant) => participant.member_id === remote.id)!;
+    const remoteDelivery = daemon.store.getDelivery('eng', remoteParticipant.delivery_id)!;
+    // The scoped attempt had already started when its target went stale.
+    const run = daemon.store.postMessage('eng', {
+      author: remote.id,
+      author_target: remoteDelivery.target,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:30:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(root.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', remoteDelivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, remote.id, { state: 'running' });
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:31:00.000Z');
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const refusals = () =>
+      daemon.store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(daemon.store.getDelivery('eng', remoteDelivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(daemon.store.findCollaborationParticipantByDelivery('eng', remoteDelivery.id))
+      .toMatchObject({ terminal_status: 'interrupted' });
+    expect(refusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+    // The surviving participant is not terminal, so the barrier holds: no
+    // closed round, no next round, no new deliveries.
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('collecting');
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+
+    // A repeated restart settles nothing twice and reopens nothing.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(refusals()).toHaveLength(1);
+    expect(daemon.store.findCollaborationParticipantByDelivery('eng', remoteDelivery.id))
+      .toMatchObject({ terminal_status: 'interrupted' });
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('collecting');
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
 });
 // harn:end open-collaboration-groups-reconcile-without-resurrection
 
@@ -5892,17 +5959,22 @@ describe('git working state (diff explorer)', () => {
   it('returns a clean, empty state for a repo with no working changes', async () => {
     daemon.configureRoom('eng', { cwd: initRepo() });
     const state = await daemon.gitWorkingState('eng');
+    expect(state.repository).toBe(true);
     expect(state.clean).toBe(true);
     expect(state.files).toEqual([]);
   });
 
-  it('returns a clean, empty state for a non-git directory', async () => {
+  it('reports a known non-git directory honestly without mutating it', async () => {
     const plain = join(dir, 'plain');
     mkdirSync(plain, { recursive: true });
     daemon.configureRoom('eng', { cwd: plain });
     const state = await daemon.gitWorkingState('eng');
+    // Honest repository truth: the entry must be able to hide itself, and the
+    // read-only inspection must never turn the directory INTO a repository.
+    expect(state.repository).toBe(false);
     expect(state.clean).toBe(true);
     expect(state.files).toEqual([]);
+    expect(existsSync(join(plain, '.git'))).toBe(false);
   });
 
   it('offers the distinct cwds of the room\'s agent members', async () => {
@@ -7907,3 +7979,1329 @@ describe('interaction re-correlation keys on semantic identity with detail', () 
   });
 });
 // harn:end interaction-recorrelation-keys-on-semantic-identity-with-detail
+
+// harn:assume child-members-own-isolated-runtime ref=conversation-runtime-isolation-regression
+describe('registered child conversations own isolated agent runtime', () => {
+  it('keeps sessions, credentials, tasks, usage, and restart state room-local', async () => {
+    const childResult = daemon.store.registerWorktree(
+      'eng',
+      {
+        common_path: join(dir, 'runtime-repository', '.git'),
+        primary_path: join(dir, 'runtime-repository'),
+        primary_git_admin_id: join(dir, 'runtime-repository', '.git'),
+      },
+      {
+        path: join(dir, 'runtime-repository'),
+        git_admin_id: join(dir, 'runtime-repository', '.git'),
+        primary: true,
+        availability: 'available',
+        locked: false,
+        head: '0123456789abcdef0123456789abcdef01234567',
+        branch: 'main',
+      },
+      {
+        path: join(dir, 'runtime-child'),
+        git_admin_id: join(dir, 'runtime-repository', '.git', 'worktrees', 'runtime-child'),
+        primary: false,
+        availability: 'available',
+        locked: false,
+        head: '0123456789abcdef0123456789abcdef01234567',
+        branch: 'feature/runtime-child',
+      },
+      'runtime-child',
+      'adopted',
+    );
+    const child = childResult.worktree.conversation_id;
+    const sessions: Session[] = [];
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      const session = originalSpawn(opts);
+      sessions.push(session);
+      return session;
+    });
+
+    const main = daemon.spawnMember('eng', {
+      harness: 'fake',
+      handle: 'same-runtime-handle',
+      cwd: testCwd('runtime-main'),
+    });
+    const secondary = daemon.spawnMember(child, {
+      harness: 'fake',
+      handle: 'same-runtime-handle',
+      cwd: testCwd('runtime-child'),
+    });
+    spawnSpy.mockRestore();
+
+    expect(main.id).not.toBe(secondary.id);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]).toMatchObject({
+      cwd: join(dir, 'cwd', 'runtime-main'),
+      env: { CODOR_CHANNEL: 'eng', CODOR_MEMBER_ID: main.id },
+    });
+    expect(sessions[1]).toMatchObject({
+      cwd: join(dir, 'cwd', 'runtime-child'),
+      env: { CODOR_CHANNEL: child, CODOR_MEMBER_ID: secondary.id },
+    });
+    const mainToken = sessions[0]!.env!.CODOR_MEMBER_TOKEN!;
+    const childToken = sessions[1]!.env!.CODOR_MEMBER_TOKEN!;
+    expect(childToken).not.toBe(mainToken);
+    expect(daemon.authenticateAgentToken(mainToken)).toMatchObject({ room: 'eng', member: { id: main.id } });
+    expect(daemon.authenticateAgentToken(childToken)).toMatchObject({ room: child, member: { id: secondary.id } });
+    expect(daemon.store.listMembers(child).filter((member) => member.kind === 'agent'))
+      .toEqual([expect.objectContaining({ id: secondary.id, handle: 'same-runtime-handle' })]);
+
+    daemon.store.applyMemberTaskUpdate('eng', main.id, {
+      op: 'replace', items: [{ id: 'main-task', content: 'Main task', status: 'pending' }],
+    });
+    daemon.store.applyMemberTaskUpdate(child, secondary.id, {
+      op: 'replace', items: [{ id: 'child-task', content: 'Child task', status: 'in_progress' }],
+    });
+    const mainUsage = {
+      inputTokens: 11,
+      outputTokens: 3,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 40_000,
+    } as const;
+    const childUsage = {
+      inputTokens: 22,
+      outputTokens: 6,
+      contextWindowMaxTokens: 200_000,
+      contextWindowUsedTokens: 80_000,
+    } as const;
+    fake.enqueue({ kind: 'complete', final_text: 'main runtime', agent_usage: mainUsage });
+    daemon.postHumanMessage('eng', '@same-runtime-handle main turn');
+    await daemon.settle();
+    fake.enqueue({ kind: 'complete', final_text: 'child runtime', agent_usage: childUsage });
+    daemon.postHumanMessage(child, '@same-runtime-handle child turn');
+    await daemon.settle();
+
+    const mainMeterBefore = daemon.store.getMeter('eng', '2026-08-06');
+    const childMeterBefore = daemon.store.getMeter(child, '2026-08-06');
+    daemon.store.bumpMeter('eng', '2026-08-06', { turns: 1, input_tokens: 11 });
+    daemon.store.bumpMeter(child, '2026-08-06', { turns: 2, output_tokens: 22 });
+    const mainMeter = daemon.store.getMeter('eng', '2026-08-06')!;
+    const childMeter = daemon.store.getMeter(child, '2026-08-06')!;
+    expect(mainMeter.turns - (mainMeterBefore?.turns ?? 0)).toBe(1);
+    expect(mainMeter.input_tokens - (mainMeterBefore?.input_tokens ?? 0)).toBe(11);
+    expect(childMeter.turns - (childMeterBefore?.turns ?? 0)).toBe(2);
+    expect(childMeter.output_tokens - (childMeterBefore?.output_tokens ?? 0)).toBe(22);
+
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === main.id)?.member.lastUsage)
+      .toEqual(mainUsage);
+    expect(daemon.memberDetails(child).find((detail) => detail.member.id === secondary.id)?.member.lastUsage)
+      .toEqual(childUsage);
+    expect(daemon.store.getMember('eng', main.id)?.tasks?.items).toEqual([
+      { id: 'main-task', content: 'Main task', status: 'pending' },
+    ]);
+    expect(daemon.store.getMember(child, secondary.id)?.tasks?.items).toEqual([
+      { id: 'child-task', content: 'Child task', status: 'in_progress' },
+    ]);
+    expect(daemon.store.getMeter('eng', '2026-08-06')).toEqual(mainMeter);
+    expect(daemon.store.getMeter(child, '2026-08-06')).toEqual(childMeter);
+    expect(daemon.store.listMessages('eng').map((message) => message.body)).toContain('main runtime');
+    expect(daemon.store.listMessages(child).map((message) => message.body)).toContain('child runtime');
+    expect(daemon.store.listMessages('eng').map((message) => message.body)).not.toContain('child runtime');
+    expect(daemon.store.listMessages(child).map((message) => message.body)).not.toContain('main runtime');
+
+    await daemon.close({ force: true });
+    frames = [];
+    daemon = newDaemon();
+    expect(daemon.store.getMember('eng', main.id)?.tasks?.items).toEqual([
+      { id: 'main-task', content: 'Main task', status: 'pending' },
+    ]);
+    expect(daemon.store.getMember(child, secondary.id)?.tasks?.items).toEqual([
+      { id: 'child-task', content: 'Child task', status: 'in_progress' },
+    ]);
+    expect(daemon.store.getMeter('eng', '2026-08-06')).toEqual(mainMeter);
+    expect(daemon.store.getMeter(child, '2026-08-06')).toEqual(childMeter);
+    expect(daemon.memberDetails('eng').find((detail) => detail.member.id === main.id)?.member)
+      .not.toHaveProperty('lastUsage');
+    expect(daemon.memberDetails(child).find((detail) => detail.member.id === secondary.id)?.member)
+      .not.toHaveProperty('lastUsage');
+  });
+});
+// harn:end child-members-own-isolated-runtime
+
+const registerQualifiedFixture = (alias: string, childName: string) => {
+  const result = daemon.store.registerWorktree(
+    'eng',
+    {
+      common_path: join(dir, 'qualified-repository', '.git'),
+      primary_path: join(dir, 'qualified-repository'),
+      primary_git_admin_id: join(dir, 'qualified-repository', '.git'),
+    },
+    {
+      path: join(dir, 'qualified-repository'),
+      git_admin_id: join(dir, 'qualified-repository', '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      branch: 'main',
+    },
+    {
+      path: join(dir, childName),
+      git_admin_id: join(dir, 'qualified-repository', '.git', 'worktrees', childName),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: `feature/${childName}`,
+    },
+    alias,
+    'adopted',
+  );
+  return result.worktree;
+};
+
+// harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-turn-orchestration-regression
+// harn:assume cross-worktree-runtime-stays-target-local ref=cross-worktree-runtime-regression
+// harn:assume target-member-turns-serialize-across-origins ref=cross-origin-turn-scheduler-regression
+describe('qualified target orchestration', () => {
+  it('keeps foreign output in the origin, runs the target home, and serializes origins', async () => {
+    const targetWorktree = registerQualifiedFixture('target-a', 'target-a');
+    const originWorktree = registerQualifiedFixture('origin-b', 'origin-b');
+    const targetRoom = targetWorktree.conversation_id;
+    const originRoom = originWorktree.conversation_id;
+    let targetSession: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+      targetSession = originalSpawn(opts);
+      return targetSession;
+    });
+    const target = daemon.spawnMember(targetRoom, {
+      harness: 'fake', handle: 'same-target', cwd: testCwd('qualified-target-home'),
+    });
+    spawnSpy.mockRestore();
+    const targetToken = targetSession?.env?.CODOR_MEMBER_TOKEN;
+    if (!targetSession || !targetToken) throw new Error('target fixture did not receive a session token');
+
+    fake.enqueue(
+      { kind: 'complete', final_text: 'first target answer', delay_ms: 35 },
+      { kind: 'complete', final_text: 'second target answer' },
+    );
+    const first = daemon.postHumanMessage('eng', '~target-a:@same-target first request');
+    await until(() => fake.deliveries.length === 1 ? true : undefined);
+    expect(targetSession.env?.CODOR_CHANNEL).toBe('eng');
+    const activeTargetToken = targetSession.env?.CODOR_MEMBER_TOKEN;
+    expect(activeTargetToken).toBeDefined();
+    expect(daemon.authenticateAgentToken(activeTargetToken!)).toMatchObject({
+      room: 'eng', homeRoom: targetRoom, member: { id: target.id },
+      invocation: { originRoom: 'eng', targetRoom },
+    });
+    expect(fake.deliveries[0]?.cwd).toBe(testCwd('qualified-target-home'));
+    expect(fake.deliveries[0]?.payload).toContain('channel=eng');
+
+    const second = daemon.postHumanMessage(originRoom, '~target-a:@same-target second request');
+    expect(second.room).toBe(originRoom);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(2);
+    expect(fake.maxConcurrent).toBe(1);
+    expect(fake.steers).toHaveLength(0);
+    expect(fake.deliveries.map((delivery) => delivery.payload.match(/channel=([^ ]+)/)?.[1]))
+      .toEqual(['eng', originRoom]);
+    expect(targetSession.env?.CODOR_CHANNEL).toBe(targetRoom);
+    expect(daemon.authenticateAgentToken(activeTargetToken!)).toBeUndefined();
+
+    const firstRun = daemon.store.listRunMessages('eng', { author: target.id, limit: 10 })[0]!;
+    expect(firstRun.author_target).toMatchObject({
+      worktree_id: targetWorktree.id,
+      conversation_id: targetRoom,
+      member_id: target.id,
+      alias: 'target-a',
+      handle: 'same-target',
+    });
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('first target answer');
+    expect(daemon.store.listMessages(originRoom).map((message) => message.body))
+      .toContain('second target answer');
+    expect(daemon.store.listMessages(targetRoom).map((message) => message.body))
+      .not.toContain('first target answer');
+    expect(daemon.store.listMessages(targetRoom).map((message) => message.body))
+      .not.toContain('second target answer');
+    expect(first.body).toBe('~target-a:@same-target first request');
+  });
+
+  it('keeps mixed local and qualified ingress in one origin-owned collaboration group', async () => {
+    const targetWorktree = registerQualifiedFixture('mixed-target', 'mixed-target');
+    const local = spawnAgent('mixed-local');
+    const remote = daemon.spawnMember(targetWorktree.conversation_id, {
+      harness: 'fake', handle: 'mixed-remote', cwd: testCwd('mixed-remote'),
+    });
+    daemon.pauseMember('eng', local.id);
+    daemon.pauseMember(targetWorktree.conversation_id, remote.id);
+
+    const root = daemon.postHumanMessage('eng', '@mixed-local ~mixed-target:@mixed-remote compare scopes');
+    const deliveries = daemon.store.listDeliveries('eng').filter((delivery) => delivery.message_id === root.id);
+    expect(deliveries).toHaveLength(2);
+    expect(new Set(deliveries.map((delivery) => delivery.group_id)).size).toBe(1);
+    expect(deliveries.find((delivery) => delivery.recipient === local.id)?.target).toBeUndefined();
+    expect(deliveries.find((delivery) => delivery.recipient === remote.id)?.target).toMatchObject({
+      conversation_id: targetWorktree.conversation_id,
+      alias: 'mixed-target',
+      handle: 'mixed-remote',
+    });
+    expect(daemon.store.getCollaborationGroupByRoot('eng', root.id)?.room).toBe('eng');
+    await daemon.settle();
+  });
+
+  it('starts an origin-owned group from a foreign author with mixed target scopes', async () => {
+    const authorWorktree = registerQualifiedFixture('foreign-author', 'foreign-author');
+    const peerWorktree = registerQualifiedFixture('foreign-peer', 'foreign-peer');
+    const author = daemon.spawnMember(authorWorktree.conversation_id, {
+      harness: 'fake', handle: 'foreign-author', cwd: testCwd('foreign-author'),
+    });
+    const localTarget = daemon.spawnMember(authorWorktree.conversation_id, {
+      harness: 'fake', handle: 'author-peer', cwd: testCwd('author-peer'),
+    });
+    const foreignTarget = daemon.spawnMember(peerWorktree.conversation_id, {
+      harness: 'fake', handle: 'foreign-peer', cwd: testCwd('foreign-peer'),
+    });
+    daemon.pauseMember(authorWorktree.conversation_id, localTarget.id);
+    daemon.pauseMember(peerWorktree.conversation_id, foreignTarget.id);
+    fake.enqueue({
+      kind: 'complete',
+      final_text: '@author-peer ~foreign-peer:@foreign-peer compare the two scopes',
+    });
+
+    daemon.postHumanMessage('eng', '~foreign-author:@foreign-author produce a scoped group');
+    await daemon.settle();
+
+    const result = runMessages().find((message) => message.author === author.id)!;
+    const group = daemon.store.getCollaborationGroupByRoot('eng', result.id)!;
+    const participants = daemon.store.listCollaborationParticipants('eng', group.id, 1);
+    expect(group.room).toBe('eng');
+    expect(daemon.store.getMessage('eng', result.id)?.author_target).toMatchObject({
+      worktree_id: authorWorktree.id,
+      conversation_id: authorWorktree.conversation_id,
+      alias: 'foreign-author',
+      member_id: author.id,
+    });
+    expect(participants.map((participant) => participant.member_id)).toEqual([
+      localTarget.id, foreignTarget.id,
+    ]);
+    const deliveries = participants.map((participant) =>
+      daemon.store.getDelivery('eng', participant.delivery_id)!);
+    expect(deliveries.map((delivery) => delivery.target?.alias)).toEqual([
+      'foreign-author', 'foreign-peer',
+    ]);
+    const payloads = deliveries.map((delivery) =>
+      JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', delivery.id)!).payload as string);
+    expect(payloads[0]).toContain(`group request #${String(result.id)} - ~foreign-author:@foreign-author`);
+    expect(payloads[0]).toContain('@author-peer');
+    expect(payloads[0]).toContain('~foreign-peer:@foreign-peer');
+    expect(payloads[0]).toContain('[group routing:');
+    expect(payloads[1]).toBe(payloads[0].replace('you=@author-peer', 'you=@foreign-peer'));
+  });
+
+  it('routes a child-origin onward mention to the registered main target', async () => {
+    const targetWorktree = registerQualifiedFixture('child-origin', 'child-origin');
+    const childRoom = targetWorktree.conversation_id;
+    const remote = daemon.spawnMember(childRoom, {
+      harness: 'fake', handle: 'child-agent', cwd: testCwd('child-agent'),
+    });
+    const main = spawnAgent('main-agent');
+    daemon.pauseMember('eng', main.id);
+
+    const root = daemon.postHumanMessage(childRoom, '~main:@main-agent please answer in the root');
+    const delivery = daemon.store.listDeliveries(childRoom, { recipient: main.id })[0];
+    expect(root.room).toBe(childRoom);
+    expect(delivery).toMatchObject({
+      room: childRoom,
+      recipient: main.id,
+      target: {
+        conversation_id: 'eng',
+        alias: 'main',
+        handle: 'main-agent',
+      },
+    });
+    expect(daemon.store.listDeliveries('eng', { recipient: main.id })).toEqual([]);
+    expect(remote.kind).toBe('agent');
+    await daemon.settle();
+  });
+
+  it('settles a queued target after unregister without fallback or adapter execution', async () => {
+    const worktree = registerQualifiedFixture('stale-queued', 'stale-queued');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'stale-queued-agent', cwd: testCwd('stale-queued-agent'),
+    });
+    daemon.pauseMember(worktree.conversation_id, target.id);
+    const root = daemon.postHumanMessage('eng', '~stale-queued:@stale-queued-agent queued once');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === root.id)!;
+    expect(delivery.state).toBe('queued');
+
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:10:00.000Z');
+    await daemon.maybeStartTurn(worktree.conversation_id, target.id);
+
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(runMessages().some((message) => message.author === target.id)).toBe(false);
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listMessages('eng').some((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toBe(true);
+  });
+
+  it('refuses a held target after unregister instead of releasing it to a fallback', () => {
+    const worktree = registerQualifiedFixture('stale-held', 'stale-held');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'stale-held-agent', cwd: testCwd('stale-held-agent'),
+    });
+    daemon.pauseMember(worktree.conversation_id, target.id);
+    const root = daemon.postHumanMessage('eng', '~stale-held:@stale-held-agent hold once');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === root.id)!;
+    daemon.holdDelivery('eng', delivery.id, 'test hold');
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:11:00.000Z');
+
+    daemon.releaseHold('eng', delivery.id);
+
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('settles a recovered delivering target before restart can re-run it', async () => {
+    const worktree = registerQualifiedFixture('stale-recovered', 'stale-recovered');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'stale-recovered-agent', cwd: testCwd('stale-recovered-agent'),
+    });
+    const owner = daemon.ownerOf('eng');
+    const trigger = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '~stale-recovered:@stale-recovered-agent recover once',
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id, recipient: target.id,
+      target: {
+        worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+        member_id: target.id, alias: 'stale-recovered', handle: target.handle,
+      },
+    });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id,
+      author_target: delivery.target,
+      kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:12:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:13:00.000Z');
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.listMessages('eng').some((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toBe(true);
+  });
+
+  it('closes a group atomically when one result contains invalid qualified intent', async () => {
+    const alpha = spawnAgent('atomic-invalid-alpha');
+    const beta = spawnAgent('atomic-invalid-beta');
+    const gamma = spawnAgent('atomic-invalid-gamma');
+    daemon.pauseMember('eng', gamma.id);
+    fake.enqueue(
+      { kind: 'complete', final_text: '~missing:@atomic-invalid-gamma and @atomic-invalid-gamma' },
+      { kind: 'complete', final_text: '@atomic-invalid-gamma valid sibling intent' },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng', '@atomic-invalid-alpha @atomic-invalid-beta compare atomically',
+    );
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    expect(group.state).toBe('completed');
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+      .every((participant) => participant.terminal_status !== undefined)).toBe(true);
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+  });
+
+  it('persists exactly one barrier refusal across repeated advancement and restart', async () => {
+    const alpha = spawnAgent('barrier-refusal-alpha');
+    const beta = spawnAgent('barrier-refusal-beta');
+    const gamma = spawnAgent('barrier-refusal-gamma');
+    daemon.pauseMember('eng', gamma.id);
+    fake.enqueue(
+      { kind: 'complete', final_text: '~missing:@barrier-refusal-gamma invalid scoped intent' },
+      { kind: 'complete', final_text: 'beta clean result' },
+    );
+
+    const root = daemon.postHumanMessage(
+      'eng',
+      '@barrier-refusal-alpha @barrier-refusal-beta compare refusal durability',
+    );
+    await daemon.settle();
+
+    const group = daemon.store.getCollaborationGroupByRoot('eng', root.id)!;
+    const refusals = () =>
+      daemon.store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(group.state).toBe('completed');
+    expect(refusals()).toHaveLength(1);
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    expect(fake.deliveries).toHaveLength(2);
+
+    // A restart repeats the barrier advancement over durable state: the
+    // refusal can neither be lost nor duplicated, and no next round appears.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(refusals()).toHaveLength(1);
+    expect(daemon.store.listCollaborationRounds('eng', group.id)).toHaveLength(1);
+    expect(daemon.store.getCollaborationRound('eng', group.id, 1)?.state).toBe('closed');
+    expect(daemon.store.getCollaborationGroup('eng', group.id)?.state).toBe('completed');
+    expect(daemon.store.listDeliveries('eng', { recipient: gamma.id })).toEqual([]);
+    expect(fake.deliveries).toHaveLength(2);
+  });
+
+  it('drains a legacy foreign-repository row before the valid same-target batch', async () => {
+    const worktree = registerQualifiedFixture('fifo-target', 'fifo-target');
+    const targetRoom = worktree.conversation_id;
+    const target = daemon.spawnMember(targetRoom, {
+      harness: 'fake', handle: 'fifo-agent', cwd: testCwd('fifo-agent'),
+    });
+    // A second repository tree: a queued row living there can never validate
+    // an eng target against itself.
+    daemon.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'),
+      primary: true, availability: 'available' as const, locked: false, branch: 'main',
+    };
+    const opsSecondary = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available' as const, locked: false, branch: 'feature/ops-child',
+    };
+    daemon.store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const engTarget = {
+      worktree_id: worktree.id, conversation_id: targetRoom,
+      member_id: target.id, alias: 'fifo-target', handle: target.handle,
+    } as const;
+    // The legacy row sits AHEAD of the valid row in the target FIFO.
+    const legacyMessage = daemon.store.postMessage('ops', {
+      author: daemon.store.getMemberByHandle('ops', 'ops-owner')!.id,
+      kind: 'chat',
+      body: 'legacy foreign queued row',
+    });
+    const foreignId = `legacy-${legacyMessage.id}`;
+    const legacy = new Database(join(dir, 'switchboard.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'ops', ?, ?, ?, ?, ?, ?, 'queued', 0, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        foreignId,
+        legacyMessage.id,
+        target.id,
+        engTarget.worktree_id,
+        engTarget.conversation_id,
+        engTarget.alias,
+        engTarget.handle,
+        new Date().toISOString(),
+      );
+    legacy.close();
+
+    fake.enqueue({ kind: 'complete', final_text: 'valid target work' });
+    daemon.postHumanMessage('eng', '~fifo-target:@fifo-agent valid request');
+    await daemon.settle();
+
+    // The foreign row settled in ITS origin — consumed with one visible
+    // refusal — without spinning the pump or invoking an adapter, and the
+    // later valid row still ran on the target's own session.
+    expect(daemon.store.getDelivery('ops', foreignId)?.state).toBe('consumed');
+    expect(daemon.store.listMessages('ops').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]?.cwd).toBe(testCwd('fifo-agent'));
+    expect(fake.deliveries[0]?.payload).toContain('channel=eng');
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('valid target work');
+  });
+});
+// harn:end target-member-turns-serialize-across-origins
+// harn:end cross-worktree-runtime-stays-target-local
+// harn:end cross-worktree-output-stays-in-origin
+
+// harn:assume delivery-attempt-wal-reconcile ref=scoped-boot-reconcile-regression
+describe('scoped boot reconcile settlement', () => {
+  const seedStaleDeliveringAttempt = (alias: string) => {
+    const worktree = registerQualifiedFixture(alias, alias);
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: `${alias}-agent`, cwd: testCwd(`${alias}-agent`),
+    });
+    const owner = daemon.ownerOf('eng');
+    const trigger = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: `~${alias}:@${alias}-agent recover once`,
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id,
+      recipient: target.id,
+      target: {
+        worktree_id: worktree.id,
+        conversation_id: worktree.conversation_id,
+        member_id: target.id,
+        alias,
+        handle: target.handle,
+      },
+    });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id,
+      author_target: delivery.target,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:12:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
+    return { worktree, target, delivery, run };
+  };
+
+  it('settles a stale delivering attempt exactly once across repeated restarts', async () => {
+    const { worktree, delivery, run } = seedStaleDeliveringAttempt('stale-restart');
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:13:00.000Z');
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const refusals = () =>
+      daemon.store.listMessages('eng').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(refusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    // A second crash repeats the reconcile: nothing left to transition, so
+    // no duplicated refusal, no resurrected run, no adapter retry.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(refusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('settles a cross-repository delivering row in its origin without a retry', async () => {
+    const worktree = registerQualifiedFixture('foreign-boot', 'foreign-boot');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'foreign-boot-agent', cwd: testCwd('foreign-boot-agent'),
+    });
+    daemon.createRoom({ id: 'ops', name: 'Operations', owner: { handle: 'ops-owner', display_name: 'Ops Owner' } });
+    const opsMain = {
+      path: join(dir, 'ops-repo'), git_admin_id: join(dir, 'ops-repo', '.git'),
+      primary: true, availability: 'available' as const, locked: false, branch: 'main',
+    };
+    const opsSecondary = {
+      path: join(dir, 'ops-child'), git_admin_id: join(dir, 'ops-repo', '.git', 'worktrees', 'ops-child'),
+      primary: false, availability: 'available' as const, locked: false, branch: 'feature/ops-child',
+    };
+    daemon.store.registerWorktree('ops', {
+      common_path: join(dir, 'ops-repo', '.git'), primary_path: opsMain.path,
+      primary_git_admin_id: opsMain.git_admin_id,
+    }, opsMain, opsSecondary, 'ops-child', 'adopted');
+    const engTarget = {
+      worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+      member_id: target.id, alias: 'foreign-boot', handle: target.handle,
+    } as const;
+    // The legacy attempt lives in ops but is bound to the eng target.
+    const trigger = daemon.store.postMessage('ops', {
+      author: daemon.store.getMemberByHandle('ops', 'ops-owner')!.id,
+      kind: 'chat',
+      body: 'legacy foreign attempt',
+    });
+    const run = daemon.store.postMessage('ops', {
+      author: target.id,
+      author_target: engTarget,
+      kind: 'run',
+      body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:14:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    const foreignId = `legacy-${trigger.id}`;
+    const legacy = new Database(join(dir, 'switchboard.sqlite'));
+    legacy
+      .prepare(
+        `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+           target_conversation_id, target_alias, target_handle, state, attempt_count,
+           batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
+           process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
+         VALUES (?, 'ops', ?, ?, ?, ?, ?, ?, 'delivering', 1, ?, ?, NULL, NULL, NULL, NULL, NULL, 0,
+           (SELECT COALESCE(MAX(queue_seq), 0) + 1 FROM deliveries), NULL, NULL, ?)`,
+      )
+      .run(
+        foreignId,
+        trigger.id,
+        target.id,
+        engTarget.worktree_id,
+        engTarget.conversation_id,
+        engTarget.alias,
+        engTarget.handle,
+        `batch-${run.id}`,
+        run.id,
+        new Date().toISOString(),
+      );
+    legacy.close();
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const opsRefusals = () =>
+      daemon.store.listMessages('ops').filter((message) =>
+        message.kind === 'system' && message.body.includes('qualified target refused'));
+    expect(daemon.store.getDelivery('ops', foreignId)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('ops', run.id)?.run?.status).toBe('interrupted');
+    expect(opsRefusals()).toHaveLength(1);
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(0);
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('ops', foreignId)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('ops', run.id)?.run?.status).toBe('interrupted');
+    expect(opsRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+});
+// harn:end delivery-attempt-wal-reconcile
+
+// harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal-regression
+// harn:assume invalid-qualified-targets-never-fallback ref=qualified-post-error-regression
+describe('qualified refusal boundary', () => {
+  it('refuses an unknown target before allocating an origin message or starting a local fallback', () => {
+    const local = spawnAgent('local-fallback');
+    const messagesBefore = daemon.store.listMessages('eng').length;
+    const deliveriesBefore = daemon.store.listDeliveries('eng').length;
+    expect(() => daemon.postHumanMessage('eng', '~missing:@local-fallback do not reroute'))
+      .toThrow(/qualified target refused/);
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(daemon.store.listDeliveries('eng')).toHaveLength(deliveriesBefore);
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+  });
+
+  it.each([
+    '~:@local-fallback',
+    '~ :@local-fallback',
+    '~missing::@local-fallback',
+    '~missing: :@local-fallback',
+    '~missing:\n@local-fallback',
+    '~\nmissing:@local-fallback',
+    '~missing:\r\n@local-fallback',
+    '~missing:',
+    '~missing:@',
+    '~:',
+    '~ :',
+    '~::',
+    '~ ::',
+  ])('allocates no message or delivery for an attempted incomplete token (%s)', (token) => {
+    const local = spawnAgent('local-fallback');
+    const messagesBefore = daemon.store.listMessages('eng').length;
+    const deliveriesBefore = daemon.store.listDeliveries('eng').length;
+    expect(() => daemon.postHumanMessage('eng', token)).toThrow(/qualified target refused/);
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(daemon.store.listDeliveries('eng')).toHaveLength(deliveriesBefore);
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+  });
+
+  // Two rows of one stale run-bound attempt: every operator recovery seam
+  // settles the whole attempt once, preserving bindings as evidence.
+  const seedStaleBoundAttempt = (alias: string, runStatus: 'running' | 'failed', rowState: 'held' | 'consumed') => {
+    const worktree = registerQualifiedFixture(alias, alias);
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: `${alias}-agent`, cwd: testCwd(`${alias}-agent`),
+    });
+    const staleTarget = {
+      worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+      member_id: target.id, alias, handle: target.handle,
+    } as const;
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const first = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'batch one' });
+    const second = daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: 'batch two' });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id,
+      author_target: staleTarget,
+      kind: 'run',
+      body: '',
+      run: {
+        status: runStatus, started_ts: '2026-08-06T00:00:00.000Z',
+        ...(runStatus === 'failed'
+          ? { ended_ts: '2026-08-06T00:01:00.000Z', error: 'boom' }
+          : {}),
+        tool_calls: 0, events_ref: `runs/${first.id}.jsonl`,
+      },
+    });
+    const d1 = daemon.store.createDelivery('eng', { message_id: first.id, recipient: target.id, target: staleTarget });
+    const d2 = daemon.store.createDelivery('eng', { message_id: second.id, recipient: target.id, target: staleTarget });
+    for (const d of [d1, d2]) {
+      daemon.store.updateDelivery('eng', d.id, { state: rowState, run_msg_id: run.id, attempt_count: 1 });
+    }
+    daemon.store.unregisterWorktree('eng', worktree.id, '2026-08-06T01:00:00.000Z');
+    return { worktree, target, run, d1, d2 };
+  };
+  const qualifiedRefusals = () =>
+    daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'));
+
+  it('settles every stale held row of a run-bound attempt once on release_hold', async () => {
+    const { run, d1, d2 } = seedStaleBoundAttempt('stale-release', 'running', 'held');
+
+    daemon.releaseHold('eng', d1.id);
+
+    expect(daemon.store.getDelivery('eng', d1.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(qualifiedRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    // A second release finds truthful consumed evidence, not a duplicate refusal.
+    expect(() => daemon.releaseHold('eng', d2.id)).toThrow(/not held/);
+    expect(qualifiedRefusals()).toHaveLength(1);
+
+    // ... and a restart reconciles nothing further.
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(qualifiedRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('settles every stale held row of a run-bound attempt once on direct redelivery', () => {
+    const { run, d1, d2 } = seedStaleBoundAttempt('stale-redeliver', 'running', 'held');
+
+    daemon.redeliver('eng', d1.id);
+
+    expect(daemon.store.getDelivery('eng', d1.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(qualifiedRefusals()).toHaveLength(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    // The settled sibling is terminal evidence: redelivering it refuses
+    // without mutation instead of requeueing or duplicating the refusal.
+    expect(() => daemon.redeliver('eng', d2.id)).toThrow(/qualified target refused/);
+    expect(daemon.store.getDelivery('eng', d2.id)).toMatchObject({ state: 'consumed', run_msg_id: run.id });
+    expect(qualifiedRefusals()).toHaveLength(1);
+  });
+
+  it('refuses a stale scoped retry before reviving, clearing, queuing, or creating a run', () => {
+    const { worktree, target, run, d1, d2 } = seedStaleBoundAttempt('stale-retry', 'failed', 'consumed');
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'dead' });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const messagesBefore = daemon.store.listMessages('eng').length;
+
+    expect(() => daemon.retryRun('eng', run.id, owner.id)).toThrow(/qualified target refused/);
+
+    // Zero mutation: no refusal row, no new run, no revival, bindings preserved.
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(daemon.store.getMember(worktree.conversation_id, target.id)?.state).toBe('dead');
+    for (const d of [d1, d2]) {
+      expect(daemon.store.getDelivery('eng', d.id))
+        .toMatchObject({ state: 'consumed', run_msg_id: run.id, attempt_count: 1 });
+    }
+    expect(fake.deliveries).toHaveLength(0);
+  });
+
+  it('refuses direct redelivery of a stale consumed terminal row without mutation', () => {
+    const { d1 } = seedStaleBoundAttempt('stale-consumed', 'failed', 'consumed');
+    const before = daemon.store.getDelivery('eng', d1.id);
+    const messagesBefore = daemon.store.listMessages('eng').length;
+
+    expect(() => daemon.redeliver('eng', d1.id)).toThrow(/qualified target refused/);
+
+    expect(daemon.store.getDelivery('eng', d1.id)).toEqual(before);
+    expect(daemon.store.listMessages('eng')).toHaveLength(messagesBefore);
+    expect(qualifiedRefusals()).toHaveLength(0);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+});
+// harn:end invalid-qualified-targets-never-fallback
+// harn:end invalid-qualified-targets-never-fallback
+
+// harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-daemon-regression
+describe('worktree child default roster', () => {
+  const fixtureGit = (cwd: string, args: readonly string[]): string =>
+    execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+  const fixtureRepo = (name: string): string => {
+    const primary = join(dir, name);
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    return primary;
+  };
+  const rosterRoom = (id: string, primary: string) => daemon.createRoom({
+    id,
+    name: id,
+    owner: { handle: `${id}-owner`, display_name: id },
+    cwd: primary,
+  });
+
+  it('seeds only the new child with detached ordered snapshots at its canonical cwd', async () => {
+    const primary = fixtureRepo('roster-daemon-repo');
+    rosterRoom('wtroster', primary);
+    const first = daemon.createAgentPreset({ label: 'Kid One', handle: 'kid-one', harness: 'fake' });
+    const second = daemon.createAgentPreset({ label: 'Kid Two', handle: 'kid-two', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+    const target = join(dir, 'roster-daemon-child');
+    const result = await daemon.createWorktree('wtroster', {
+      alias: 'kid', branch: 'feature/kid', path: target, default_roster: true,
+    });
+    const child = result.worktree.conversation_id;
+    const agents = daemon.store.listMembers(child).filter((member) => member.kind === 'agent');
+    expect(agents.map((member) => member.handle).sort()).toEqual(['kid-one', 'kid-two']);
+    expect(agents.every((member) => member.cwd === result.worktree.path && member.state === 'idle'))
+      .toBe(true);
+    expect(result.worktree.path).toBe(target);
+    expect(daemon.store.getRoom(child)?.config.cwd).toBe(target);
+    // No main clone and no root roster mutation.
+    expect(daemon.store.listMembers('wtroster').filter((member) => member.kind === 'agent'))
+      .toEqual([]);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/kid']))
+      .toContain('feature/kid');
+  });
+
+  it('preflights the complete roster and inherited handles before any Git mutation', async () => {
+    const primary = fixtureRepo('roster-preflight-repo');
+    rosterRoom('wtpreflight', primary);
+    const spawn = vi.spyOn(fake, 'spawn');
+
+    // A dangling preset reference fails before Git, registration, or spawn.
+    const dangling = new Database(join(dir, 'switchboard.sqlite'));
+    dangling.pragma('foreign_keys = OFF');
+    dangling.prepare(
+      `INSERT INTO default_roster_items (roster_id, preset_id, ordinal) VALUES ('default', '01J00000000000000000000000', 0)`,
+    ).run();
+    dangling.close();
+    const missingTarget = join(dir, 'preflight-missing');
+    await expect(daemon.createWorktree('wtpreflight', {
+      alias: 'miss', branch: 'feature/miss', path: missingTarget, default_roster: true,
+    })).rejects.toThrow('missing agent preset');
+    expect(existsSync(missingTarget)).toBe(false);
+    expect(daemon.store.getRepository('wtpreflight')).toBeUndefined();
+    expect(spawn).not.toHaveBeenCalled();
+
+    // An inherited-human handle collision fails the same way.
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    const collide = daemon.createAgentPreset({ label: 'Owner Clone', handle: 'wtpreflight-owner', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [collide.id] });
+    const collideTarget = join(dir, 'preflight-collide');
+    await expect(daemon.createWorktree('wtpreflight', {
+      alias: 'collide', branch: 'feature/collide', path: collideTarget, default_roster: true,
+    })).rejects.toThrow('inherited channel member');
+    expect(existsSync(collideTarget)).toBe(false);
+    expect(spawn).not.toHaveBeenCalled();
+
+    // Duplicate handles inside the roster fail the same way.
+    const dupA = daemon.createAgentPreset({ label: 'Dup A', handle: 'dup-handle', harness: 'fake' });
+    const dupB = daemon.createAgentPreset({ label: 'Dup B', handle: 'dup-handle', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [dupA.id, dupB.id] });
+    await expect(daemon.createWorktree('wtpreflight', {
+      alias: 'dup', branch: 'feature/dup', path: join(dir, 'preflight-dup'), default_roster: true,
+    })).rejects.toThrow('duplicate member handle');
+    expect(spawn).not.toHaveBeenCalled();
+    spawn.mockRestore();
+  });
+
+  it('creates an agent-empty child on omission or an empty roster', async () => {
+    const primary = fixtureRepo('roster-empty-repo');
+    rosterRoom('wtempty', primary);
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    const omitted = await daemon.createWorktree('wtempty', {
+      alias: 'plain', branch: 'feature/plain', path: join(dir, 'empty-plain'),
+    });
+    expect(omitted.seeded).toEqual([]);
+    expect(
+      daemon.store.listMembers(omitted.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toEqual([]);
+    const empty = await daemon.createWorktree('wtempty', {
+      alias: 'empty-roster', branch: 'feature/empty-roster',
+      path: join(dir, 'empty-roster'), default_roster: true,
+    });
+    expect(empty.seeded).toEqual([]);
+    expect(
+      daemon.store.listMembers(empty.worktree.conversation_id)
+        .filter((member) => member.kind === 'agent'),
+    ).toEqual([]);
+  });
+
+  it('keeps an external spawn failure local to one durable dead member', async () => {
+    const primary = fixtureRepo('roster-failure-repo');
+    rosterRoom('wtfailure', primary);
+    const first = daemon.createAgentPreset({ label: 'Fragile', handle: 'fragile-kid', harness: 'fake' });
+    const second = daemon.createAgentPreset({ label: 'Sturdy', handle: 'sturdy-kid', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [first.id, second.id] });
+    const spawn = vi.spyOn(fake, 'spawn').mockImplementationOnce(() => {
+      throw new Error('spawn exploded');
+    });
+    const result = await daemon.createWorktree('wtfailure', {
+      alias: 'fragile', branch: 'feature/fragile', path: join(dir, 'failure-child'), default_roster: true,
+    });
+    spawn.mockRestore();
+    const child = result.worktree.conversation_id;
+    const byHandle = new Map(
+      daemon.store.listMembers(child)
+        .filter((member) => member.kind === 'agent')
+        .map((member) => [member.handle, member]),
+    );
+    expect(byHandle.get('fragile-kid')?.state).toBe('dead');
+    expect(byHandle.get('sturdy-kid')?.state).toBe('idle');
+    expect(daemon.store.getWorktree('wtfailure', result.worktree.id)?.lifecycle).toBe('active');
+    expect(
+      daemon.store.listMessages(child)
+        .filter((message) => message.kind === 'system')
+        .some((message) => message.body.includes('spawn exploded')),
+    ).toBe(true);
+  });
+});
+// harn:end worktree-child-default-roster-is-an-explicit-snapshot
+
+// harn:assume qualified-member-target-identity-is-durable ref=phase5-qualified-integration-regression
+// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=phase5-qualified-integration-regression
+// harn:assume child-members-own-isolated-runtime ref=phase5-qualified-integration-regression
+// harn:assume cross-worktree-runtime-stays-target-local ref=phase5-qualified-integration-regression
+// harn:assume cross-worktree-output-stays-in-origin ref=phase5-qualified-integration-regression
+// harn:assume target-member-turns-serialize-across-origins ref=phase5-qualified-integration-regression
+// harn:assume agent-authority-follows-one-active-invocation ref=phase5-qualified-integration-regression
+// harn:assume invalid-qualified-targets-never-fallback ref=phase5-qualified-integration-regression
+// harn:assume delivery-attempt-wal-reconcile ref=phase5-qualified-integration-regression
+describe('Phase 5 qualified integration hardening', () => {
+  it('keeps an accepted target on stable identity across alias/path/branch changes and restart', async () => {
+    const worktree = registerQualifiedFixture('old-scope', 'old-scope');
+    const child = worktree.conversation_id;
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: 'stable-target', cwd: testCwd('stable-target'),
+    });
+    daemon.pauseMember(child, target.id);
+    const accepted = daemon.postHumanMessage('eng', '~old-scope:@stable-target accepted before rename');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === accepted.id)!;
+    expect(delivery.target?.alias).toBe('old-scope');
+
+    daemon.updateWorktreeAlias('eng', worktree.id, 'new-scope');
+    daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+      path: join(dir, 'moved-stable-target'),
+      git_admin_id: join(dir, 'qualified-repository', '.git', 'worktrees', 'old-scope'),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: 'feature/moved-stable-target',
+    });
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    fake.enqueue({ kind: 'complete', final_text: 'accepted after metadata change' });
+    daemon.unpauseMember(child, target.id);
+    await daemon.settle();
+
+    expect(fake.deliveries).toHaveLength(1);
+    expect(fake.deliveries[0]?.cwd).toBe(testCwd('stable-target'));
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('accepted after metadata change');
+    expect(daemon.store.listMessages(child).map((message) => message.body))
+      .not.toContain('accepted after metadata change');
+
+    // The historical alias is not a second selector after the edit; only the
+    // current alias can create a new delivery.
+    expect(() => daemon.postHumanMessage('eng', '~old-scope:@stable-target must refuse old alias'))
+      .toThrow(/qualified target refused/);
+    fake.enqueue({ kind: 'complete', final_text: 'new alias accepted' });
+    daemon.postHumanMessage('eng', '~new-scope:@stable-target use current alias');
+    await daemon.settle();
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toContain('new alias accepted');
+  });
+
+  it('runs equal main and child handles concurrently with target-local runtime authority', async () => {
+    const worktree = registerQualifiedFixture('equal-child', 'equal-child');
+    const sessions: Session[] = [];
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementation((opts: SpawnOpts) => {
+      const session = originalSpawn(opts);
+      sessions.push(session);
+      return session;
+    });
+    const main = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'equal-handle', cwd: testCwd('equal-main'),
+    });
+    const child = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'equal-handle', cwd: testCwd('equal-child'),
+    });
+    spawnSpy.mockRestore();
+    fake.enqueue(
+      { kind: 'complete', final_text: 'main concurrent result', delay_ms: 50 },
+      { kind: 'complete', final_text: 'child concurrent result', delay_ms: 50 },
+    );
+
+    daemon.postHumanMessage('eng', '@equal-handle main concurrent request');
+    daemon.postHumanMessage('eng', '~equal-child:@equal-handle child concurrent request');
+    await until(() => fake.deliveries.length === 2 ? true : undefined);
+
+    expect(daemon.store.getMember('eng', main.id)?.state).toBe('running');
+    expect(daemon.store.getMember(worktree.conversation_id, child.id)?.state).toBe('running');
+    expect(new Set(fake.deliveries.map((delivery) => delivery.cwd))).toEqual(new Set([
+      testCwd('equal-main'), testCwd('equal-child'),
+    ]));
+    expect(new Set(fake.deliveries.map((delivery) => delivery.session_ref)).size).toBe(2);
+    expect(sessions).toHaveLength(2);
+    expect(sessions[0]?.env?.CODOR_MEMBER_TOKEN).not.toBe(sessions[1]?.env?.CODOR_MEMBER_TOKEN);
+    expect(fake.deliveries.every((delivery) => delivery.payload.includes('channel=eng'))).toBe(true);
+    const childToken = sessions.find((session) => session.env?.CODOR_MEMBER_ID === child.id)
+      ?.env?.CODOR_MEMBER_TOKEN;
+    expect(childToken).toBeDefined();
+    expect(daemon.authenticateAgentToken(childToken!)).toMatchObject({
+      room: 'eng', homeRoom: worktree.conversation_id,
+      member: { id: child.id }, invocation: { targetRoom: worktree.conversation_id },
+    });
+
+    await daemon.settle();
+    expect(daemon.store.listMessages('eng').map((message) => message.body))
+      .toEqual(expect.arrayContaining(['main concurrent result', 'child concurrent result']));
+    expect(daemon.store.listMessages(worktree.conversation_id).map((message) => message.body))
+      .not.toEqual(expect.arrayContaining(['main concurrent result', 'child concurrent result']));
+  });
+});
+// harn:end delivery-attempt-wal-reconcile
+// harn:end invalid-qualified-targets-never-fallback
+// harn:end agent-authority-follows-one-active-invocation
+// harn:end target-member-turns-serialize-across-origins
+// harn:end cross-worktree-output-stays-in-origin
+// harn:end cross-worktree-runtime-stays-target-local
+// harn:end child-members-own-isolated-runtime
+// harn:end worktree-alias-and-child-metadata-follow-stable-identity
+// harn:end qualified-member-target-identity-is-durable
+
+// harn:assume qualified-execution-requires-usable-checkout ref=qualified-target-usability-daemon-regression
+describe('qualified checkout usability at daemon admission and recovery', () => {
+  it.each(['missing', 'prunable'] as const)('refuses a %s checkout without fallback or execution', async (availability) => {
+    const worktree = registerQualifiedFixture(`unusable-${availability}`, `unusable-${availability}`);
+    const child = worktree.conversation_id;
+    const local = spawnAgent(`unusable-${availability}-agent`);
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: local.handle, cwd: testCwd(`unusable-${availability}`),
+    });
+    daemon.pauseMember(child, target.id);
+    const root = daemon.postHumanMessage(
+      'eng', `~${worktree.alias}:@${target.handle} refuse ${availability}`,
+    );
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })
+      .find((candidate) => candidate.message_id === root.id)!;
+    daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+      path: worktree.path,
+      git_admin_id: worktree.git_admin_id,
+      primary: false,
+      availability,
+      locked: false,
+      branch: worktree.branch,
+    });
+
+    await daemon.maybeStartTurn(child, target.id);
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(fake.deliveries).toHaveLength(0);
+    expect(daemon.store.getMember('eng', local.id)?.state).toBe('idle');
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused'))).toHaveLength(1);
+  });
+
+  it('settles a recovered delivering attempt against an unavailable checkout exactly once', async () => {
+    const worktree = registerQualifiedFixture('unavailable-recovery', 'unavailable-recovery');
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'unavailable-recovery-agent', cwd: testCwd('unavailable-recovery'),
+    });
+    const owner = daemon.ownerOf('eng');
+    const trigger = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: '~unavailable-recovery:@unavailable-recovery-agent recover',
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: trigger.id,
+      recipient: target.id,
+      target: {
+        worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+        member_id: target.id, alias: worktree.alias, handle: target.handle,
+      },
+    });
+    const run = daemon.store.postMessage('eng', {
+      author: target.id, author_target: delivery.target, kind: 'run', body: '',
+      run: {
+        status: 'running', started_ts: '2026-08-06T00:15:00.000Z',
+        tool_calls: 0, events_ref: `runs/${String(trigger.id)}.jsonl`,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, {
+      state: 'delivering', run_msg_id: run.id, attempt_count: 1,
+    });
+    daemon.store.updateMember(worktree.conversation_id, target.id, { state: 'running' });
+    daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+      path: worktree.path,
+      git_admin_id: worktree.git_admin_id,
+      primary: false,
+      availability: 'missing',
+      locked: false,
+      branch: worktree.branch,
+    });
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+
+    const refusalCount = () => daemon.store.listMessages('eng').filter((message) =>
+      message.kind === 'system' && message.body.includes('qualified target refused')).length;
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)?.run?.status).toBe('interrupted');
+    expect(refusalCount()).toBe(1);
+    expect(fake.deliveries).toHaveLength(0);
+
+    await daemon.close({ force: true });
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await daemon.settle();
+    expect(refusalCount()).toBe(1);
+    expect(fake.deliveries).toHaveLength(0);
+  });
+});
+// harn:end qualified-execution-requires-usable-checkout
+
+// harn:assume child-members-own-isolated-runtime ref=worktree-runtime-removal-regression
+describe('worktree removal refuses live child runtime before Git', () => {
+  const registerRuntimeChild = () => {
+    const root = join(dir, 'removal-root');
+    const childPath = join(dir, 'removal-child');
+    mkdirSync(root, { recursive: true });
+    mkdirSync(childPath, { recursive: true });
+    daemon.store.updateRoomConfig('eng', { cwd: root });
+    const result = daemon.store.registerWorktree(
+      'eng',
+      {
+        common_path: join(root, '.git'),
+        primary_path: root,
+        primary_git_admin_id: join(root, '.git'),
+      },
+      {
+        path: root, git_admin_id: join(root, '.git'), primary: true,
+        availability: 'available', locked: false, branch: 'main',
+      },
+      {
+        path: childPath, git_admin_id: join(root, '.git', 'worktrees', 'removal-child'),
+        primary: false, availability: 'available', locked: false, branch: 'feature/removal-child',
+      },
+      'removal-child', 'adopted',
+    );
+    return { ...result.worktree, root, childPath };
+  };
+
+  const expectPreGitRefusal = async (worktreeId: string, setup: () => void) => {
+    const remove = vi.spyOn(daemon.worktrees, 'remove').mockImplementation(async () => {
+      throw new Error('Git removal reached');
+    });
+    const before = JSON.stringify(daemon.store.listRegisteredWorktrees('eng'));
+    setup();
+    await expect(daemon.removeWorktree('eng', worktreeId)).rejects.toThrow(/live child runtime/);
+    expect(remove).not.toHaveBeenCalled();
+    expect(JSON.stringify(daemon.store.listRegisteredWorktrees('eng'))).toBe(before);
+    remove.mockRestore();
+  };
+
+  it('refuses an idle cached session and keeps DB-only unregister available', async () => {
+    const worktree = registerRuntimeChild();
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'idle-session', cwd: worktree.childPath,
+    });
+    await expectPreGitRefusal(worktree.id, () => undefined);
+    expect(daemon.store.getMember(worktree.conversation_id, target.id)).toBeDefined();
+    expect(daemon.unregisterWorktree('eng', worktree.id).lifecycle).toBe('unregistered');
+  });
+
+  it.each(['queued', 'held', 'delivering'] as const)('refuses unresolved %s work before Git', async (state) => {
+    const worktree = registerRuntimeChild();
+    const target = daemon.store.addMember(worktree.conversation_id, {
+      kind: 'agent', handle: `unresolved-${state}`, display_name: `Unresolved ${state}`,
+      harness: 'fake', cwd: worktree.childPath, state: 'idle', custody: 'owned',
+    });
+    const owner = daemon.ownerOf('eng');
+    const message = daemon.store.postMessage('eng', {
+      author: owner.id, kind: 'chat', body: `unresolved ${state}`,
+    });
+    const delivery = daemon.store.createDelivery('eng', {
+      message_id: message.id,
+      recipient: target.id,
+      target: {
+        worktree_id: worktree.id, conversation_id: worktree.conversation_id,
+        member_id: target.id, alias: worktree.alias, handle: target.handle,
+      },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, { state });
+    await expectPreGitRefusal(worktree.id, () => undefined);
+  });
+
+  it('refuses an active in-flight invocation before Git', async () => {
+    const worktree = registerRuntimeChild();
+    const target = daemon.spawnMember(worktree.conversation_id, {
+      harness: 'fake', handle: 'inflight-child', cwd: worktree.childPath,
+    });
+    fake.enqueue({
+      kind: 'ask',
+      card: { kind: 'ask', prompt: 'Keep the child turn live?', options: [{ label: 'continue' }] },
+      reply: () => 'finished',
+    });
+    const remove = vi.spyOn(daemon.worktrees, 'remove').mockImplementation(async () => {
+      throw new Error('Git removal reached');
+    });
+    daemon.postHumanMessage('eng', '~removal-child:@inflight-child keep running');
+    await until(() => fake.deliveries.length === 1 &&
+      daemon.store.getMember(worktree.conversation_id, target.id)?.state === 'running'
+      ? true : undefined);
+    await expect(daemon.removeWorktree('eng', worktree.id)).rejects.toThrow(/live child runtime/);
+    expect(remove).not.toHaveBeenCalled();
+    daemon.interruptMember(worktree.conversation_id, target.id);
+    await daemon.settle();
+    remove.mockRestore();
+  });
+});
+// harn:end child-members-own-isolated-runtime

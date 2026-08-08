@@ -12,7 +12,20 @@ import type {
   Room,
   WireEvent,
 } from '@codor/protocol';
-import { AgentPresetSchema } from '@codor/protocol';
+import { WorktreeRoutingCatalogSchema, type WorktreeRoutingCatalog } from '@codor/protocol';
+import {
+  WorktreeLifecycleResponseSchema,
+  WorktreeListResponseSchema,
+  WorktreeRegisteredResponseSchema,
+  WorktreeRemovalPreviewResponseSchema,
+  type WorktreeAdoptRequest,
+  type WorktreeCreateRequest,
+  type WorktreeLifecycleResponse,
+  type WorktreeListResponse,
+  type WorktreeRegisteredResponse,
+  type WorktreeRemovalPreviewResponse,
+} from '@codor/protocol';
+import { AgentPresetSchema, DefaultRosterSchema } from '@codor/protocol';
 
 import { openForBrowser, persistBrowserRoomKey } from './crypto.js';
 import { relayFetch } from './relay-transport.js';
@@ -212,7 +225,11 @@ export async function fetchAgentPreset(id: string, options: ApiOptions): Promise
     `/api/agent-presets/${encodeURIComponent(id)}`,
     options,
   );
-  return AgentPresetSchema.parse(body.preset);
+  const preset = AgentPresetSchema.parse(body.preset);
+  if (preset.id !== id) {
+    throw new Error(`preset response id ${preset.id} did not match requested preset ${id}`);
+  }
+  return preset;
 }
 
 export async function createAgentPreset(
@@ -222,7 +239,7 @@ export async function createAgentPreset(
   const body = await sendJson<{ preset: AgentPreset }>(
     '/api/agent-presets', 'POST', input, options,
   );
-  return body.preset;
+  return AgentPresetSchema.parse(body.preset);
 }
 
 export async function updateAgentPreset(
@@ -233,7 +250,11 @@ export async function updateAgentPreset(
   const body = await sendJson<{ preset: AgentPreset }>(
     `/api/agent-presets/${encodeURIComponent(id)}`, 'PUT', input, options,
   );
-  return body.preset;
+  const preset = AgentPresetSchema.parse(body.preset);
+  if (preset.id !== id) {
+    throw new Error(`preset response id ${preset.id} did not match requested preset ${id}`);
+  }
+  return preset;
 }
 
 export async function deleteAgentPreset(id: string, options: ApiOptions): Promise<void> {
@@ -241,18 +262,18 @@ export async function deleteAgentPreset(id: string, options: ApiOptions): Promis
 }
 
 export async function fetchDefaultRoster(options: ApiOptions): Promise<DefaultRoster> {
-  const body = await fetchJson<{ roster: DefaultRoster }>('/api/default-roster', options);
-  return body.roster;
+  const body = await fetchJson<{ roster: unknown }>('/api/default-roster', options);
+  return DefaultRosterSchema.parse(body.roster);
 }
 
 export async function replaceDefaultRoster(
   input: DefaultRosterInput,
   options: ApiOptions,
 ): Promise<DefaultRoster> {
-  const body = await sendJson<{ roster: DefaultRoster }>(
+  const body = await sendJson<{ roster: unknown }>(
     '/api/default-roster', 'PUT', input, options,
   );
-  return body.roster;
+  return DefaultRosterSchema.parse(body.roster);
 }
 // harn:end agent-preset-management-is-authorized-across-rest-and-cli
 
@@ -352,6 +373,153 @@ export async function fetchMemberDetails(
   );
   return body.members;
 }
+
+// harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-client
+/** Fetch only the path-free persisted routing projection used by completion. */
+export async function fetchRoutingCatalog(
+  room: string,
+  options: ApiOptions,
+): Promise<WorktreeRoutingCatalog> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/routing-targets`,
+    options,
+  );
+  return WorktreeRoutingCatalogSchema.parse(body);
+}
+// harn:end qualified-completion-lists-registered-targets-only
+
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=registered-worktree-client
+/** The store-only background projection behind group navigation. Strictly
+ * parsed; no Git discovery ever runs for this call. */
+export async function fetchRegisteredWorktrees(
+  room: string,
+  options: ApiOptions,
+): Promise<WorktreeRegisteredResponse> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/registered`,
+    options,
+  );
+  return WorktreeRegisteredResponseSchema.parse(body);
+}
+// harn:end registered-worktree-navigation-is-promotion-gated
+
+// harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-client
+/** Explicit Find: the ONLY client call that runs read-only Git discovery. */
+export async function discoverWorktrees(
+  room: string,
+  options: ApiOptions,
+): Promise<WorktreeListResponse> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/discover`,
+    options,
+  );
+  return WorktreeListResponseSchema.parse(body);
+}
+
+/** Persist the exact child's sealed key before the caller observes or switches
+ * to that conversation — same pairing contract as channel creation. */
+async function persistWorktreeChildKey(
+  response: WorktreeLifecycleResponse,
+): Promise<WorktreeLifecycleResponse> {
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-client
+  if (response.room_key !== undefined) {
+    if (response.room_key.room !== response.worktree.conversation_id) {
+      throw new Error('worktree child key does not match the returned child');
+    }
+    const roomKey = await openForBrowser(response.room_key.sealed_key);
+    await persistBrowserRoomKey(
+      response.room_key.room,
+      response.room_key.generation,
+      roomKey,
+    );
+  }
+  // harn:end child-files-voice-and-keys-are-isolated
+  return response;
+}
+
+export async function adoptWorktree(
+  room: string,
+  input: WorktreeAdoptRequest,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/adopt`,
+    'POST',
+    input,
+    options,
+  );
+  return persistWorktreeChildKey(WorktreeLifecycleResponseSchema.parse(body));
+}
+
+export async function createWorktree(
+  room: string,
+  input: WorktreeCreateRequest,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/create`,
+    'POST',
+    input,
+    options,
+  );
+  return persistWorktreeChildKey(WorktreeLifecycleResponseSchema.parse(body));
+}
+
+export async function updateWorktreeAlias(
+  room: string,
+  worktreeId: string,
+  alias: string,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/alias`,
+    'POST',
+    { alias },
+    options,
+  );
+  return WorktreeLifecycleResponseSchema.parse(body);
+}
+
+export async function previewWorktreeRemoval(
+  room: string,
+  worktreeId: string,
+  options: ApiOptions,
+): Promise<WorktreeRemovalPreviewResponse> {
+  const body = await fetchJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/removal-preview`,
+    options,
+  );
+  return WorktreeRemovalPreviewResponseSchema.parse(body);
+}
+
+export async function unregisterWorktree(
+  room: string,
+  worktreeId: string,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/unregister`,
+    'POST',
+    {},
+    options,
+  );
+  return WorktreeLifecycleResponseSchema.parse(body);
+}
+
+export async function removeWorktree(
+  room: string,
+  worktreeId: string,
+  options: ApiOptions,
+): Promise<WorktreeLifecycleResponse> {
+  const body = await sendJson<unknown>(
+    `/api/rooms/${encodeURIComponent(room)}/worktrees/${encodeURIComponent(worktreeId)}/remove`,
+    'POST',
+    {},
+    options,
+  );
+  return WorktreeLifecycleResponseSchema.parse(body);
+}
+// harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
 
 export async function fetchMessageHistory(
   room: string,

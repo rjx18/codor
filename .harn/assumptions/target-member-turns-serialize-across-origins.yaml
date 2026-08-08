@@ -1,0 +1,17 @@
+id: target-member-turns-serialize-across-origins
+hash: a-1133d2e370ee
+title: One target member serializes durable work across origin conversations
+state: active
+statement: All queued deliveries for one stable member must be admitted in a
+  deterministic durable order across origin conversations with at most one
+  adapter turn in flight; batching and active steering may combine only
+  compatible deliveries from the same origin/routing context, and settling or
+  recovering one origin must drain the next without loss, duplication,
+  cross-origin steering, or collaboration resurrection.
+depends_on:
+  - cross-worktree-runtime-stays-target-local
+  - one-inflight-turn-per-member
+  - delivery-fifo-has-durable-sequence
+  - active-turn-steering-is-ordered-and-durable
+  - delivery-attempt-wal-reconcile
+created_by: native-worktrees-phase3-qualified-routing-v3

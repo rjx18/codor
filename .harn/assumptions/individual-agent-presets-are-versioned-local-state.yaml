@@ -13,4 +13,4 @@ statement: The switchboard Store must migrate old and fresh databases to
   and later consumers need a stable reference rather than a name-based identity.
 depends_on:
   - individual-agent-presets-are-bounded-catalog-validated-configurations
-created_by: agent-presets-p1-domain-persistence
+created_by: native-worktrees-agent-presets-integration

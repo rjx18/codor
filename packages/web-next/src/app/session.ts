@@ -23,16 +23,34 @@ import type { Room } from '@codor/protocol';
 import { useClientStore } from './store.js';
 import { computerSessions } from './computer-sessions.js';
 
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-url-selector
 /**
  * The room named in the URL, or nothing. Never a placeholder: `'default'` was
  * a room no account owns, so a bare `/` launch subscribed to a phantom channel
- * and reconnect logic then restored it faithfully.
+ * and reconnect logic then restored it faithfully. The optional `worktree`
+ * selector is the stable Codor WorktreeId of an active registered secondary —
+ * never a mutable alias, branch, path, or hidden child RoomId. Main simply
+ * omits it. Startup authorization and remembered-room keys keep using only the
+ * public root.
  */
-export function pageParams(): { room?: string } {
+export function pageParams(): { room?: string; worktree?: string } {
   const params = new URLSearchParams(window.location.search);
   const room = params.get('room');
-  return room === null || room === '' ? {} : { room };
+  const worktree = params.get('worktree');
+  return {
+    ...(room === null || room === '' ? {} : { room }),
+    ...(worktree === null || worktree === '' ? {} : { worktree }),
+  };
 }
+
+/** The one writer for group navigation URLs: the public root RoomId plus the
+ * optional stable WorktreeId, nothing else. */
+export function roomUrl(room: string, worktree?: string): string {
+  const params = new URLSearchParams({ room });
+  if (worktree !== undefined) params.set('worktree', worktree);
+  return `/?${params.toString()}`;
+}
+// harn:end registered-worktree-navigation-is-promotion-gated
 
 /** Same access-token contract as the legacy client: an explicit ?token= is persisted for
  *  PWA cold launches and stripped from the URL; otherwise paired-browser access restores

@@ -16,4 +16,4 @@ depends_on:
   - individual-agent-presets-are-versioned-local-state
   - durable-agent-runtime-configuration
   - named-acp-provider-selection-resolves-to-private-structured-launch
-created_by: agent-presets-p3-default-roster-create
+created_by: native-worktrees-agent-presets-integration

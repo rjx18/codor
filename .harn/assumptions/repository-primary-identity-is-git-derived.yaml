@@ -1,0 +1,12 @@
+id: repository-primary-identity-is-git-derived
+hash: a-94912c2fbb3a
+title: Repository and primary-checkout identity follow Git metadata, not branch names
+state: active
+statement: A worktree registry inspection must derive the enclosing repository
+  from its absolute Git common directory and identify the primary checkout by
+  Git worktree metadata rather than the current branch, while non-Git input
+  returns no repository and an existing registered worktree is correlated by its
+  Git administrative identity so detached heads, branch changes, moved secondary
+  paths, spaces, and restart do not replace stable Codor ids.
+depends_on: []
+created_by: native-worktrees-phase1-registry

@@ -1,0 +1,12 @@
+id: worktree-discovery-never-registers-candidates
+hash: a-7a616e3de09e
+title: Worktree discovery observes candidates without adopting them
+state: active
+statement: Room worktree discovery must use a freshly read, NUL-delimited local
+  Git worktree list and may reconcile observation metadata only for identities
+  already registered, but it must not mutate Git or persist, expose as active,
+  or otherwise adopt any newly discovered secondary until the operator selects
+  that exact candidate explicitly.
+depends_on:
+  - repository-primary-identity-is-git-derived
+created_by: native-worktrees-phase1-registry

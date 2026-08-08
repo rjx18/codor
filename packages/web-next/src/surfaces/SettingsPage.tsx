@@ -24,9 +24,10 @@ import {
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
 import { relayConnectExtras } from '@runtime/relay-mode.js';
-import { roomSlice, useClientStore } from '../app/store.js';
+import { me, roleAtLeast, roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';
 import { Button, Code, Eyebrow, Modal, Segmented } from '../primitives/primitives.js';
+import { AgentPresetSettings } from './AgentPresetSettings.js';
 
 export function SettingsPage(props: {
   room: string;
@@ -56,6 +57,11 @@ export function SettingsPage(props: {
   const connection = props.connection ?? ownedConnectorRef.current;
   if (connection === null || connection === undefined) throw new Error('Settings requires a room connector');
 
+  const roomId = connection.room();
+  const roomState = useClientStore((state) => roomSlice(state, roomId));
+  const self = me(roomState.members, roomState.selfMemberId);
+  const canManagePresets = self?.kind === 'human' && roleAtLeast(self.role, 'admin');
+
   useEffect(() => () => {
     if (props.connection === undefined) ownedConnectorRef.current?.dispose();
   }, [props.connection]);
@@ -78,6 +84,7 @@ export function SettingsPage(props: {
           <h1>Settings</h1>
         </header>
         <AppearanceSection />
+        {canManagePresets && <AgentPresetSettings token={token} />}
         <NotificationsSection token={token} />
         <BrakesSection connection={connection} />
         <DevicesSection token={token} />

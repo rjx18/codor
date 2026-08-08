@@ -453,6 +453,33 @@ describe('deliveries', () => {
     }).success).toBe(false);
   });
   // harn:end collaboration-groups-are-durable-state
+
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-scope-schema-regression
+  it('keeps scoped mention, author, and delivery identities paired', () => {
+    const target = {
+      worktree_id: ULID_B,
+      conversation_id: 'wt-child',
+      member_id: ULID_A,
+      alias: 'child',
+      handle: 'codex',
+    };
+    expect(DeliverySchema.parse({
+      ...base, recipient: ULID_A, state: 'queued', target,
+    }).target).toEqual(target);
+    expect(MessageSchema.parse({ ...chatMessage, author_target: target }).author_target)
+      .toEqual(target);
+    expect(DeliverySchema.safeParse({
+      ...base, recipient: ULID_B, state: 'queued', target,
+    }).success).toBe(false);
+    expect(MessageSchema.safeParse({
+      ...chatMessage,
+      mentions: [{ member_id: ULID_B, start: 0, end: 6, target }],
+    }).success).toBe(false);
+    expect(MessageSchema.safeParse({
+      ...chatMessage, author: ULID_B, author_target: target,
+    }).success).toBe(false);
+  });
+  // harn:end qualified-member-target-identity-is-durable
 });
 
 describe('change log', () => {

@@ -139,6 +139,12 @@ describe('agent member credential capability matrix', () => {
       }
     }
     expect(agentAllows('configure')).toBe(false);
+    // harn:assume agent-network-authority-is-narrow ref=agent-capability-regression
+    expect(agentAllows('manage_worktrees')).toBe(false);
+    expect(() => assertAgentCapability(agent, 'manage_worktrees')).toThrow(
+      'forbidden: agent cannot manage worktrees',
+    );
+    // harn:end agent-network-authority-is-narrow
   });
 
   it('accepts every declared agent capability and rejects a human principal', () => {

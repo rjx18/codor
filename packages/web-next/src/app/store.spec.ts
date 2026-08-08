@@ -207,3 +207,71 @@ describe('managed room-summary initialization', () => {
     expect(useClientStore.getState().roomSummariesLoaded).toBe(true);
   });
 });
+
+// harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-state
+describe('worktree group state', () => {
+  const record = (id: string, alias: string, primary: boolean) => ({
+    id,
+    repository_id: '01ARZ3NDEKTSV4RRFFQ69G5FAA',
+    room: 'eng',
+    conversation_id: primary ? 'eng' : `wt-${id.toLowerCase()}`,
+    alias,
+    path: '/repo',
+    git_admin_id: '/repo/.git',
+    primary,
+    source: primary ? 'main' as const : 'adopted' as const,
+    lifecycle: 'active' as const,
+    availability: 'available' as const,
+    locked: false,
+    registered_ts: '2026-08-07T00:00:00.000Z',
+    updated_ts: '2026-08-07T00:00:00.000Z',
+  });
+
+  it('keeps the last successful root-scoped registration set per root', () => {
+    useClientStore.getState().setWorktreeGroup('eng', {
+      repositoryId: '01ARZ3NDEKTSV4RRFFQ69G5FAA',
+      registered: [record('01ARZ3NDEKTSV4RRFFQ69G5FAB', 'main', true)],
+    });
+    useClientStore.getState().setWorktreeGroup('eng', {
+      registered: [
+        record('01ARZ3NDEKTSV4RRFFQ69G5FAB', 'main', true),
+        record('01ARZ3NDEKTSV4RRFFQ69G5FAC', 'review', false),
+      ],
+    });
+    const group = useClientStore.getState().worktreeGroups.eng!;
+    expect(group.registered.map((worktree) => worktree.alias)).toEqual(['main', 'review']);
+    // A refresh without a repository id retains the last-good one.
+    expect(group.repositoryId).toBe('01ARZ3NDEKTSV4RRFFQ69G5FAA');
+    expect(group.loaded).toBe(true);
+    // Other roots are untouched.
+    expect(useClientStore.getState().worktreeGroups.ops).toBeUndefined();
+
+    useClientStore.getState().reset();
+    expect(useClientStore.getState().worktreeGroups).toEqual({});
+  });
+
+  it('tracks current-generation live evidence separately from retained room slices', () => {
+    // A retained hydrated slice is last-good content, never readiness: only an
+    // explicit live mark counts, and a generation reset withdraws exactly the
+    // listed rooms without touching the slices.
+    useClientStore.setState({
+      rooms: {
+        eng: { ...roomSlice(useClientStore.getState(), 'eng'), hydrated: true },
+        'wt-a': { ...roomSlice(useClientStore.getState(), 'wt-a'), hydrated: true },
+      },
+    } as never);
+    expect(useClientStore.getState().roomLive).toEqual({});
+
+    useClientStore.getState().markRoomLive('eng');
+    useClientStore.getState().markRoomLive('wt-a');
+    expect(useClientStore.getState().roomLive).toEqual({ eng: true, 'wt-a': true });
+
+    useClientStore.getState().markRoomsConnecting(['wt-a']);
+    expect(useClientStore.getState().roomLive).toEqual({ eng: true });
+    expect(useClientStore.getState().rooms['wt-a']?.hydrated).toBe(true);
+
+    useClientStore.getState().reset();
+    expect(useClientStore.getState().roomLive).toEqual({});
+  });
+});
+// harn:end registered-worktree-navigation-is-promotion-gated

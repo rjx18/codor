@@ -24,4 +24,4 @@ depends_on:
   - harness-declares-what-a-policy-becomes
   - new-agent-requests-require-available-native-or-detected-acp
   - named-acp-provider-selection-resolves-to-private-structured-launch
-created_by: agent-presets-p1-domain-persistence
+created_by: native-worktrees-agent-presets-integration

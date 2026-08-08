@@ -12,6 +12,7 @@ import {
   DEFAULT_THINKING_LEVELS,
   PolicySchema,
   type AgentPreset,
+  type AgentPresetInput,
   type Member,
   type Policy,
   type Room,
@@ -337,6 +338,80 @@ export function applyAgentPreset(input: {
     },
     handle: availableAgentHandle(preset.handle, input.members),
   };
+}
+
+/** Convert a durable preset into the selector-shaped draft consumed by the shared controls. */
+export function agentPresetToConfig(preset: AgentPreset): AgentConfig {
+  const selector = preset.harness === 'acp'
+    ? preset.acp_provider === undefined ? 'acp' : `${ACP_SELECTOR_PREFIX}${preset.acp_provider}`
+    : preset.harness;
+  return {
+    harness: selector,
+    model: preset.model ?? '',
+    thinking: preset.thinking ?? '',
+    policy: preset.policy ?? DEFAULT_POLICY,
+    displayName: preset.display_name ?? '',
+    ...(preset.acp_launch !== undefined && { acpExecutable: preset.acp_launch.executable }),
+    ...(preset.acp_launch !== undefined && { acpArgs: preset.acp_launch.argv.join('\n') }),
+  };
+}
+
+/**
+ * Map the editor's canonical controls back to the strict Phase 1 REST input.
+ * Selector ids are a browser concern: named ACP becomes its safe provider id and
+ * generic ACP becomes its structured launch, never a command-bearing selector.
+ */
+export function agentPresetInputFromConfig(input: {
+  label: string;
+  handle: string;
+  config: AgentConfig;
+  adapters: readonly AdapterLike[];
+  originalLaunch?: AgentPreset['acp_launch'];
+}): AgentPresetInput {
+  const label = input.label.trim();
+  const handle = input.handle.trim();
+  if (label === '' || handle === '') throw new Error('Label and handle are required.');
+
+  const selector = input.config.harness.trim();
+  if (selector === '') throw new Error('Choose a harness.');
+  const resolved = resolveSelector(selector);
+  const adapter = input.adapters.find((candidate) => candidate.id === selector);
+  const displayName = input.config.displayName?.trim();
+  const policy = input.config.policy === '' ? DEFAULT_POLICY : input.config.policy;
+  const thinking = input.config.thinking === ''
+    ? undefined
+    : supportedThinking(adapter, input.config.thinking)
+      ?? input.config.thinking as AgentPresetInput['thinking'];
+
+  const base: AgentPresetInput = {
+    label,
+    handle,
+    harness: resolved.harness,
+    policy,
+    ...(displayName !== undefined && displayName !== '' && { display_name: displayName }),
+    ...(thinking !== undefined && { thinking }),
+  };
+
+  if (resolved.harness === 'acp') {
+    if (resolved.acp_provider !== undefined) {
+      return { ...base, acp_provider: resolved.acp_provider };
+    }
+    const executable = input.config.acpExecutable?.trim() ?? '';
+    const renderedArgs = input.config.acpArgs ?? '';
+    if (
+      input.originalLaunch !== undefined
+      && input.originalLaunch.executable === executable
+      && input.originalLaunch.argv.join('\n') === renderedArgs
+    ) {
+      return { ...base, acp_launch: input.originalLaunch };
+    }
+    const launch = acpLaunchFromConfig({ ...input.config, harness: 'acp' });
+    if (launch === undefined) throw new Error('A custom ACP executable is required.');
+    return { ...base, acp_launch: launch };
+  }
+
+  const model = input.config.model.trim();
+  return model === '' ? base : { ...base, model };
 }
 
 export interface AgentConfig {

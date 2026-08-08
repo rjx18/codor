@@ -1,0 +1,742 @@
+id: native-worktrees-agent-presets-integration
+title: Prerequisite integration - merge the accepted Agent Presets contract
+  before Native Worktrees Phase 4
+notes: "Based on clean native-worktrees commit
+  4e909be8d54ffef2161070dc54014e65e41c39d8 and accepted Agent Presets tip
+  bc062264a9165401c79890db97350b0c2fcdacb0. Create exactly one real
+  no-fast-forward merge commit whose first parent is the native base and whose
+  second parent is that exact preset tip. Preserve the accepted source/history,
+  but do not copy the thirteen historical Agent Presets plan files or their
+  fourteen generated truth files into the resulting tree: those records remain
+  reachable through the second parent, while this integration plan recreates the
+  same fourteen active assumptions as the sole native-branch truth transition.
+  Resolve only the five textual conflicts. daemon.ts and server.ts retain both
+  worktree and preset imports; store.ts retains both
+  WorktreeObservation/RepositoryObservation and InitialAgent contracts and runs
+  both idempotent migrations; web runtime api.ts and api.spec.ts retain both
+  routing-catalog and preset/default-roster imports and regressions. Do not take
+  either side wholesale, move Harn markers, weaken strict parsing, or change
+  behavior beyond composition. Add one bounded extension to the existing
+  temporary-repository worktree-roster-neutrality regression: seed individual
+  presets and the ordered default roster, perform
+  discovery/adoption/creation/unregister/removal only inside the fixture, reopen
+  the Store, and prove preset/roster values and every main/child member roster
+  remain unchanged. The imported preset UI is expected prerequisite code; do not
+  implement Native Worktrees navigation, Create/Find/adopt/remove UI, group
+  state, or any other Phase 4 behavior. No real user worktree, branch, path,
+  repository registration, or filesystem checkout may be changed. All Git
+  lifecycle activity must remain under isolated temporary repositories. Preserve
+  non-Git and ordinary-channel behavior, qualified routing/refusal/recovery,
+  argument-safe Git execution, dirty-removal refusal, and branch preservation."
+assumptions:
+  create:
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      title: An individual agent preset is reusable configuration, never runtime or
+        membership state
+      statement: An individual agent preset must be a strict schema-version-1
+        configuration with a stable server-issued ULID, bounded preset label,
+        assignable handle, runtime harness, optional display name, model,
+        supported thinking, canonical policy, and exactly one currently valid
+        named ACP provider or authorized structured custom launch for the acp
+        harness; it must reject cwd, purpose, credentials, native session
+        references, runtime/member state, usage, tasks, spend, host, custody,
+        membership, room, and every unknown field. Create and full-replacement
+        update must validate the harness, model, thinking, policy, and ACP
+        selection against the daemon's current adapter/provider catalog and
+        existing spawn validators before persistence, without spawning a process
+        or member, because a reusable configuration must be safe and meaningful
+        without becoming a hidden runtime snapshot or a second hardcoded adapter
+        truth.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - adapter-catalog-distinguishes-installed-and-configurable
+        - adapters-own-their-model-catalog
+        - canonical-spawn-controls-enforced
+        - harness-declares-supported-thinking-levels
+        - harness-declares-what-a-policy-becomes
+        - new-agent-requests-require-available-native-or-detected-acp
+        - named-acp-provider-selection-resolves-to-private-structured-launch
+    - id: individual-agent-presets-are-versioned-local-state
+      title: Individual preset CRUD preserves stable versioned switchboard-local
+        identity across restart
+      statement: The switchboard Store must migrate old and fresh databases to
+        versioned individual-preset persistence, generate a never-reused stable
+        id on create, list and read validated version-1 rows deterministically,
+        replace configuration while preserving id and created timestamp, and
+        delete only the addressed row; every operation must be atomic and
+        survive reopen without entering a room changelog, relay archive,
+        account, cloud, member, or runtime store, because preset configuration
+        belongs to exactly one local switchboard and later consumers need a
+        stable reference rather than a name-based identity.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - individual-agent-presets-are-bounded-catalog-validated-configurations
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      title: The default roster is one ordered group of individual-preset references
+      statement: The switchboard must persist exactly one schema-version-1
+        default-roster group with stable id default and an atomically replaced,
+        duplicate-free ordered list of existing individual preset ids; empty is
+        valid, every reference must resolve before any replacement lands, and
+        ordinal order and the group timestamp must survive restart, because the
+        future Create Channel choice represents one complete ordered group and
+        is not itself an individual agent preset or a bag of copied configs.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - individual-agent-presets-are-versioned-local-state
+    - id: default-roster-references-block-preset-deletion
+      title: A preset referenced by the default roster cannot be deleted
+      statement: Deleting an individual preset whose stable id is present in the
+        default roster must fail with a deterministic reference-conflict result
+        and leave both the preset and complete roster unchanged; after an atomic
+        roster replacement removes that id, the same preset may be deleted
+        normally, because silently cascading a delete would rewrite the
+        operator's ordered group while allowing a dangling reference would make
+        later channel creation nondeterministic.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+    - id: agent-preset-management-is-authorized-and-transport-neutral
+      title: Preset and default-roster management uses one manage-agents REST contract
+        in direct and hosted modes
+      statement: Every network read or mutation of individual presets or the default
+        roster must require the existing global manage_agents capability, reject
+        anonymous, observer, member, and agent principals, and return only
+        through the switchboard REST contract; web runtime callers must use
+        relayFetch with the caller's bearer so hosted mode reaches only the
+        active computer's switchboard and direct/self-hosted mode retains native
+        fetch, while trusted direct daemon calls use the same validation and
+        atomic Store methods. No WebSocket act, CLI command, relay record, or
+        cloud/account synchronization may be added, because local configuration
+        must have one authorization and behavior contract independent of browser
+        topology.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - individual-agent-presets-are-versioned-local-state
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - roles-gate-human-acts-not-agents
+        - agent-network-authority-is-narrow
+        - hosted-computer-sessions-keep-state-isolated
+    - id: individual-agent-preset-selection-snapshots-one-ordinary-spawn
+      title: Selecting an individual preset fills one editable ordinary spawn draft
+      statement: Add agent must show authorized individual agent presets beside its
+        built-in role shortcuts, resolve a freshly read valid preset into the
+        same editable handle, display-name, harness, model, thinking, policy,
+        and ACP controls used by manual creation, preserve room-derived cwd and
+        per-add purpose, and submit exactly one ordinary spawn act containing
+        concrete snapshotted values and no preset or roster reference;
+        malformed, deleted, or currently catalog-invalid presets must leave the
+        draft unchanged with a recoverable error, while later preset edit or
+        deletion cannot mutate an already selected draft or created member,
+        because a reusable preset is an input shortcut rather than live
+        membership state or a second creation lifecycle.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - individual-agent-presets-are-bounded-catalog-validated-configurations
+        - individual-agent-presets-are-versioned-local-state
+        - agent-preset-management-is-authorized-and-transport-neutral
+        - web-spawn-dialog-exposes-canonical-agent-controls
+        - agent-controls-shared-by-both-dialogs
+        - one-control-chooses-an-agent-everywhere
+        - agent-selection-shows-detected-acp-and-advanced-custom
+        - new-agent-requests-require-available-native-or-detected-acp
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      title: Default-roster channel selection expands completely before creation
+      statement: An authenticated channel-create request may add the literal
+        default_roster true or the existing starting_agent but never both; when
+        the roster is selected, the daemon must synchronously expand the one
+        current ordered group into concrete safe-defaulted configurations and
+        validate every reference, handle, catalog field, policy, thinking level,
+        and named/custom ACP resolution before any adapter spawn, room/member
+        persistence, room-key creation, or other mutation, while an empty group
+        and legacy omission remain valid, because an invalid complete roster
+        must never create a partial channel and a singleton local group does not
+        need a caller-supplied id or alternate lifecycle.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - individual-agent-presets-are-bounded-catalog-validated-configurations
+        - channel-create-request-contract
+        - channel-creation-derived-and-seeded
+        - new-agent-requests-require-available-native-or-detected-acp
+        - canonical-spawn-controls-enforced
+        - spawn-default-cwd-is-absolute-or-empty
+    - id: default-roster-channel-members-are-detached-ordered-snapshots
+      title: A roster selection seeds concrete ordered members without source
+        references
+      statement: After complete preflight, channel creation must atomically seed the
+        room, owner, system member, and each expanded roster agent in stored
+        order with a fresh member id, one normalized channel cwd, concrete
+        public configuration, and any resolved private runtime launch, while
+        persisting no preset/roster reference and no starting_agent_handle for
+        the group; later preset or roster edits cannot mutate those members,
+        because the ordered group is a creation input snapshot rather than live
+        membership state or a hidden first Starting agent.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - default-roster-channel-selection-is-exclusive-and-preflighted
+        - owner-and-system-members-seeded
+        - individual-agent-presets-are-versioned-local-state
+        - durable-agent-runtime-configuration
+        - named-acp-provider-selection-resolves-to-private-structured-launch
+    - id: initial-roster-runtime-failures-are-member-local-and-actionable
+      title: Initial roster runtime failures preserve every durable member snapshot
+      statement: After the initial room/member transaction, the daemon must activate
+        each seeded roster member separately in roster order with a fresh
+        session and credential; success moves only that member to idle, while a
+        thrown runtime spawn leaves only that member visible and dead, records
+        one safe actionable system diagnostic, and continues activating later
+        members without rolling back the room, deleting identities, or sharing
+        runtime state, because an external harness failure after valid
+        configuration is a member lifecycle event rather than a channel-create
+        transaction failure.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - default-roster-channel-members-are-detached-ordered-snapshots
+        - agent-member-credentials-stay-secret
+        - durable-agent-runtime-configuration
+        - canonical-spawn-controls-enforced
+    - id: settings-manages-individual-agent-presets-through-canonical-controls
+      title: Settings performs real individual-preset CRUD through canonical agent
+        controls
+      statement: Authorized owner and admin Settings surfaces must list, create,
+        full-replacement edit, and deliberately delete local individual agent
+        presets through the existing transport-neutral management API, while a
+        structured editor maps label, handle, optional display name, native or
+        named/custom ACP harness, model, supported thinking, and canonical
+        policy through the shared AgentIdentityControls and AgentControls with
+        current catalog feedback; pending, stale, reference-conflict,
+        validation, and transport failures preserve a retryable current draft
+        and never issue a duplicate mutation or expose controls to lower roles,
+        because reusable configuration needs one functional UI without becoming
+        a second adapter vocabulary or bypassing server authorization.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - individual-agent-presets-are-bounded-catalog-validated-configurations
+        - individual-agent-presets-are-versioned-local-state
+        - default-roster-references-block-preset-deletion
+        - agent-preset-management-is-authorized-and-transport-neutral
+        - agent-controls-shared-by-both-dialogs
+        - agent-selection-shows-detected-acp-and-advanced-custom
+        - settings-navigation-reuses-live-session
+        - roles-gate-human-acts-not-agents
+    - id: settings-manages-one-separate-ordered-default-roster
+      title: Settings edits one ordered roster of individual-preset references
+      statement: Authorized Settings must render the singleton default roster as a
+        separate ordered reference editor over the current individual-preset
+        list, allow duplicate-free add, remove, move-up, move-down, empty,
+        reload, and one atomic save, preserve a dirty retryable draft on
+        conflicts or transport failure, and reconcile only from an explicit
+        reload or the authoritative returned order; it must never copy preset
+        fields into the group, silently remove a missing reference, or mutate an
+        individual preset as a side effect, because the default roster is one
+        ordered group choice rather than another preset or a denormalized team
+        snapshot.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - settings-manages-individual-agent-presets-through-canonical-controls
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - default-roster-references-block-preset-deletion
+        - agent-preset-management-is-authorized-and-transport-neutral
+    - id: create-channel-roster-choice-preserves-starting-agent-draft
+      title: Create Channel selects one default roster without mutating Starting agent
+      statement: Normal and paired first-channel creation must show the current
+        default roster as one readable ordered group choice, keep legacy
+        Starting agent usable while roster data loads or fails, and when
+        selected hide but not reconcile or mutate the complete Starting agent
+        draft, ignore that hidden draft's validity, and send only default_roster
+        true; deselection must restore the exact draft and a failed create must
+        preserve both the choice and draft for retry in direct and hosted modes,
+        because choosing a reusable team is exclusive with but must never
+        destroy the operator's separately prepared single-agent alternative.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - settings-manages-one-separate-ordered-default-roster
+        - default-roster-channel-selection-is-exclusive-and-preflighted
+        - default-roster-channel-members-are-detached-ordered-snapshots
+        - agent-preset-management-is-authorized-and-transport-neutral
+        - web-room-rail-creates-owner-room
+        - paired-empty-state-creates-first-channel
+        - agent-controls-shared-by-both-dialogs
+        - agent-selection-shows-detected-acp-and-advanced-custom
+    - id: preset-derived-members-are-isolated-durable-snapshots
+      title: Preset-derived members remain isolated durable snapshots across restart
+      statement: Reusing the same individual presets through ordinary Add agent and
+        repeated default-roster channel creation must produce fresh member ids,
+        in-memory Sessions, native session references, room/member-bound
+        credentials, and member-scoped runtime state for every concrete agent;
+        later preset edits, roster replacement, source deletion, and switchboard
+        restart must preserve each member's copied configuration, private
+        runtime data, established native reference, tasks, runs, and room
+        isolation, while lazy reconstruction resumes only that member's
+        reference in a new Session and rotates its credential, because reusable
+        configuration is never shared membership, authority, or runtime
+        identity.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - individual-agent-preset-selection-snapshots-one-ordinary-spawn
+        - default-roster-channel-members-are-detached-ordered-snapshots
+        - initial-roster-runtime-failures-are-member-local-and-actionable
+        - individual-agent-presets-are-versioned-local-state
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - durable-agent-runtime-configuration
+        - agent-member-credentials-stay-secret
+    - id: hosted-preset-state-follows-only-the-active-computer
+      title: Hosted preset and roster state follows only the active computer
+      statement: In a hosted tab with several live paired computers, every preset
+        list/detail/mutation, default-roster read/replacement, Add-agent
+        selection, and roster-channel creation must traverse only the active
+        computer's bearer, tunnel, adapter catalog, and local switchboard
+        database, so switching computers reveals that host's independent
+        configuration and created members without copying, merging, caching, or
+        leaking another host's presets or roster; a switchboard-served direct
+        tab must retain the same native behavior with no computer switcher or
+        relay dependency, because presets and the one default roster are
+        machine-local configuration rather than hosted account or relay state.
+      reason: Import the independently accepted Agent Presets contract at
+        bc062264a9165401c79890db97350b0c2fcdacb0 without changing its meaning.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+        - hosted-app-keeps-all-paired-computers-live
+        - agent-preset-management-is-authorized-and-transport-neutral
+        - individual-agent-preset-selection-snapshots-one-ordinary-spawn
+        - settings-manages-individual-agent-presets-through-canonical-controls
+        - settings-manages-one-separate-ordered-default-roster
+        - create-channel-roster-choice-preserves-starting-agent-draft
+  reviewed:
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: The merge retains the stable repository, main-checkout,
+        registered-worktree, alias, path, and lifecycle schema beside the
+        independent preset tables.
+    - id: registered-worktrees-materialize-stable-conversations
+      outcome: unchanged
+      reason: Preset migrations and room seeding must not rewrite main or child
+        conversation identity, history, or tombstoned mappings.
+    - id: worktree-lifecycle-is-roster-neutral
+      outcome: unchanged
+      reason: The integration regression strengthens this existing invariant with
+        populated preset and default-roster state; discover, adopt, create,
+        unregister, and remove remain membership-neutral.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Qualified deliveries retain stable worktree, conversation, and member
+        ids; imported preset configuration adds no routing identity or fallback.
+    - id: qualified-completion-lists-registered-targets-only
+      outcome: unchanged
+      reason: The browser runtime must expose both typed routing catalogs and typed
+        preset APIs without mixing paths, selectors, or authorization.
+    - id: invalid-qualified-targets-never-fallback
+      outcome: unchanged
+      reason: Preset imports do not weaken structured refusal, retry, recovery, or
+        no-local-fallback behavior.
+    - id: cross-worktree-runtime-stays-target-local
+      outcome: unchanged
+      reason: Preset-derived concrete members remain ordinary room-local members and
+        do not share cwd, session, credentials, caches, tasks, or usage across
+        worktrees.
+    - id: cross-worktree-output-stays-in-origin
+      outcome: unchanged
+      reason: Imported room creation and preset management do not alter cross-worktree
+        transcript ownership or foreign-author attribution.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Preset management retains manage_agents and worktree lifecycle retains
+        its human room-admin boundary; no role rank changes.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials remain barred from both global preset management and
+        worktree lifecycle operations.
+    - id: channel-create-request-contract
+      outcome: unchanged
+      reason: The additive default_roster selector coexists with the existing request
+        and does not become a worktree lifecycle selector.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Ordinary roster channel creation remains atomic while
+        registered-worktree child materialization retains its existing separate
+        lifecycle.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: Roster seeding extends only explicit channel creation; worktree
+        registration never clones the owner or agent roster.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: Roster-created ordinary channels and qualified worktree routing preserve
+        the established recipient rules independently.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: Every preset-derived concrete member still receives isolated private
+        authority and no preset or worktree projection exposes a raw token.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Preset state remains local to the active computer and native worktree
+        state introduces no relay or cloud synchronization.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: The accepted ACP resolver remains exported through the sole adapter
+        registry boundary after the merge.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The additive preset display-name spawn field remains identical on TCP
+        and local-socket dispatch while qualified routing fields remain intact.
+anchors:
+  individual-agent-presets-are-bounded-catalog-validated-configurations:
+    individual-agent-preset-schema:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    individual-agent-preset-schema-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    individual-agent-preset-catalog-validation:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    individual-agent-preset-direct-validation-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  individual-agent-presets-are-versioned-local-state:
+    individual-agent-preset-store-migration:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    individual-agent-preset-store-crud:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    individual-agent-preset-persistence-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  default-roster-is-one-versioned-ordered-preset-reference-group:
+    default-roster-schema:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-store:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-order-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  default-roster-references-block-preset-deletion:
+    preset-roster-reference-integrity:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    preset-roster-reference-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  agent-preset-management-is-authorized-and-transport-neutral:
+    agent-preset-rest-boundary:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    agent-preset-rest-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  individual-agent-preset-selection-snapshots-one-ordinary-spawn:
+    agent-preset-spawn-display-name-contract:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    agent-preset-spawn-display-name-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    agent-preset-spawn-display-name-dispatch:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    agent-preset-spawn-server-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  default-roster-channel-selection-is-exclusive-and-preflighted:
+    default-roster-create-request-contract:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-create-request-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-expansion-preflight:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-expansion-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-create-rest-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  default-roster-channel-members-are-detached-ordered-snapshots:
+    default-roster-room-seed:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-room-seed-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-snapshot-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-default-recipient-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  initial-roster-runtime-failures-are-member-local-and-actionable:
+    initial-agent-runtime-activation:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    initial-agent-runtime-failure-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    initial-agent-runtime-isolation-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  settings-manages-individual-agent-presets-through-canonical-controls:
+    settings-agent-preset-editor-mapping:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    settings-agent-preset-management-surface:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    settings-agent-preset-management-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  settings-manages-one-separate-ordered-default-roster:
+    settings-default-roster-management-surface:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    settings-default-roster-management-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  create-channel-roster-choice-preserves-starting-agent-draft:
+    default-roster-create-choice:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-channel-dialog-selection:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-first-channel-selection:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    default-roster-create-ui-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  preset-derived-members-are-isolated-durable-snapshots:
+    preset-derived-runtime-isolation-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  hosted-preset-state-follows-only-the-active-computer:
+    hosted-preset-active-computer-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  agent-member-credentials-stay-secret:
+    initial-agent-credential-isolation-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  agent-network-authority-is-narrow:
+    default-roster-create-agent-denial-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  browser-created-channel-delivers-its-room-key:
+    default-roster-browser-key-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  channel-create-request-contract:
+    channel-create-request-schema:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  channel-creation-derived-and-seeded:
+    default-roster-create-rest-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    derived-channel-creation:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  channel-starting-agent-handle-persisted:
+    starting-agent-config-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+    starting-agent-creation-record:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  default-recipient-fallback-chain:
+    default-roster-default-recipient-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  empty-database-desk-seeds-tutorial-atomically:
+    bootstrap-welcome-transaction:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  new-agent-requests-require-available-native-or-detected-acp:
+    new-agent-provider-availability-preflight:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  roles-gate-human-acts-not-agents:
+    default-roster-create-role-regression:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  spawn-default-cwd-is-absolute-or-empty:
+    implicit-starting-agent-cwd:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  starting-agent-name-derives-one-valid-identity-v6:
+    starting-agent-create-validation:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  owner-and-system-members-seeded:
+    room-seeding:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Integrate the accepted contract and preserve its independently reviewed
+        final behavior in the composed native-worktrees tree.
+  adapter-registry-sole-harness-source:
+    configured-adapter-registry:
+      action: change
+      reason: Retain the accepted registry-owned ACP resolver export with no second
+        adapter-package import site.
+    hardcoded-list-guard:
+      action: keep
+      reason: The release guard remains unchanged and must still enforce one import
+        site per built-in adapter package.
+  worktree-lifecycle-is-roster-neutral:
+    worktree-roster-neutrality-regression:
+      action: change
+      reason: Populate individual presets and the default roster before temporary
+        worktree lifecycle operations, reopen the Store, and prove both
+        configuration state and all room rosters remain unchanged.
+files:
+  - packages/adapters/acp/src/adapter.spec.ts
+  - packages/protocol/src/agent-presets.spec.ts
+  - packages/protocol/src/agent-presets.ts
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/room.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/ws.ts
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/agent-presets.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/web-next/src/room/AgentControls.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/room/DefaultRosterChoice.tsx
+  - packages/web-next/src/room/agent-spec.spec.ts
+  - packages/web-next/src/room/agent-spec.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/styles/onboarding.css
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/surfaces/AgentPresetSettings.tsx
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/surfaces/SettingsPage.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room37-agent-presets.e2e.spec.ts
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+  - packages/web-next/tests/room39-agent-preset-hardening.e2e.spec.ts
+verification: Before merge, verify branch feat/native-worktrees, HEAD
+  4e909be8d54ffef2161070dc54014e65e41c39d8, the accepted second parent
+  bc062264a9165401c79890db97350b0c2fcdacb0, the locked plan with dirty_at_lock
+  false, and capture a normalized real `git worktree list --porcelain`
+  path/branch inventory. Merge the exact preset tip with `git merge --no-commit
+  --no-ff bc062264a9165401c79890db97350b0c2fcdacb0`. Resolve the five named
+  conflicts by composition, remove only the thirteen newly imported
+  `.harn/plans/agent-presets-*.yaml` files and fourteen newly imported Agent
+  Presets assumption truth files from the merge result, and leave this locked
+  plan untouched. Stage exactly this plan plus the thirty-three declared
+  source/test files before apply. Run `git diff --check`; `pnpm --filter
+  @codor/protocol test`; `pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts src/worktrees.spec.ts src/store.spec.ts
+  src/daemon.spec.ts src/server.spec.ts`; `pnpm --filter @codor/web-next test`;
+  `pnpm test`; and `pnpm build`. After building this checkout's workspace
+  packages, run the existing Agent Presets Playwright files
+  `room37-agent-presets.e2e.spec.ts`,
+  `room38-agent-preset-settings.e2e.spec.ts`, and
+  `room39-agent-preset-hardening.e2e.spec.ts` using isolated harnesses and
+  non-overlapping ports. Generated dependency links may be repaired for this
+  checkout only and must resolve here and be restored to their prior safe
+  targets before staging. Compare the real-worktree inventory byte-for-byte
+  after every lifecycle-bearing test/build sequence. Run `harn find --plan
+  native-worktrees-agent-presets-integration`, `harn plan check
+  native-worktrees-agent-presets-integration`, `harn check
+  native-worktrees-agent-presets-integration`, and the explicit plan-id staged
+  check. Then apply the plan, stage only its generated fourteen assumption truth
+  files, rerun `harn check --staged`, and create exactly one verified merge
+  commit without bypassing hooks. Confirm the commit has first parent
+  4e909be8d54ffef2161070dc54014e65e41c39d8 and second parent
+  bc062264a9165401c79890db97350b0c2fcdacb0, the plan is applied, no historical
+  Agent Presets plan file landed in the final tree, the worktree is clean, and
+  the real worktree inventory is unchanged. If any production behavior or Harn
+  scope fails, stop and tag Sol; do not amend the locked plan or broaden the
+  merge.
+applied:
+  applied_at: 2026-08-07T04:43:04.208Z

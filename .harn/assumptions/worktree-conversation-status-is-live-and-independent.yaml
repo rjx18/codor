@@ -1,0 +1,18 @@
+id: worktree-conversation-status-is-live-and-independent
+hash: a-a75d5fc73028
+title: Each visible worktree conversation reports independent live status
+state: active
+statement: The browser must observe main and every active registered child on
+  the existing multiplexed socket from each conversation's own cursor and
+  project its own recipient-scoped unread, attention, working, hydration,
+  connection, and Git availability state; desired hidden subscriptions survive
+  reconnect, transient failure preserves last-good state, removed registrations
+  stop future observation, and every hosted computer keeps this state inside its
+  existing isolated store and transport.
+depends_on:
+  - child-conversation-state-is-room-isolated
+  - multiplexed-subscriptions-identify-their-room
+  - room-support-is-bounded-recipient-scoped-state
+  - durable-room-summaries-stream-and-fallback
+  - hosted-computer-sessions-keep-state-isolated
+created_by: native-worktrees-phase4-functional-group-ui

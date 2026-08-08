@@ -1,0 +1,23 @@
+id: create-channel-roster-choice-preserves-starting-agent-draft
+hash: a-219f3b1a725e
+title: Create Channel selects one default roster without mutating Starting agent
+state: active
+statement: Normal and paired first-channel creation must show the current
+  default roster as one readable ordered group choice, keep legacy Starting
+  agent usable while roster data loads or fails, and when selected hide but not
+  reconcile or mutate the complete Starting agent draft, ignore that hidden
+  draft's validity, and send only default_roster true; deselection must restore
+  the exact draft and a failed create must preserve both the choice and draft
+  for retry in direct and hosted modes, because choosing a reusable team is
+  exclusive with but must never destroy the operator's separately prepared
+  single-agent alternative.
+depends_on:
+  - settings-manages-one-separate-ordered-default-roster
+  - default-roster-channel-selection-is-exclusive-and-preflighted
+  - default-roster-channel-members-are-detached-ordered-snapshots
+  - agent-preset-management-is-authorized-and-transport-neutral
+  - web-room-rail-creates-owner-room
+  - paired-empty-state-creates-first-channel
+  - agent-controls-shared-by-both-dialogs
+  - agent-selection-shows-detected-acp-and-advanced-custom
+created_by: native-worktrees-agent-presets-integration

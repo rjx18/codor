@@ -1,0 +1,391 @@
+id: native-worktrees-phase2-conversations
+title: Native worktrees Phase 2 - durable main and isolated child conversations
+notes: >-
+  Implement only Phase 2 of .codor/PHASED-PLAN.md by reusing Codor's existing
+  room boundary as the durable conversation boundary. A room remains an ordinary
+  top-level channel until the first secondary worktree is explicitly adopted or
+  created. In the same SQLite transaction that first registers that secondary,
+  bind the primary worktree to the existing room id as main without rewriting
+  its Room row, members, transcript, message ids, seq, configuration, key, or
+  history, and create one hidden child Room plus a stable persisted
+  conversation_id only for the selected secondary. Never materialize a child for
+  an unregistered discovery candidate. A new secondary receives a collision-safe
+  filesystem-safe child RoomId stored on its worktree record; unregister and
+  removal retain the child and all history, while re-adoption restores the same
+  worktree and conversation ids. Backfill this mapping idempotently for
+  databases already containing Phase 1 worktree rows, with the root room still
+  main and no rewrite of existing messages.
+
+  Child rooms use the existing per-room message-id allocator, changelog seq,
+  deliveries, interactions, read cursors, summaries/support, meters, blobs,
+  attachment directories, voice metadata, and room-key store. This intentionally
+  produces independent #N ids and cursors in main and each child while keeping
+  every existing invariant local to its exact conversation. Group-level human
+  and reserved Switchboard identities are inherited from the root for
+  authorization, attribution, read cursors, and hydration rather than copied;
+  agents and other runtime members live only in their exact conversation. Thus a
+  child begins with no cloned agent roster, and equal agent handles in main and
+  a child remain distinct globally-issued member ids with isolated cwd, session,
+  credential hash/token, transient caches and waits, task projection, usage, and
+  delivery state. A newly added root human receives a read cursor in every
+  existing child, and a migrated/new child baselines all root humans to its own
+  current seq.
+
+  Keep hidden child rooms out of legacy human/browser list_rooms and GET /rooms
+  results so old clients and every room without a registered secondary retain
+  the exact direct-channel path. An agent credential continues to see only its
+  exact room, including when that room is a child. Worktree discovery and
+  lifecycle responses add the stable conversation_id; successful adopt/create
+  ensures a distinct child room key, and a paired browser creator receives only
+  that key sealed to its own device, while operator-token responses stay
+  compatible. A child id may be used with the existing authenticated REST/WS
+  room surfaces for Phase 2 verification, but this phase adds no navigation UI.
+
+  Prove migration, store reopen, main-history preservation, same numeric message
+  id isolation, independent summary/unread/read state, task and meter isolation,
+  same-handle member/session/credential/cache isolation, attachment and voice
+  isolation, distinct sealed keys, and a remote resident attempt whose exact
+  child room is still finalized only by the home switchboard. The hosted proof
+  must reuse the current residency envelope and make no relay/cloud protocol
+  change. Do not add qualified mention grammar or routing, cross-worktree
+  delivery, roster presets, child navigation, group UI, alias editing, branch
+  deletion, or multi-repository support. Every Git lifecycle regression must use
+  only its own mkdtemp repository/worktrees and must never mutate any real user
+  worktree.
+assumptions:
+  create:
+    - id: registered-worktrees-materialize-stable-conversations
+      title: Registered worktrees materialize stable durable conversations
+      statement: The first explicit secondary registration must atomically bind the
+        primary worktree to the unchanged root room as main and persist one
+        collision-safe child RoomId on only that selected secondary, while
+        discovery creates nothing, tombstones retain the child and history,
+        re-adoption restores the same ids, and Phase 1 databases backfill the
+        mapping idempotently without rewriting the main transcript.
+      reason: Group and qualified-routing phases need durable conversation identity
+        tied to deliberate worktree registration rather than mutable paths or
+        automatic discovery.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - worktree-discovery-never-registers-candidates
+    - id: main-and-direct-conversations-stay-compatible
+      title: Main is the existing conversation and direct channels stay unchanged
+      statement: A promoted group's main conversation must retain the original room
+        id, Room row, history, members, config, message ids, seq, and encryption
+        key, hidden child rooms must stay out of legacy human/browser top-level
+        room listings, and a room with no registered secondary must preserve the
+        selector-less REST, WebSocket, startup, and persistence behavior
+        exactly.
+      reason: Existing conversations and older clients must not be rewritten or
+        exposed to child state before the later UI cutover.
+      depends_on:
+        - registered-worktrees-materialize-stable-conversations
+    - id: child-conversation-state-is-room-isolated
+      title: Each child conversation owns independent durable room state
+      statement: Each registered child must use its exact child RoomId for message-id
+        allocation, changelog and hydration cursors, transcripts, deliveries,
+        interactions, summaries, durable human read positions and unread,
+        meters, run blobs, and support projections, so equal numeric ids or seqs
+        in main and another child never read, update, count, or fan out across
+        conversations and all state survives restart.
+      reason: A group is multiple conversations, not one transcript filtered by a
+        mutable worktree label.
+      depends_on:
+        - registered-worktrees-materialize-stable-conversations
+        - main-and-direct-conversations-stay-compatible
+    - id: child-members-own-isolated-runtime
+      title: Child members own isolated roster and runtime state
+      statement: Root human and reserved Switchboard identities must be shared for
+        child authorization and attribution without copying rows, while agents
+        are created only in their exact conversation; equal handles in main and
+        a child must resolve to distinct member ids whose cwd, native session,
+        raw and hashed credentials, delivery state, transient session/wait/usage
+        caches, durable tasks, and meters cannot affect one another across
+        restart or concurrent turns.
+      reason: Worktree-local agents must never inherit another checkout's execution or
+        identity state, and worktree creation must not clone the roster.
+      depends_on:
+        - child-conversation-state-is-room-isolated
+        - agent-member-credentials-stay-secret
+        - member-task-projection-is-durable-and-session-scoped
+    - id: child-files-voice-and-keys-are-isolated
+      title: Child files, voice metadata, and encryption keys stay conversation-local
+      statement: Attachments, run blobs, and voice-bearing messages must use the exact
+        child RoomId for storage, lookup, serving, deletion, and hydration, and
+        every child must have its own room-key generation sealed independently
+        to active enrollees; cross-conversation attachment ids and keys are
+        refused, a paired browser creating the child receives only its sealed
+        child key, and a tombstone never deletes historical bytes or key state.
+      reason: Two worktree conversations may contain the same local ids but must not
+        share file capability or encrypted content.
+      depends_on:
+        - child-conversation-state-is-room-isolated
+        - attachments-are-capped-files-served-inert
+        - voice-message-metadata-is-bounded-and-additive
+        - sealed-room-keys-per-enrollee
+    - id: child-home-authority-survives-residency
+      title: Child conversation identity survives remote member residency
+      statement: A remote member attempt for a child must carry that exact child
+        RoomId through the existing residency request and session lifecycle,
+        while only the home switchboard assigns ids, persists blobs/messages and
+        tasks, meters usage, finalizes the run, and routes results in that
+        child; main and sibling state remain untouched and no relay/cloud wire
+        contract changes.
+      reason: Hosted multi-computer execution must preserve the same conversation
+        boundary as local execution without introducing a second durable writer.
+      depends_on:
+        - child-conversation-state-is-room-isolated
+        - child-members-own-isolated-runtime
+        - room-home-single-authority
+  reviewed:
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Stable Phase 1 worktree ids remain authoritative and gain only one
+        additive persisted conversation id.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: Discovery still performs no Git or durable adoption and now also proves
+        it creates no child Room or encryption key.
+    - id: worktree-lifecycle-is-roster-neutral
+      outcome: unchanged
+      reason: Lifecycle may create only conversation metadata and an empty child room;
+        it still never copies or mutates agents, messages, sessions,
+        credentials, tasks, usage, config, or roster-staleness state.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: A child is an ordinary internal room scope, so dense transaction-local
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: Every child owns the same existing per-room seq and change-log contract.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Child creation appends its own room change and all later mutations use
+        existing room-local transactional append paths.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Main and child hydration each retain one consistent room snapshot and
+        final cursor.
+    - id: durable-room-summaries-stream-and-fallback
+      outcome: unchanged
+      reason: The shared summary builder remains room-local and can therefore project
+        a child independently without altering the legacy root-room fallback.
+    - id: human-room-read-cursors-are-durable-and-monotonic
+      outcome: unchanged
+      reason: Shared root humans gain one ordinary durable cursor per child room,
+        preserving monotonic/idempotent semantics inside each conversation.
+    - id: room-support-is-bounded-recipient-scoped-state
+      outcome: unchanged
+      reason: Support remains recipient- and room-scoped; inherited root humans are
+        authorized viewers of only the selected child snapshot.
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: Tasks remain scoped by globally stable member/session identity; child
+        agents are separate members even when their handles match main.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: Raw credentials remain session-only and hashes stay on distinct child
+        member rows, with CODOR_CHANNEL selecting the exact child room.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: An agent credential remains authorized only for its exact room, whether
+        that room is a root or hidden child.
+    - id: attachments-are-capped-files-served-inert
+      outcome: unchanged
+      reason: The existing room directory boundary becomes the child file boundary
+        without changing caps, path safety, serving, or cleanup semantics.
+    - id: voice-message-metadata-is-bounded-and-additive
+      outcome: unchanged
+      reason: Voice remains bounded metadata on an exact room-local message.
+    - id: sealed-room-keys-per-enrollee
+      outcome: unchanged
+      reason: A child is assigned its own ordinary room key and per-enrollee sealed
+        ciphertext; root key material is never reused or replaced.
+    - id: browser-created-channel-delivers-its-room-key
+      outcome: unchanged
+      reason: The same paired-device rule is reused additively for a browser-created
+        worktree child without changing direct room creation responses.
+    - id: room-home-single-authority
+      outcome: unchanged
+      reason: Residency already carries a room id and the child reuses that exact home
+        authority boundary without a transport schema change.
+anchors:
+  registered-worktrees-materialize-stable-conversations:
+    worktree-conversation-protocol:
+      action: change
+      reason: Add the required stable conversation_id and optional sealed child-key
+        envelope to registered lifecycle projections.
+    worktree-conversation-protocol-regression:
+      action: change
+      reason: Validate stable safe child ids, main ids, optional envelopes, and reject
+        malformed conversation/key shapes.
+    worktree-conversation-store-schema:
+      action: change
+      reason: Persist a unique conversation RoomId on every main/secondary worktree
+        and add collision-safe child-room indexes and queries.
+    worktree-conversation-migration:
+      action: change
+      reason: Idempotently backfill Phase 1 databases, preserving the root Room and
+        transcript while creating empty secondary child rooms only for prior
+        registered rows.
+    worktree-conversation-lifecycle:
+      action: change
+      reason: Create mappings in the registration transaction, retain them through
+        tombstones, and reuse them on re-adoption.
+    worktree-conversation-store-regression:
+      action: change
+      reason: Prove first registration, migration, restart, tombstone/re-adoption,
+        collision safety, and no discovery side effect.
+    worktree-conversation-git-regression:
+      action: change
+      reason: Use only disposable Git fixtures to prove discovery creates no child and
+        adoption/creation returns one stable child id.
+  main-and-direct-conversations-stay-compatible:
+    conversation-root-query:
+      action: change
+      reason: Distinguish public top-level roots from internal child rooms while
+        retaining all-room iteration for recovery and startup.
+    conversation-shared-human-resolution:
+      action: change
+      reason: Resolve root humans and the reserved system identity in a child without
+        copying the root roster or exposing main agents.
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Pin unchanged main bytes/history/ids and selector-less direct REST/WS
+        and top-level listing behavior for legacy clients.
+  child-conversation-state-is-room-isolated:
+    conversation-room-state-regression:
+      action: change
+      reason: Prove equal numeric message ids, seq, transcripts, deliveries, support,
+        summaries, read/unread, meters, and reopen remain isolated by child
+        RoomId.
+    conversation-read-cursor-seeding:
+      action: change
+      reason: Baseline inherited root humans for migrated/new children and new root
+        humans for every existing child.
+    conversation-server-isolation-regression:
+      action: change
+      reason: Subscribe/post/hydrate an authorized child and prove main/sibling frames
+        and summaries never leak while legacy room lists hide children.
+  child-members-own-isolated-runtime:
+    conversation-runtime-isolation-regression:
+      action: change
+      reason: Exercise equal-handle main/child agents with separate cwd, session env,
+        credential, tasks, last-usage cache, meter, and restart state.
+    conversation-agent-authorization-regression:
+      action: change
+      reason: Prove a child agent token can access only its exact child and cannot
+        authorize main or a sibling.
+  child-files-voice-and-keys-are-isolated:
+    conversation-key-response:
+      action: change
+      reason: Ensure a key for a successful child and return only the paired browser's
+        sealed envelope while preserving operator-token response shape.
+    conversation-files-voice-key-regression:
+      action: change
+      reason: Prove same local file/message ids, attachment lookup and serving, voice
+        hydration, and distinct key material never cross main/child boundaries.
+  child-home-authority-survives-residency:
+    conversation-residency-regression:
+      action: change
+      reason: Run a disposable hosted child member and prove the request, session,
+        finalization, blobs, tasks, and usage stay at the child home only.
+  registered-worktree-identities-are-durable:
+    worktree-protocol-contract:
+      action: change
+      reason: Add conversation identity without changing repository/worktree identity.
+    worktree-protocol-regression:
+      action: change
+      reason: Update valid registered records for the additive required child mapping.
+    worktree-store-schema:
+      action: change
+      reason: Extend the durable worktree row with its stable conversation RoomId.
+    worktree-store-lifecycle:
+      action: change
+      reason: Return and preserve the conversation mapping in existing lifecycle calls.
+  worktree-discovery-never-registers-candidates:
+    worktree-discovery-contract:
+      action: change
+      reason: Project conversation_id only when a candidate matches an already
+        registered worktree; an unselected discovery remains observation-only.
+    worktree-discovery-regression:
+      action: change
+      reason: Pin the absence of conversation metadata and child rows before adoption.
+  worktree-lifecycle-is-roster-neutral:
+    worktree-lifecycle-daemon-boundary:
+      action: keep
+      reason: Lifecycle delegation must not gain member/session/cache mutation.
+    worktree-roster-neutrality-regression:
+      action: change
+      reason: Extend the snapshot proof to allow only empty conversation metadata and
+        forbid copied or rewritten roster/runtime state.
+  human-room-read-cursors-are-durable-and-monotonic:
+    durable-room-read-storage:
+      action: change
+      reason: Seed ordinary child-room cursors for inherited root humans without
+        changing cursor advancement semantics.
+  agent-network-authority-is-narrow:
+    agent-room-authorization:
+      action: change
+      reason: Root humans inherit child access, while an agent continues to match only
+        its exact root or child RoomId and child rooms stay hidden from human
+        lists.
+  attachments-are-capped-files-served-inert:
+    attachment-contract:
+      action: keep
+      reason: Existing exact-room filesystem and serving containment is reused without
+        semantic or source changes.
+  voice-message-metadata-is-bounded-and-additive:
+    voice-message-storage:
+      action: keep
+      reason: Existing room-local message persistence already isolates voice metadata.
+    voice-post-frame:
+      action: keep
+      reason: No voice wire shape changes are needed.
+  sealed-room-keys-per-enrollee:
+    sealed-room-key-fanout:
+      action: keep
+      reason: Existing per-room generation and per-device sealing is reused unchanged.
+  member-task-projection-is-durable-and-session-scoped:
+    member-task-storage:
+      action: keep
+      reason: Globally distinct child member ids already isolate task rows and
+        sessions.
+    member-task-daemon-landing:
+      action: keep
+      reason: Task events continue landing by exact member id with no new routing.
+  agent-member-credentials-stay-secret:
+    member-session-environment:
+      action: keep
+      reason: Existing session issuance already stamps the exact room into
+        CODOR_CHANNEL.
+    member-credential-storage:
+      action: keep
+      reason: Credential hashes remain unique exact-member state.
+  room-home-single-authority:
+    remote-run-home-finalization:
+      action: keep
+      reason: Residency production behavior stays unchanged; only its child-room proof
+        is added.
+files:
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/worktrees.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/residency.spec.ts
+verification: Run harn find --plan native-worktrees-phase2-conversations and
+  harn check native-worktrees-phase2-conversations; run pnpm --filter
+  @codor/protocol test, pnpm --filter @codor/switchboard test, and pnpm --filter
+  '@codor/switchboard...' build. Git lifecycle tests must create and clean only
+  their own mkdtemp repositories/worktrees; store, server, daemon, crypto, and
+  residency fixtures must use only per-test temporary data roots. Confirm the
+  real repository worktree inventory is unchanged. Stage only the locked plan
+  and its ten declared files, run harn check --staged, let the Harn hook apply
+  the plan, and create exactly one Phase 2 implementation commit containing the
+  implementation, tests, applied plan, and generated assumption truth.
+applied:
+  applied_at: 2026-08-06T09:05:32.095Z

@@ -20,9 +20,15 @@ import {
   ClientFrameSchema,
   CreateRoomRequestSchema,
   DefaultRosterInputSchema,
+  WorktreeAdoptRequestSchema,
+  WorktreeAliasUpdateRequestSchema,
+  WorktreeCreateRequestSchema,
+  WorktreeIdSchema,
+  WorktreeLifecycleResponseSchema,
   type BridgeOrigin,
   type Member,
   type Policy,
+  type ScopedMemberTarget,
   VoiceTranscribeError,
   type ServerFrame,
   type ThinkingLevel,
@@ -128,7 +134,13 @@ type AuthPrincipal =
   | { kind: 'owner' }
   | { kind: 'human'; memberId: string }
   | { kind: 'browser'; deviceId: string }
-  | { kind: 'agent'; memberId: string; room: string };
+  | {
+      kind: 'agent';
+      memberId: string;
+      room: string;
+      homeRoom: string;
+      invocation?: { originRoom: string; targetRoom: string; target: ScopedMemberTarget };
+    };
 
 // harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-safe-schema
 /** Project only the selector/configuration fields safe for CLI automation. */
@@ -242,6 +254,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   if (typeof token !== 'string' || token.trim() === '') {
     throw new Error('startServer requires a non-empty authentication token');
   }
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
+  // Reopening a Phase 2 database must retain the same child key material, including
+  // for unregistered/removed worktrees whose history remains addressable.
+  for (const room of daemon.store.listRooms()) {
+    if (daemon.store.isChildRoom(room.id)) options.crypto?.roomKeys.ensureRoom(room.id);
+  }
   const configuredPrincipals = options.principals ?? [];
   const principalTokens = new Set<string>();
   for (const principal of configuredPrincipals) {
@@ -276,7 +294,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // harn:assume agent-member-credentials-stay-secret ref=agent-principal-resolution
     const agent = daemon.authenticateAgentToken(candidate);
     return agent
-      ? { kind: 'agent', memberId: agent.member.id, room: agent.room }
+      ? {
+          kind: 'agent',
+          memberId: agent.member.id,
+          room: agent.room,
+          homeRoom: agent.homeRoom,
+          ...(agent.invocation !== undefined && {
+            invocation: {
+              originRoom: agent.invocation.originRoom,
+              targetRoom: agent.invocation.targetRoom,
+              target: agent.invocation.target,
+            },
+          }),
+        }
       : undefined;
     // harn:end agent-member-credentials-stay-secret
   };
@@ -295,15 +325,31 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
 
   const memberForRoom = (principal: AuthPrincipal, room: string): Member => {
     if (principal.kind === 'owner' || principal.kind === 'browser') return daemon.ownerOf(room);
-    if (principal.kind === 'agent' && principal.room !== room) {
+    if (principal.kind === 'agent'
+      && principal.room !== room
+      && principal.homeRoom !== room) {
       throw new Error(`forbidden: agent credential belongs to room ${principal.room}`);
     }
-    const member = daemon.store.getMember(room, principal.memberId);
-    if (member?.kind !== principal.kind) {
+    const member = principal.kind === 'agent'
+      ? daemon.agentMemberForRoom(principal.room, principal.memberId)
+      : daemon.store.getMember(room, principal.memberId);
+    if (member?.kind !== principal.kind || member.removed_ts !== undefined) {
       throw new Error(`principal is not a ${principal.kind} member of this room`);
     }
     return member;
   };
+
+  // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-server
+  // A long-lived target session may reconnect through its home selector while
+  // one durable cross-origin invocation is active. The credential remains
+  // bounded to that single origin; it never gains a general room selector.
+  const effectiveAgentRoom = (principal: AuthPrincipal, requestedRoom: string): string => {
+    if (principal.kind !== 'agent' || principal.invocation === undefined) return requestedRoom;
+    return requestedRoom === principal.homeRoom || requestedRoom === principal.invocation.originRoom
+      ? principal.invocation.originRoom
+      : requestedRoom;
+  };
+  // harn:end agent-authority-follows-one-active-invocation
 
   const memberForGlobal = (principal: AuthPrincipal): Member | undefined => {
     if (principal.kind === 'owner' || principal.kind === 'browser') return undefined;
@@ -365,16 +411,61 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     }
   };
 
+  // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-root-query
   // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server
   /** Default discovery hides archived channels; management `--all` opts in. */
-  const roomsFor = (principal: AuthPrincipal, includeArchived = false) => daemon.store.listRooms().filter((room) => {
+  const roomsFor = (principal: AuthPrincipal, includeArchived = false) => (
+    principal.kind === 'agent' ? daemon.store.listRooms() : daemon.store.listPublicRooms()
+  ).filter((room) => {
     if (!includeArchived && room.config.archived_ts !== undefined) return false;
     if (principal.kind === 'owner' || principal.kind === 'browser') return true;
     if (principal.kind === 'agent') return room.id === principal.room;
     return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
   });
+  // harn:end main-and-direct-conversations-stay-compatible
   // harn:end channel-archive-is-durable-soft-state
   // harn:end agent-network-authority-is-narrow
+
+  // harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-role-gate
+  const authorizeWorktreeRead = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    // Worktree metadata is operator-facing room state. Agent credentials do not
+    // gain even read access merely because they can read room transcripts.
+    if (principal.kind === 'agent') {
+      void reply.code(403).send({ error: 'forbidden: agent cannot use worktree management' });
+      return undefined;
+    }
+    return authorizeRoom(principal, room, 'read', reply);
+  };
+
+  const authorizeWorktreeMutation = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    if (principal.kind === 'agent') {
+      void reply.code(403).send({ error: 'forbidden: agent cannot use worktree management' });
+      return undefined;
+    }
+    return authorizeRoom(principal, room, 'manage_worktrees', reply);
+  };
+
+  /** The explicit roster choice expands agent configuration into a new child,
+   * so it requires BOTH worktree and agent management authority even though
+   * the current role matrix grants both to the same admin/owner roles. */
+  const authorizeWorktreeRosterCreate = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    const member = authorizeWorktreeMutation(principal, room, reply);
+    if (member === undefined) return undefined;
+    return authorizeRoom(principal, room, 'manage_agents', reply);
+  };
+  // harn:end worktree-management-is-human-admin-only
 
   // harn:assume voice-provider-selection-is-operator-config ref=voice-selection-server-option
   // The active provider is operator config only — a browser never names it.
@@ -1089,6 +1180,190 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end room-git-inspection-read-only-from-known-cwds
 
+  // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-rest
+  const listWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.send(await daemon.listWorktrees(room, cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.get('/api/rooms/:room/worktrees', listWorktreeRoute);
+  app.get('/api/rooms/:room/worktrees/discover', listWorktreeRoute);
+  // harn:end worktree-discovery-never-registers-candidates
+
+  // harn:assume registered-worktree-navigation-is-promotion-gated ref=registered-worktree-rest
+  /** The background group projection: persisted active registrations only,
+   * store-only — Git discovery runs solely on the explicit routes above. */
+  app.get('/api/rooms/:room/worktrees/registered', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      void reply.send(daemon.registeredWorktrees(room));
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end registered-worktree-navigation-is-promotion-gated
+
+  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-rest
+  /** Human-only, path-free routing projection; this never invokes Git discovery. */
+  const routingCatalogRoute = (req: FastifyRequest, reply: FastifyReply): void => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      void reply.send(daemon.routingCatalog(room));
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.get('/api/rooms/:room/routing-targets', routingCatalogRoute);
+  app.get('/api/rooms/:room/worktrees/routing-targets', routingCatalogRoute);
+  // harn:end qualified-completion-lists-registered-targets-only
+
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
+  const worktreeLifecycleResponse = (
+    principal: AuthPrincipal,
+    result: Awaited<ReturnType<Daemon['adoptWorktree']>>,
+  ) => {
+    options.crypto?.roomKeys.ensureRoom(result.worktree.conversation_id);
+    const roomKey = principal.kind === 'browser'
+      ? options.crypto?.roomKeys.sealedFor(principal.deviceId)
+        .find((candidate) => candidate.room === result.worktree.conversation_id)
+      : undefined;
+    return WorktreeLifecycleResponseSchema.parse({
+      ...result,
+      ...(roomKey !== undefined && { room_key: roomKey }),
+    });
+  };
+  // harn:end child-files-voice-and-keys-are-isolated
+
+  // harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-contract
+  app.post('/api/rooms/:room/worktrees/adopt', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const input = WorktreeAdoptRequestSchema.parse(req.body);
+      const { cwd } = req.query as { cwd?: string };
+      const result = await daemon.adoptWorktree(room, input, cwd);
+      return reply.code(201).send(worktreeLifecycleResponse(principal, result));
+    } catch (error) {
+      return reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end registered-worktree-identities-are-durable
+
+  // harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-rest
+  const createWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const input = WorktreeCreateRequestSchema.parse({
+        ...body,
+        path: body.path ?? body.target,
+      });
+      // The literal roster choice expands agent configuration, so it needs
+      // agent-management authority on top of the worktree mutation before any
+      // roster preflight or Git work runs.
+      if (input.default_roster === true && !authorizeWorktreeRosterCreate(principal, room, reply)) return;
+      const { cwd } = req.query as { cwd?: string };
+      const result = await daemon.createWorktree(room, input, cwd);
+      return void reply.code(201).send(worktreeLifecycleResponse(principal, result));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.post('/api/rooms/:room/worktrees', createWorktreeRoute);
+  app.post('/api/rooms/:room/worktrees/create', createWorktreeRoute);
+  // harn:end worktree-creation-registers-only-a-new-secondary
+
+  // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-rest
+  const worktreeIdFromParams = (req: FastifyRequest): string => {
+    const { worktreeId } = req.params as { worktreeId: string };
+    return WorktreeIdSchema.parse(worktreeId);
+  };
+
+  const unregisterWorktreeRoute = (req: FastifyRequest, reply: FastifyReply): void => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const worktree = daemon.unregisterWorktree(room, worktreeIdFromParams(req));
+      const repository = daemon.store.getRepository(room);
+      if (repository === undefined) throw new Error('worktree repository is unavailable');
+      void reply.send({ repository, worktree });
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.post('/api/rooms/:room/worktrees/:worktreeId/unregister', unregisterWorktreeRoute);
+  app.delete('/api/rooms/:room/worktrees/:worktreeId', unregisterWorktreeRoute);
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-rest
+  /** Identity-preserving alias edit: admin/owner only, keyed by the stable id,
+   * no Git invocation, returns the stable lifecycle projection. */
+  app.post('/api/rooms/:room/worktrees/:worktreeId/alias', (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const input = WorktreeAliasUpdateRequestSchema.parse(req.body);
+      const result = daemon.updateWorktreeAlias(room, worktreeIdFromParams(req), input.alias);
+      void reply.send(WorktreeLifecycleResponseSchema.parse(result));
+    } catch (error) {
+      void reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
+  const removeWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.send(await daemon.removeWorktree(room, worktreeIdFromParams(req), cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  };
+  app.post('/api/rooms/:room/worktrees/:worktreeId/remove', removeWorktreeRoute);
+  app.post('/api/rooms/:room/worktrees/:worktreeId/filesystem-remove', removeWorktreeRoute);
+
+  /** The read-only removal preview: fresh structured state for the operator,
+   * human-readable like the other projections, and completely side-effect
+   * free — the destructive route above repeats every check itself. */
+  app.get('/api/rooms/:room/worktrees/:worktreeId/removal-preview', async (req, reply) => {
+    const principal = authed(req, reply);
+    if (!principal) return;
+    const { room } = req.params as { room: string };
+    if (!authorizeWorktreeRead(principal, room, reply)) return;
+    try {
+      const { cwd } = req.query as { cwd?: string };
+      return void reply.send(await daemon.previewWorktreeRemoval(room, worktreeIdFromParams(req), cwd));
+    } catch (error) {
+      return void reply.code(400).send({ error: String(error) });
+    }
+  });
+  // harn:end worktree-removal-is-clean-and-branch-preserving
+
   // harn:assume attachments-are-capped-files-served-inert ref=attachment-contract
   // Upload streams one file to disk under the room's attachment dir keyed by a
   // server-issued id (the client filename is metadata only), refusing >25 MB.
@@ -1495,11 +1770,25 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     roomAddressed: boolean;
     memberId?: string;
     lastSupport?: string;
+    /** Active cross-origin agent sessions receive only their target runtime frames. */
+    forwardedMemberId?: string;
+    forwardedTo?: string;
   };
   const subscriptions = new Map<WebSocket, Map<string, RoomSubscription>>();
-  const projectLiveFrame = (room: string, frame: ServerFrame, subscription: RoomSubscription): ServerFrame => {
+  const projectLiveFrame = (
+    room: string,
+    frame: ServerFrame,
+    subscription: RoomSubscription,
+  ): ServerFrame | undefined => {
+    if (subscription.forwardedMemberId !== undefined) {
+      if (frame.type === 'member') {
+        if (frame.member.id !== subscription.forwardedMemberId) return undefined;
+      } else if (frame.type !== 'meter') {
+        return undefined;
+      }
+    }
     if (!subscription.roomAddressed || frame.type !== 'member') return frame;
-    return { ...frame, room };
+    return { ...frame, room: subscription.forwardedTo ?? room };
   };
   const pendingSupportRooms = new Set<string>();
   const sendRoomSupport = (
@@ -1543,7 +1832,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     for (const [socket, rooms] of subscriptions) {
       const subscription = rooms.get(room);
       if (subscription && socket.readyState === socket.OPEN) {
-        socket.send(JSON.stringify(projectLiveFrame(room, frame, subscription)));
+        const projected = projectLiveFrame(room, frame, subscription);
+        if (projected !== undefined) socket.send(JSON.stringify(projected));
       }
     }
     // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
@@ -1795,7 +2085,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             }
             // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
             const actor = assertRoomCapability(principal, frame.room, 'read');
-            // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
+            const room = effectiveAgentRoom(principal, frame.room);
+  // harn:assume cross-worktree-runtime-stays-target-local ref=cross-worktree-runtime-live-frame
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             const roomAddressed = frame.room_addressed === true;
             // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
             const supportMemberId = roomAddressed && actor.kind === 'human'
@@ -1805,25 +2097,45 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               roomAddressed,
               ...(supportMemberId !== undefined && { memberId: supportMemberId }),
             };
-            subscriptions.get(socket)!.set(frame.room, subscription);
+            const socketRooms = subscriptions.get(socket)!;
+            socketRooms.set(room, subscription);
+            if (
+              principal.kind === 'agent'
+              && principal.invocation !== undefined
+              && principal.invocation.targetRoom !== room
+            ) {
+              socketRooms.set(principal.invocation.targetRoom, {
+                roomAddressed,
+                forwardedMemberId: actor.id,
+                forwardedTo: room,
+              });
+            }
             // harn:end room-support-is-bounded-recipient-scoped-state
-            const address = roomAddressed ? { room: frame.room } : {};
+            const address = roomAddressed ? { room } : {};
             // harn:end multiplexed-subscriptions-identify-their-room
             // The bound is the subscriber's own: passed straight through, honoured
             // only on a cold subscribe, and scoped to this actor so their unread
             // deliveries' messages ride along. Omit it and the replay is today's.
-            const sync = daemon.sync(frame.room, frame.since_seq, {
+            const sync = daemon.sync(room, frame.since_seq, {
               hydrateLimit: frame.hydrate_limit,
               subscriber: actor.id,
               strictTail: roomAddressed,
               supportFor: supportMemberId,
             });
+            const targetSelf = principal.kind === 'agent'
+              && principal.invocation !== undefined
+              && principal.invocation.originRoom === room
+              ? daemon.store.getMember(principal.invocation.targetRoom, principal.memberId)
+              : undefined;
             const hydrationCursor = frame.since_seq;
             // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-hydration
             send({ type: 'self', member_id: actor.id, ...address });
             send({ type: 'room', seq: hydrationCursor, room: sync.room });
             for (const member of sync.members) {
               send({ type: 'member', seq: hydrationCursor, member, ...address });
+            }
+            if (targetSelf !== undefined && !sync.members.some((member) => member.id === targetSelf.id)) {
+              send({ type: 'member', seq: hydrationCursor, member: targetSelf, ...address });
             }
             // harn:end multiplexed-subscriptions-identify-their-room
             for (const message of sync.messages) send({ type: 'message', seq: hydrationCursor, message });
@@ -1833,7 +2145,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                   ...sync.inbox
                     .filter((delivery) => delivery.recipient === actor.id)
                     .map((delivery) => [delivery.id, delivery] as const),
-                  ...daemon.store.listDeliveries(frame.room, {
+                  ...daemon.store.listDeliveries(room, {
                     recipient: actor.id,
                     state: 'queued',
                   }).map((delivery) => [delivery.id, delivery] as const),
@@ -1859,9 +2171,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           } else if (frame.type === 'post') {
             const actor = assertRoomCapability(principal, frame.room, 'post');
+            const room = effectiveAgentRoom(principal, frame.room);
             if (principal.kind === 'agent') {
               daemon.postAgentMessage(
-                frame.room,
+                room,
                 actor.id,
                 frame.body,
                 frame.reply_to,
@@ -1881,12 +2194,14 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 voice: frame.voice,
               });
             }
+            // harn:end cross-worktree-runtime-stays-target-local
           } else if (frame.type === 'act') {
             const act = frame.act;
             const actor = assertRoomCapability(principal, frame.room, act.act);
+            const room = effectiveAgentRoom(principal, frame.room);
             if (act.act === 'answer_interaction') {
               void daemon
-                .answerInteraction(frame.room, act.interaction_id, act.answer, actor.id)
+                .answerInteraction(room, act.interaction_id, act.answer, actor.id)
                 .catch((error: unknown) =>
                   send({ type: 'error', message: String(error), ref: 'answer_interaction' }),
                 );
@@ -1986,21 +2301,21 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             // harn:end human-room-read-cursors-are-durable-and-monotonic
             // harn:assume live-delivery-consumption-is-idempotent ref=consume-act-dispatch
             else if (act.act === 'consume_delivery') {
-              const consumed = daemon.consumeDelivery(frame.room, act.delivery_id, actor.id);
+              const consumed = daemon.consumeDelivery(room, act.delivery_id, actor.id);
               send({ type: 'consume_result', ...consumed });
             }
             // harn:end live-delivery-consumption-is-idempotent
             // harn:assume live-agent-waits-are-transient ref=wait-act-dispatch
             else if (act.act === 'wait_begin') {
               if (principal.kind !== 'agent') throw new Error('forbidden: waits require an agent credential');
-              daemon.beginWait(frame.room, actor.id, {
+              daemon.beginWait(room, actor.id, {
                 reason: act.reason,
                 peers: act.peers,
                 until_ts: act.until_ts,
               });
             } else if (act.act === 'wait_end') {
               if (principal.kind !== 'agent') throw new Error('forbidden: waits require an agent credential');
-              daemon.endWait(frame.room, actor.id);
+              daemon.endWait(room, actor.id);
             }
             // harn:end live-agent-waits-are-transient
             else if (act.act === 'spawn') {

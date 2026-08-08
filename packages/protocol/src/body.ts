@@ -1,5 +1,10 @@
 import { HANDLE_REGEX, type Member } from './member.js';
 import type { MentionSpan } from './message.js';
+import type {
+  ScopedMemberTarget,
+  WorktreeRoutingCatalog,
+  WorktreeRoutingTarget,
+} from './worktree.js';
 
 export interface ParsedBody {
   mentions: MentionSpan[];
@@ -7,6 +12,38 @@ export interface ParsedBody {
   ledger_refs: string[];
   /** Handle-shaped tokens that matched no member (misaddressing signal). */
   unresolved: string[];
+  /** Qualified mentions are also present in `mentions`, with `target` set. */
+  qualified?: MentionSpan[];
+  /** Strict qualified-token failures. A router must never fall back when present. */
+  qualified_issues?: QualifiedMentionIssue[];
+}
+
+export type QualifiedMentionIssueReason =
+  | 'malformed'
+  | 'catalog-unavailable'
+  | 'unknown-worktree'
+  | 'unregistered-worktree'
+  | 'removed-worktree'
+  | 'ambiguous-worktree'
+  | 'unknown-member'
+  | 'removed-member'
+  | 'ambiguous-member';
+  // A handle can be stale or duplicated inside a path-free catalog. Keep
+  // these failures distinct so the router can explain the refusal without
+  // ever trying the origin roster as a fallback.
+
+export interface QualifiedMentionIssue {
+  token: string;
+  selector: string;
+  handle: string;
+  start: number;
+  end: number;
+  reason: QualifiedMentionIssueReason;
+}
+
+export interface BodyParseOptions {
+  /** The path-free active registry projection used to resolve qualified tokens. */
+  qualifiedTargets?: readonly WorktreeRoutingTarget[] | WorktreeRoutingCatalog;
 }
 
 const RESERVED_TOKENS = new Set(['all', 'switchboard']);
@@ -24,11 +61,154 @@ function blankCodeSpans(body: string): string {
   return body.replace(/```[\s\S]*?(```|$)/g, blank).replace(/`[^`\n]*`/g, blank);
 }
 
+function blankRanges(body: string, ranges: readonly { start: number; end: number }[]): string {
+  if (ranges.length === 0) return body;
+  // JavaScript regex offsets are UTF-16 code-unit offsets. Splitting by code
+  // point (`[...body]`) shifts every range after a non-BMP character and can
+  // expose the inner @handle of an already-owned qualified token.
+  const chars = body.split('');
+  for (const range of ranges) {
+    for (let index = range.start; index < range.end && index < chars.length; index++) {
+      if (chars[index] !== '\n') chars[index] = ' ';
+    }
+  }
+  return chars.join('');
+}
+
+function targetList(
+  qualifiedTargets: BodyParseOptions['qualifiedTargets'],
+): readonly WorktreeRoutingTarget[] | undefined {
+  if (qualifiedTargets === undefined) return undefined;
+  return 'targets' in qualifiedTargets ? qualifiedTargets.targets : qualifiedTargets;
+}
+
+function targetCatalog(
+  qualifiedTargets: BodyParseOptions['qualifiedTargets'],
+): WorktreeRoutingCatalog | undefined {
+  if (qualifiedTargets === undefined || !('tombstones' in qualifiedTargets)) return undefined;
+  return qualifiedTargets;
+}
+
 // harn:assume body-parser-shared-across-router-and-web ref=shared-body-parser
 /** The single PROTOCOL SS3 body grammar used by routing and destination preview. */
-export function parseBody(body: string, members: Member[]): ParsedBody {
+export function parseBody(
+  body: string,
+  members: Member[],
+  options: BodyParseOptions = {},
+): ParsedBody {
   const byHandle = new Map(members.map((member) => [member.handle, member]));
-  const scan = blankCodeSpans(body);
+  const coded = blankCodeSpans(body);
+
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-body-grammar
+  const qualified: MentionSpan[] = [];
+  const qualified_issues: QualifiedMentionIssue[] = [];
+  const occupied: { start: number; end: number }[] = [];
+  const targets = targetList(options.qualifiedTargets);
+  const catalog = targetCatalog(options.qualifiedTargets);
+  // Scan only tokens that actually attempt the qualified grammar. A broad
+  // `~...` scan turns ordinary prose (`~5`, `~/tmp`, `~approximately`) into a
+  // refusal. A token that attempts the scoped form owns its COMPLETE
+  // selector/colon/handle envelope — an empty selector (`~:@x`), a repeated
+  // colon (`~a::@x`), an empty handle (`~a:`, `~a:@`), or any JavaScript
+  // whitespace around the separators (`~a:\n@x`, `~\na:@x`) — so an inner
+  // @handle can never leak into local routing. The first alternative owns
+  // attempts that reach an @handle across whitespace; the second owns a
+  // dangling selector+colon with no handle at all — including the colon-only
+  // empty form (`~:`, `~ :`, `~::`) — but only when the colon is not glued to
+  // more prose (`~5:30` and `~note:check` stay ordinary).
+  const candidateRe = /~(?:\s*[^:\s`]*(?:\s*:\s*)+@[^\s`]*|\s*[^:\s`]*(?:\s*:\s*)+(?![^\s`@]))/g;
+  const validPrefixRe = /^~([a-z0-9][a-z0-9._-]*):@([a-z0-9][a-z0-9-]*)/;
+  const malformedPartsRe = /^~\s*([^:\s`]*?)(?:\s*:\s*)+@?([^\s`]*)/;
+  const punctuationOnly = /^[.,!?;:)\]}]*$/;
+  for (const match of coded.matchAll(candidateRe)) {
+    const start = match.index;
+    const candidateEnd = start + match[0]!.length;
+    const candidate = coded.slice(start, candidateEnd);
+    const valid = validPrefixRe.exec(candidate);
+    let end = candidateEnd;
+    let selector = '';
+    let handle = '';
+    let malformed = false;
+    const preceding = coded[start - 1];
+    const hasValidBoundary = preceding === undefined || !/[\w@`]/.test(preceding);
+    if (valid !== null && hasValidBoundary && punctuationOnly.test(candidate.slice(valid[0].length))) {
+      end = start + valid[0].length;
+      selector = valid[1]!;
+      handle = valid[2]!;
+    } else {
+      malformed = true;
+      const parts = malformedPartsRe.exec(candidate);
+      selector = parts?.[1] ?? candidate.slice(1).split(':', 1)[0] ?? '';
+      handle = parts?.[2] ?? '';
+    }
+    const token = body.slice(start, end);
+    occupied.push({ start, end });
+    if (malformed) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'malformed' });
+      continue;
+    }
+    if (targets === undefined) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'catalog-unavailable' });
+      continue;
+    }
+    const matchingTargets = targets.filter((candidateTarget) => candidateTarget.alias === selector);
+    if (matchingTargets.length > 1) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'ambiguous-worktree' });
+      continue;
+    }
+    const target = matchingTargets[0];
+    if (target === undefined) {
+      const tombstone = catalog?.tombstones.find((candidateTombstone) => candidateTombstone.alias === selector);
+      qualified_issues.push({
+        token,
+        selector,
+        handle,
+        start,
+        end,
+        reason: tombstone?.lifecycle === 'unregistered'
+          ? 'unregistered-worktree'
+          : tombstone?.lifecycle === 'removed'
+            ? 'removed-worktree'
+            : 'unknown-worktree',
+      });
+      continue;
+    }
+    const matchingMembers = target.members.filter((candidateMember) =>
+      candidateMember.handle === handle && (candidateMember.kind === 'human' || candidateMember.kind === 'agent'));
+    if (matchingMembers.length > 1) {
+      qualified_issues.push({ token, selector, handle, start, end, reason: 'ambiguous-member' });
+      continue;
+    }
+    const targetMember = matchingMembers[0];
+    if (targetMember === undefined) {
+      const removed = target.removed_members?.some((candidateMember) => candidateMember.handle === handle);
+      qualified_issues.push({
+        token,
+        selector,
+        handle,
+        start,
+        end,
+        reason: removed ? 'removed-member' : 'unknown-member',
+      });
+      continue;
+    }
+    const scoped: ScopedMemberTarget = {
+      worktree_id: target.worktree_id,
+      conversation_id: target.conversation_id,
+      member_id: targetMember.member_id,
+      alias: target.alias,
+      handle: targetMember.handle,
+    };
+    qualified.push({
+      member_id: targetMember.member_id,
+      target: scoped,
+      start,
+      end,
+    });
+  }
+  // harn:end qualified-member-target-identity-is-durable
+
+  const scan = blankRanges(coded, occupied);
 
   const mentions: MentionSpan[] = [];
   const unresolved: string[] = [];
@@ -57,6 +237,12 @@ export function parseBody(body: string, members: Member[]): ParsedBody {
     if (name !== '' && !ledger_refs.includes(name)) ledger_refs.push(name);
   }
 
-  return { mentions, refs, ledger_refs, unresolved: [...new Set(unresolved)] };
+  const parsed: ParsedBody = { mentions, refs, ledger_refs, unresolved: [...new Set(unresolved)] };
+  if (qualified.length > 0 || qualified_issues.length > 0) {
+    parsed.mentions = [...mentions, ...qualified].sort((left, right) => left.start - right.start);
+    parsed.qualified = qualified;
+    parsed.qualified_issues = qualified_issues;
+  }
+  return parsed;
 }
 // harn:end body-parser-shared-across-router-and-web

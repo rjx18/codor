@@ -1,0 +1,14 @@
+id: child-home-authority-survives-residency
+hash: a-64c1d2af3bbf
+title: Child conversation identity survives remote member residency
+state: active
+statement: A remote member attempt for a child must carry that exact child
+  RoomId through the existing residency request and session lifecycle, while
+  only the home switchboard assigns ids, persists blobs/messages and tasks,
+  meters usage, finalizes the run, and routes results in that child; main and
+  sibling state remain untouched and no relay/cloud wire contract changes.
+depends_on:
+  - child-conversation-state-is-room-isolated
+  - child-members-own-isolated-runtime
+  - room-home-single-authority
+created_by: native-worktrees-phase2-conversations
