@@ -12,12 +12,12 @@ notes: >
 
   Add mixed ordinary/run history and REST regressions for an oldest-id message
   with a newer timestamp. A complete cursor walk must return every visible unit
-  exactly once in established transcript order, with no gaps or duplicates;
-  only the true final page may report has_more false and before_cursor null.
-  Record duration, response bytes, selected units, message reads/records,
-  journal reads, and journal events for the reproduced 185-message shape. No
-  browser changes, legacy /messages fallback, protocol shape change, persistent
-  index, relay work, or Phase 2 implementation.
+  exactly once in established transcript order, with no gaps or duplicates; only
+  the true final page may report has_more false and before_cursor null. Record
+  duration, response bytes, selected units, message reads/records, journal
+  reads, and journal events for the reproduced 185-message shape. No browser
+  changes, legacy /messages fallback, protocol shape change, persistent index,
+  relay work, or Phase 2 implementation.
 assumptions:
   create:
     - id: transcript-history-cursors-cover-complete-established-order
@@ -28,7 +28,8 @@ assumptions:
         immutable newest-message ceiling in the same modern-output and legacy
         timestamp order used by transcript rendering, so walking cursors returns
         every visible unit exactly once with no gap or duplicate and reports
-        has_more false with a null before_cursor only after the true oldest unit.
+        has_more false with a null before_cursor only after the true oldest
+        unit.
       reason: >
         Backward id discovery is not monotonic with legacy timestamp order, so a
         boundary chosen from a partial scan can permanently skip a later-sorted
@@ -39,8 +40,8 @@ assumptions:
     - id: historical-transcript-pages-match-output-scoped-rendering
       outcome: unchanged
       reason: Unitization, ordering rules, cursor shape, and the fixed twenty-unit
-        response contract remain unchanged; page selection now sees their complete
-        established order.
+        response contract remain unchanged; page selection now sees their
+        complete established order.
     - id: permalink-ids-stable
       outcome: unchanged
       reason: Complete cursor coverage restores every permanent target without
@@ -75,3 +76,5 @@ anchors:
       action: change
       reason: Extend the existing REST regression at its current authorization and
         projection boundary.
+applied:
+  applied_at: 2026-08-08T15:28:42.241Z

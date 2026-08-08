@@ -1133,6 +1133,62 @@ describe('REST', () => {
       }
     });
 
+    // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-rest-regression
+    it('returns every mixed-history unit once when an oldest id sorts into the newest page', async () => {
+      const owner = daemon.ownerOf('eng');
+      const displaced = daemon.store.postMessage('eng', {
+        author: owner.id, kind: 'chat', body: 'old id with the newest timestamp',
+      });
+      daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+        .run('2030-01-01T00:00:00.000Z', 'eng', displaced.id);
+      for (let index = 0; index < 70; index += 1) {
+        const posted = daemon.store.postMessage('eng', {
+          author: owner.id, kind: 'chat', body: `archive ${String(index)}`,
+        });
+        daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+          .run(new Date(Date.UTC(2025, 0, 1) + index * 60_000).toISOString(), 'eng', posted.id);
+      }
+      const root = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: 'done' });
+      daemon.store.updateMessage('eng', root.id, {
+        run: {
+          status: 'completed',
+          started_ts: '2026-01-01T00:00:00.000Z',
+          ended_ts: '2026-01-01T00:01:00.000Z',
+          tool_calls: 0,
+          events_ref: `runs/${String(root.id)}.jsonl`,
+          final_text: 'done',
+        },
+      });
+
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const pages: TranscriptHistoryPage[] = [];
+      let cursor: string | undefined;
+      do {
+        const suffix = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
+        const response = await fetch(`${base}/api/rooms/eng/transcript-history${suffix}`, { headers });
+        expect(response.status).toBe(200);
+        const page = await response.json() as TranscriptHistoryPage;
+        pages.push(page);
+        cursor = page.before_cursor ?? undefined;
+      } while (cursor !== undefined);
+
+      const fingerprint = (page: TranscriptHistoryPage): string[] => page.units.map((unit) =>
+        unit.kind === 'message'
+          ? `message:${String(unit.message_id)}`
+          : `${unit.kind}:${String(unit.root_message_id)}:${unit.event_indices.join(',')}`);
+      expect(fingerprint(pages[0]!).at(-1)).toBe(`message:${String(displaced.id)}`);
+      const walked = [...pages].reverse().flatMap(fingerprint);
+      expect(walked).toHaveLength(72);
+      expect(new Set(walked)).toHaveLength(72);
+      expect(walked.at(-1)).toBe(`message:${String(displaced.id)}`);
+      for (const page of pages.slice(0, -1)) {
+        expect(page).toMatchObject({ has_more: true });
+        expect(page.before_cursor).not.toBeNull();
+      }
+      expect(pages.at(-1)).toMatchObject({ has_more: false, before_cursor: null });
+    });
+    // harn:end transcript-history-cursors-cover-complete-established-order
+
     it('authorizes room reads and rejects malformed, cross-room, and missing-room cursors', async () => {
       const owner = daemon.ownerOf('eng');
       for (let index = 0; index < 25; index += 1) {

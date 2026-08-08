@@ -107,6 +107,86 @@ describe('buildTranscriptHistoryPage', () => {
     });
   });
 
+  // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-cursor-regression
+  it('walks a complete mixed transcript order once when the oldest id sorts newest', () => {
+    const stamp = (minute: number): string =>
+      new Date(Date.UTC(2026, 7, 8) + minute * 60_000).toISOString();
+    const timedRun = (
+      id: number,
+      status: 'running' | 'completed' | 'interrupted',
+      minute: number,
+    ): Message => {
+      const seeded = run(id, status, status === 'interrupted' ? { error: 'stopped' } : {});
+      return {
+        ...seeded,
+        ts: stamp(minute),
+        run: {
+          ...seeded.run!,
+          started_ts: stamp(minute),
+          ...(status !== 'running' && { ended_ts: stamp(minute) }),
+        },
+      };
+    };
+    const displaced = { ...chat(1), ts: stamp(1_000) };
+    const archived = Array.from({ length: 181 }, (_, offset) => timedRun(offset + 2, 'completed', offset + 2));
+    const running = timedRun(183, 'running', 183);
+    const neighbour = timedRun(184, 'completed', 184);
+    const interrupted = timedRun(185, 'interrupted', 185);
+    const terminal = [...archived, neighbour];
+    const journals = new Map<number, WireEvent[]>(terminal.map((message) => [message.id, [
+      {
+        type: 'run.item', item_type: 'text_delta',
+        payload: { text: `run ${String(message.id)}` }, ts: message.ts,
+      },
+      { type: 'run.completed', status: 'completed' },
+    ]]));
+    journals.set(interrupted.id, []);
+    const source = new Source(
+      [displaced, ...archived, running, neighbour, interrupted],
+      journals,
+    );
+
+    const pages: ReturnType<typeof buildTranscriptHistoryPage>[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = buildTranscriptHistoryPage({ room: 'eng', cursor, source });
+      pages.push(result);
+      cursor = result.page.before_cursor ?? undefined;
+    } while (cursor !== undefined);
+
+    const firstIds = pages[0]!.page.units.map((unit) =>
+      unit.kind === 'message' ? unit.message_id : unit.root_message_id);
+    expect(firstIds.at(-1)).toBe(1);
+    const walked = [...pages].reverse().flatMap(({ page }) => page.units.map((unit) =>
+      unit.kind === 'message' ? `message:${String(unit.message_id)}` : `${unit.kind}:${String(unit.root_message_id)}:${unit.event_indices.join(',')}`));
+    const expectedIds = [...Array.from({ length: 181 }, (_, offset) => offset + 2), 184, 185, 1];
+    expect(walked.map((fingerprint) => Number(fingerprint.split(':')[1])))
+      .toEqual(expectedIds);
+    expect(walked).toHaveLength(184);
+    expect(new Set(walked)).toHaveLength(184);
+    for (const result of pages.slice(0, -1)) {
+      expect(result.page.has_more).toBe(true);
+      expect(result.page.before_cursor).not.toBeNull();
+    }
+    expect(pages.at(-1)!.page).toMatchObject({ has_more: false, before_cursor: null });
+
+    console.info('[transcript-history-complete-order-scan]', JSON.stringify({
+      pages: pages.length,
+      first: pages[0]!.metrics,
+      final: pages.at(-1)!.metrics,
+    }));
+    expect(pages[0]!.metrics).toMatchObject({
+      selected_units: 20,
+      message_reads: 3,
+      message_records_read: 185,
+      journal_reads: 183,
+      journal_events_scanned: 364,
+    });
+    expect(pages[0]!.metrics.duration_ms).toBeGreaterThan(0);
+    expect(pages[0]!.metrics.response_bytes).toBeGreaterThan(0);
+  });
+  // harn:end transcript-history-cursors-cover-complete-established-order
+
   it('orders modern continuation evidence by permanent rows around ordinary messages', () => {
     const root = run(2, 'completed', { outputMode: true, ended: 6 });
     const continuation: Message = {

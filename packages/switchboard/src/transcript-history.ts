@@ -378,12 +378,15 @@ export function buildTranscriptHistoryPage(opts: {
     }
     exhausted = chunk.length < MESSAGE_CHUNK_SIZE;
     if (chunk.length > 0) before = chunk[0]!.id;
-    rebuildEntries();
-    const candidates = boundaryIndex < 0 ? [] : entries.slice(0, boundaryIndex);
-    if (boundaryIndex >= 0 && candidates.length > HISTORICAL_TRANSCRIPT_PAGE_SIZE) break;
     if (chunk.length === 0) exhausted = true;
   }
 
+  // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-order-before-page-boundaries
+  // Message ids are the storage scan order, not the legacy transcript order.
+  // An old id may carry a newer timestamp and therefore sort after entries that
+  // were discovered in the first chunk. Selecting a boundary before the ceiling
+  // is fully discovered makes that late entry unreachable on every later page.
+  // Establish the complete immutable-ceiling order once, then page that order.
   rebuildEntries();
   if (cursor !== undefined && boundaryIndex < 0) throw new Error('invalid transcript history cursor boundary');
   const candidates = entries.slice(0, boundaryIndex);
@@ -430,6 +433,7 @@ export function buildTranscriptHistoryPage(opts: {
     has_more: hasMore,
   };
   const parsed = TranscriptHistoryPageSchema.parse(page);
+  // harn:end transcript-history-cursors-cover-complete-established-order
   return {
     page: parsed,
     metrics: {

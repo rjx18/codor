@@ -1,0 +1,14 @@
+id: transcript-history-cursors-cover-complete-established-order
+hash: a-01b388981c56
+title: Transcript history cursors cover the complete established order
+state: active
+statement: >
+  Before selecting a combined-history page or encoding its opaque boundary, the
+  server must establish every visible unit at the cursor's immutable
+  newest-message ceiling in the same modern-output and legacy timestamp order
+  used by transcript rendering, so walking cursors returns every visible unit
+  exactly once with no gap or duplicate and reports has_more false with a null
+  before_cursor only after the true oldest unit.
+depends_on:
+  - historical-transcript-pages-match-output-scoped-rendering
+created_by: transcript-history-p1-cursor-completeness
