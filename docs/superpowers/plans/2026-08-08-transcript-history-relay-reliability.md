@@ -109,7 +109,7 @@ pnpm --filter @codor/switchboard build
 pnpm harn check transcript-history-reliability-p1-server-pages
 ```
 
-Record the large-journal scan latency, selected-unit count, serialized payload bytes, and reader-call counts in the handoff. Apply the locked Harn plan and create the single Phase 1 implementation commit. Sol reviews the actual diff and results before Phase 2 receives a Harn plan.
+Record the large-journal scan latency, selected-unit count, serialized payload bytes, and reader-call counts in the handoff. Apply the locked Harn plan and create the single Phase 1 implementation commit. Investigator reviews the actual diff and results before Phase 2 receives a Harn plan.
 
 ## Phase 2: Browser uses bounded history
 
@@ -158,7 +158,7 @@ Search results, pins, and `#N` permalinks must reveal their target by walking bo
 
 Add unit and Playwright regressions for a huge run, boundary within a run, continuation/interleaved messages, top-scroll anchoring, search, pins, permalinks, live-to-finalized settlement, computer/room isolation, and direct mode. Instrument requests to prove cold history makes one bounded transcript-page request and zero full `/runs/:id` requests for finalized runs; record browser payload bytes and request counts.
 
-Run affected units, all web-next units/build, focused hydration/history Playwright suites, and the Phase 2 Harn check. Apply and commit once, then stop for Sol/Investigator review.
+Run affected units, all web-next units/build, focused hydration/history Playwright suites, and the Phase 2 Harn check. Apply and commit once, then stop for Investigator review.
 
 ## Phase 3: Coordinate relay recovery by tunnel generation
 
