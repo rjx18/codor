@@ -1,0 +1,280 @@
+id: transcript-history-reliability-p2-browser-pages
+title: Transcript history reliability phase 2 - bounded browser history
+notes: >
+  Browser integration only, after accepted Phase 1 at a83dc563. Make the
+  authenticated combined transcript page the sole cold source for finalized
+  history in the mounted transcript. Fetch only the active room's first page;
+  keep complete message context, ordered unit descriptors, indexed excerpts,
+  opaque cursor, exhaustion, and request state inside that room's injected
+  ClientStore so same-named rooms on concurrent computers cannot share data or
+  credentials. The server's unit order and unit-owned journal indices are
+  authoritative: never regroup across page boundaries.
+
+  A page-hydrated finalized family must not call GET /runs/:id. Mutable runs
+  keep their existing full redacted journal recovery plus indexed live buffer
+  and are not limited to twenty historical units. When a run observed live
+  settles, preserve the evidence already painted, freeze/reconcile it by
+  lifecycle root, permanent output id, and journal index, and accept the visible
+  settled tail once without a terminal full-journal request or duplicate page
+  unit. Here "unbounded live" means outside the twenty-history-unit page cap;
+  preserve the existing bounded live event buffer and authoritative
+  mutable-journal recovery.
+
+  The initial immutable page contains at most twenty visible units. One
+  deliberate top reach may request exactly one preceding opaque cursor and must
+  keep the pre-existing visible DOM anchor at the same viewport offset. A still
+  intersecting sentinel or height changes may not drain more pages. Search, pin,
+  inbox, and #N targets walk combined pages sequentially only until the
+  permanent target appears or history is exhausted, then retain current
+  fragment, focus/highlight, and scroll behavior. Direct mode uses the same API
+  through relayFetch; hosted stores remain isolated and warm switching remains
+  in place.
+
+  Add deterministic unit and Playwright coverage for a huge intra-run page, page
+  boundaries, continuations/interleaving, top anchoring and one-request
+  latching, navigation targets, live settlement, same-room computer isolation,
+  and direct mode. Instrument cold browser traffic: one initial combined-page
+  request, no finalized /runs/:id request, bounded page bytes and units, with
+  mutable-run requests reported separately. Preserve search, pins, permalinks,
+  attachments, room support, read state, and live fanout. No inactive-channel
+  cold snapshots, server/protocol changes, startup optimization, persistent
+  index, unrelated UI redesign, or Phase 3 relay recovery.
+assumptions:
+  retire:
+    - id: history-cursor-tracks-only-the-contiguous-tail
+      reason: >
+        The supported transcript will no longer page finalized history from the
+        WebSocket hydration_floor/message-id cursor; it uses the room-bound
+        opaque combined-page cursor while WebSocket state remains live metadata.
+  create:
+    - id: finalized-browser-history-is-combined-page-owned
+      title: Cold finalized browser history comes only from combined pages
+      statement: >
+        Once the mounted room hydrates, its cold finalized transcript must
+        render only the combined page's ordered units, complete projected
+        message context, and unit-owned indexed excerpts, never cold WebSocket
+        rows or a full /runs/:id fetch; first-page and cursor request state must
+        live inside that room's injected client store so direct mode uses the
+        same API and same-named rooms on concurrent hosted computers cannot
+        share history, cursors, tokens, or evidence, because the server page is
+        the bounded, redacted authority for immutable transcript history.
+      reason: >
+        Merging the new endpoint beside the old finalized journal path would
+        preserve the request storm and allow cross-computer room-local ids to
+        select the wrong evidence.
+      depends_on:
+        - historical-transcript-pages-match-output-scoped-rendering
+        - hosted-computer-sessions-keep-state-isolated
+        - redaction-before-fanout
+        - run-journals-own-evidence-across-output-messages
+    - id: transcript-history-prepends-one-deliberate-page
+      title: One deliberate top reach prepends one bounded history page
+      statement: >
+        The mounted transcript must request only its active room's first page,
+        expose at most twenty immutable units initially, deduplicate requests by
+        room and opaque cursor, and allow one deliberate top reach to prepend
+        exactly one preceding page while holding the first pre-existing visible
+        permanent message at the same viewport offset; the request latch must
+        remain closed while the sentinel stays intersecting or row heights
+        settle, and reopen only after the operator leaves and deliberately
+        reaches the top again, so one gesture cannot auto-drain history.
+      reason: >
+        A cursor may end inside one huge run, so message counts and an
+        always-live top sentinel cannot enforce the operator's twenty-unit
+        loading boundary.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - permalink-ids-stable
+    - id: live-runs-settle-beside-paged-history-once
+      title: Live runs remain uncapped and settle into paged history once
+      statement: >
+        A mutable run must continue rendering its recovered full redacted
+        journal and indexed live stream without the twenty-unit history cap, and
+        when an observed run becomes terminal the browser must preserve and
+        freeze the evidence already rendered, reconcile any combined-page
+        excerpt by root, permanent output id, and journal index, and render its
+        settled tail at most once without issuing a terminal /runs/:id fetch or
+        duplicating, dropping, or reordering the live evidence.
+      reason: >
+        Replacing a long live turn with only the newest immutable page loses
+        work, while retaining both sources without indexed reconciliation
+        duplicates it.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - run-events-merge-by-journal-index
+        - live-run-event-cache-bounded
+        - continuation-writer-follows-journaled-output-ownership
+    - id: transcript-targets-walk-combined-pages
+      title: Transcript targets resolve through bounded combined pages
+      statement: >
+        Search results, pinned messages, inbox rows, and #N permalinks outside
+        the mounted immutable page must walk the room's combined opaque cursors
+        in order only until the permanent target message/unit appears or history
+        is exhausted, deduplicating concurrent walks and then preserving the
+        exact fragment, focus/highlight, and centered scroll behavior, because
+        bounded history must not turn existing navigation into dead links or
+        load the entire archive speculatively.
+      reason: >
+        Target metadata can name a permanent message outside the first twenty
+        visible units, but the old integer message endpoint is no longer the
+        finalized transcript source.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - transcript-history-prepends-one-deliberate-page
+        - permalink-ids-stable
+  reviewed:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: The browser consumes Phase 1's exact room-bound unit contract without
+        changing it.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: >
+        Addressed WebSocket hydration remains bounded metadata/support and warm
+        live sync; it simply stops owning cold finalized transcript rendering.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Live frames still upsert by permanent id and reconnect by seq.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Combined units, live overlays, and target walks retain permanent
+        room-local ids.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Permanent output ids remain authoritative across excerpts and live
+        settlement.
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: One lifecycle-root journal still owns raw evidence for all continuation
+        rows.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Page excerpts and live buffers reconcile only by their durable indices.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: >
+        Live runs are uncapped by history units but retain the existing
+        500-event buffer plus authoritative mutable-journal recovery.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Indexed page units and live evidence preserve one upgraded marker.
+    - id: transcript-diffs-use-immutable-run-evidence
+      outcome: unchanged
+      reason: Diff dialogs consume the selected immutable excerpt and never live
+        working-tree state.
+    - id: run-failure-evidence-is-surfaced
+      outcome: unchanged
+      reason: Visible failure error/status remains one settled tail under both page
+        and live ownership.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Each injected store owns its own room pages, cursors, requests, and
+        token.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Switching reveals the warm store's existing history without reload or
+        new handshake.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: The browser stores and renders only the server's projected REST/live
+        evidence.
+    - id: pins-are-durable-owner-admin-markers
+      outcome: unchanged
+      reason: Pin authority and durability stay unchanged; only target reveal uses
+        combined pages.
+    - id: the-inbox-opens-what-needs-you
+      outcome: unchanged
+      reason: Inbox rows retain their exact permanent targets and highlight behavior.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: Initial page loading remains behind the existing honest skeleton/empty
+        surfaces.
+files:
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/room/run-journals.ts
+  - packages/web-next/src/room/run-journals.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/panels.tsx
+  - packages/web-next/src/room/panels.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room21-hydration.e2e.spec.ts
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+anchors:
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-api-client:
+      action: change
+      reason: Fetch and validate one authenticated room-bound combined page through
+        relayFetch.
+    combined-history-store:
+      action: change
+      reason: Keep messages, units, excerpts, cursors, and request state in each
+        injected room store.
+    combined-history-materializer:
+      action: change
+      reason: Materialize exactly the server-ordered units without regrouping across
+        pages.
+    combined-history-finalized-fetch-guard:
+      action: change
+      reason: Full journal reads remain mutable-only after combined page hydration.
+    combined-history-rendering:
+      action: change
+      reason: Render page-owned finalized units plus mutable/live overlays only.
+    combined-history-browser-regression:
+      action: change
+      reason: Prove one bounded cold page, no finalized run fetch, isolation, and
+        direct mode.
+  transcript-history-prepends-one-deliberate-page:
+    deliberate-history-page-controller:
+      action: change
+      reason: Deduplicate first/older requests and merge one opaque cursor atomically.
+    deliberate-history-top-reach:
+      action: change
+      reason: Latch one request per deliberate reach and restore the stable visible
+        anchor.
+    deliberate-history-top-reach-regression:
+      action: change
+      reason: Prove intra-run boundaries, one-request latching, and pixel-stable
+        prepends.
+  live-runs-settle-beside-paged-history-once:
+    live-history-settlement-cache:
+      action: change
+      reason: Preserve mutable journal/live evidence at settlement without a terminal
+        fetch.
+    live-history-settlement-renderer:
+      action: change
+      reason: Reconcile preserved evidence and immutable excerpts once by durable
+        identity.
+    live-history-settlement-regression:
+      action: change
+      reason: Prove an uncapped live run settles without loss, duplication, or /runs
+        refetch.
+  transcript-targets-walk-combined-pages:
+    combined-history-target-reveal:
+      action: change
+      reason: Search, pin, inbox, and permalink targets share the bounded page walker.
+    combined-history-target-regression:
+      action: change
+      reason: Prove target walks stop on success/exhaustion and keep focus, hash, and
+        scroll behavior.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-web-rendering:
+      action: change
+      reason: Existing continuation rendering consumes page-owned excerpts and
+        reconciled live evidence.
+  web-compaction-markers-upgrade-in-place:
+    web-compaction-timeline-wiring:
+      action: change
+      reason: Existing compaction rendering receives explicit page-unit boundaries and
+        live reconciliation.
+lock:
+  locked_at: 2026-08-08T14:40:39.182Z
+  base_commit: a83dc563c9429f4e538196e8e9df053496f0287f
+  hash: 73275eaed05c12962e5c73be867e738365fba557537f5d6e5392b5863e7c4315
+  dirty_at_lock: false

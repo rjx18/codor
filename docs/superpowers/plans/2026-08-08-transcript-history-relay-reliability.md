@@ -1,6 +1,6 @@
 # Transcript History and Relay Reliability Implementation Plan
 
-> **For phase implementers:** Sol uses `superpowers:executing-plans` to execute only the phase assigned by Investigator. Each phase receives its own locked Harn plan and one implementation commit. Do not begin a later phase until Investigator has reviewed and accepted the preceding phase.
+> **For phase implementers:** Sol executes Phases 2 and 3; Luna executes Phase 4. Each uses `superpowers:executing-plans` only for the phase assigned by Investigator. Every phase receives its own locked Harn plan and one implementation commit. Do not begin a later phase until Investigator has reviewed and accepted the preceding phase.
 
 **Goal:** Make cold channel history bounded by visible transcript work, make hosted sessions recover reliably after idle disconnects, and stop unrelated codor.app releases from redeploying the relay Worker.
 
@@ -11,7 +11,7 @@
 ## Workflow and global constraints
 
 - The approved sequence is Phase 1 server pagination, Phase 2 browser integration, Phase 3 coordinated relay recovery, then Phase 4 deployment isolation.
-- Investigator owns orchestration, Harn-plan review, and implementation review. Sol implements only the currently assigned phase, tags Investigator when complete or genuinely blocked, and then waits without polling or monitoring Investigator's activity. Their coordination happens only through explicit tags in the Codor channel; do not use internal delegation.
+- Investigator owns orchestration, Harn-plan review, and implementation review. Sol owns implementation of Phases 2–3; Luna owns implementation of Phase 4. Each implementer works only on the phase explicitly assigned by Investigator, tags Investigator when complete or genuinely blocked, and then waits without polling or monitoring Investigator's activity. Coordination happens only through explicit tags in the Codor channel; do not use internal delegation.
 - Each phase is one locked Harn plan and one implementation commit. Prepare and lock a phase plan only after the preceding phase's implementation is present and accepted. This document is the cross-phase implementation plan, not a substitute for those per-commit Harn plans.
 - Preserve authentication, redaction, evidence ownership, live-run fidelity, permanent message IDs, continuations, direct mode, multi-computer isolation, and existing authorized attachment/search/pin behavior.
 - Do not optimize inactive-channel startup, add a persistent journal index or migration without measured evidence, redesign the relay protocol or Worker runtime, add account/cloud-registry/pooling infrastructure, or redesign unrelated UI.
