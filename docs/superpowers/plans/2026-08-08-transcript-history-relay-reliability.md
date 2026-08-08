@@ -21,11 +21,12 @@
 
 The first two phases must implement the following contract without changing live fanout or the raw evidence model:
 
-- The public cursor is opaque, versioned internally, bound to one room, and rejected when malformed, from a different room, or outside the immutable page boundary. The first cursor fixes a newest-message ceiling, so messages arriving later cannot move the page while the operator walks backward.
+- The public cursor is opaque, at most 4096 characters, versioned internally, bound to one room, and rejected before decoding when oversized or when malformed, from a different room, or outside the immutable page boundary. The first cursor fixes a newest-message ceiling, so messages arriving later cannot move the page while the operator walks backward.
 - The immutable REST page includes only run families whose lifecycle root is finalized (`completed`, `failed`, or `interrupted`). Running families and work still queued for a run are excluded as a whole: their root, continuations, and mutable journal remain owned by live fanout and the existing mutable full-journal path until finalization.
 - A page contains at most 20 visible units. It may contain more than 20 complete message records when continuation/root context is required to render those units honestly.
-- An ordinary visible message is one unit. Consecutive visible prose deltas for the same permanent output message form one indivisible unit. A tool call and its matching result form one indivisible unit even when other journal events occur between them; an orphan visible result is one unit. A compaction loading/completed pair upgrades one visible unit rather than counting twice. Invisible reasoning/state events count as zero. A finalized run contributes exactly one terminal/status unit: use its journal terminal when present, otherwise synthesize it from the finalized message summary, never both.
-- A unit never splits a prose block or a tool call/result pair. Units retain journal indices and permanent output message IDs when present. Modern continuation journals use permanent `output_message_id` position followed by journal order. Legacy pre-continuation journals without those IDs preserve the current timestamp-based interleaving fallback—including its stable event-order tie break and timestamp fallback—so older human messages do not move around run segments.
+- An ordinary visible message is one unit. Consecutive valid prose deltas for the same permanent output message form one indivisible unit. A valid tool call and its matching valid result form one indivisible unit even when other journal events occur between them; an orphan valid result is one unit. Malformed normalized payloads follow the browser fallback exactly: they remain visible single rows and malformed text/tool events are never coalesced or paired from raw fields. A compaction loading/completed pair upgrades one visible unit rather than counting twice. Valid reasoning/state events count as zero.
+- A finalized run contributes a settled-tail unit only when the browser has something settled to render: final-text fallback or trailing text, or failed/interrupted error/status. Fully represented streamed evidence in a successful completed run adds no invisible terminal unit. The terminal journal event belongs to that settled-tail unit when it exists and is otherwise omitted from the excerpt.
+- A unit never splits a prose block or a valid tool call/result pair. Units retain journal indices and permanent output message IDs when present. Modern continuation journals use permanent `output_message_id` position followed by journal order. For legacy pre-continuation journals, only prose-bearing runs interleave their segments by the current first-delta/tool timestamp fallback; tools-only and compaction-only runs remain grouped at `ended_ts`, and a failed/interrupted settled tail stays beside the final visible segment rather than moving across an interleaved human message.
 - The response returns complete authorized, projected, redacted message records needed by the selected units plus indexed journal excerpts, never partial message shapes or raw evidence. One lifecycle-root journal may provide excerpts for several continuation rows.
 - Raw JSONL remains the evidence source. Phase 1 may scan the local journal and must measure that scan; no persistent index is introduced unless measurements justify a separately approved follow-up.
 
@@ -47,7 +48,7 @@ Define Zod-backed request/response types for:
 - an opaque cursor string;
 - complete projected message records;
 - indexed run events `{ index, event }` grouped by lifecycle root;
-- ordered unit descriptors that identify ordinary-message, prose, tool-pair, timeline/compaction, and terminal units by permanent output message and the event indices they own;
+- ordered unit descriptors that identify ordinary-message, prose, tool-pair, timeline/compaction, and visible settled-tail units by permanent output message and the event indices they own;
 - `before_cursor` and `has_more`.
 
 Keep the cursor payload server-private. Protocol tests must prove every returned shape is serializable and rejects partial records, invalid indices, unknown unit kinds, and pages over 20 units.
@@ -63,7 +64,7 @@ Implement a pure page builder with injected message and journal readers. Its pri
 
 Walk message rows backward in bounded chunks, resolve `run_parent_id` to the owning journal, and scan that JSONL locally only for terminal lifecycle roots. Exclude an entire family when its root is running or its work is still queued/not finalized; the REST response must not expose a partial mutable family. Unitize finalized evidence under the shared contract, select no more than 20 newest units before the cursor, and return the selection chronologically. Include complete root/continuation records required for attribution even if a record is context-only. Do not alter or truncate the raw journal.
 
-Use permanent output-message placement for modern continuation journals. If a stored legacy journal has no `output_message_id`, reproduce `buildTimelineEntries`' existing timestamp interleaving: event timestamps when available, the preceding/finalized timestamp fallback when absent, then stable original order for ties.
+Use permanent output-message placement for modern continuation journals. Safe-parse every normalized payload before deciding its visible kind, prose coalescing, or tool pairing. If a stored legacy journal has no `output_message_id`, reproduce `buildTimelineEntries` exactly: prose-bearing runs use segment timestamps with the preceding/finalized fallback and stable original order for ties, while tools-only and compaction-only runs keep every unit at the run's `ended_ts`. Timestamp a failed/interrupted settled tail with the final visible segment so it cannot cross a human message that followed that segment.
 
 Focused tests must cover:
 
@@ -72,10 +73,13 @@ Focused tests must cover:
 - call/result separation by unrelated journal events and orphan results;
 - continuation output IDs, one root journal, and ordinary messages interleaved between continuation rows;
 - legacy pre-continuation journals without output IDs retain timestamp interleaving around human messages;
+- legacy tools-only and compaction-only runs stay grouped at `ended_ts`, and failure tails stay with their final segment;
+- malformed text/tool/reasoning payloads produce browser-equivalent fallback units without false coalescing or pairing;
 - running and queued/not-finalized families contribute no root, continuation, excerpt, unit, or cursor position until terminal;
-- compaction loading/completed upgrades and exactly one terminal/status marker;
+- compaction loading/completed upgrades and only genuinely visible settled tails;
+- at least 25 completed fully streamed runs page as 20 visible prose units, not prose plus invisible terminal units;
 - new messages inserted above the fixed ceiling while paging;
-- malformed and cross-room cursors;
+- malformed, oversized, and cross-room cursors;
 - no duplicates or gaps across a full cursor walk;
 - complete message records and indexed, redacted excerpts only.
 
@@ -93,7 +97,7 @@ Add `GET /api/rooms/:room/transcript-history?cursor=<opaque>` (with the first re
 
 Return `400` for malformed, stale-invalid, or cross-room cursors, normal authorization failures for inaccessible rooms, and one stable response shape for empty/end-of-history pages. Leave `/api/rooms/:room/messages`, `/api/rooms/:room/runs/:id`, WebSocket hydration, live fanout, search, pins, and permalinks unchanged in this phase.
 
-Server integration tests must prove authorization, room isolation, redaction, huge-run internal pagination, running/queued-family exclusion, legacy timestamp ordering, bounded response bytes for the 20-unit selection, stable cursor walking, and no mutation of raw evidence.
+Server integration tests must prove authorization, room isolation, redaction, huge-run internal pagination, running/queued-family exclusion, exact legacy grouping/tail ordering, malformed-event fallbacks, oversized-cursor refusal, bounded response bytes for the 20-renderable-unit selection, stable cursor walking, and no mutation of raw evidence.
 
 ### Task 4: Verify Phase 1
 
@@ -137,7 +141,7 @@ Fetch the first page only for the mounted active room and store its complete mes
 - Modify: `packages/web-next/src/room/Transcript.tsx`
 - Modify: `packages/web-next/src/room/Transcript.spec.tsx`
 
-Page-hydrated finalized runs must render only the server's selected indexed excerpts and must never trigger the current cold `GET /runs/:id` cache fill. Mutable/running journals may still use the existing full journal plus live buffer. When a visible live run settles, preserve the already-rendered evidence in place, accept the matching finalized metadata/terminal once, and transition it to immutable history without a duplicate unit or cold journal download.
+Page-hydrated finalized runs must render only the server's selected indexed excerpts and must never trigger the current cold `GET /runs/:id` cache fill. Mutable/running journals may still use the existing full journal plus live buffer. When a visible live run settles, preserve the already-rendered evidence in place, accept any visible settled tail once, and transition it to immutable history without a duplicate unit or cold journal download.
 
 The store may retain broader WebSocket message metadata for synchronization, but the active transcript must render finalized history exclusively from the combined pages plus currently live material. Merely adding the REST endpoint while leaving the finalized-run cache eager is not acceptable.
 
