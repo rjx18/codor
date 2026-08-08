@@ -4,7 +4,7 @@ import { WireEventSchema } from './events.js';
 import { MessageIdSchema } from './ids.js';
 import { MessageSchema } from './message.js';
 
-// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-protocol
+// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-protocol
 export const HISTORICAL_TRANSCRIPT_PAGE_SIZE = 20;
 
 export const TranscriptHistoryCursorSchema = z.string().min(1).max(4096);
@@ -131,4 +131,4 @@ export const TranscriptHistoryPageSchema = z.object({
   }
 });
 export type TranscriptHistoryPage = z.infer<typeof TranscriptHistoryPageSchema>;
-// harn:end historical-transcript-pages-match-renderable-units
+// harn:end historical-transcript-pages-match-output-scoped-rendering

@@ -1052,7 +1052,7 @@ describe('REST', () => {
     expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
 
-  // harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-rest
+  // harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-rest
   describe('combined transcript history pages', () => {
     it('serves only projected finalized evidence in bounded intra-run pages', async () => {
       const owner = daemon.ownerOf('eng');
@@ -1178,7 +1178,7 @@ describe('REST', () => {
       })).status).toBe(403);
     });
   });
-  // harn:end historical-transcript-pages-match-renderable-units
+  // harn:end historical-transcript-pages-match-output-scoped-rendering
 
   // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-server-regression
   it('adds bounded projected run hits without changing message-only search', async () => {

@@ -77,7 +77,7 @@ const toolPair = (call: number, outputMessageId: number): WireEvent[] => [
   },
 ];
 
-// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-page-builder
+// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-page-builder
 describe('buildTranscriptHistoryPage', () => {
   it('walks a huge run internally without splitting tool pairs or duplicating units', () => {
     const events = Array.from({ length: 25 }, (_, index) => toolPair(index, 1)).flat();
@@ -183,7 +183,7 @@ describe('buildTranscriptHistoryPage', () => {
     expect(failedUnits.map((unit) => unit.kind)).toEqual(['prose', 'settled_tail', 'message']);
   });
 
-  it('keeps malformed normalized events as visible unpaired fallback units', () => {
+  it('keeps malformed browser-rendered events as visible unpaired fallback units', () => {
     const source = new Source(
       [run(1, 'completed', { ended: 5 })],
       new Map([[1, [
@@ -196,9 +196,92 @@ describe('buildTranscriptHistoryPage', () => {
     );
 
     const { page } = buildTranscriptHistoryPage({ room: 'eng', source });
-    expect(page.units.map((unit) => unit.kind)).toEqual(['tool', 'tool', 'tool', 'tool']);
+    expect(page.units.map((unit) => unit.kind)).toEqual(['tool', 'tool', 'tool']);
     expect(page.units.map((unit) => unit.kind === 'message' ? [] : unit.event_indices))
-      .toEqual([[0], [1], [2], [3]]);
+      .toEqual([[0], [1], [2]]);
+  });
+
+  it('coalesces prose independently for each permanent output message', () => {
+    const root = run(1, 'completed', { outputMode: true, body: 'onetwo' });
+    const continuation: Message = {
+      ...run(2, 'completed'), run: undefined, run_parent_id: 1, body: '',
+    };
+    const source = new Source([root, continuation], new Map([[1, [
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'one' }, output_message_id: 1 },
+      {
+        type: 'run.item', item_type: 'tool_call', output_message_id: 2,
+        payload: { call_id: 'b', tool: 'Read', title: 'B' },
+      },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'two' }, output_message_id: 1 },
+      { type: 'run.completed', status: 'completed', output_message_id: 2 },
+    ]]]));
+
+    const units = buildTranscriptHistoryPage({ room: 'eng', source }).page.units;
+    expect(units.map((unit) => unit.kind)).toEqual(['prose', 'tool']);
+    expect(units[0]).toMatchObject({ output_message_id: 1, event_indices: [0, 2] });
+    expect(units[1]).toMatchObject({ output_message_id: 2, event_indices: [1] });
+  });
+
+  it('never pairs same-id tool evidence across permanent output messages', () => {
+    const root = run(1, 'completed', { outputMode: true });
+    const continuation: Message = {
+      ...run(2, 'completed'), run: undefined, run_parent_id: 1, body: '',
+    };
+    const source = new Source([root, continuation], new Map([[1, [
+      {
+        type: 'run.item', item_type: 'tool_call', output_message_id: 1,
+        payload: { call_id: 'same', tool: 'Read', title: 'A' },
+      },
+      {
+        type: 'run.item', item_type: 'tool_result', output_message_id: 2,
+        payload: { call_id: 'same', status: 'ok' },
+      },
+      { type: 'run.completed', status: 'completed', output_message_id: 2 },
+    ]]]));
+
+    const units = buildTranscriptHistoryPage({ room: 'eng', source }).page.units;
+    expect(units.map((unit) => unit.kind)).toEqual(['tool', 'tool']);
+    expect(units[0]).toMatchObject({ output_message_id: 1, event_indices: [0] });
+    expect(units[1]).toMatchObject({ output_message_id: 2, event_indices: [1] });
+  });
+
+  it('never upgrades compaction evidence across permanent output messages', () => {
+    const root = run(1, 'completed', { outputMode: true });
+    const continuation: Message = {
+      ...run(2, 'completed'), run: undefined, run_parent_id: 1, body: '',
+    };
+    const source = new Source([root, continuation], new Map([[1, [
+      {
+        type: 'timeline', output_message_id: 1,
+        item: { type: 'compaction', status: 'loading' },
+      },
+      {
+        type: 'timeline', output_message_id: 2,
+        item: { type: 'compaction', status: 'completed' },
+      },
+      { type: 'run.completed', status: 'completed', output_message_id: 2 },
+    ]]]));
+
+    const units = buildTranscriptHistoryPage({ room: 'eng', source }).page.units;
+    expect(units.map((unit) => unit.kind)).toEqual(['timeline', 'timeline']);
+    expect(units[0]).toMatchObject({ output_message_id: 1, event_indices: [0] });
+    expect(units[1]).toMatchObject({ output_message_id: 2, event_indices: [1] });
+  });
+
+  it('suppresses valid and malformed reasoning summaries', () => {
+    const source = new Source([run(1, 'completed', { outputMode: true })], new Map([[1, [
+      {
+        type: 'run.item', item_type: 'reasoning_summary', output_message_id: 1,
+        payload: { text: 'hidden' },
+      },
+      {
+        type: 'run.item', item_type: 'reasoning_summary', output_message_id: 1,
+        payload: { text: 42 },
+      },
+      { type: 'run.completed', status: 'completed', output_message_id: 1 },
+    ]]]));
+
+    expect(buildTranscriptHistoryPage({ room: 'eng', source }).page.units).toEqual([]);
   });
 
   it('counts twenty genuinely visible completed streamed runs per page', () => {
@@ -327,4 +410,4 @@ describe('buildTranscriptHistoryPage', () => {
     expect(cold.duration_ms).toBeGreaterThanOrEqual(0);
   });
 });
-// harn:end historical-transcript-pages-match-renderable-units
+// harn:end historical-transcript-pages-match-output-scoped-rendering

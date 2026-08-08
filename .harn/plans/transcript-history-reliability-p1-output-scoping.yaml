@@ -31,8 +31,8 @@ assumptions:
         suppress every reasoning_summary whether valid or malformed, never split
         valid prose or same-output call/result pairs, omit a successful terminal
         when streamed evidence has no visible settled tail, combine final-text
-        fallback/trailing text or failure error/status into one settled-tail unit
-        when present, order modern evidence by permanent output-message id,
+        fallback/trailing text or failure error/status into one settled-tail
+        unit when present, order modern evidence by permanent output-message id,
         interleave only prose-bearing legacy runs by segment timestamps, keep
         legacy tools-only or compaction-only runs grouped at ended_ts, keep a
         failure tail with its final visible segment, and exclude every running
@@ -67,7 +67,8 @@ assumptions:
       reason: Selected records and excerpts remain projected before REST serialization.
     - id: compaction-timeline-items-are-durable-run-evidence
       outcome: unchanged
-      reason: Loading/completed evidence still upgrades one marker within its output row.
+      reason: Loading/completed evidence still upgrades one marker within its output
+        row.
     - id: run-events-merge-by-journal-index
       outcome: unchanged
       reason: Excerpts preserve exact journal indices.
@@ -102,7 +103,8 @@ anchors:
       reason: Replace the inaccurate builder contract and regressions.
     transcript-history-rest:
       action: remove
-      reason: Replace the old endpoint assumption markers without changing its boundary.
+      reason: Replace the old endpoint assumption markers without changing its
+        boundary.
   historical-transcript-pages-match-output-scoped-rendering:
     transcript-history-protocol:
       action: change
@@ -113,3 +115,5 @@ anchors:
     transcript-history-rest:
       action: change
       reason: Retain REST enforcement under the corrected render-unit contract.
+applied:
+  applied_at: 2026-08-08T14:27:38.564Z

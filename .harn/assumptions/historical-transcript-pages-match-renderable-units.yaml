@@ -1,7 +1,7 @@
 id: historical-transcript-pages-match-renderable-units
 hash: a-ea761eeee212
 title: Finalized transcript pages count the exact units the browser renders
-state: active
+state: retired
 statement: >
   An authenticated room-history page must reject an opaque cursor longer than
   4096 characters before decoding, bind every valid cursor to its room and
@@ -28,3 +28,4 @@ depends_on:
   - normalized-run-item-payload-contract
   - prose-blocks-carry-first-delta-timestamps
 created_by: transcript-history-reliability-p1-review-fixes
+retired_by: transcript-history-reliability-p1-output-scoping

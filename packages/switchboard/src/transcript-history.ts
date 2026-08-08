@@ -105,11 +105,11 @@ function unitizeRun(
   getMessage: (id: number) => Message | undefined,
 ): Entry[] {
   const entries: Entry[] = [];
-  const calls = new Map<string, JournalEntry>();
-  const pendingCompactions: JournalEntry[] = [];
+  const calls = new Map<number, Map<string, JournalEntry>>();
+  const pendingCompactions = new Map<number, JournalEntry[]>();
   const proseTargets = new Set<number>();
   const streamedText = new Map<number, string>();
-  let prose: JournalEntry | undefined;
+  const prose = new Map<number, JournalEntry>();
   let lastTimestamp = messageTime(root);
   let completion: {
     index: number;
@@ -142,7 +142,6 @@ function unitizeRun(
 
   events.forEach((event, index) => {
     if (event.type === 'run.completed') {
-      prose = undefined;
       completion = { index, event, target: eventTarget(event, root.id) };
       return;
     }
@@ -154,36 +153,38 @@ function unitizeRun(
       if (event.item_type === 'text_delta') {
         const parsed = parseRunItemPayload('text_delta', event.payload);
         if (!parsed.success) {
-          prose = undefined;
+          prose.delete(target);
           add('tool', index, target, timestamp);
           return;
         }
-        if (prose !== undefined && prose.positionMessageId === target) {
-          prose.unit.event_indices.push(index);
+        const previous = prose.get(target);
+        if (previous !== undefined) {
+          previous.unit.event_indices.push(index);
         } else {
-          prose = add('prose', index, target, timestamp);
+          prose.set(target, add('prose', index, target, timestamp));
         }
         proseTargets.add(target);
         streamedText.set(target, `${streamedText.get(target) ?? ''}${parsed.data.text}`);
         return;
       }
-      prose = undefined;
+      prose.delete(target);
       if (event.item_type === 'reasoning_summary') {
-        if (!parseRunItemPayload('reasoning_summary', event.payload).success) {
-          add('tool', index, target, timestamp);
-        }
         return;
       }
       if (event.item_type === 'tool_call') {
         const parsed = parseRunItemPayload('tool_call', event.payload);
         const entry = add('tool', index, target, timestamp);
-        if (parsed.success) calls.set(parsed.data.call_id, entry);
+        if (parsed.success) {
+          const targetCalls = calls.get(target) ?? new Map<string, JournalEntry>();
+          targetCalls.set(parsed.data.call_id, entry);
+          calls.set(target, targetCalls);
+        }
         return;
       }
       if (event.item_type === 'tool_result') {
         const parsed = parseRunItemPayload('tool_result', event.payload);
         if (parsed.success) {
-          const call = calls.get(parsed.data.call_id);
+          const call = calls.get(target)?.get(parsed.data.call_id);
           if (call !== undefined) {
             if (call.unit.event_indices.length === 1) call.unit.event_indices.push(index);
             else call.unit.event_indices[1] = index;
@@ -197,18 +198,22 @@ function unitizeRun(
       return;
     }
 
-    prose = undefined;
     if (event.type !== 'timeline' || event.item.type !== 'compaction') return;
     const target = eventTarget(event, root.id);
+    prose.delete(target);
+    const targetPending = pendingCompactions.get(target) ?? [];
     if (event.item.status === 'completed') {
-      const pending = pendingCompactions.shift();
+      const pending = targetPending.shift();
       if (pending !== undefined) {
         pending.unit.event_indices.push(index);
         return;
       }
     }
     const entry = add('timeline', index, target, lastTimestamp);
-    if (event.item.status === 'loading') pendingCompactions.push(entry);
+    if (event.item.status === 'loading') {
+      targetPending.push(entry);
+      pendingCompactions.set(target, targetPending);
+    }
   });
 
   const modern = root.run?.output_mode === 'messages';
@@ -281,7 +286,7 @@ function compareEntries(left: Entry, right: Entry, continuationFloor: number | u
     || left.unitOrdinal - right.unitOrdinal;
 }
 
-// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-page-builder
+// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-page-builder
 export function buildTranscriptHistoryPage(opts: {
   room: string;
   cursor?: string;
@@ -438,4 +443,4 @@ export function buildTranscriptHistoryPage(opts: {
     },
   };
 }
-// harn:end historical-transcript-pages-match-renderable-units
+// harn:end historical-transcript-pages-match-output-scoped-rendering

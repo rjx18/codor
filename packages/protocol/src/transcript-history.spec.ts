@@ -61,7 +61,7 @@ const validPage = () => ({
   has_more: true,
 });
 
-// harn:assume historical-transcript-pages-match-renderable-units ref=transcript-history-protocol
+// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-protocol
 describe('TranscriptHistoryPageSchema', () => {
   it('exports a complete indexed transcript page contract', () => {
     expect(HISTORICAL_TRANSCRIPT_PAGE_SIZE).toBe(20);
@@ -107,4 +107,4 @@ describe('TranscriptHistoryPageSchema', () => {
     }).success).toBe(false);
   });
 });
-// harn:end historical-transcript-pages-match-renderable-units
+// harn:end historical-transcript-pages-match-output-scoped-rendering

@@ -1,0 +1,34 @@
+id: historical-transcript-pages-match-output-scoped-rendering
+hash: a-1a06855b9d3b
+title: Finalized transcript pages match output-scoped browser rendering
+state: active
+statement: >
+  An authenticated room-history page must reject an opaque cursor longer than
+  4096 characters before decoding, bind every valid cursor to its room and
+  immutable newest-message ceiling, and return at most twenty genuinely
+  renderable units with complete projected messages and only their indexed
+  lifecycle-root excerpts; unitization must independently group prose, valid
+  tool-call/result pairs, and compaction upgrades for each permanent
+  output_message_id, safe-parse browser-rendered normalized payloads so their
+  malformed items remain visible unpaired fallback rows, suppress every
+  reasoning_summary whether valid or malformed, never split valid prose or
+  same-output call/result pairs, omit a successful terminal when streamed
+  evidence has no visible settled tail, combine final-text fallback/trailing
+  text or failure error/status into one settled-tail unit when present, order
+  modern evidence by permanent output-message id, interleave only prose-bearing
+  legacy runs by segment timestamps, keep legacy tools-only or compaction-only
+  runs grouped at ended_ts, keep a failure tail with its final visible segment,
+  and exclude every running or queued/not-finalized family until terminal, so
+  each page boundary corresponds to twenty units the browser can actually
+  display without cross-output contamination, mutable leakage, or legacy
+  reordering.
+depends_on:
+  - run-journals-own-evidence-across-output-messages
+  - continuation-writer-follows-journaled-output-ownership
+  - permalink-ids-stable
+  - redaction-before-fanout
+  - compaction-timeline-items-are-durable-run-evidence
+  - run-events-merge-by-journal-index
+  - normalized-run-item-payload-contract
+  - prose-blocks-carry-first-delta-timestamps
+created_by: transcript-history-reliability-p1-output-scoping
