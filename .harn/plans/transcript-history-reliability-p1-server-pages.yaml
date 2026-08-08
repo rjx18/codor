@@ -1,0 +1,118 @@
+id: transcript-history-reliability-p1-server-pages
+title: Transcript history reliability phase 1 - server-side combined pages
+notes: >
+  First approved phase of Richard's transcript history and relay reliability
+  work. Add one authenticated, room-authorized REST projection that pages
+  immutable transcript history across complete SQLite message records and
+  indexed excerpts from the lifecycle root's JSONL run journal. The opaque
+  cursor is bound to its room and fixed newest ceiling. Each page selects no
+  more than twenty visible units, never splits a prose block or a matched tool
+  call/result pair, retains continuation ownership by permanent output message
+  id, and counts compaction/terminal status exactly once. Raw evidence stays in
+  the existing local journals; this phase measures local scan time, payload,
+  and reader bounds but adds no persistent index. The daemon projects and
+  redacts every returned record/event before serialization. Existing message
+  and run endpoints, WebSocket hydration, fanout, search, pins, permalinks,
+  browser consumption, live runs, direct mode, and relay behavior remain
+  unchanged until later separately locked phases. One implementation commit;
+  Investigator reviews it before any Phase 2 Harn plan is prepared.
+assumptions:
+  create:
+    - id: historical-transcript-pages-are-unit-bounded-and-room-bound
+      title: Finalized transcript pages are bounded by indivisible visible units
+      statement: >
+        An authenticated room-history page must use an opaque cursor bound to
+        that room and one immutable newest-message ceiling, return at most
+        twenty visible units in stable permanent-message and journal order,
+        never split a contiguous prose block or matched tool call/result pair,
+        count an upgraded compaction marker and the run terminal/status marker
+        exactly once, and carry complete projected message records plus only
+        the indexed lifecycle-root journal excerpts needed for those units, so
+        continuations and interleaved messages can be rendered without a cold
+        full-journal transfer or cross-room cursor reuse.
+      reason: >
+        A database-message limit does not bound a transcript when one finalized
+        run owns hundreds of visible journal events; the browser needs a stable,
+        authorized unit boundary that preserves evidence attribution.
+      depends_on:
+        - run-journals-own-evidence-across-output-messages
+        - continuation-writer-follows-journaled-output-ownership
+        - permalink-ids-stable
+        - redaction-before-fanout
+        - compaction-timeline-items-are-durable-run-evidence
+        - run-events-merge-by-journal-index
+  reviewed:
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: >
+        The page builder reads selected evidence from the one existing
+        lifecycle-root JSONL journal and does not move payloads into SQLite or
+        create another durable evidence owner.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Indexed excerpts retain each event's permanent output message id and
+        resolve continuation rows through the existing lifecycle root; writer,
+        replay, allocation, and tombstone behavior do not change.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: >
+        Combined pages identify every message and selected unit with the same
+        permanent room-local id; the existing message-history endpoint, search,
+        URLs, and live merge behavior remain unchanged in this server-only phase.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: >
+        The daemon projects and deeply redacts complete message records and
+        selected events before the new REST response while the raw database and
+        journals remain unchanged on disk.
+    - id: compaction-timeline-items-are-durable-run-evidence
+      outcome: unchanged
+      reason: >
+        The builder reads existing indexed loading/completed evidence and
+        treats its in-place upgrade as one visible historical unit; schema,
+        journaling, fanout, and transient usage behavior remain unchanged.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: >
+        Historical excerpts preserve the existing journal indices; no writer,
+        live buffer, merge arithmetic, or WebSocket frame changes in Phase 1.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: >
+        A failed finalized run may supply one projected terminal/status unit,
+        but its diagnostic remains run metadata and is never synthesized as
+        reply text or routed.
+    - id: server-token-required
+      outcome: unchanged
+      reason: >
+        The new endpoint sits behind the existing non-empty bearer-token and
+        room-read authorization boundary; server startup and all other network
+        authentication behavior remain unchanged.
+files:
+  - packages/protocol/src/transcript-history.ts
+  - packages/protocol/src/transcript-history.spec.ts
+  - packages/protocol/src/index.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  historical-transcript-pages-are-unit-bounded-and-room-bound:
+    transcript-history-protocol:
+      action: change
+      reason: >
+        Define the complete projected page, indexed excerpt, indivisible unit,
+        and opaque cursor transport contract with schema regressions.
+    transcript-history-page-builder:
+      action: change
+      reason: >
+        Build room-bound stable pages from message rows and lifecycle-root JSONL
+        journals, with huge-run, boundary, continuation, interleaving, terminal,
+        cursor, and local scan measurement regressions.
+    transcript-history-rest:
+      action: change
+      reason: >
+        Expose only the authenticated room-authorized, projected, deeply
+        redacted twenty-unit response and prove isolation and bounds.
