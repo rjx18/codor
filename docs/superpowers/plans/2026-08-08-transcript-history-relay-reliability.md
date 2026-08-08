@@ -1,6 +1,6 @@
 # Transcript History and Relay Reliability Implementation Plan
 
-> **For phase implementers:** Use `superpowers:executing-plans` to execute only the phase assigned by the orchestrating Sol agent. Each phase receives its own locked Harn plan and one implementation commit. Do not begin a later phase until Investigator has reviewed and accepted the preceding phase.
+> **For phase implementers:** Sol uses `superpowers:executing-plans` to execute only the phase assigned by Investigator. Each phase receives its own locked Harn plan and one implementation commit. Do not begin a later phase until Investigator has reviewed and accepted the preceding phase.
 
 **Goal:** Make cold channel history bounded by visible transcript work, make hosted sessions recover reliably after idle disconnects, and stop unrelated codor.app releases from redeploying the relay Worker.
 
@@ -11,7 +11,7 @@
 ## Workflow and global constraints
 
 - The approved sequence is Phase 1 server pagination, Phase 2 browser integration, Phase 3 coordinated relay recovery, then Phase 4 deployment isolation.
-- Sol owns planning, Harn contracts, orchestration, and review. Luna implements only the currently assigned phase. They communicate only by tagging one another in the Codor channel; after tagging, neither agent polls or monitors the other's run and instead waits to be tagged back. Do not use internal delegation.
+- Investigator owns orchestration, Harn-plan review, and implementation review. Sol implements only the currently assigned phase, tags Investigator when complete or genuinely blocked, and then waits without polling or monitoring Investigator's activity. Their coordination happens only through explicit tags in the Codor channel; do not use internal delegation.
 - Each phase is one locked Harn plan and one implementation commit. Prepare and lock a phase plan only after the preceding phase's implementation is present and accepted. This document is the cross-phase implementation plan, not a substitute for those per-commit Harn plans.
 - Preserve authentication, redaction, evidence ownership, live-run fidelity, permanent message IDs, continuations, direct mode, multi-computer isolation, and existing authorized attachment/search/pin behavior.
 - Do not optimize inactive-channel startup, add a persistent journal index or migration without measured evidence, redesign the relay protocol or Worker runtime, add account/cloud-registry/pooling infrastructure, or redesign unrelated UI.
@@ -22,9 +22,10 @@
 The first two phases must implement the following contract without changing live fanout or the raw evidence model:
 
 - The public cursor is opaque, versioned internally, bound to one room, and rejected when malformed, from a different room, or outside the immutable page boundary. The first cursor fixes a newest-message ceiling, so messages arriving later cannot move the page while the operator walks backward.
+- The immutable REST page includes only run families whose lifecycle root is finalized (`completed`, `failed`, or `interrupted`). Running families and work still queued for a run are excluded as a whole: their root, continuations, and mutable journal remain owned by live fanout and the existing mutable full-journal path until finalization.
 - A page contains at most 20 visible units. It may contain more than 20 complete message records when continuation/root context is required to render those units honestly.
 - An ordinary visible message is one unit. Consecutive visible prose deltas for the same permanent output message form one indivisible unit. A tool call and its matching result form one indivisible unit even when other journal events occur between them; an orphan visible result is one unit. A compaction loading/completed pair upgrades one visible unit rather than counting twice. Invisible reasoning/state events count as zero. A finalized run contributes exactly one terminal/status unit: use its journal terminal when present, otherwise synthesize it from the finalized message summary, never both.
-- A unit never splits a prose block or a tool call/result pair. Units retain journal indices and permanent output message IDs. Ordering is by permanent output message position and then journal order, so continuations and interleaved ordinary messages remain stable.
+- A unit never splits a prose block or a tool call/result pair. Units retain journal indices and permanent output message IDs when present. Modern continuation journals use permanent `output_message_id` position followed by journal order. Legacy pre-continuation journals without those IDs preserve the current timestamp-based interleaving fallback—including its stable event-order tie break and timestamp fallback—so older human messages do not move around run segments.
 - The response returns complete authorized, projected, redacted message records needed by the selected units plus indexed journal excerpts, never partial message shapes or raw evidence. One lifecycle-root journal may provide excerpts for several continuation rows.
 - Raw JSONL remains the evidence source. Phase 1 may scan the local journal and must measure that scan; no persistent index is introduced unless measurements justify a separately approved follow-up.
 
@@ -60,7 +61,9 @@ Keep the cursor payload server-private. Protocol tests must prove every returned
 
 Implement a pure page builder with injected message and journal readers. Its private v1 cursor records the exact room, immutable newest ceiling, and the prior `(messageId, unitOrdinal)` boundary; encode it opaquely and validate all fields before use.
 
-Walk message rows backward in bounded chunks, resolve `run_parent_id` to the owning journal, and scan that JSONL locally. Unitize journal evidence under the shared contract, select no more than 20 newest units before the cursor, and return the selection chronologically. Include complete root/continuation records required for attribution even if a record is context-only. Do not alter or truncate the raw journal.
+Walk message rows backward in bounded chunks, resolve `run_parent_id` to the owning journal, and scan that JSONL locally only for terminal lifecycle roots. Exclude an entire family when its root is running or its work is still queued/not finalized; the REST response must not expose a partial mutable family. Unitize finalized evidence under the shared contract, select no more than 20 newest units before the cursor, and return the selection chronologically. Include complete root/continuation records required for attribution even if a record is context-only. Do not alter or truncate the raw journal.
+
+Use permanent output-message placement for modern continuation journals. If a stored legacy journal has no `output_message_id`, reproduce `buildTimelineEntries`' existing timestamp interleaving: event timestamps when available, the preceding/finalized timestamp fallback when absent, then stable original order for ties.
 
 Focused tests must cover:
 
@@ -68,6 +71,8 @@ Focused tests must cover:
 - a page boundary inside one run;
 - call/result separation by unrelated journal events and orphan results;
 - continuation output IDs, one root journal, and ordinary messages interleaved between continuation rows;
+- legacy pre-continuation journals without output IDs retain timestamp interleaving around human messages;
+- running and queued/not-finalized families contribute no root, continuation, excerpt, unit, or cursor position until terminal;
 - compaction loading/completed upgrades and exactly one terminal/status marker;
 - new messages inserted above the fixed ceiling while paging;
 - malformed and cross-room cursors;
@@ -88,7 +93,7 @@ Add `GET /api/rooms/:room/transcript-history?cursor=<opaque>` (with the first re
 
 Return `400` for malformed, stale-invalid, or cross-room cursors, normal authorization failures for inaccessible rooms, and one stable response shape for empty/end-of-history pages. Leave `/api/rooms/:room/messages`, `/api/rooms/:room/runs/:id`, WebSocket hydration, live fanout, search, pins, and permalinks unchanged in this phase.
 
-Server integration tests must prove authorization, room isolation, redaction, huge-run internal pagination, bounded response bytes for the 20-unit selection, stable cursor walking, and no mutation of raw evidence.
+Server integration tests must prove authorization, room isolation, redaction, huge-run internal pagination, running/queued-family exclusion, legacy timestamp ordering, bounded response bytes for the 20-unit selection, stable cursor walking, and no mutation of raw evidence.
 
 ### Task 4: Verify Phase 1
 
@@ -174,8 +179,8 @@ Make `connect()`/`recover()` idempotent: one in-flight handshake and one retry t
 
 **Likely files:**
 
-- Modify: `packages/web-next/src/runtime/connector.ts`
-- Modify: `packages/web-next/src/runtime/connector.spec.ts`
+- Modify: `packages/web-next/src/app/connector.ts`
+- Modify: `packages/web-next/src/app/connector.spec.ts`
 - Modify: `packages/web-next/src/app/computer-sessions.ts`
 - Modify: `packages/web-next/src/app/computer-sessions.spec.ts`
 
@@ -190,9 +195,9 @@ Never auto-reopen authentication failure, revocation, upgrade-required, or expli
 **Likely files:**
 
 - Modify: `packages/web-next/tests/room32-relay-journey.e2e.spec.ts`
-- Modify: `packages/web-next/tests/room33-relay-recovery.e2e.spec.ts`
+- Modify: `packages/web-next/tests/room33-recovery.e2e.spec.ts`
 - Modify: `packages/web-next/tests/room34-multi-computer.e2e.spec.ts`
-- Modify: `packages/web-next/tests/room35-recovery.e2e.spec.ts`
+- Modify: `packages/web-next/tests/room35-startup-recovery.e2e.spec.ts`
 
 Use deterministic controllable tunnels/sockets, not timing luck, to cover both failure orderings: app retry while tunnel is down and tunnel reconnect after the app backoff has started. Cover idle/background disconnect then foreground, current-generation bootstrap, duplicate recovery triggers, stale generation callbacks, exactly one app socket after each successful tunnel handshake, no document refresh, and no reopening of auth/upgrade/manual parks. Two hosted computers must recover independently; direct mode must remain unchanged.
 
