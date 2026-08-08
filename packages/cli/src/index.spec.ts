@@ -170,8 +170,7 @@ describe('@codor/cli', () => {
       'revoke',
       'ledger',
       'relay',
-      'agent',
-      'channel',
+      'agent', 'worktree', 'channel',
     ]);
     const program = createProgram();
     const flatChannels = program.commands.find((command) => command.name() === 'channels');
@@ -2276,5 +2275,183 @@ describe('@codor/cli', () => {
     await runCli(['node', 'codor', 'setup', '--dry-run'], context);
     expect(viaInstall).toContain('[dry-run]');
     expect(output.join('\n')).toContain('[dry-run]');
+  });
+});
+const fixtureGit = (cwd: string, args: readonly string[]): string => execFileSync(
+  'git',
+  ['-C', cwd, ...args],
+  { encoding: 'utf8' },
+);
+describe('Phase 4 worktree and qualified wait CLI', () => {
+  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-command-surface
+  it('registers only the singular worktree list/add/remove family', async () => {
+    const program = createProgram();
+    const structuredWorktrees = program.commands.find((command) => command.name() === 'worktree');
+    expect(structuredWorktrees?.aliases()).toEqual([]);
+    expect(structuredWorktrees?.commands.map((command) => command.name())).toEqual(['list', 'add', 'remove']);
+    expect(structuredWorktrees?.commands.find((command) => command.name() === 'add')?.options.map((option) => option.long))
+      .toEqual(expect.arrayContaining(['--adopt', '--create', '--path', '--channel']));
+    expect(structuredWorktrees?.commands.find((command) => command.name() === 'remove')?.options.map((option) => option.long))
+      .toEqual(expect.arrayContaining(['--filesystem', '--yes', '--json', '--channel']));
+    await expect(runCli(['node', 'codor', 'worktree'], {
+      env: {},
+      stdout: () => undefined,
+      stderr: () => undefined,
+    })).rejects.toMatchObject({ exitCode: 2 });
+    await expect(runCli(['node', 'codor', 'worktree', 'add', '--channel', 'eng', '--path', '/tmp/x'], {
+      env: {},
+      stdout: () => undefined,
+      stderr: () => undefined,
+    })).rejects.toMatchObject({ exitCode: 2 });
+  });
+
+  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-cli-regression
+  it('manages disposable Git worktrees through the authenticated REST lifecycle', async () => {
+    const fixture = join(dir, 'worktree CLI fixture with spaces');
+    const primary = join(fixture, 'primary checkout');
+    const adopted = join(fixture, 'adopted checkout');
+    const created = join(fixture, 'created checkout');
+    const dirty = join(fixture, 'dirty checkout');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/adopted', adopted, 'HEAD']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/dirty', dirty, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+
+    const origin = `http://127.0.0.1:${String(server.port)}`;
+    const invoke = async (...args: string[]) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli([
+          'node', 'codor', '--data-dir', dir, '--url', origin, '--token', 'cli-token', ...args,
+        ], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const listed = await invoke('worktree', 'list', '--channel', 'eng', '--cwd', primary, '--json');
+    expect(listed.error).toBeUndefined();
+    expect(listed.stdout).toHaveLength(1);
+    const list = JSON.parse(listed.stdout[0]!) as {
+      repository: Record<string, unknown> | null;
+      discovered: { path: string; primary: boolean }[];
+    };
+    expect(list.repository).toBeNull();
+    expect(list.discovered).toContainEqual(expect.objectContaining({ path: adopted, primary: false }));
+    expect(JSON.stringify(list)).not.toContain('git_admin_id');
+    expect(JSON.stringify(list)).not.toContain('common_path');
+
+    const adoptedResult = await invoke(
+      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', adopted, '--alias', 'adopted-child', '--cwd', primary, '--json',
+    );
+    expect(adoptedResult.error).toBeUndefined();
+    expect(JSON.parse(adoptedResult.stdout[0]!)).toMatchObject({
+      alias: 'adopted-child', source: 'adopted', branch: 'feature/adopted',
+    });
+
+    const createdResult = await invoke(
+      'worktree', 'add', '--channel', 'eng', '--create', '--path', created,
+      '--alias', 'created-child', '--branch', 'feature/created', '--cwd', primary, '--json',
+    );
+    expect(createdResult.error).toBeUndefined();
+    expect(JSON.parse(createdResult.stdout[0]!)).toMatchObject({
+      alias: 'created-child', source: 'created', branch: 'feature/created',
+    });
+
+    const dirtyAdopted = await invoke(
+      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', dirty, '--alias', 'dirty-child', '--cwd', primary, '--json',
+    );
+    expect(dirtyAdopted.error).toBeUndefined();
+
+    const unregistered = await invoke(
+      'worktree', 'remove', 'adopted-child', '--channel', 'eng', '--yes', '--json',
+    );
+    expect(unregistered.error).toBeUndefined();
+    expect(existsSync(adopted)).toBe(true);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/adopted'])).toContain('feature/adopted');
+
+    writeFileSync(join(dirty, 'uncommitted.txt'), 'dirty\n');
+    const dirtyRemoval = await invoke(
+      'worktree', 'remove', 'dirty-child', '--channel', 'eng', '--filesystem', '--yes', '--json',
+    );
+    expect(dirtyRemoval.error).toMatchObject({ exitCode: 6 });
+    expect(dirtyRemoval.stdout).toEqual([]);
+    expect(existsSync(dirty)).toBe(true);
+
+    const removed = await invoke(
+      'worktree', 'remove', 'created-child', '--channel', 'eng', '--filesystem', '--yes', '--json',
+    );
+    expect(removed.error).toBeUndefined();
+    expect(existsSync(created)).toBe(false);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/created'])).toContain('feature/created');
+
+    const alpha = credentialedAgent('worktree-cli-agent');
+    const agentAttempt = await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', origin,
+      'worktree', 'list', '--channel', 'eng', '--json',
+    ], {
+      env: alpha.env,
+      stdout: () => undefined,
+      stderr: () => undefined,
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(agentAttempt).toMatchObject({ exitCode: 4 });
+  });
+
+  // harn:assume qualified-cli-wait-preserves-scoped-peer-identity ref=qualified-post-wait-regression
+  it('post --wait keeps an authoritative foreign peer with an equal local handle', async () => {
+    const fixture = join(dir, 'qualified wait fixture');
+    const primary = join(fixture, 'primary');
+    const child = join(fixture, 'child');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/qualified-wait', child, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const target = await daemon.adoptWorktree('eng', { path: child, alias: 'foreign' });
+    const origin = credentialedAgent('same-handle');
+    const foreign = daemon.spawnMember(target.worktree.conversation_id, {
+      harness: 'fake',
+      handle: 'same-handle',
+      cwd: child,
+    });
+    fake.enqueue(
+      { kind: 'complete', final_text: 'origin is still working', delay_ms: 300 },
+      { kind: 'complete', final_text: 'foreign setup remains active', delay_ms: 1_000 },
+    );
+    daemon.postHumanMessage('eng', '@same-handle ~foreign:@same-handle establish the scoped group');
+    await until(() => daemon.store.getMember('eng', origin.member.id)?.state === 'running' ? true : undefined);
+    setTimeout(() => {
+      daemon.postAgentMessage('eng', foreign.id, '~main:@same-handle foreign answer');
+    }, 60);
+
+    output = [];
+    await memberCli(origin.env, 'post', '--wait', '--timeout', '1', '~foreign:@same-handle scoped question');
+    expect(output.at(-1)).toBe('~main:@same-handle foreign answer');
+    const posted = daemon.store.listMessages('eng', { limit: 20 }).find((message) =>
+      message.body === '~foreign:@same-handle scoped question');
+    expect(posted?.mentions.map((mention) => mention.member_id)).toContain(foreign.id);
+    expect(daemon.store.listDeliveries('eng', { recipient: origin.member.id })
+      .some((delivery) => delivery.state === 'consumed')).toBe(true);
+    await daemon.settle();
   });
 });

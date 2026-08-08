@@ -72,6 +72,20 @@ import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } fr
 import { renderPairingCard } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 import { parseLine, startOutpost, startCodor, waitForShutdown } from './up.js';
+import {
+  adoptWorktree,
+  confirmWorktreeRemoval,
+  createWorktree,
+  escapeWorktreeHumanCell,
+  listWorktrees,
+  previewWorktreeRemoval,
+  removeFilesystemWorktree,
+  removeWorktree,
+  renderWorktree,
+  renderWorktreeList,
+  resolveWorktreeSelector,
+  type WorktreeRestClient,
+} from './worktree-management.js';
 
 export interface CliContext {
   stdout?(line: string): void;
@@ -487,6 +501,11 @@ export function createProgram(context: CliContext = {}): Command {
       throw new Error(detail);
     }
     return value;
+  };
+
+  const worktreeRestClient: WorktreeRestClient = {
+    get: (path) => fetchJson(restUrl(path)),
+    post: (path, body) => postJson(path, body),
   };
 
   const withCrypto = <T>(fn: (crypto: CryptoVault) => T): T => {
@@ -1113,8 +1132,9 @@ defaultRosterManagement
         out(`posted #${posted.id}`);
         if (!options.wait) return;
         if (!env.CODOR_MEMBER_TOKEN) throw new Error('post --wait requires CODOR_MEMBER_TOKEN');
+        // harn:assume qualified-cli-wait-preserves-scoped-peer-identity ref=qualified-post-wait
         const peers = [...new Set(posted.mentions.map((mention) => mention.member_id))]
-          .filter((id) => id !== initial.self && initial.members.get(id)?.removed_ts === undefined);
+          .filter((id) => id !== initial.self);
         if (peers.length === 0) throw new Error('post --wait requires at least one addressed member');
         const deadline = Date.now() + options.timeout * 1_000;
         let registered = false;
@@ -2006,6 +2026,127 @@ defaultRosterManagement
     });
   // harn:end human-facing-surfaces-call-rooms-channels
   // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
+
+  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-command-surface
+  const worktreeManagement = program
+    .command('worktree')
+    .description('manage registered worktrees');
+
+  worktreeManagement
+    .command('list')
+    .description('list registered and discovered worktrees')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--cwd <path>', 'repository working directory')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: ChannelOptions & { cwd?: string; json?: boolean }) => {
+      const listed = await listWorktrees(worktreeRestClient, options.channel, options.cwd);
+      out(renderWorktreeList(listed, options.json === true));
+    });
+
+  worktreeManagement
+    .command('add')
+    .description('adopt or create one secondary worktree')
+    .requiredOption('--channel <channel>', 'channel id')
+    .requiredOption('--path <absolute-path>', 'worktree path')
+    .option('--adopt', 'adopt one already discovered worktree')
+    .option('--create', 'create and register one new worktree')
+    .option('--alias <alias>', 'worktree alias')
+    .option('--branch <branch>', 'new local branch')
+    .option('--default-roster', 'seed the child from the configured default roster')
+    .option('--cwd <path>', 'repository working directory')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: ChannelOptions & {
+      path: string;
+      adopt?: boolean;
+      create?: boolean;
+      alias?: string;
+      branch?: string;
+      defaultRoster?: boolean;
+      cwd?: string;
+      json?: boolean;
+    }) => {
+      const adopt = options.adopt === true;
+      const create = options.create === true;
+      if (adopt === create) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'worktree add requires exactly one of --adopt or --create',
+        );
+      }
+      if (adopt && (options.branch !== undefined || options.defaultRoster === true)) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--branch and --default-roster require --create',
+        );
+      }
+      if (create && (options.alias === undefined || options.branch === undefined)) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--create requires --alias and --branch',
+        );
+      }
+      const worktree = adopt
+        ? await adoptWorktree(worktreeRestClient, options.channel, {
+            path: options.path,
+            ...(options.alias !== undefined && { alias: options.alias }),
+          }, options.cwd)
+        : await createWorktree(worktreeRestClient, options.channel, {
+            path: options.path,
+            alias: options.alias!,
+            branch: options.branch!,
+            ...(options.defaultRoster === true && { default_roster: true as const }),
+          }, options.cwd);
+      out(renderWorktree(worktree, options.json === true));
+    });
+
+  // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-confirmation
+  worktreeManagement
+    .command('remove')
+    .description('unregister or remove one secondary worktree')
+    .argument('<worktree>', 'worktree id or alias')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--cwd <path>', 'repository working directory')
+    .option('--filesystem', 'remove the clean checkout after preview')
+    .option('--yes', 'confirm removal without prompting')
+    .option('--json', 'emit one JSON value')
+    .action(async (selector: string, options: ChannelOptions & {
+      cwd?: string;
+      filesystem?: boolean;
+      yes?: boolean;
+      json?: boolean;
+    }) => {
+      const listed = await listWorktrees(worktreeRestClient, options.channel, options.cwd);
+      const selected = resolveWorktreeSelector(listed.registered, selector);
+      if (options.filesystem === true) {
+        const preview = await previewWorktreeRemoval(
+          worktreeRestClient,
+          options.channel,
+          selected.id,
+          options.cwd,
+        );
+        if (preview.state !== 'clean' || preview.branch_preserved !== true) {
+          const detail = preview.detail === undefined
+            ? `worktree removal refused: ${preview.state}`
+            : escapeWorktreeHumanCell(preview.detail);
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, detail);
+        }
+      }
+      const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      await confirmWorktreeRemoval({
+        alias: selected.alias,
+        path: selected.path,
+        yes: options.yes === true,
+        json: options.json === true,
+        isTTY,
+        stderr: err,
+        confirm: context.confirm,
+      });
+      const removed = options.filesystem === true
+        ? await removeFilesystemWorktree(worktreeRestClient, options.channel, selected.id, options.cwd)
+        : await removeWorktree(worktreeRestClient, options.channel, selected.id);
+      out(renderWorktree(removed, options.json === true));
+    });
+
   const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
   channelManagement.aliases().splice(0);
   const structuredChannelManagement = program
@@ -2060,7 +2201,7 @@ function isCommanderFailure(error: unknown): error is CommanderFailure {
     && typeof candidate.message === 'string';
 }
 
-function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' | 'agent-preset' | 'default-roster' | undefined {
+function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' | 'agent-preset' | 'default-roster' | 'worktree' | undefined {
   const args = argv.slice(2);
   const optionsWithValues = new Set(['--data-dir', '--url', '--token']);
   for (let index = 0; index < args.length; index += 1) {
@@ -2071,7 +2212,7 @@ function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' 
     }
     if ([...optionsWithValues].some((option) => argument.startsWith(`${option}=`))) continue;
     if (argument.startsWith('-')) return undefined;
-    return argument === 'channel' || argument === 'agent' || argument === 'agent-preset' || argument === 'default-roster'
+    return argument === 'channel' || argument === 'agent' || argument === 'agent-preset' || argument === 'default-roster' || argument === 'worktree'
       ? argument
       : undefined;
   }

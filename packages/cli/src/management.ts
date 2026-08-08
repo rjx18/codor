@@ -51,8 +51,10 @@ export function classifyManagementError(error: unknown): ManagementError {
   let code: number = MANAGEMENT_EXIT_CODES.transport;
   const schemaFailure = (error instanceof Error && error.name === 'ZodError')
     || (typeof error === 'object' && error !== null && Array.isArray((error as { issues?: unknown }).issues));
-  if (/no such (?:room|channel|agent(?: member)?|agent preset)|(?:agent )?preset [^ ]+ (?:not found|does not exist)|(?:missing|references missing).*agent preset|not found|does not exist/.test(lower)) {
+  if (/no such (?:room|channel|agent(?: member)?|agent preset|worktree)|(?:agent )?preset [^ ]+ (?:not found|does not exist)|(?:missing|references missing).*agent preset|not found|does not exist/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.notFound;
+  } else if (/token required|(?:codor_token|codor_member_token).*required/.test(lower)) {
+    code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (
     schemaFailure
     || /--url|--token|--acp-|argument|option|invalid frame|zoderror|invalid input|invalid (?:agent )?preset|must be|expected|does not support .*thinking|does not accept|valid (?:levels|policies)|working directory/.test(lower)
@@ -61,7 +63,7 @@ export function classifyManagementError(error: unknown): ManagementError {
   } else if (/unauthorized|authentication|bearer|token required|401|4401/.test(lower)) {
     code = MANAGEMENT_EXIT_CODES.authentication;
   } else if (
-    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|not currently offered|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc/.test(lower)
+    /already|archived|conflict|collision|unique constraint|refus|unknown adapter|not installed|unavailable|not currently offered|requires private|shadowed|removed|active turn|stop the turn|custody is uncertain|interactive attach lease|attach lease|not paused|not dead|requires paused or dead|cannot pause|cannot configure|cannot revive|cannot remove|mirrored from another switchboard|no resumable session|does not support resume|referenc|worktree (?:repository|path|target|alias|checkout|identity)|primary (?:checkout|worktree)|only an available|a room may register|local branch|cwd is not one of the room|live child runtime|unresolved work|git administrative state/.test(lower)
   ) {
     code = MANAGEMENT_EXIT_CODES.conflict;
   } else if (/forbidden|not authorized|cannot (?:list|manage|rename|archive)|authorization/.test(lower)) {

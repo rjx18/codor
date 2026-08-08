@@ -214,6 +214,39 @@ docker run --rm --network none \
       printf "packed invocation failure leaked a stack or secret\n" >&2
       exit 1
     fi
+    # harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-packed-smoke
+    WORKTREE_LIST="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree list --channel fresh --json)"
+    [[ "$(printf "%s\n" "$WORKTREE_LIST" | wc -l)" -eq 1 ]]
+    grep -Fq '"repository":null' <<<"$WORKTREE_LIST"
+    if grep -Eq 'PROOF_TOKEN|0123456789abcdef|git_admin_id|common_path|room_key|sealed_key' <<<"$WORKTREE_LIST"; then
+      printf "packed worktree listing leaked private identity or credentials\n" >&2
+      exit 1
+    fi
+    # harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-packed-smoke
+    set +e
+    WORKTREE_ADD="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree add --channel fresh --path /proof/not-a-worktree 2>/proof/worktree-add.out)"
+    WORKTREE_ADD_STATUS=$?
+    set -e
+    [[ "$WORKTREE_ADD_STATUS" -eq 2 ]]
+    [[ -z "$WORKTREE_ADD" ]]
+    [[ "$(wc -l </proof/worktree-add.out)" -eq 1 ]]
+    set +e
+    WORKTREE_REMOVE="$($BIN --data-dir "$DATA" --url "http://127.0.0.1:${PORT}" --token "$PROOF_TOKEN" \
+      worktree remove missing-worktree --channel fresh --yes --json 2>/proof/worktree-remove.out)"
+    WORKTREE_REMOVE_STATUS=$?
+    set -e
+    [[ "$WORKTREE_REMOVE_STATUS" -eq 5 ]]
+    [[ -z "$WORKTREE_REMOVE" ]]
+    [[ "$(wc -l </proof/worktree-remove.out)" -eq 1 ]]
+    if grep -Eq '[[:space:]]at[[:space:]]|node:internal|Unhandled|PROOF_TOKEN|0123456789abcdef|git_admin_id|common_path' \
+      /proof/worktree-add.out /proof/worktree-remove.out; then
+      printf "packed worktree failure leaked a stack, secret, or private identity\n" >&2
+      exit 1
+    fi
+    # harn:end worktree-cli-removal-requires-previewed-consent
+    # harn:end structured-worktree-cli-uses-accepted-lifecycle
     "$BIN" --data-dir "$DATA" channel archive packed --yes --json | grep -Fq '"status":"archived"'
     DEFAULT_CHANNELS="$("$BIN" --data-dir "$DATA" channel list --json)"
     if grep -Fq '"id":"packed"' <<<"$DEFAULT_CHANNELS"; then

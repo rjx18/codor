@@ -1,0 +1,20 @@
+id: qualified-cli-wait-preserves-scoped-peer-identity
+hash: a-f7a008d5f990
+title: Qualified CLI waits preserve the server-resolved foreign peer
+state: active
+statement: After a successful post containing one or more qualified targets,
+  `post --wait` must register every authoritative resolved mentioned member id
+  other than self even when that member is absent from the origin roster, then
+  complete only for an exact addressed author that directly mentions self or for
+  accepted same-round peer completion, while unqualified mentions remain local
+  and malformed, stale, or ambiguous qualified intent still refuses atomically
+  without fallback, because a CLI wait may observe cross-worktree collaboration
+  but may not reinterpret or weaken the server's stable routing identity.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - invalid-qualified-targets-never-fallback
+  - cross-worktree-output-stays-in-origin
+  - cross-worktree-runtime-stays-target-local
+  - cli-waits-consume-only-matching-deliveries
+  - same-round-terminal-peers-end-live-waits
+created_by: cli-management-phase4-worktrees-qualified-posting

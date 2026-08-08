@@ -158,7 +158,7 @@ describe('management failures', () => {
     );
     expect(cliExitCode(classifyManagementError(new Error('forbidden: admin cannot rename room')))).toBe(
       MANAGEMENT_EXIT_CODES.authorization,
-    );
+    ); expect(cliExitCode(classifyManagementError(new Error('worktree target is dirty')))).toBe(MANAGEMENT_EXIT_CODES.conflict); expect(cliExitCode(classifyManagementError(new Error('worktree target is missing')))).toBe(MANAGEMENT_EXIT_CODES.conflict); expect(cliExitCode(classifyManagementError(new Error('--token, CODOR_TOKEN, or CODOR_MEMBER_TOKEN is required')))).toBe(MANAGEMENT_EXIT_CODES.authentication);
     for (const id of ['unauthorized', 'bearer', '401']) {
       expect(cliExitCode(classifyManagementError(new Error(`no such channel ${id}`)))).toBe(
         MANAGEMENT_EXIT_CODES.notFound,
