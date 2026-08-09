@@ -97,6 +97,12 @@ assumptions:
       reason: >-
         The durable pending/answered/acked/orphaned state machine and replay
         behavior are not modified.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: >-
+        The new REST regression uses the existing authenticated owner token only
+        to observe transcript projection; no role, authority, admission, or
+        mutation behavior changes.
 files:
   - packages/switchboard/src/transcript-history.ts
   - packages/switchboard/src/transcript-history.spec.ts
@@ -113,6 +119,13 @@ anchors:
     transcript-history-rest:
       action: change
       reason: Prove REST pages omit interaction rows and still return twenty genuine units.
+  roles-gate-human-acts-not-agents:
+    role-matrix-integration:
+      action: change
+      reason: >-
+        Authorize only the added authenticated transcript-history REST
+        regression that Harn maps across this existing region; role behavior is
+        reviewed unchanged and the test performs no authorization mutation.
   actionable-interactions-remain-support-owned-outside-history:
     interaction-history-unitizer:
       action: change
