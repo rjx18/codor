@@ -1,0 +1,137 @@
+id: interaction-history-support-ownership
+title: Keep actionable interactions support-owned outside bounded history
+notes: >-
+  Contained correction requested after Room 2 exposed a cross-stack ownership
+  mismatch. Combined transcript pages currently count ask and approval message
+  rows as immutable visible units, but recipient-scoped RoomSupport is the
+  authoritative pending/resolved state. Exclude both interaction kinds from
+  combined-page membership and unit budgets. In the browser, preserve a pending
+  interaction from the current addressed cold tail despite coldMessageIds
+  suppression; support-only older interactions continue through the existing
+  detached tray. When support withdraws the interaction after either
+  answer_interaction or consume_result, both inline and detached cards disappear
+  immediately and remain absent after reload. Preserve multi-question answers,
+  durable resolution, cursor completeness, live/page reconciliation, per-store
+  computer isolation, twenty-unit history bounds, and finalized-run request
+  bounds. Verification covers focused protocol/switchboard/web tests, complete
+  relevant builds, and Rooms 2 and 21 only. No Phase 3, push, deployment, or
+  release work is authorized.
+assumptions:
+  create:
+    - id: actionable-interactions-remain-support-owned-outside-history
+      title: Actionable interaction cards remain support-owned outside immutable history
+      statement: >-
+        Ask and approval message rows must contribute zero combined transcript
+        history units and never consume the twenty-unit historical budget;
+        recipient-scoped RoomSupport.interactions exclusively determines their
+        actionability, so a pending card in the addressed cold tail remains
+        inline, a pending card outside that tail remains in the detached
+        interaction tray, and either card disappears immediately and after
+        reload when support no longer lists it, while durable answers and
+        multi-question payloads keep their established behavior.
+      reason: >-
+        Immutable history cannot represent recipient-scoped pending/resolved
+        state, and retaining interaction rows there resurrects answered cards or
+        suppresses still-pending cold-tail cards.
+      depends_on:
+        - historical-transcript-pages-match-output-scoped-rendering
+        - finalized-browser-history-is-combined-page-owned
+        - room-support-is-bounded-recipient-scoped-state
+        - approval-answer-is-atomic-and-chatless
+        - addressed-cold-hydration-is-strict-and-legacy-safe
+  reviewed:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: >-
+        The page still returns at most twenty genuinely renderable immutable
+        units with identical run grouping and ordering; recipient-scoped action
+        cards were never honest immutable history units.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >-
+        Combined pages remain the sole finalized-history source; pending
+        interactions are live/support state rather than finalized history.
+    - id: room-support-is-bounded-recipient-scoped-state
+      outcome: unchanged
+      reason: >-
+        RoomSupport already owns pending targeted interaction rows and continues
+        to withdraw them when they resolve.
+    - id: approval-answer-is-atomic-and-chatless
+      outcome: unchanged
+      reason: >-
+        Approval persistence, inbox clearing, adapter acknowledgement, and the
+        absence of a synthetic human chat remain unchanged.
+    - id: actionable-inbox-clears-on-read-or-reply
+      outcome: unchanged
+      reason: >-
+        Inbox membership remains separate from transcript action-card ownership
+        and keeps its existing read/reply semantics.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: >-
+        The WebSocket still returns the exact contiguous tail plus separate
+        support; the browser only avoids suppressing a tail row that support
+        currently proves actionable.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: >-
+        Cursor walks still cover every visible immutable unit exactly once;
+        interactions consistently contribute zero at every boundary.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: >-
+        Sequence-based mutation reconciliation remains unchanged for messages
+        that are members of paged history.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >-
+        Cold ids, history units, support, and interaction visibility remain in
+        the captured per-computer client store.
+    - id: merged-worktree-reliability-contracts-coexist
+      outcome: unchanged
+      reason: >-
+        The combined worktree/history transport and bounded finalized-run
+        behavior are unaffected by excluding recipient-scoped interactions.
+    - id: interaction-state-machine-persisted
+      outcome: unchanged
+      reason: >-
+        The durable pending/answered/acked/orphaned state machine and replay
+        behavior are not modified.
+files:
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+anchors:
+  historical-transcript-pages-match-output-scoped-rendering:
+    transcript-history-page-builder:
+      action: change
+      reason: Exclude ask and approval rows before immutable message-unit construction and cover unit budgets.
+    transcript-history-rest:
+      action: change
+      reason: Prove REST pages omit interaction rows and still return twenty genuine units.
+  actionable-interactions-remain-support-owned-outside-history:
+    interaction-history-unitizer:
+      action: change
+      reason: Make both interaction message kinds contribute zero combined-history units.
+    interaction-history-unitizer-regression:
+      action: change
+      reason: Prove interaction exclusion, cursor completeness, and a genuine twenty-unit page.
+    interaction-history-rest-regression:
+      action: change
+      reason: Exercise interaction exclusion through the authenticated REST boundary.
+    interaction-cold-suppression:
+      action: change
+      reason: Exempt only currently support-owned ask/approval rows from coldMessageIds suppression.
+    interaction-cold-suppression-regression:
+      action: change
+      reason: Cover pending and resolved cold-tail visibility at the client seam.
+    interaction-history-browser-fixture:
+      action: change
+      reason: Place the multi-question interaction outside its addressed cold tail while support retains it.
+    interaction-history-browser-regression:
+      action: change
+      reason: Prove current, detached, resolved, and reload behavior without reviving a historical card.
