@@ -22,9 +22,18 @@ importers:
 
   .:
     devDependencies:
+      '@resvg/resvg-js':
+        specifier: 2.6.2
+        version: 2.6.2
+      '@types/node':
+        specifier: ^22.8.0
+        version: 22.20.1
       typescript:
         specifier: ^5.5.4
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7
 
   packages/tunnel:
     dependencies:
@@ -49,6 +58,9 @@ packages:
   typescript@5.9.3:
     resolution: {integrity: sha512-typescript}
 
+  '@resvg/resvg-js@2.6.2':
+    resolution: {integrity: sha512-resvg}
+
   wrangler@4.114.0:
     resolution: {integrity: sha512-wrangler}
 
@@ -56,6 +68,8 @@ packages:
     resolution: {integrity: sha512-vite}
 
 snapshots:
+
+  '@resvg/resvg-js@2.6.2': {}
 
   typescript@5.9.3: {}
 
@@ -80,8 +94,13 @@ function fixture() {
     packageManager: "pnpm@10.9.0",
     engines: { node: ">=22.12.0" },
     scripts: { build: "pnpm -r build", "deploy:app": "node deploy.mjs", test: "test" },
-    devDependencies: { typescript: "^5.5.4" },
-    pnpm: { onlyBuiltDependencies: ["esbuild"] },
+    devDependencies: {
+      "@resvg/resvg-js": "2.6.2",
+      "@types/node": "^22.8.0",
+      typescript: "^5.5.4",
+      vitest: "^3.2.4",
+    },
+    pnpm: { onlyBuiltDependencies: ["esbuild", "better-sqlite3"] },
   }, null, 2)}\n`);
   writeFileSync(join(cwd, "pnpm-lock.yaml"), LOCKFILE);
   writeFileSync(join(cwd, "tsconfig.base.json"), "{\"compilerOptions\":{\"strict\":true}}\n");
@@ -127,6 +146,9 @@ test("normalizers ignore unrelated root fields and unrelated lockfile importers"
 
   const changedLockfile = LOCKFILE.replace("version: 6.4.3", "version: 6.4.4");
   assert.equal(normalizeLockfileSlice(LOCKFILE), normalizeLockfileSlice(changedLockfile));
+
+  const changedSettings = LOCKFILE.replace("autoInstallPeers: true", "autoInstallPeers: false");
+  assert.equal(normalizeLockfileSlice(LOCKFILE), normalizeLockfileSlice(changedSettings));
 });
 
 test("skips unrelated web/docs and root manifest changes", () => {
@@ -138,6 +160,14 @@ test("skips unrelated web/docs and root manifest changes", () => {
     manifest.description = "unrelated metadata";
     const root = commit(repo.cwd, { "package.json": `${JSON.stringify(manifest, null, 2)}\n` }, "metadata");
     assert.equal(run(repo, docs, root).deploy, false);
+
+    manifest.devDependencies["@resvg/resvg-js"] = "2.6.3";
+    const unrelatedDependency = commit(repo.cwd, { "package.json": `${JSON.stringify(manifest, null, 2)}\n` }, "unrelated root dependency");
+    assert.equal(run(repo, root, unrelatedDependency).deploy, false);
+
+    manifest.pnpm.autoInstallPeers = false;
+    const unrelatedPnpmSetting = commit(repo.cwd, { "package.json": `${JSON.stringify(manifest, null, 2)}\n` }, "unrelated pnpm setting");
+    assert.equal(run(repo, unrelatedDependency, unrelatedPnpmSetting).deploy, false);
   });
 });
 
@@ -181,6 +211,14 @@ test("deploys for selected root toolchain fields but not unrelated scripts", () 
     manifest.packageManager = "pnpm@10.10.0";
     const relevant = commit(repo.cwd, { "package.json": `${JSON.stringify(manifest, null, 2)}\n` }, "toolchain");
     assert.equal(run(repo, unrelated, relevant).deploy, true);
+
+    manifest.devDependencies.typescript = "^5.9.3";
+    const relevantDependency = commit(repo.cwd, { "package.json": `${JSON.stringify(manifest, null, 2)}\n` }, "Worker compiler");
+    assert.equal(run(repo, relevant, relevantDependency).deploy, true);
+
+    manifest.pnpm.onlyBuiltDependencies = ["better-sqlite3"];
+    const relevantPnpmSetting = commit(repo.cwd, { "package.json": `${JSON.stringify(manifest, null, 2)}\n` }, "Worker bundler approval");
+    assert.equal(run(repo, relevantDependency, relevantPnpmSetting).deploy, true);
   });
 });
 
@@ -189,8 +227,14 @@ test("deploys for relevant lockfile importer/toolchain changes but not another i
     const unrelatedLockfile = commit(repo.cwd, { "pnpm-lock.yaml": LOCKFILE.replace("version: 6.4.3", "version: 6.4.4") }, "web importer");
     assert.equal(run(repo, repo.base, unrelatedLockfile).deploy, false);
 
+    const unrelatedRootImporter = commit(repo.cwd, { "pnpm-lock.yaml": LOCKFILE.replace("version: 2.6.2", "version: 2.6.3") }, "root application dependency");
+    assert.equal(run(repo, unrelatedLockfile, unrelatedRootImporter).deploy, false);
+
+    const relevantRootImporter = commit(repo.cwd, { "pnpm-lock.yaml": LOCKFILE.replace("version: 5.9.3", "version: 5.9.4") }, "root compiler importer");
+    assert.equal(run(repo, unrelatedRootImporter, relevantRootImporter).deploy, true);
+
     const relevantImporter = commit(repo.cwd, { "pnpm-lock.yaml": LOCKFILE.replace("version: 4.114.0", "version: 4.115.0") }, "worker importer");
-    assert.equal(run(repo, unrelatedLockfile, relevantImporter).deploy, true);
+    assert.equal(run(repo, relevantRootImporter, relevantImporter).deploy, true);
 
     const relevantToolchain = commit(repo.cwd, { "pnpm-lock.yaml": LOCKFILE.replace("sha512-typescript", "sha512-new-typescript") }, "toolchain record");
     assert.equal(run(repo, relevantImporter, relevantToolchain).deploy, true);

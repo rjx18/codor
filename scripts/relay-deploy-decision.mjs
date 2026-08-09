@@ -15,22 +15,23 @@ const DIRECT_DEPLOY_PATHS = new Map([
 const TOOLCHAIN_RECORD_PREFIXES = [
   "@cloudflare/",
   "@esbuild/",
-  "@rollup/",
   "@types/node@",
-  "@vitejs/",
   "@vitest/",
   "esbuild@",
   "miniflare@",
-  "pnpm@",
-  "rollup@",
   "typescript@",
-  "vite@",
   "vitest@",
   "workerd@",
   "wrangler@",
 ];
 
 const RELEVANT_IMPORTERS = new Set([".", "packages/tunnel", "relay-worker"]);
+// Only these root manifest paths can affect the Worker build/install toolchain.
+// In particular, root application dependencies, arbitrary scripts, and
+// unrelated pnpm settings must not turn a Pages-only change into a Worker
+// deploy.
+const ROOT_IMPORTER_TOOLCHAIN_DEPENDENCIES = new Set(["@types/node", "typescript", "vitest"]);
+const ROOT_PNPM_TOOLCHAIN_DEPENDENCIES = new Set(["esbuild"]);
 
 function stableValue(value) {
   if (Array.isArray(value)) return value.map(stableValue);
@@ -49,18 +50,23 @@ function stableJson(value) {
 }
 
 function pick(object, keys) {
-  return Object.fromEntries(keys.filter((key) => key in object).map((key) => [key, object[key]]));
+  const source = object && typeof object === "object" && !Array.isArray(object) ? object : {};
+  return Object.fromEntries(keys.filter((key) => key in source).map((key) => [key, source[key]]));
 }
 
 export function normalizeRootManifest(source) {
   const manifest = JSON.parse(source);
+  const onlyBuiltDependencies = manifest.pnpm?.onlyBuiltDependencies;
   return stableJson({
     packageManager: manifest.packageManager ?? null,
-    engines: manifest.engines ?? null,
-    scripts: pick(manifest.scripts ?? {}, ["build", "build:artifact", "deploy:app", "release:check", "test:all"]),
-    dependencies: manifest.dependencies ?? null,
-    devDependencies: manifest.devDependencies ?? null,
-    pnpm: manifest.pnpm ?? null,
+    engines: pick(manifest.engines, ["node"]),
+    scripts: pick(manifest.scripts, ["build"]),
+    devDependencies: pick(manifest.devDependencies, [...ROOT_IMPORTER_TOOLCHAIN_DEPENDENCIES].sort()),
+    pnpm: {
+      onlyBuiltDependencies: Array.isArray(onlyBuiltDependencies)
+        ? onlyBuiltDependencies.filter((dependency) => ROOT_PNPM_TOOLCHAIN_DEPENDENCIES.has(dependency)).sort()
+        : onlyBuiltDependencies ?? null,
+    },
   });
 }
 
@@ -95,6 +101,52 @@ function childBlocks(lines, section) {
   return blocks;
 }
 
+function stripYamlKey(key) {
+  return key.replace(/^['"]|['"]$/g, "");
+}
+
+function importerDependencyBlocks(lines) {
+  const sections = new Map();
+  let section = null;
+  let current = null;
+  for (const line of lines.slice(1)) {
+    const sectionMatch = line.match(/^    ([^\s].*?):\s*$/);
+    if (sectionMatch) {
+      section = stripYamlKey(sectionMatch[1]);
+      current = null;
+      if (!sections.has(section)) sections.set(section, new Map());
+      continue;
+    }
+    const dependencyMatch = line.match(/^      ([^\s].*?):\s*$/);
+    if (section && dependencyMatch) {
+      const key = stripYamlKey(dependencyMatch[1]);
+      current = { key, lines: [line] };
+      sections.get(section).set(key, current);
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  return sections;
+}
+
+function normalizeRootImporter(block) {
+  if (!block) return null;
+  const sections = importerDependencyBlocks(block.lines);
+  return Object.fromEntries(
+    [...sections.entries()]
+      .map(([section, dependencies]) => [
+        section,
+        Object.fromEntries(
+          [...dependencies.entries()]
+            .filter(([key]) => ROOT_IMPORTER_TOOLCHAIN_DEPENDENCIES.has(key))
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, dependency]) => [key, dependency.lines.join("\n")]),
+        ),
+      ])
+      .filter(([, dependencies]) => Object.keys(dependencies).length > 0),
+  );
+}
+
 function isToolchainRecord(key) {
   return TOOLCHAIN_RECORD_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
@@ -114,7 +166,12 @@ export function normalizeLockfileSlice(source) {
   const selectedImporters = Object.fromEntries(
     [...RELEVANT_IMPORTERS]
       .sort()
-      .map((key) => [key, importerBlocks.get(key)?.lines.join("\n") ?? null]),
+      .map((key) => [
+        key,
+        key === "."
+          ? normalizeRootImporter(importerBlocks.get(key))
+          : importerBlocks.get(key)?.lines.join("\n") ?? null,
+      ]),
   );
   const selectedToolchain = (blocks) =>
     Object.fromEntries(
@@ -126,7 +183,6 @@ export function normalizeLockfileSlice(source) {
 
   return stableJson({
     lockfileVersion,
-    settings,
     importers: selectedImporters,
     packages: selectedToolchain(packageBlocks),
     snapshots: selectedToolchain(snapshotBlocks),

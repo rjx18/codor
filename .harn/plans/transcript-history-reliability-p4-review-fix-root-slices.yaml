@@ -1,0 +1,49 @@
+id: transcript-history-reliability-p4-review-fix-root-slices
+title: Narrow relay deployment comparisons to Worker toolchain slices
+notes: >
+  This is a contained review correction to Phase 4. The deployment decision
+  contract already says relevant root manifest and lockfile slices, but the
+  first implementation compared every root dependency, devDependency, pnpm
+  setting, and root importer entry. Keep the full-range and fail-open behavior
+  and narrow only the root selectors to an explicit Worker build/deploy
+  toolchain allowlist while retaining the relay-worker and packages/tunnel
+  importers plus selected shared toolchain records. The GitHub Actions workflow
+  and Pages behavior are unchanged.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: relay-worker-deploy-decision-is-full-range-and-fail-open
+      outcome: unchanged
+      reason: >
+        The intended full-range, relevant-slice, fail-open decision contract is
+        unchanged; this correction makes the root manifest and lockfile
+        normalization match that existing statement and adds the missing
+        unrelated-root regressions.
+    - id: github-ci-pages-deploys-and-relay-worker-isolated
+      outcome: unchanged
+      reason: >
+        The workflow still receives the same boolean decision output, always
+        deploys Pages on verified main, and conditionally deploys the Worker;
+        only the decision implementation and its tests are corrected.
+anchors:
+  relay-worker-deploy-decision-is-full-range-and-fail-open:
+    relay-deploy-decision:
+      action: change
+      reason: >
+        Restrict root manifest and lockfile normalization to explicit Worker
+        toolchain slices without changing full-range or fail-open handling.
+    relay-deploy-decision-regression:
+      action: change
+      reason: >
+        Prove unrelated root dependencies and importer entries skip while
+        relevant Worker toolchain and relay-worker importer changes deploy.
+files:
+  - scripts/relay-deploy-decision.mjs
+  - scripts/relay-deploy-decision.spec.mjs
+verification: >
+  Run the decision tests, workflow YAML/static checks, relay-worker and tunnel
+  builds plus the full workspace build, Harn plan/check/apply/staged validation,
+  and git diff --check. Leave the worktree clean and do not push or deploy.
+applied:
+  applied_at: 2026-08-09T03:02:14.694Z
