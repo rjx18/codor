@@ -1,0 +1,57 @@
+id: room22-combined-history-request-boundary
+title: Room 22 proves promotion uses combined history for finalized Ops
+notes: >
+  Contained test-only correction after the Phase 3 browser gate found Room 22
+  still expecting a finalized Ops run to use the removed /runs/:id journal
+  endpoint. The accepted cutover permits the active Engineering run to use its
+  mutable full journal, keeps inactive Ops cold, and hydrates finalized Ops
+  through one bounded combined-history page on promotion. The one-socket,
+  background-summary, unread, and warm-return assertions remain intact. No
+  product code or request behavior changes.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized Ops history remains owned by the combined page and never falls
+        back to a full /runs/:id fetch; this correction makes Room 22 assert
+        that contract instead of the removed journal request.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: The active Engineering run may still use its mutable full journal; the
+        test only records that permitted request and keeps its warm cache on
+        return.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: One room-addressed WebSocket still carries the room subscriptions and
+        switching assertions; only the stale Ops request expectation changes.
+    - id: durable-room-summaries-stream-and-fallback
+      outcome: unchanged
+      reason: Background Research preview and durable unread behavior remain asserted
+        through the existing summary stream path.
+anchors:
+  finalized-browser-history-is-combined-page-owned:
+    room22-finalized-promotion-request-boundary:
+      action: change
+      reason: Track Ops transcript-history promotion, render its finalized failed run,
+        and assert zero finalized /runs/:id requests.
+  live-runs-settle-beside-paged-history-once:
+    room22-active-mutable-journal:
+      action: change
+      reason: Assert the active Engineering run may fetch its mutable full journal and
+        that returning to Engineering reuses the existing journal cache.
+  multiplexed-subscriptions-identify-their-room:
+    room22-one-socket-room-switching:
+      action: change
+      reason: Preserve the single-socket and room-promotion switching assertions while
+        correcting the finalized Ops request contract.
+  durable-room-summaries-stream-and-fallback:
+    room22-background-summary-unread:
+      action: change
+      reason: Preserve the inactive Research summary preview and durable unread
+        assertions in the corrected multiplexed journey.
+files:
+  - packages/web-next/tests/room22-room-state.e2e.spec.ts
+applied:
+  applied_at: 2026-08-09T07:35:22.190Z

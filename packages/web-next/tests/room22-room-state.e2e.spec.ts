@@ -20,22 +20,30 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('multiplexed room state', () => {
+  // harn:assume multiplexed-subscriptions-identify-their-room ref=room22-one-socket-room-switching
+  // harn:assume durable-room-summaries-stream-and-fallback ref=room22-background-summary-unread
+  // harn:assume live-runs-settle-beside-paged-history-once ref=room22-active-mutable-journal
+  // harn:assume finalized-browser-history-is-combined-page-owned ref=room22-finalized-promotion-request-boundary
   test('one socket streams every rail and fetches journals only after promotion', async ({ page }) => {
     const sockets: string[] = [];
     const summaryRequests: string[] = [];
     const engJournals: string[] = [];
+    const opsHistory: string[] = [];
     const opsJournals: string[] = [];
     page.on('websocket', (socket) => sockets.push(socket.url()));
     page.on('request', (request) => {
       const path = new URL(request.url()).pathname;
       if (path === '/api/rooms/summary') summaryRequests.push(request.url());
       if (/^\/api\/rooms\/eng\/runs\//.test(path)) engJournals.push(path);
+      if (path === '/api/rooms/ops/transcript-history') opsHistory.push(path);
       if (/^\/api\/rooms\/ops\/runs\//.test(path)) opsJournals.push(path);
     });
 
     await open(page, 'eng');
+    await expect.poll(() => engJournals.length).toBeGreaterThan(0);
     await expect(page.getByTestId('room-link-research').locator('.nx-unread')).toHaveText('1');
     expect(sockets).toHaveLength(1);
+    expect(opsHistory).toHaveLength(0);
     expect(opsJournals).toHaveLength(0);
 
     const arrival = await control<{ id: number }>('/live-chat', {
@@ -57,7 +65,9 @@ test.describe('multiplexed room state', () => {
 
     await page.getByTestId('room-link-ops').click();
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Ops');
-    await expect.poll(() => opsJournals.length).toBeGreaterThan(0);
+    await expect.poll(() => opsHistory.length).toBeGreaterThan(0);
+    await expect(page.locator('.nx-column')).toContainText('deploy job exited 1 — rollback applied, needs a human look');
+    expect(opsJournals).toHaveLength(0);
     expect(sockets).toHaveLength(1);
 
     const engReadsBeforeReturn = engJournals.length;
@@ -68,6 +78,10 @@ test.describe('multiplexed room state', () => {
     expect(engJournals).toHaveLength(engReadsBeforeReturn);
     await expect(page.getByTestId('room-working-eng')).toContainText('@scout is working');
   });
+  // harn:end finalized-browser-history-is-combined-page-owned
+  // harn:end live-runs-settle-beside-paged-history-once
+  // harn:end durable-room-summaries-stream-and-fallback
+  // harn:end multiplexed-subscriptions-identify-their-room
 
   test('read state advances only after a substantive row stays visibly onscreen', async ({ page }) => {
     await control('/seed-runs', { count: 80 });
