@@ -1,0 +1,80 @@
+id: transcript-history-p2-source-store-review-fix
+title: Transcript history phase 2 review fix - capture source store across awaits
+notes: >
+  Contained Phase 2 review correction against accepted implementation 64f8a11.
+  A managed UI invokes transcript-history operations through the legacy mirror
+  singleton, whose visible state can switch from computer A to computer B while
+  an A request is awaiting the network. Resolve the actual source ClientStore
+  exactly once when every public history operation starts, then use that
+  captured store for all request identity, reads, writes, cursor/head bridging,
+  failure state, and target-walk iterations. Actual-store and direct singleton
+  callers retain the same behavior.
+
+  Add a controlled same-room regression that starts an unresolved request
+  through mirror A, switches the mirror to B, resolves A, and proves only A is
+  updated while B can independently issue its own request with its own token.
+  Exercise the shared binding through a target walk so no continuation after an
+  await can cross into the newly mirrored store. No server/protocol changes,
+  relay recovery, UI redesign, new history behavior, or Phase 3 work.
+assumptions:
+  reviewed:
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Capture the already-required injected source store for the whole
+        operation so same-named rooms, cursors, credentials, and evidence remain
+        isolated across asynchronous history requests.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        The mirror remains a presentation adapter; every history operation now
+        continues against the computer store that owned it at admission.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: >
+        Head refresh, overlap bridging, retry state, and deduplication remain
+        unchanged inside the captured source store.
+    - id: transcript-history-prepends-one-deliberate-page
+      outcome: unchanged
+      reason: >
+        Older-page cursor selection and request latching remain room-local and
+        now cannot migrate to a different mirrored store after awaiting.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: >
+        A target walk still follows only the required bounded pages, but every
+        iteration remains bound to the store active when the walk began.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+anchors:
+  finalized-browser-history-is-combined-page-owned:
+    captured-history-source-store:
+      action: change
+      reason: Resolve a mirrored ClientStore to its originating isolated store once.
+    captured-history-source-regression:
+      action: change
+      reason: Prove an in-flight A response cannot mutate same-room B after switching.
+  hosted-computer-sessions-keep-state-isolated:
+    captured-history-source-regression:
+      action: change
+      reason: Prove independent same-room requests and credentials across warm stores.
+  missed-terminal-history-refreshes-through-combined-head:
+    combined-history-head-refresh:
+      action: change
+      reason: Carry one captured source through head fetches, bridges, and failures.
+    combined-history-gap-bridge:
+      action: change
+      reason: Keep every overlap read and merged page on the admitted source store.
+  transcript-history-prepends-one-deliberate-page:
+    deliberate-history-page-controller:
+      action: change
+      reason: Bind cursor reads, request identity, and page updates to one source.
+  transcript-targets-walk-combined-pages:
+    combined-history-target-reveal:
+      action: change
+      reason: Keep target walking on its captured source across every awaited page.
+    captured-history-target-regression:
+      action: change
+      reason: Prove target walking cannot continue against the newly mirrored store.
