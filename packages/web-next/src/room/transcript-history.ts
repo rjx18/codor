@@ -63,11 +63,14 @@ const mergeJournals = (
 const mergeMessages = (
   current: Record<number, Message>,
   pages: readonly TranscriptHistoryPage[],
+  liveMessages: Readonly<Record<number, Message>> = {},
 ): Record<number, Message> => {
   const messages = { ...current };
   for (const page of pages) for (const message of page.messages) {
+    const live = liveMessages[message.id];
+    const candidate = live !== undefined && live.seq > message.seq ? live : message;
     const previous = messages[message.id];
-    if (previous === undefined || message.seq > previous.seq) messages[message.id] = message;
+    if (previous === undefined || candidate.seq > previous.seq) messages[message.id] = candidate;
   }
   return messages;
 };
@@ -84,6 +87,7 @@ const uniqueUnits = (units: readonly TranscriptHistoryUnit[]): TranscriptHistory
 };
 
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-materializer
+// harn:assume live-before-history-materialization-reconciles ref=history-materializer-uses-live-room-records
 export function indexedEventsForUnit(
   history: TranscriptHistoryState,
   unit: Exclude<TranscriptHistoryUnit, { kind: 'message' }>,
@@ -99,6 +103,7 @@ export function mergeTranscriptPages(
   current: TranscriptHistoryState,
   pagesNewestFirst: readonly TranscriptHistoryPage[],
   mode: 'older' | 'head',
+  liveMessages: Readonly<Record<number, Message>> = {},
 ): TranscriptHistoryState {
   const chronologicalPages = [...pagesNewestFirst].reverse();
   const incoming = chronologicalPages.flatMap((page) => page.units);
@@ -113,7 +118,7 @@ export function mergeTranscriptPages(
     failed: false,
     loadingHead: false,
     loadingCursor: undefined,
-    messages: mergeMessages(current.messages, pagesNewestFirst),
+    messages: mergeMessages(current.messages, pagesNewestFirst, liveMessages),
     journals: mergeJournals(current.journals, pagesNewestFirst),
     units,
     ...(mode === 'older' || establishFloor ? {
@@ -122,6 +127,7 @@ export function mergeTranscriptPages(
     } : {}),
   };
 }
+// harn:end live-before-history-materialization-reconciles
 // harn:end finalized-browser-history-is-combined-page-owned
 
 const historyOf = (store: ClientStore, room: string): TranscriptHistoryState =>
@@ -161,7 +167,12 @@ async function loadOlderTranscriptHistoryFrom(
     update(store, room, (history) => ({ ...history, loadingCursor: cursor, failed: false }));
     try {
       const page = await fetchTranscriptHistory(room, cursor, { token: token() });
-      update(store, room, (history) => mergeTranscriptPages(history, [page], 'older'));
+      update(store, room, (history) => mergeTranscriptPages(
+        history,
+        [page],
+        'older',
+        roomSlice(store.getState(), room).messages,
+      ));
       return true;
     } catch {
       update(store, room, (history) => ({
@@ -209,7 +220,12 @@ function refreshTranscriptHistoryHeadFrom(
         page = await fetchTranscriptHistory(room, page.before_cursor, { token: token() });
         pages.push(page);
       }
-      update(store, room, (history) => mergeTranscriptPages(history, pages, 'head'));
+      update(store, room, (history) => mergeTranscriptPages(
+        history,
+        pages,
+        'head',
+        roomSlice(store.getState(), room).messages,
+      ));
       return true;
     } catch {
       update(store, room, (history) => ({ ...history, loadingHead: false, failed: true }));

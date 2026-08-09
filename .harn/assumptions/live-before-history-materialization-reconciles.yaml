@@ -1,0 +1,16 @@
+id: live-before-history-materialization-reconciles
+hash: a-81b295cefb6a
+title: First history materialization reconciles a newer room-live record
+state: active
+statement: >
+  If a live message record arrives for a room while its combined history page is
+  in flight, the later page materialization must use the newer room-scoped
+  record for any id that the page itself contains, while adding no live-only ids
+  and leaving page-owned units, order, and indexed evidence as returned by the
+  combined page; concurrent client stores for identical room ids must perform
+  this reconciliation independently.
+depends_on:
+  - paged-history-live-message-reconciliation
+  - finalized-browser-history-is-combined-page-owned
+  - hosted-computer-sessions-keep-state-isolated
+created_by: room12-live-before-history-materialization

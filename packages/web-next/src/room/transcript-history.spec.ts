@@ -318,3 +318,42 @@ describe('paged history message reconciliation', () => {
   });
 });
 // harn:end paged-history-live-message-reconciliation
+
+// harn:assume live-before-history-materialization-reconciles ref=live-before-first-history-regression
+describe('live records racing the first history page', () => {
+  it('uses each source store live record without importing the other store', async () => {
+    const a = createClientStore();
+    const b = createClientStore();
+    a.getState().setActiveRoom('same');
+    b.getState().setActiveRoom('same');
+
+    const liveA = { ...message(5), seq: 50, body: 'A live pin', pinned: true };
+    const liveB = { ...message(5), seq: 50, body: 'B live delete', deleted: true, pinned: false };
+    a.getState().applyFrame({ type: 'message', seq: 50, message: liveA });
+    b.getState().applyFrame({ type: 'message', seq: 50, message: liveB });
+
+    api.fetch.mockImplementation((_room, _cursor, options) => Promise.resolve(
+      page(
+        [messageUnit(5)],
+        [{ ...message(5), seq: 40, body: `stale ${String(options?.token)}` }],
+        null,
+        false,
+      ),
+    ));
+
+    await Promise.all([
+      refreshTranscriptHistoryHead(a, 'same', () => 'token-a'),
+      refreshTranscriptHistoryHead(b, 'same', () => 'token-b'),
+    ]);
+
+    const historyA = roomSlice(a.getState(), 'same').transcriptHistory;
+    const historyB = roomSlice(b.getState(), 'same').transcriptHistory;
+    expect(historyA.messages[5]).toEqual(liveA);
+    expect(historyB.messages[5]).toEqual(liveB);
+    expect(historyA.units).toEqual([messageUnit(5)]);
+    expect(historyB.units).toEqual([messageUnit(5)]);
+    expect(historyA.messages[5]).not.toEqual(historyB.messages[5]);
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+  });
+});
+// harn:end live-before-history-materialization-reconciles

@@ -1,0 +1,100 @@
+id: room12-live-before-history-materialization
+title: Preserve newer live records when first paged history materializes
+notes: >
+  Contained follow-up to the paged-history mutation correction. A live message
+  may arrive while the first combined-history request is still in flight, before
+  its id has entered transcriptHistory.messages. Page materialization must then
+  choose the newer record from that room's own live map, without importing any
+  live-only id or changing the combined page's units/order/evidence source. No
+  protocol, server pagination, transport, or cross-computer state behavior
+  changes.
+assumptions:
+  retire: []
+  create:
+    - id: live-before-history-materialization-reconciles
+      title: First history materialization reconciles a newer room-live record
+      statement: >
+        If a live message record arrives for a room while its combined history
+        page is in flight, the later page materialization must use the newer
+        room-scoped record for any id that the page itself contains, while
+        adding no live-only ids and leaving page-owned units, order, and indexed
+        evidence as returned by the combined page; concurrent client stores for
+        identical room ids must perform this reconciliation independently.
+      reason: >
+        A live pin or deletion can arrive before the first page materializes the
+        row; without this bridge, an older page response restores stale state.
+      depends_on:
+        - paged-history-live-message-reconciliation
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: >
+        The existing strict Message.seq rule and live-after-materialization
+        behavior remain the same; this correction supplies the room map for the
+        previously uncovered pre-materialization window.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Combined pages remain the sole source of finalized membership, unit
+        order, complete context, and indexed evidence; live state can replace a
+        page message record only for an id already present in that page.
+    - id: transcript-history-prepends-one-deliberate-page
+      outcome: unchanged
+      reason: >
+        The existing request deduplication, one-page top reach, cursor, and
+        viewport behavior remain unchanged.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: >
+        Head refresh and overlap bridging remain the same; they now carry the
+        active room's live message map into the existing sequence-aware merge.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Each source store supplies only its own room map, and the regression
+        proves same-room concurrent stores cannot exchange live records.
+anchors:
+  live-before-history-materialization-reconciles:
+    history-materializer-uses-live-room-records:
+      action: change
+      reason: >
+        Let page materialization select a newer record from the owning room's
+        live map without expanding finalized-history membership.
+    live-before-first-history-regression:
+      action: change
+      reason: |
+        Exercise live-before-first-page ordering in two isolated source stores.
+  paged-history-live-message-reconciliation:
+    page-message-sequence-merge:
+      action: change
+      reason: >
+        Extend the existing sequence-aware page merge with a room-live candidate
+        for ids the page materializes.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-materializer:
+      action: change
+      reason: >
+        Keep the materializer page-owned while passing only page-contained live
+        records into its message map.
+  transcript-history-prepends-one-deliberate-page:
+    deliberate-history-page-controller:
+      action: change
+      reason: |
+        Supply the current source room map when an older deliberate page lands.
+  missed-terminal-history-refreshes-through-combined-head:
+    combined-history-head-refresh:
+      action: change
+      reason: |
+        Supply the current source room map when a head refresh or bridge lands.
+    combined-history-gap-bridge:
+      action: change
+      reason: >
+        Keep overlap bridging on the same source-store-aware materialization
+        path.
+files:
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+applied:
+  applied_at: 2026-08-09T06:24:13.332Z
