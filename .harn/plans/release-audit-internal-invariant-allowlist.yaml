@@ -1,0 +1,27 @@
+id: release-audit-internal-invariant-allowlist
+title: Allowlist one internal computer-session invariant in the release audit
+notes: >
+  Contained release-gate correction. The audit must continue rejecting
+  operator-visible room wording, while allowing the exact internal generation
+  race invariant in completeEntry(), which is not rendered or returned as user
+  copy. Do not broaden the regex, exempt the file, rename product code, or
+  change any runtime behavior.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: release-audits-enforce-codor-clean-break
+      outcome: unchanged
+      reason: The audit still enforces Codor naming and Channel terminology; only one
+        exact non-user-facing invariant string is removed before the existing
+        wording patterns run.
+anchors:
+  release-audits-enforce-codor-clean-break:
+    rename-release-audit:
+      action: change
+      reason: Add the exact computer-session invariant to the existing precise
+        generic-room-copy allowlist without weakening any audit pattern.
+files:
+  - scripts/release-audit.mjs
+applied:
+  applied_at: 2026-08-09T08:14:27.930Z

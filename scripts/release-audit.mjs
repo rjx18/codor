@@ -79,6 +79,9 @@ const visibleRoomPatterns = [
   /\breturn\s+["'`](?![^"'`]*(?:\?|room:|\/api\/))[^"'`]*\brooms?\b/i,
 ];
 const approvedGenericRoomCopy = new Map([
+  ['packages/web-next/src/app/computer-sessions.ts', [
+    "throw new Error('stale tunnel generation after room loading')",
+  ]],
   ['packages/web-next/src/room/RoomPage.tsx', ["throw new Error('RoomPage requires a room connector')"]],
   ['packages/web-next/src/surfaces/SettingsPage.tsx', ["throw new Error('Settings requires a room connector')"]],
   ['packages/web-next/src/surfaces/LandingPage.tsx', [
