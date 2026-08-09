@@ -226,14 +226,25 @@ interface RoomSnapshot {
 }
 
 // harn:assume cli-waits-consume-only-matching-deliveries ref=collaboration-room-sync
+// Cold subscribe without a bound replays the full channel history. On large
+// channels that can exceed ProtocolClient's default 5s inter-frame wait and
+// fail `codor post` / `status` / `inbox` with "timed out waiting for server
+// frame". Use the protocol hydrate_limit cold bound and a longer frame wait.
+const SYNC_HYDRATE_LIMIT = 500;
+const SYNC_FRAME_TIMEOUT_MS = 60_000;
 async function syncRoom(client: ProtocolClient, room: string): Promise<RoomSnapshot> {
   let self: string | undefined;
   const members = new Map<string, Member>();
   const messages = new Map<number, Message>();
   const deliveries = new Map<string, Delivery>();
-  client.send({ type: 'subscribe', room, since_seq: 0 });
+  client.send({
+    type: 'subscribe',
+    room,
+    since_seq: 0,
+    hydrate_limit: SYNC_HYDRATE_LIMIT,
+  });
   for (;;) {
-    const frame = await client.next();
+    const frame = await client.next(SYNC_FRAME_TIMEOUT_MS);
     if (frame.type === 'error') throw new Error(frame.message);
     if (frame.type === 'self') self = frame.member_id;
     else if (frame.type === 'member') members.set(frame.member.id, frame.member);
