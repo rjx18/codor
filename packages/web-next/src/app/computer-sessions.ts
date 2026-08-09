@@ -15,7 +15,7 @@ import {
   type BrowserDeviceSession,
 } from '@runtime/crypto.js';
 import { setRelayTransport } from '@runtime/relay-transport.js';
-import { TunnelClient, type TunnelState } from '@runtime/relay.js';
+import { TunnelClient, type TunnelState, type TunnelStateListener } from '@runtime/relay.js';
 import { setActiveComputer } from '@runtime/active-computer.js';
 
 import { createConnector, type ConnectorOptions, type RoomConnector } from './connector.js';
@@ -23,6 +23,10 @@ import { requireBrowserUpgrade } from './compatibility.js';
 import { rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
 import { createClientStore, mirrorClientStore, type ClientStore } from './store.js';
 import { refreshMutableRunJournals } from '../room/run-journals.js';
+import {
+  finalizedTranscriptRoots,
+  refreshTranscriptHistoryHead,
+} from '../room/transcript-history.js';
 
 export interface ComputerActivitySummary {
   connected: boolean;
@@ -54,9 +58,11 @@ export interface ActiveComputerSession {
 
 interface SessionTunnel {
   readonly state: TunnelState;
-  onStateChange?: (state: TunnelState) => void;
+  readonly generation: number;
   connect(): void;
-  whenReady(): Promise<void>;
+  recover(): void;
+  whenReady(): Promise<number>;
+  subscribe(listener: TunnelStateListener): () => void;
   fetch(input: string, init?: RequestInit): Promise<Response>;
   socketFactory(url: string): WebSocket;
   dispose(): void;
@@ -77,6 +83,7 @@ interface SessionEntry {
   ready: Promise<void>;
   resolveReady: () => void;
   stopStore: () => void;
+  stopTunnel: () => void;
 }
 
 export interface ComputerSessionDeps {
@@ -204,9 +211,9 @@ export class ComputerSessionManager {
     };
   }
 
-  onActiveTunnelState(listener: (state: TunnelState) => void): void {
+  onActiveTunnelState(listener: (state: TunnelState) => void): () => void {
     const entry = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
-    if (entry) entry.tunnel.onStateChange = listener;
+    return entry?.tunnel.subscribe((state) => listener(state)) ?? (() => undefined);
   }
 
   // harn:assume hosted-computer-switching-reuses-warm-session ref=warm-computer-activation
@@ -325,6 +332,7 @@ export class ComputerSessionManager {
     this.listeners.clear();
   }
 
+  // harn:assume hosted-app-streams-follow-tunnel-generations ref=generation-aware-computer-session
   // harn:assume hosted-computer-sessions-keep-state-isolated ref=per-computer-session-state
   private startEntry(material: HostedComputerMaterial): void {
     let resolveReady = (): void => undefined;
@@ -340,9 +348,10 @@ export class ComputerSessionManager {
       ready,
       resolveReady,
       stopStore: () => undefined,
+      stopTunnel: () => undefined,
     };
     entry.stopStore = store.subscribe(() => this.publish());
-    tunnel.onStateChange = () => this.publish();
+    entry.stopTunnel = tunnel.subscribe(() => this.publish());
     this.entries.set(material.computer.id, entry);
     tunnel.connect();
     void this.completeEntry(entry);
@@ -352,9 +361,15 @@ export class ComputerSessionManager {
     let retryMs = 500;
     while (!this.disposed && !entry.disposed && !entry.connector) {
       try {
-        await entry.tunnel.whenReady();
+        const tunnelGeneration = await entry.tunnel.whenReady();
         const token = await this.refreshEntryToken(entry);
+        if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
+          throw new Error('stale tunnel generation after authentication');
+        }
         const rooms = await this.deps.loadRooms(token, entry.tunnel);
+        if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
+          throw new Error('stale tunnel generation after room loading');
+        }
         entry.store.getState().setRoomSummaries(rooms);
         const explicit = entry.material.computer.id === this.activeId
           ? new URLSearchParams(window.location.search).get('room') ?? undefined
@@ -380,9 +395,19 @@ export class ComputerSessionManager {
           store: entry.store,
           setToken: (next) => this.setEntryToken(entry, next),
           refreshToken: () => this.refreshEntryToken(entry),
+          tunnel: entry.tunnel,
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {
-              refreshMutableRunJournals(room, () => entry.token);
+              // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-resume
+              void refreshTranscriptHistoryHead(entry.store, room, () => entry.token).then((refreshed) => {
+                if (!refreshed || entry.material.computer.id !== this.activeId) return;
+                refreshMutableRunJournals(
+                  room,
+                  () => entry.token,
+                  finalizedTranscriptRoots(entry.store, room),
+                );
+              });
+              // harn:end missed-terminal-history-refreshes-through-combined-head
             }
           },
           onUpgradeRequired: (frame) => {
@@ -403,6 +428,7 @@ export class ComputerSessionManager {
     }
   }
   // harn:end hosted-computer-sessions-keep-state-isolated
+  // harn:end hosted-app-streams-follow-tunnel-generations
 
   private async refreshEntryToken(entry: SessionEntry): Promise<string> {
     const session = await this.deps.authenticate(entry.material, entry.tunnel);
@@ -440,6 +466,7 @@ export class ComputerSessionManager {
     if (!entry) return;
     entry.disposed = true;
     entry.stopStore();
+    entry.stopTunnel();
     entry.connector?.dispose();
     entry.tunnel.dispose();
     this.entries.delete(id);

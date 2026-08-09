@@ -11,6 +11,8 @@ import {
   type RoomSummary,
   type RoomSupport,
   type ServerFrame,
+  type TranscriptHistoryJournal,
+  type TranscriptHistoryUnit,
 } from '@codor/protocol';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 
@@ -21,6 +23,43 @@ import {
 } from '@runtime/state.js';
 
 export const HISTORY_PAGE_SIZE = 20;
+
+export interface TranscriptHistoryState {
+  /** A successful head response, including an honestly empty one, has landed. */
+  initialized: boolean;
+  loadingHead: boolean;
+  loadingCursor: string | undefined;
+  failed: boolean;
+  /** Message ids present when the first combined-head request began. They are
+   * cold WebSocket context, not a second finalized-history source. */
+  coldMessageIds: Record<number, true> | undefined;
+  messages: Record<number, Message>;
+  journals: Record<number, TranscriptHistoryJournal>;
+  units: TranscriptHistoryUnit[];
+  /** Undefined before the first successful head; null at the archive floor. */
+  beforeCursor: string | null | undefined;
+  hasMore: boolean;
+}
+
+const EMPTY_TRANSCRIPT_HISTORY: TranscriptHistoryState = {
+  initialized: false,
+  loadingHead: false,
+  loadingCursor: undefined,
+  failed: false,
+  coldMessageIds: undefined,
+  messages: {},
+  journals: {},
+  units: [],
+  beforeCursor: undefined,
+  hasMore: true,
+};
+
+const freshTranscriptHistory = (): TranscriptHistoryState => ({
+  ...EMPTY_TRANSCRIPT_HISTORY,
+  messages: {},
+  journals: {},
+  units: [],
+});
 
 export interface RoomSlice {
   hydrated: boolean;
@@ -35,6 +74,9 @@ export interface RoomSlice {
   runEvents: Record<number, RunEventBuffer>;
   support: RoomSupport | undefined;
   historyCursor: number | undefined;
+  // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-store
+  transcriptHistory: TranscriptHistoryState;
+  // harn:end finalized-browser-history-is-combined-page-owned
   errors: string[];
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
   errorRefs: Record<string, number>;
@@ -74,6 +116,10 @@ export interface ClientState {
   roomLive: Record<string, true>;
   applyFrame(frame: ServerFrame, fallbackRoom?: string): void;
   mergeHistoryPage(room: string, messages: Message[]): void;
+  updateTranscriptHistory(
+    room: string,
+    update: (current: TranscriptHistoryState) => TranscriptHistoryState,
+  ): void;
   setActiveRoom(room: string): void;
   setConnected(connected: boolean): void;
   setAuthRefused(authRefused: boolean): void;
@@ -111,6 +157,7 @@ const EMPTY_ROOM: RoomSlice = {
   runEvents: emptyRunEvents,
   support: undefined,
   historyCursor: undefined,
+  transcriptHistory: EMPTY_TRANSCRIPT_HISTORY,
   errors: emptyErrors,
   errorRefs: emptyErrorRefs,
 };
@@ -128,6 +175,7 @@ const freshRoom = (room?: Room): RoomSlice => ({
   runEvents: {},
   support: undefined,
   historyCursor: undefined,
+  transcriptHistory: freshTranscriptHistory(),
   errors: [],
   errorRefs: {},
 });
@@ -193,11 +241,13 @@ function rollingTail(messages: Record<number, Message>, next: Message): Record<n
 
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
 
+const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHistory'], ClientStore>();
+
 /** Build one fully-isolated client store. Hosted computer sessions each own one;
  *  the exported singleton below remains the unchanged direct/self-hosted path. */
 export function createClientStore(): ClientStore {
   const staging = new Map<string, HydrationStaging>();
-  return create<ClientState>((set, get) => ({
+  const store = create<ClientState>((set, get) => ({
   connected: false,
   authRefused: false,
   activeRoom: '',
@@ -417,6 +467,24 @@ export function createClientStore(): ClientStore {
     });
   },
 
+  // The action closure belongs to the originating store. In hosted mode the
+  // legacy hook mirrors one source store, and invoking this method still writes
+  // to that computer's isolated source rather than the mirror singleton.
+  updateTranscriptHistory: (roomId, update) => {
+    set((state) => {
+      const current = state.rooms[roomId] ?? freshRoom();
+      return {
+        rooms: {
+          ...state.rooms,
+          [roomId]: {
+            ...current,
+            transcriptHistory: update(current.transcriptHistory),
+          },
+        },
+      };
+    });
+  },
+
   setActiveRoom: (roomId) => {
     set((state) => {
       if (state.activeRoom === roomId) return {};
@@ -458,6 +526,8 @@ export function createClientStore(): ClientStore {
     set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
   },
   }));
+  clientStoreByHistoryAction.set(store.getState().updateTranscriptHistory, store);
+  return store;
 }
 
 export const useClientStore = createClientStore();
@@ -475,6 +545,15 @@ export function mirrorClientStore(store: ClientStore): void {
   publish(store.getState());
   stopMirroring = store.subscribe(publish);
 }
+
+// harn:assume finalized-browser-history-is-combined-page-owned ref=captured-history-source-store
+/** Resolve the store that owns the current state methods. Managed room UI calls
+ * through the mirror singleton, while direct and already-isolated callers are
+ * their own source. Callers must capture this result before awaiting. */
+export function sourceClientStore(store: ClientStore): ClientStore {
+  return clientStoreByHistoryAction.get(store.getState().updateTranscriptHistory) ?? store;
+}
+// harn:end finalized-browser-history-is-combined-page-owned
 
 export const roomSlice = (state: ClientState, room: string): RoomSlice =>
   state.rooms[room] ?? EMPTY_ROOM;
@@ -504,5 +583,9 @@ export const effectiveDefaultRecipient = (slice: RoomSlice): Member | undefined 
   });
 
 export function resetClientStoreForTest(): void {
+  stopMirroring?.();
+  stopMirroring = undefined;
+  mirroredStore = undefined;
+  useClientStore.setState(useClientStore.getInitialState(), true);
   useClientStore.getState().reset();
 }

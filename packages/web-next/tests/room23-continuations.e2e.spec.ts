@@ -35,6 +35,7 @@ async function expectIdOrder(rows: Locator, count: number): Promise<void> {
   }
 }
 
+// harn:assume live-runs-settle-beside-paged-history-once ref=live-history-settlement-regression
 test.describe('durable continuation writer', () => {
   test('real turns preserve permanent chronology, evidence, and one acknowledgement live and after paging', async ({ page }) => {
     // A room of this repetition's own, opened BEFORE the turns start, makes
@@ -118,4 +119,46 @@ test.describe('durable continuation writer', () => {
     expect(violations.map((violation) => `${violation.id}: ${violation.nodes[0]?.target[0]}`))
       .toEqual([]);
   });
+
+  // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-head-regression
+  test('a family finalized while backgrounded reconciles through combined history without a terminal journal read', async ({ page }) => {
+    const { room } = await control<{ room: string }>('/stretch-room');
+    const turn = await control<{ room: string; root: number }>('/stretch-turn', { room });
+    const journalReads: number[] = [];
+    const historyRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      const run = new RegExp(`^/api/rooms/${room}/runs/(\\d+)$`).exec(url.pathname);
+      if (run) journalReads.push(Number(run[1]));
+      if (url.pathname === `/api/rooms/${room}/transcript-history`) historyRequests.push(url.search);
+    });
+    await openRoom(page, room);
+    await control('/stretch-step', { room, step: 'stretch', text: 'before background', own: false });
+    await expect(page.locator('.nx-column')).toContainText('before background');
+    await page.waitForTimeout(100);
+    const readsBeforeSettlement = journalReads.filter((id) => id === turn.root).length;
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    await control('/stretch-step', {
+      room, step: 'stretch', text: 'completed while backgrounded', live: false,
+    });
+    await control('/stretch-step', { room, step: 'tools', live: false });
+    await control('/stretch-step', { room, step: 'complete', live: false });
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await expect(page.locator('.nx-column')).toContainText('completed while backgrounded');
+    await expect(page.getByTestId('tool-batch')).toHaveCount(1);
+    await expect(page.locator('.nx-column').getByText('completed while backgrounded', { exact: false }))
+      .toHaveCount(1);
+    expect(journalReads.filter((id) => id === turn.root)).toHaveLength(readsBeforeSettlement);
+    expect(historyRequests.length).toBeGreaterThanOrEqual(2);
+  });
+  // harn:end missed-terminal-history-refreshes-through-combined-head
 });
+// harn:end live-runs-settle-beside-paged-history-once

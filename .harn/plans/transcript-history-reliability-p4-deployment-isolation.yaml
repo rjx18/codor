@@ -1,0 +1,146 @@
+id: transcript-history-reliability-p4-deployment-isolation
+title: Isolate relay Worker deployment while preserving verified Pages delivery
+notes: >
+  Phase 4 extracts the relay Worker deployment choice into a dependency-free,
+  full-range comparison. Every verified push to main still runs the existing
+  production job and deploys the guarded Pages application, while the blind
+  relay Worker runs only when relay-worker code, the conservative tunnel
+  contract, the shared compiler/toolchain, the deployment workflow, the decision
+  implementation/tests, or a normalized relevant manifest/lockfile slice
+  changed. A missing, unreachable, or ambiguous comparison base fails open to a
+  Worker deployment and logs both revisions plus the reason. The workflow
+  fetches enough history for the complete pushed range and keeps production
+  credentials unavailable to non-main verification.
+assumptions:
+  retire:
+    - id: github-ci-gates-changes-before-main-cloudflare-deploy
+      reason: >
+        Its statement requires every verified main production job to deploy the
+        relay Worker. Phase 4 deliberately changes that policy: Pages remains
+        unconditional after verification, while Worker deployment is selected by
+        the tested full-range decision and fails open when comparison is
+        unavailable. The old statement therefore changes meaning and is retired
+        in favor of the conditional replacement.
+  create:
+    - id: relay-worker-deploy-decision-is-full-range-and-fail-open
+      title: Relay Worker deployment selection compares the full range and fails open
+      statement: >
+        The relay Worker deploy decision must compare both revisions of the
+        complete pushed range, use normalized relevant root manifest and
+        lockfile importer/toolchain slices rather than whole-file matches, and
+        select deploy for relay-worker paths, the conservative packages/tunnel
+        contract, tsconfig.base.json, the deployment workflow, and the decision
+        script/tests. Unrelated web/docs files, unrelated root manifest fields,
+        and unrelated lockfile importers must select skip. A missing,
+        unreachable, or ambiguous comparison base or changed slice must fail
+        open to deploy, with the compared revisions and a human-readable reason
+        exposed to the caller, because a false skip could leave the deployed
+        Worker stale.
+      reason: >
+        Worker deployment is now a decision rather than an unconditional side
+        effect of every Pages deployment, so the comparison boundaries and
+        fail-open behavior need an independently reviewable contract.
+      depends_on: []
+    - id: github-ci-pages-deploys-and-relay-worker-isolated
+      title: Verified main deploys Pages and conditionally deploys the relay Worker
+      statement: >
+        Every branch push and pull request must retain the clean frozen install,
+        recursive build, serialized workspace tests, complete Playwright suite,
+        and release/license audits. Only a verified push to refs/heads/main may
+        enter the serialized production job with the existing Cloudflare
+        secrets; that job must always run the guarded pnpm deploy:app Pages
+        path, while the blind relay Worker deploy runs only for a true output
+        from the full-range decision and deploys when comparison is unavailable.
+        Pull requests and non-main branches must never receive production
+        secrets or deploy.
+      reason: >
+        This replaces the retired unconditional-Worker policy while preserving
+        the existing verification and Pages deployment gates.
+      depends_on:
+        - workspace-gates-cover-all-buildable-projects
+        - codor-app-deploy-bakes-and-verifies-relay-dial-pair
+        - relay-worker-stays-blind
+        - relay-worker-deploy-decision-is-full-range-and-fail-open
+  reviewed:
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: >
+        The verify job keeps the existing recursive build and serialized
+        workspace test commands; only the downstream Worker selection changes.
+    - id: codor-app-deploy-bakes-and-verifies-relay-dial-pair
+      outcome: unchanged
+      reason: >
+        Pages still uses the guarded deploy:app command and its canonical and
+        alias endpoint verification; the decision gate does not alter that
+        command or its emitted bundle.
+    - id: relay-worker-stays-blind
+      outcome: unchanged
+      reason: >
+        The Worker source, dependencies, and path-only opaque forwarding remain
+        unchanged; this phase only decides when its existing deploy command is
+        invoked.
+    - id: verified-commit-installers-are-sha-addressed-and-ephemeral
+      outcome: unchanged
+      reason: >
+        The verified commit installer job remains downstream of the same full
+        gates, read-only, SHA-addressed, and independent of production deploy
+        authority.
+anchors:
+  github-ci-gates-changes-before-main-cloudflare-deploy:
+    github-actions-verify-and-deploy:
+      action: remove
+      reason: >
+        The unconditional Worker deployment anchor is retired and replaced by
+        the conditional CI assumption in the same workflow region.
+    github-actions-cloudflare-runbook:
+      action: remove
+      reason: >
+        The runbook's unconditional Worker wording is re-anchored to the
+        replacement assumption with the conditional decision contract.
+  relay-worker-deploy-decision-is-full-range-and-fail-open:
+    relay-deploy-decision:
+      action: change
+      reason: >
+        The new decision implementation owns full-range path selection,
+        normalized manifest/lockfile comparison, fail-open handling, and the
+        logged decision reason.
+    relay-deploy-decision-regression:
+      action: change
+      reason: >
+        The new regression suite covers relevant and unrelated path slices,
+        multiple commits, and unavailable comparison bases.
+  github-ci-pages-deploys-and-relay-worker-isolated:
+    github-actions-verify-and-deploy:
+      action: change
+      reason: >
+        The production workflow preserves Pages on every verified main push and
+        gates only the Worker step on the tested decision output.
+    github-actions-cloudflare-runbook:
+      action: change
+      reason: >
+        The deployment runbook records the preserved Pages path and the
+        conditional full-range Worker decision instead of claiming Worker
+        deployment for every main push.
+  verified-commit-installers-are-sha-addressed-and-ephemeral:
+    ci-commit-installer-artifacts:
+      action: keep
+      reason: >
+        The commit installer job and its temporary artifact contract are not
+        edited by the deployment decision gate.
+files:
+  - scripts/relay-deploy-decision.mjs
+  - scripts/relay-deploy-decision.spec.mjs
+  - package.json
+  - .github/workflows/ci.yml
+  - MANUAL-VERIFY.md
+verification: >
+  Run the decision regression directly, including unrelated web/docs changes,
+  unrelated root package fields, unrelated lockfile importers, multiple-commit
+  ranges, relay-worker and packages/tunnel paths, tsconfig.base.json, workflow
+  and decision changes, relevant root toolchain fields, relevant lockfile
+  importer/toolchain slices, and missing/unreachable/ambiguous bases. Parse the
+  workflow with the repository's available static YAML checks, run affected
+  relay-worker and tunnel builds, run the Phase 4 Harn check/apply/staged gate,
+  inspect the final diff, and leave the worktree clean without deploying.
+applied:
+  applied_at: 2026-08-09T02:52:12.607Z

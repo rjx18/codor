@@ -1,7 +1,7 @@
 id: github-ci-gates-changes-before-main-cloudflare-deploy
 hash: a-69cde9c8ff80
 title: GitHub CI gates changes before a serialized main Cloudflare deployment
-state: active
+state: retired
 statement: >
   Every push to every branch and every pull request must run in a clean
   GitHub-hosted checkout with the repository's pinned pnpm version and a frozen
@@ -18,3 +18,4 @@ depends_on:
   - codor-app-deploy-bakes-and-verifies-relay-dial-pair
   - relay-worker-stays-blind
 created_by: github-ci-main-deploy-menu-fix
+retired_by: transcript-history-reliability-p4-deployment-isolation

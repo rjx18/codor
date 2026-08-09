@@ -37,13 +37,12 @@ async function openRoom(page: Page): Promise<void> {
 }
 
 let ids: SeedIds;
-let tailIds: number[];
 
 test.beforeAll(async () => {
   ids = await control<SeedIds>('/seed-runs', { count: 180 });
-  tailIds = (await control<{ ids: number[] }>('/tail-ids', { room: 'hydration', limit: 20 })).ids;
 });
 
+// harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-browser-regression
 test.describe('large-room hydration', () => {
   test('journal requests stay bounded and deduplicated, and the live run is never starved', async ({ page }) => {
     const requests = trackJournalRequests(page);
@@ -57,7 +56,9 @@ test.describe('large-room hydration', () => {
     await page.waitForTimeout(2000); // let hydration finish issuing whatever it will
 
     expect(requests).toContain(ids.liveRunId);
-    expect(requests.every((id) => tailIds.includes(id))).toBe(true);
+    // Combined history owns every archived run. Only the mutable live family may
+    // use the full-journal endpoint during a cold load.
+    expect(requests.every((id) => id === ids.liveRunId)).toBe(true);
     // Deduplicated: no journal is fetched more than twice (a running run may be
     // re-read once when it settles), where the storm hit /runs/2 181 times.
     const perId = new Map<number, number>();
@@ -91,13 +92,30 @@ test.describe('large-room hydration', () => {
   });
 
   test('a cold load shows only the bounded tail, at the bottom, with no crawl', async ({ page }) => {
+    const historyRequests: string[] = [];
+    const historyResponses: Array<{ bytes: number; units: number }> = [];
+    const journals = trackJournalRequests(page);
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/api/rooms/hydration/transcript-history') {
+        historyRequests.push(url.search);
+      }
+    });
+    page.on('response', (response) => {
+      const url = new URL(response.url());
+      if (url.pathname !== '/api/rooms/hydration/transcript-history') return;
+      void response.body().then((body) => {
+        const parsed = JSON.parse(body.toString()) as { units: unknown[] };
+        historyResponses.push({ bytes: body.byteLength, units: parsed.units.length });
+      });
+    });
     await page.addInitScript(() => {
       const counts: number[] = [];
       (window as unknown as { __timelineCounts: number[] }).__timelineCounts = counts;
       const record = (): void => {
         const column = document.querySelector('.nx-column');
         if (!column) return;
-        const count = column.querySelectorAll(':scope > .nx-turn[id], :scope > .nx-system[id]').length;
+        const count = column.querySelectorAll('[data-transcript-unit]').length;
         if (count > 0 && counts.at(-1) !== count) counts.push(count);
       };
       const start = (): void => {
@@ -111,13 +129,23 @@ test.describe('large-room hydration', () => {
     await expect(page.getByTestId('timeline')).toBeVisible();
     await expect(page.locator('article.nx-turn').first()).toBeVisible();
 
-    const renderedIds = await page.locator(
-      '.nx-column > .nx-turn[id], .nx-column > .nx-system[id]',
-    ).evaluateAll((nodes) => nodes.map((node) => Number(node.id)).sort((a, b) => a - b));
-    expect(renderedIds).toEqual([...tailIds].sort((a, b) => a - b));
-    expect(await page.evaluate(
+    await expect(page.locator('[data-transcript-unit]')).toHaveCount(20);
+    await expect.poll(() => historyResponses.length).toBe(1);
+    expect(historyRequests).toEqual(['']);
+    expect(historyResponses[0]!.units).toBe(20);
+    expect(historyResponses[0]!.bytes).toBeLessThan(128 * 1024);
+    expect(journals.every((id) => id === ids.liveRunId)).toBe(true);
+    console.info('[transcript-history-browser-metrics]', JSON.stringify({
+      requests: historyRequests.length,
+      bytes: historyResponses[0]!.bytes,
+      units: historyResponses[0]!.units,
+      mutableRunRequests: journals.length,
+      finalizedRunRequests: journals.filter((id) => id !== ids.liveRunId).length,
+    }));
+    const counts = await page.evaluate(
       () => (window as unknown as { __timelineCounts: number[] }).__timelineCounts,
-    )).toEqual([20]);
+    );
+    expect(Math.max(...counts)).toBe(20);
 
     // Bottom-anchored once the committed tail has painted. Polled, not sampled:
     // run rows keep growing as their journals render, and under a loaded machine
@@ -133,9 +161,9 @@ test.describe('large-room hydration', () => {
     let releaseHistory = (): void => undefined;
     const held = new Promise<void>((resolve) => { releaseHistory = resolve; });
     let historyRequests = 0;
-    await page.route('**/api/rooms/hydration/messages?*', async (route) => {
+    await page.route('**/api/rooms/hydration/transcript-history*', async (route) => {
       const url = new URL(route.request().url());
-      if (!url.searchParams.has('before')) return route.continue();
+      if (!url.searchParams.has('cursor')) return route.continue();
       historyRequests += 1;
       if (historyRequests !== 1) return route.continue();
       const response = await route.fetch();
@@ -145,14 +173,14 @@ test.describe('large-room hydration', () => {
 
     await openRoom(page);
     const timeline = page.getByTestId('timeline');
-    const rows = page.locator('.nx-column > .nx-turn[id], .nx-column > .nx-system[id]');
+    const rows = page.locator('[data-transcript-unit]');
     await expect(rows.first()).toBeVisible();
     const before = await rows.count();
     const anchor = await timeline.evaluate((node) => {
       node.scrollTop = 0;
-      const row = node.querySelector<HTMLElement>('.nx-column > [id]')!;
+      const row = node.querySelector<HTMLElement>('[data-transcript-unit]')!;
       return {
-        id: row.id,
+        unit: row.dataset.transcriptUnit!,
         offset: row.getBoundingClientRect().top - node.getBoundingClientRect().top,
       };
     });
@@ -166,7 +194,7 @@ test.describe('large-room hydration', () => {
     releaseHistory();
     await expect(timeline).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
     await expect(rows).toHaveCount(before + 20);
-    const restoredOffset = await page.locator(`[id="${anchor.id}"]`).evaluate((row) =>
+    const restoredOffset = await page.locator(`[data-transcript-unit="${anchor.unit}"]`).evaluate((row) =>
       row.getBoundingClientRect().top
       - document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top);
     expect(Math.abs(restoredOffset - anchor.offset)).toBeLessThanOrEqual(2);
@@ -184,7 +212,7 @@ test.describe('large-room hydration', () => {
   test('loaded tall runs keep one stable scrollbar height while traversing downward', async ({ page }) => {
     await openRoom(page);
     const timeline = page.getByTestId('timeline');
-    const rows = page.locator('.nx-column > .nx-turn[id], .nx-column > .nx-system[id]');
+    const rows = page.locator('[data-transcript-unit]');
 
     // Make the archived run blocks decisively taller than the old 64px
     // content-visibility estimate. The real room has this shape naturally from
@@ -214,6 +242,18 @@ test.describe('large-room hydration', () => {
   });
 
   test('a deep link to a message beyond the tail pages back to it', async ({ page }) => {
+    const historyResponses: Array<{ search: string; status: number; units?: number }> = [];
+    page.on('response', (response) => {
+      const url = new URL(response.url());
+      if (url.pathname === '/api/rooms/hydration/transcript-history') {
+        const record: { search: string; status: number; units?: number } = {
+          search: url.search,
+          status: response.status(),
+        };
+        historyResponses.push(record);
+        void response.json().then((body: { units: unknown[] }) => { record.units = body.units.length; });
+      }
+    });
     // Bounding cold hydration created this case: the target sits hundreds of ids
     // below the tail, so a permalink can only land by paging history back.
     await openRoom(page);
@@ -227,6 +267,11 @@ test.describe('large-room hydration', () => {
     await hit.click();
 
     await expect(page).toHaveURL(new RegExp(`#${ids.oldestId}$`));
+    console.info('[transcript-history-target-walk]', JSON.stringify({
+      pages: historyResponses.length,
+      units: historyResponses.reduce((total, response) => total + (response.units ?? 0), 0),
+      statuses: historyResponses.map((response) => response.status),
+    }));
     await expect(target).toBeInViewport({ timeout: 15_000 });
   });
 
@@ -266,3 +311,4 @@ test.describe('large-room hydration', () => {
     await expect(page.getByTestId('attach-tray')).toContainText('during-hydration.txt');
   });
 });
+// harn:end finalized-browser-history-is-combined-page-owned

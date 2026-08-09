@@ -1,0 +1,19 @@
+id: missed-terminal-history-refreshes-through-combined-head
+hash: a-b3b9008033ec
+title: Missed terminal evidence reconciles through a retryable combined head
+state: active
+statement: >
+  When resume or live-state reconciliation finds that a formerly mutable run
+  finalized without complete locally preserved indexed and terminal evidence,
+  the active room must deduplicate one combined-history head refresh, merge its
+  units into the mounted range without discarding older loaded pages, and follow
+  the returned opaque cursor only until overlap or exhaustion bridges any gap;
+  it must never fetch finalized /runs/:id, concurrent resume/head signals must
+  share the same work, and a failed head or bridge request must preserve
+  rendered history and remain retryable rather than marking the room empty or
+  exhausted.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+  - run-events-merge-by-journal-index
+  - client-syncs-by-seq
+created_by: transcript-history-reliability-p2-browser-pages

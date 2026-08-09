@@ -1,0 +1,19 @@
+id: hosted-app-streams-follow-tunnel-generations
+hash: a-dd8d05d457b0
+title: Hosted app streams recover only on their owning tunnel generation
+state: active
+statement: >
+  Each managed room connector must suppress app-stream attempts while its own
+  tunnel is down, open exactly one immediate app socket when that tunnel's
+  current handshake succeeds, ignore stale tunnel and app callbacks, and
+  coalesce disconnect, retry, and foreground recovery while never reopening
+  manual, authentication/revocation, upgrade, or disposed parks; only a current
+  app server frame may restore send admission, so computers recover
+  independently without reload while the direct connector retains its existing
+  behavior.
+depends_on:
+  - browser-tunnel-readiness-follows-current-generation
+  - relay-app-socket-readiness-requires-server-evidence
+  - hosted-app-keeps-all-paired-computers-live
+  - hosted-computer-sessions-keep-state-isolated
+created_by: transcript-history-reliability-p3-relay-recovery

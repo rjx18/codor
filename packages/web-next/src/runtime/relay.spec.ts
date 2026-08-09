@@ -71,6 +71,57 @@ afterEach(() => {
 });
 
 describe('TunnelClient resilience', () => {
+  // harn:assume browser-tunnel-readiness-follows-current-generation ref=tunnel-generation-regression
+  it('publishes current-generation readiness and coalesces recovery attempts', async () => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    const firstListener = vi.fn();
+    const secondListener = vi.fn();
+    client.subscribe(firstListener);
+    client.subscribe(secondListener);
+
+    client.connect();
+    client.connect();
+    expect(dialed).toHaveLength(1);
+    const firstReady = client.whenReady();
+    completeHandshake(dialed[0]!);
+    await expect(firstReady).resolves.toBe(1);
+    expect(firstListener).toHaveBeenCalledWith('connected', 1);
+    expect(secondListener).toHaveBeenCalledWith('connected', 1);
+
+    dialed[0]!.close();
+    expect(client.generation).toBe(2);
+    const secondReady = client.whenReady();
+    client.recover(); // accelerates the pending backoff
+    client.recover();
+    client.connect();
+    expect(dialed).toHaveLength(2);
+    completeHandshake(dialed[1]!);
+    await expect(secondReady).resolves.toBe(2);
+    expect(firstListener).toHaveBeenCalledWith('connected', 2);
+    expect(secondListener).toHaveBeenCalledWith('connected', 2);
+    client.dispose();
+  });
+
+  it('deliberate recovery replaces one connected generation and ignores its stale socket', async () => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    client.connect();
+    completeHandshake(dialed[0]!);
+    expect(client.generation).toBe(1);
+
+    client.recover();
+    client.recover();
+    expect(client.generation).toBe(2);
+    expect(dialed).toHaveLength(2);
+    dialed[0]!.deliver(new Uint8Array([1, 2, 3]));
+    expect(client.state).toBe('connecting');
+    completeHandshake(dialed[1]!);
+    expect(client.state).toBe('connected');
+    client.dispose();
+  });
+  // harn:end browser-tunnel-readiness-follows-current-generation
+
   it('never reports an app socket open before the tunnel session exists', async () => {
     const client = new TunnelClient(record);
     const socket = client.socketFactory('wss://relay.test/ws?token=t');

@@ -7,6 +7,10 @@ import { createConnector, type RoomConnector } from '../app/connector.js';
 import { rememberRoom } from '../app/startup.js';
 import { refreshMutableRunJournals } from './run-journals.js';
 import {
+  finalizedTranscriptRoots,
+  refreshTranscriptHistoryHead,
+} from './transcript-history.js';
+import {
   pageParams,
   roomUrl,
   useAccessToken,
@@ -99,7 +103,18 @@ function MountedRoomPage(props: {
       // The LIVE token, not the one this page was constructed with: after a
       // 4401 refresh the original is stale, and journal recovery would go out
       // with a credential the server has already replaced.
-      onResume: (room) => { refreshMutableRunJournals(room, token); },
+      // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-resume
+      onResume: (room) => {
+        void refreshTranscriptHistoryHead(useClientStore, room, token).then((refreshed) => {
+          if (!refreshed) return;
+          refreshMutableRunJournals(
+            room,
+            token,
+            finalizedTranscriptRoots(useClientStore, room),
+          );
+        });
+      },
+      // harn:end missed-terminal-history-refreshes-through-combined-head
       // Relay mode: route the app WebSocket through the tunnel (origin + a
       // socketFactory that opens a fresh app-WS mux stream per session). Empty
       // on the direct local/tailnet path, leaving the page-origin default.

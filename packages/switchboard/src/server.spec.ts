@@ -12,6 +12,7 @@ import {
   type ServerFrame,
   type Session,
   type SpawnOpts,
+  type TranscriptHistoryPage,
 } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
@@ -1952,6 +1953,190 @@ describe('REST', () => {
     );
     expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
+
+  // harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-rest
+  describe('combined transcript history pages', () => {
+    it('serves only projected finalized evidence in bounded intra-run pages', async () => {
+      const owner = daemon.ownerOf('eng');
+      daemon.store.postMessage('eng', {
+        author: owner.id,
+        kind: 'chat',
+        body: 'credential sk-proj-abcdef1234567890abcdef',
+      });
+      const posted = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: '' });
+      const finalized = daemon.store.updateMessage('eng', posted.id, {
+        run: {
+          status: 'completed',
+          started_ts: '2026-08-08T00:00:00.000Z',
+          ended_ts: '2026-08-08T00:01:00.000Z',
+          tool_calls: 200,
+          events_ref: `runs/${String(posted.id)}.jsonl`,
+          output_mode: 'messages',
+        },
+      });
+      for (let index = 0; index < 200; index += 1) {
+        daemon.blobs.append('eng', finalized.run!.events_ref, {
+          type: 'run.item', item_type: 'tool_call', output_message_id: finalized.id,
+          payload: {
+            call_id: `call-${String(index)}`,
+            tool: 'Read',
+            title: index === 199 ? 'AKIAIOSFODNN7EXAMPLE' : `read ${String(index)}`,
+            raw: { bearer: 'Bearer abcdefghijklmnopqrstuvwxyz' },
+          },
+        });
+        daemon.blobs.append('eng', finalized.run!.events_ref, {
+          type: 'run.item', item_type: 'tool_result', output_message_id: finalized.id,
+          payload: { call_id: `call-${String(index)}`, status: 'ok', output_text: 'done' },
+        });
+      }
+      daemon.blobs.append('eng', finalized.run!.events_ref, {
+        type: 'run.completed', status: 'completed', output_message_id: finalized.id,
+      });
+      const mutable = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: '' });
+      daemon.store.updateMessage('eng', mutable.id, {
+        run: {
+          status: 'running', started_ts: '2026-08-08T00:02:00.000Z', tool_calls: 0,
+          events_ref: `runs/${String(mutable.id)}.jsonl`, output_mode: 'messages',
+        },
+      });
+      daemon.blobs.append('eng', `runs/${String(mutable.id)}.jsonl`, {
+        type: 'run.item', item_type: 'text_delta', output_message_id: mutable.id,
+        payload: { text: 'mutable secret' },
+      });
+
+      const samples = Array.from({ length: 6 }, () => daemon.transcriptHistoryPage('eng').metrics);
+      console.info('[transcript-history-server-scan]', JSON.stringify({
+        cold: samples[0], warm_ms: samples.slice(1).map((sample) => sample.duration_ms),
+      }));
+      expect(samples[0]).toMatchObject({
+        selected_units: 20,
+        message_reads: 1,
+        message_records_read: 3,
+        journal_reads: 1,
+        journal_events_scanned: 401,
+      });
+
+      const response = await fetch(`${base}/api/rooms/eng/transcript-history`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(response.status).toBe(200);
+      const page = await response.json() as TranscriptHistoryPage;
+      expect(page.units).toHaveLength(20);
+      expect(page.has_more).toBe(true);
+      expect(page.before_cursor).not.toBeNull();
+      expect(page.messages.map((message) => message.id)).not.toContain(mutable.id);
+      const serialized = JSON.stringify(page);
+      expect(serialized).not.toContain('AKIAIOSFODNN7EXAMPLE');
+      expect(serialized).not.toContain('Bearer abcdefghijklmnopqrstuvwxyz');
+      expect(serialized).not.toContain('"raw"');
+      expect(Buffer.byteLength(serialized)).toBeLessThan(20_000);
+      for (const unit of page.units) {
+        if (unit.kind === 'tool') expect(unit.event_indices).toHaveLength(2);
+      }
+    });
+
+    // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-rest-regression
+    it('returns every mixed-history unit once when an oldest id sorts into the newest page', async () => {
+      const owner = daemon.ownerOf('eng');
+      const displaced = daemon.store.postMessage('eng', {
+        author: owner.id, kind: 'chat', body: 'old id with the newest timestamp',
+      });
+      daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+        .run('2030-01-01T00:00:00.000Z', 'eng', displaced.id);
+      for (let index = 0; index < 70; index += 1) {
+        const posted = daemon.store.postMessage('eng', {
+          author: owner.id, kind: 'chat', body: `archive ${String(index)}`,
+        });
+        daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+          .run(new Date(Date.UTC(2025, 0, 1) + index * 60_000).toISOString(), 'eng', posted.id);
+      }
+      const root = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: 'done' });
+      daemon.store.updateMessage('eng', root.id, {
+        run: {
+          status: 'completed',
+          started_ts: '2026-01-01T00:00:00.000Z',
+          ended_ts: '2026-01-01T00:01:00.000Z',
+          tool_calls: 0,
+          events_ref: `runs/${String(root.id)}.jsonl`,
+          final_text: 'done',
+        },
+      });
+
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const pages: TranscriptHistoryPage[] = [];
+      let cursor: string | undefined;
+      do {
+        const suffix = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
+        const response = await fetch(`${base}/api/rooms/eng/transcript-history${suffix}`, { headers });
+        expect(response.status).toBe(200);
+        const page = await response.json() as TranscriptHistoryPage;
+        pages.push(page);
+        cursor = page.before_cursor ?? undefined;
+      } while (cursor !== undefined);
+
+      const fingerprint = (page: TranscriptHistoryPage): string[] => page.units.map((unit) =>
+        unit.kind === 'message'
+          ? `message:${String(unit.message_id)}`
+          : `${unit.kind}:${String(unit.root_message_id)}:${unit.event_indices.join(',')}`);
+      expect(fingerprint(pages[0]!).at(-1)).toBe(`message:${String(displaced.id)}`);
+      const walked = [...pages].reverse().flatMap(fingerprint);
+      expect(walked).toHaveLength(72);
+      expect(new Set(walked)).toHaveLength(72);
+      expect(walked.at(-1)).toBe(`message:${String(displaced.id)}`);
+      for (const page of pages.slice(0, -1)) {
+        expect(page).toMatchObject({ has_more: true });
+        expect(page.before_cursor).not.toBeNull();
+      }
+      expect(pages.at(-1)).toMatchObject({ has_more: false, before_cursor: null });
+    });
+    // harn:end transcript-history-cursors-cover-complete-established-order
+
+    it('authorizes room reads and rejects malformed, cross-room, and missing-room cursors', async () => {
+      const owner = daemon.ownerOf('eng');
+      for (let index = 0; index < 25; index += 1) {
+        daemon.store.postMessage('eng', { author: owner.id, kind: 'chat', body: `m${String(index)}` });
+      }
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const first = await fetch(`${base}/api/rooms/eng/transcript-history`, { headers });
+      const page = await first.json() as TranscriptHistoryPage;
+      expect(first.status).toBe(200);
+      expect(page.before_cursor).not.toBeNull();
+
+      expect((await fetch(`${base}/api/rooms/eng/transcript-history?cursor=bad`, { headers })).status)
+        .toBe(400);
+      const decodedCursor = Buffer.from(page.before_cursor!, 'base64url').toString('utf8');
+      const oversizedCursor = Buffer.from(
+        decodedCursor.replace(/}$/, `${' '.repeat(4096)}}`),
+        'utf8',
+      ).toString('base64url');
+      expect(oversizedCursor.length).toBeGreaterThan(4096);
+      expect((await fetch(
+        `${base}/api/rooms/eng/transcript-history?cursor=${encodeURIComponent(oversizedCursor)}`,
+        { headers },
+      )).status).toBe(400);
+      expect((await fetch(`${base}/api/rooms/missing/transcript-history`, { headers })).status)
+        .toBe(404);
+      expect((await fetch(`${base}/api/rooms/eng/transcript-history`)).status).toBe(401);
+
+      daemon.createRoom({
+        id: 'other-history', name: 'Other History',
+        owner: { handle: 'other-history-owner', display_name: 'Other History Owner' },
+      });
+      expect((await fetch(
+        `${base}/api/rooms/other-history/transcript-history?cursor=${encodeURIComponent(page.before_cursor!)}`,
+        { headers },
+      )).status).toBe(400);
+
+      const { token: agentToken } = spawnAgentWithToken('history-agent');
+      expect((await fetch(`${base}/api/rooms/eng/transcript-history`, {
+        headers: { authorization: `Bearer ${agentToken}` },
+      })).status).toBe(200);
+      expect((await fetch(`${base}/api/rooms/other-history/transcript-history`, {
+        headers: { authorization: `Bearer ${agentToken}` },
+      })).status).toBe(403);
+    });
+  });
+  // harn:end historical-transcript-pages-match-output-scoped-rendering
 
   // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-server-regression
   it('adds bounded projected run hits without changing message-only search', async () => {

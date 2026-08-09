@@ -1,0 +1,179 @@
+id: transcript-history-reliability-p3-relay-recovery
+title: Transcript history reliability phase 3 - coordinated relay recovery
+notes: >
+  Coordinate hosted tunnel and app-stream recovery without changing the relay
+  protocol. TunnelClient exposes readiness for its current generation, rejects
+  stale waiters, publishes state through independent subscribers, and keeps one
+  handshake attempt plus one retry timer per recovery generation. connect and
+  recover are idempotent; foreground recovery may accelerate a pending retry but
+  never creates a parallel handshake. Preserve signed KK authentication,
+  keepalive, and canonical/alias failover.
+
+  A managed RoomConnector gates every app-stream attempt on its own tunnel's
+  connected generation. A successful handshake wakes exactly one immediate app
+  open for that generation; app retry, tunnel retry, lifecycle wake, and stale
+  callbacks cannot create duplicate sockets or cross computer sessions. Server
+  frames remain the only app-readiness evidence. Foregrounding deliberately
+  recovers the tunnel first and runs resume reconciliation only after the new
+  app stream is created. Authentication/revocation, upgrade-required, manual,
+  and disposed parks never reopen. Direct/self-hosted connector behavior stays
+  unchanged.
+
+  Bootstrap authentication and room loading must validate the same current
+  tunnel generation before mounting a connector. Add deterministic unit and
+  Playwright regressions for both race orderings, stale generations, duplicate
+  signals, idle/background foreground recovery, no reload, independent warm
+  computers, and unchanged direct mode. No protocol, relay Worker, server,
+  deployment, pooling, UI redesign, or Phase 4 work.
+assumptions:
+  create:
+    - id: browser-tunnel-readiness-follows-current-generation
+      title: Browser tunnel readiness belongs to the current recovery generation
+      statement: >
+        TunnelClient must advance a monotonic generation when an established
+        tunnel is lost or deliberately restarted, make whenReady settle only for
+        the current generation's successful authenticated handshake, retire
+        stale waiters and callbacks, notify every independent subscriber, and
+        allow at most one handshake attempt and one retry timer for that
+        generation, so connect, backoff, and foreground recovery converge
+        without parallel sessions or permanently reusing first-connect truth.
+      reason: >
+        A one-shot ready promise and overwriteable callback let later bootstrap
+        and app recovery proceed against a tunnel generation that no longer
+        exists.
+      depends_on:
+        - tunnel-session-handshake-kk
+        - tunnel-keepalive
+    - id: hosted-app-streams-follow-tunnel-generations
+      title: Hosted app streams recover only on their owning tunnel generation
+      statement: >
+        Each managed room connector must suppress app-stream attempts while its
+        own tunnel is down, open exactly one immediate app socket when that
+        tunnel's current handshake succeeds, ignore stale tunnel and app
+        callbacks, and coalesce disconnect, retry, and foreground recovery while
+        never reopening manual, authentication/revocation, upgrade, or disposed
+        parks; only a current app server frame may restore send admission, so
+        computers recover independently without reload while the direct
+        connector retains its existing behavior.
+      reason: >
+        Independent tunnel and app backoffs can miss their rendezvous or create
+        duplicate streams, leaving a hosted tab offline until refresh even
+        though the tunnel has recovered.
+      depends_on:
+        - browser-tunnel-readiness-follows-current-generation
+        - relay-app-socket-readiness-requires-server-evidence
+        - hosted-app-keeps-all-paired-computers-live
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: App WebSocket OPEN remains optimistic; only a current server frame
+        publishes connected send admission.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Every indexed computer keeps its own tunnel and connector recovering
+        until forget or disposal.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Generation readiness, listeners, tokens, sockets, and recovery remain
+        entry-local.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Switching still reuses the mounted warm stack without reload or a new
+        handshake.
+    - id: hosted-offline-recovery-offers-other-computers
+      outcome: unchanged
+      reason: Recovery continues every session independently while warm alternatives
+        remain selectable.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Replacement app sockets resubscribe each room from its existing seq.
+    - id: tunnel-session-handshake-kk
+      outcome: unchanged
+      reason: Generation coordination wraps the existing authenticated handshake
+        without changing its bytes or cryptography.
+    - id: tunnel-keepalive
+      outcome: unchanged
+      reason: The existing keepalive still detects established half-open sessions and
+        initiates coordinated recovery.
+    - id: relay-link-dials-with-alias-fallback
+      outcome: unchanged
+      reason: Pre-handshake retries retain canonical/alias candidate behavior and the
+        established winner.
+files:
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/mock-relay.mjs
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room35-startup-recovery.e2e.spec.ts
+anchors:
+  browser-tunnel-readiness-follows-current-generation:
+    current-tunnel-generation:
+      action: change
+      reason: Replace first-connect truth with current-generation waiters and stale
+        rejection.
+    tunnel-state-subscribers:
+      action: change
+      reason: Publish each generation transition to independent listeners.
+    idempotent-tunnel-recovery:
+      action: change
+      reason: Coalesce connection attempts, retry timers, and foreground acceleration.
+    tunnel-generation-regression:
+      action: change
+      reason: Prove current readiness, stale callbacks, subscribers, and one handshake.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-app-connector:
+      action: change
+      reason: Gate app creation and retry on the owning connected tunnel generation.
+    generation-gated-connector-regression:
+      action: change
+      reason: Prove both race orders, exact app-open counts, parks, and direct
+        behavior.
+    generation-aware-computer-session:
+      action: change
+      reason: Validate bootstrap generation and give each connector its own tunnel
+        gate.
+    generation-aware-session-regression:
+      action: change
+      reason: Prove independent entries and stale bootstrap work cannot mount
+        connectors.
+    coordinated-recovery-browser-regression:
+      action: change
+      reason: Prove foreground and host-return recovery without reload or duplicate
+        handshakes.
+    independent-computer-recovery-regression:
+      action: change
+      reason: Prove one computer recovers without reopening or closing another.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Preserve frame-based readiness inside the generation-gated open path.
+    relay-app-socket-readiness-unit-regression:
+      action: change
+      reason: Retain server-evidence admission while adding tunnel ordering coverage.
+    relay-app-socket-readiness-browser-regression:
+      action: change
+      reason: Keep real hosted recovery gated by a replacement server frame.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Subscribe each entry independently and keep recovery alive until
+        disposal.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Thread each entry's own tunnel generation into its connector and
+        bootstrap.
+  hosted-offline-recovery-offers-other-computers:
+    multi-computer-recovery-regression:
+      action: change
+      reason: Extend the warm-computer journey with independent coordinated recovery.
+applied:
+  applied_at: 2026-08-09T02:31:57.719Z

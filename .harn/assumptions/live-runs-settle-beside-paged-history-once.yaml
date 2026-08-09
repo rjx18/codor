@@ -1,0 +1,19 @@
+id: live-runs-settle-beside-paged-history-once
+hash: a-ccdabb3a35d6
+title: Live runs remain uncapped and settle into paged history once
+state: active
+statement: >
+  A mutable run must continue rendering its recovered full redacted journal and
+  indexed live stream without the twenty-unit history cap, and when an observed
+  run becomes terminal the browser must preserve and freeze the evidence already
+  rendered, reconcile any combined-page excerpt by root, permanent output id,
+  and journal index, and render its settled tail at most once without issuing a
+  terminal /runs/:id fetch or duplicating, dropping, or reordering the live
+  evidence.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+  - run-events-merge-by-journal-index
+  - live-run-event-cache-bounded
+  - continuation-writer-follows-journaled-output-ownership
+  - missed-terminal-history-refreshes-through-combined-head
+created_by: transcript-history-reliability-p2-browser-pages

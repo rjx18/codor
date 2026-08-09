@@ -1,0 +1,26 @@
+id: historical-transcript-pages-are-unit-bounded-and-room-bound
+hash: a-828314ad8504
+title: Finalized transcript pages are bounded by indivisible visible units
+state: retired
+statement: >
+  An authenticated room-history page must use an opaque cursor bound to that
+  room and one immutable newest-message ceiling, return at most twenty visible
+  units in stable permanent-message and journal order, never split a contiguous
+  prose block or matched tool call/result pair, count an upgraded compaction
+  marker and the run terminal/status marker exactly once, carry complete
+  projected message records plus only the indexed lifecycle-root journal
+  excerpts needed for those units, exclude every running or queued/not-finalized
+  family until its root reaches a terminal state, order modern evidence by
+  permanent output-message id, and retain timestamp interleaving for legacy
+  journals without those ids, so continuations and old interleaved messages
+  render without a cold full- journal transfer, mutable-family leak, or
+  cross-room cursor reuse.
+depends_on:
+  - run-journals-own-evidence-across-output-messages
+  - continuation-writer-follows-journaled-output-ownership
+  - permalink-ids-stable
+  - redaction-before-fanout
+  - compaction-timeline-items-are-durable-run-evidence
+  - run-events-merge-by-journal-index
+created_by: transcript-history-reliability-p1-server-pages
+retired_by: transcript-history-reliability-p1-review-fixes

@@ -205,7 +205,12 @@ export function requestRunJournal(
  * the four-request limit. An id already in flight gets exactly ONE queued
  * refresh rather than one per call.
  */
-export function refreshMutableRunJournals(room: string, token: () => string): void {
+// harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-finalized-fetch-guard
+export function refreshMutableRunJournals(
+  room: string,
+  token: () => string,
+  finalizedRoots: ReadonlySet<number> = new Set(),
+): void {
   const namespace = roomNamespace(room);
   if (namespace !== currentRoom) return; // inactive rooms are not read at all
   const cache = rooms.get(namespace);
@@ -214,8 +219,12 @@ export function refreshMutableRunJournals(room: string, token: () => string): vo
   // have to be considered or a resume during an outstanding read refreshes
   // nothing at all.
   const mutable = new Set<number>();
-  for (const [id, entry] of cache.journals) if (!entry.terminal) mutable.add(id);
-  for (const [id, terminal] of cache.inflight) if (!terminal) mutable.add(id);
+  for (const [id, entry] of cache.journals) {
+    if (!entry.terminal && !finalizedRoots.has(id)) mutable.add(id);
+  }
+  for (const [id, terminal] of cache.inflight) {
+    if (!terminal && !finalizedRoots.has(id)) mutable.add(id);
+  }
 
   for (const id of mutable) {
     if (cache.inflight.has(id)) {
@@ -226,6 +235,7 @@ export function refreshMutableRunJournals(room: string, token: () => string): vo
   }
   pump(namespace, room, cache, token);
 }
+// harn:end finalized-browser-history-is-combined-page-owned
 
 /** The cached journal for a run, or undefined while it is still unread. */
 export function getRunJournal(room: string, id: number): WireEvent[] | undefined {

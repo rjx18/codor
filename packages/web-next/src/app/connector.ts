@@ -9,6 +9,7 @@
 import { BROWSER_PROTOCOL_EPOCH, type Act, type ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
+import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 import type { Connection } from '@runtime/ws.js';
 
 import { HISTORY_PAGE_SIZE, roomSlice, useClientStore, type ClientStore } from './store.js';
@@ -62,6 +63,14 @@ export interface ConnectorOptions {
    *  the global gate only if that computer is selected. */
   onUpgradeRequired?: (frame: Extract<ServerFrame, { type: 'upgrade_required' }>) => void;
   refreshToken?: () => Promise<string>;
+  /** Hosted-only tunnel generation gate. Direct/self-hosted callers omit it. */
+  tunnel?: {
+    readonly state: TunnelState;
+    readonly generation: number;
+    whenReady(): Promise<number>;
+    recover(): void;
+    subscribe(listener: TunnelStateListener): () => void;
+  };
 }
 
 /** What the connector is doing, and whether a resume may act on it. */
@@ -119,6 +128,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   // back events from a socket we already replaced; without this they would
   // reset `connected`, schedule retries, or resubscribe on a dead wire.
   let generation = 0;
+  let openedTunnelGeneration: number | undefined;
+  let waitingTunnelGeneration: number | undefined;
+  let resumeAfterTunnel = false;
 
   clientStore.getState().setActiveRoom(currentRoom);
 
@@ -242,9 +254,40 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     }, interval);
   };
 
+  const waitForTunnel = (accelerate = false): void => {
+    const tunnel = options.tunnel;
+    if (!tunnel || !RESUMABLE.has(state)) return;
+    clientStore.getState().setConnected(false);
+    if (accelerate) tunnel.recover();
+    const wanted = tunnel.generation;
+    if (waitingTunnelGeneration === wanted) return;
+    waitingTunnelGeneration = wanted;
+    void tunnel.whenReady().then(
+      (ready) => {
+        if (waitingTunnelGeneration === wanted) waitingTunnelGeneration = undefined;
+        if (ready !== tunnel.generation || tunnel.state !== 'connected' || !RESUMABLE.has(state)) return;
+        open(false);
+      },
+      () => {
+        if (waitingTunnelGeneration === wanted) waitingTunnelGeneration = undefined;
+        if (RESUMABLE.has(state)) waitForTunnel();
+      },
+    );
+  };
+
+  // harn:assume hosted-app-streams-follow-tunnel-generations ref=generation-gated-app-connector
   // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness
-  const open = (): void => {
+  function open(force = false): void {
     if (state === 'disposed') return;
+    const tunnel = options.tunnel;
+    if (tunnel) {
+      if (tunnel.state !== 'connected') {
+        waitForTunnel();
+        return;
+      }
+      if (!force && openedTunnelGeneration === tunnel.generation) return;
+      openedTunnelGeneration = tunnel.generation;
+    }
     clearRetry();
     clearProbes();
     // Starting a replacement generation withdraws send admission immediately.
@@ -334,8 +377,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       }
       const reconnect = (): void => {
         if (!live() || state !== 'disconnected') return;
+        if (options.tunnel?.state !== undefined && options.tunnel.state !== 'connected') {
+          waitForTunnel();
+          return;
+        }
         clearRetry();
-        retryTimer = setTimeout(open, retryMs);
+        retryTimer = setTimeout(() => open(true), retryMs);
         retryMs = Math.min(retryMs * 2, 10_000);
       };
       if (event.code === 4401 && options.refreshToken) {
@@ -349,8 +396,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         );
       } else reconnect();
     };
-  };
+    if (resumeAfterTunnel && tunnel) {
+      resumeAfterTunnel = false;
+      options.onResume?.(currentRoom);
+    }
+  }
   open();
+  // harn:end hosted-app-streams-follow-tunnel-generations
 
   /**
    * A genuine resume replaces the socket even when it still reports OPEN. A
@@ -369,8 +421,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     queueMicrotask(() => {
       resumeQueued = false;
       if (!RESUMABLE.has(state)) return;
-      open();
-      options.onResume?.(currentRoom);
+      if (options.tunnel) {
+        resumeAfterTunnel = true;
+        waitForTunnel(true);
+      } else {
+        open(true);
+        options.onResume?.(currentRoom);
+      }
     });
   };
 
@@ -389,6 +446,23 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   window.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('pageshow', onPageShow as EventListener);
   window.addEventListener('online', onOnline);
+
+  const stopTunnel = options.tunnel?.subscribe((tunnelState, tunnelGeneration) => {
+    if (!RESUMABLE.has(state)) return;
+    if (tunnelState !== 'connected') {
+      clearRetry();
+      clearProbes();
+      state = 'disconnected';
+      clientStore.getState().setConnected(false);
+      generation += 1;
+      retire(socket);
+      socket = undefined;
+      waitForTunnel();
+      return;
+    }
+    if (tunnelGeneration !== options.tunnel?.generation) return;
+    open(false);
+  }) ?? (() => undefined);
 
   const connector: RoomConnector = {
     room: () => currentRoom,
@@ -422,7 +496,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // re-pairing — reopening either would just repeat the refusal.
       if (state !== 'parked-manual' && state !== 'disconnected') return;
       state = 'disconnected';
-      open();
+      open(true);
     },
     switchRoom: (room: string) => {
       if (room === currentRoom) return;
@@ -452,6 +526,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       window.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow as EventListener);
       window.removeEventListener('online', onOnline);
+      stopTunnel();
       retire(socket);
       socket = undefined;
     },

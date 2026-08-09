@@ -16,6 +16,7 @@
     "build:icons": "node scripts/build-icons.mjs",
     "deploy:app": "node scripts/deploy-codor-app.mjs",
     "lint": "pnpm -r --if-present lint",
+    "test:relay-deploy-decision": "node scripts/relay-deploy-decision.spec.mjs",
     "release:check": "pnpm test:all && pnpm audit:license && pnpm audit:release && scripts/fresh-install-test.sh && scripts/packed-install-test.sh",
     "test": "pnpm -r test",
     "test:all": "pnpm -r build && pnpm -r --workspace-concurrency=1 test && pnpm --filter @codor/web-next e2e"

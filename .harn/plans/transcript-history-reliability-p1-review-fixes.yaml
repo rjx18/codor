@@ -1,0 +1,132 @@
+id: transcript-history-reliability-p1-review-fixes
+title: Transcript history reliability phase 1 review fixes - renderer parity
+notes: >
+  Contained review correction for Phase 1 only. Replace the first transcript-
+  page assumption because it incorrectly counted every terminal as a visible
+  unit and described legacy ordering too broadly. Historical page unitization
+  must match the current browser renderer: safe-parse normalized payloads before
+  grouping, leave malformed items as visible unpaired fallback rows, interleave
+  only prose-bearing legacy runs by segment time, keep legacy tools-only and
+  compaction-only units grouped at ended_ts, and keep a failure tail beside the
+  final visible segment. A settled-tail unit exists only for visible final-text
+  fallback/trailing text or failure error/status; a successful run whose stream
+  is fully represented adds no invisible terminal unit. Reject cursors over 4096
+  characters before Base64/JSON decoding. Preserve the already-approved
+  authorization, redaction, room binding, mutable-family exclusion, raw journal
+  ownership, page size, continuation ordering, endpoint, and local-scan model.
+  No browser integration or Phase 2 work. One review-fix implementation commit.
+assumptions:
+  retire:
+    - id: historical-transcript-pages-are-unit-bounded-and-room-bound
+      reason: >
+        Its statement required exactly one terminal/status unit for every
+        finalized run and treated all legacy evidence as timestamp-interleaved,
+        which does not match what the browser actually renders or how it keeps
+        tools-only legacy turns grouped.
+  create:
+    - id: historical-transcript-pages-match-renderable-units
+      title: Finalized transcript pages count the exact units the browser renders
+      statement: >
+        An authenticated room-history page must reject an opaque cursor longer
+        than 4096 characters before decoding, bind every valid cursor to its
+        room and immutable newest-message ceiling, and return at most twenty
+        genuinely renderable units with complete projected messages and only
+        their indexed lifecycle-root excerpts; unitization must safe-parse
+        normalized payloads so malformed items remain visible unpaired fallback
+        rows, never split valid prose or call/result pairs, upgrade compaction
+        once, omit a successful terminal when streamed evidence has no visible
+        settled tail, combine final-text fallback/trailing text or failure
+        error/status into one settled-tail unit when present, order modern
+        evidence by permanent output-message id, interleave only prose-bearing
+        legacy runs by segment timestamps, keep legacy tools-only or compaction-
+        only runs grouped at ended_ts, keep a failure tail with its final
+        visible segment, and exclude every running or queued/not-finalized
+        family until terminal, so each page boundary corresponds to twenty units
+        the browser can actually display without mutable leakage or legacy
+        reordering.
+      reason: >
+        Counting invisible completions or grouping malformed evidence
+        differently from the renderer breaks the visible twenty-unit product
+        limit and can move old transcript content across human messages.
+      depends_on:
+        - run-journals-own-evidence-across-output-messages
+        - continuation-writer-follows-journaled-output-ownership
+        - permalink-ids-stable
+        - redaction-before-fanout
+        - compaction-timeline-items-are-durable-run-evidence
+        - run-events-merge-by-journal-index
+        - normalized-run-item-payload-contract
+        - prose-blocks-carry-first-delta-timestamps
+  reviewed:
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: Raw evidence remains in the same lifecycle-root JSONL journal.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Modern event targets and continuation rows retain their permanent ids.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Cursor and page units continue to use permanent room-local message ids.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Complete selected records and excerpts remain projected before REST
+        serialization.
+    - id: compaction-timeline-items-are-durable-run-evidence
+      outcome: unchanged
+      reason: Loading/completed evidence remains indexed and upgrades one marker in
+        place.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Excerpts preserve exact journal indices and change only visible grouping.
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: The builder now consumes the existing permissive safe-parse contract
+        just like the browser.
+    - id: prose-blocks-carry-first-delta-timestamps
+      outcome: unchanged
+      reason: Valid prose retains its first delta stamp and ts-less legacy evidence
+        retains fallback ordering.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Server unitization mirrors the existing loading/completed reduction
+        without changing web code.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: Failure error/status becomes one visible historical tail and never reply
+        text.
+files:
+  - packages/protocol/src/transcript-history.ts
+  - packages/protocol/src/transcript-history.spec.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  historical-transcript-pages-are-unit-bounded-and-room-bound:
+    transcript-history-protocol:
+      action: remove
+      reason: Replace the inaccurate terminal-unit schema contract and its regressions.
+    transcript-history-page-builder:
+      action: remove
+      reason: Replace the inaccurate unitization and ordering contract and its
+        regressions.
+    transcript-history-rest:
+      action: remove
+      reason: Replace the old endpoint assumption markers while retaining the endpoint
+        boundary.
+  historical-transcript-pages-match-renderable-units:
+    transcript-history-protocol:
+      action: change
+      reason: Define visible settled-tail units and retain the public 4096-character
+        cursor cap.
+    transcript-history-page-builder:
+      action: change
+      reason: Mirror browser safe parsing, exact legacy ordering, and renderable unit
+        counts.
+    transcript-history-rest:
+      action: change
+      reason: Refuse oversized cursors and prove the endpoint returns only renderable
+        bounded units.
+applied:
+  applied_at: 2026-08-08T14:17:45.042Z

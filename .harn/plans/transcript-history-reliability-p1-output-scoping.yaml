@@ -1,0 +1,119 @@
+id: transcript-history-reliability-p1-output-scoping
+title: Transcript history reliability phase 1 - output-scoped renderer parity
+notes: >
+  Second contained Phase 1 review correction only. The combined history builder
+  must keep prose coalescing, tool-call/result pairing, and compaction upgrade
+  state independent for every permanent output_message_id in one lifecycle-root
+  journal. It must suppress every reasoning_summary because the transcript
+  segmenter filters that item type even when its payload is malformed. Preserve
+  the approved cursor, authorization, projection, pagination, settled-tail,
+  mutable-family exclusion, legacy ordering, and local-scan behavior. No browser
+  integration or Phase 2 work. One review-fix implementation commit.
+assumptions:
+  retire:
+    - id: historical-transcript-pages-match-renderable-units
+      reason: >
+        Its statement incorrectly says every malformed normalized payload is a
+        visible fallback and does not require grouping state to be isolated by
+        permanent output message within a continuation family.
+  create:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      title: Finalized transcript pages match output-scoped browser rendering
+      statement: >
+        An authenticated room-history page must reject an opaque cursor longer
+        than 4096 characters before decoding, bind every valid cursor to its
+        room and immutable newest-message ceiling, and return at most twenty
+        genuinely renderable units with complete projected messages and only
+        their indexed lifecycle-root excerpts; unitization must independently
+        group prose, valid tool-call/result pairs, and compaction upgrades for
+        each permanent output_message_id, safe-parse browser-rendered normalized
+        payloads so their malformed items remain visible unpaired fallback rows,
+        suppress every reasoning_summary whether valid or malformed, never split
+        valid prose or same-output call/result pairs, omit a successful terminal
+        when streamed evidence has no visible settled tail, combine final-text
+        fallback/trailing text or failure error/status into one settled-tail
+        unit when present, order modern evidence by permanent output-message id,
+        interleave only prose-bearing legacy runs by segment timestamps, keep
+        legacy tools-only or compaction-only runs grouped at ended_ts, keep a
+        failure tail with its final visible segment, and exclude every running
+        or queued/not-finalized family until terminal, so each page boundary
+        corresponds to twenty units the browser can actually display without
+        cross-output contamination, mutable leakage, or legacy reordering.
+      reason: >
+        A lifecycle-root journal can contain multiple permanent output rows;
+        sharing grouping state between them corrupts page boundaries and
+        evidence attribution, while counting suppressed reasoning invents UI.
+      depends_on:
+        - run-journals-own-evidence-across-output-messages
+        - continuation-writer-follows-journaled-output-ownership
+        - permalink-ids-stable
+        - redaction-before-fanout
+        - compaction-timeline-items-are-durable-run-evidence
+        - run-events-merge-by-journal-index
+        - normalized-run-item-payload-contract
+        - prose-blocks-carry-first-delta-timestamps
+  reviewed:
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: Raw evidence remains in the lifecycle-root JSONL journal.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Permanent output-message attribution remains authoritative.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Page units continue to use permanent room-local message ids.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Selected records and excerpts remain projected before REST serialization.
+    - id: compaction-timeline-items-are-durable-run-evidence
+      outcome: unchanged
+      reason: Loading/completed evidence still upgrades one marker within its output
+        row.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Excerpts preserve exact journal indices.
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: The builder continues to consume the existing safe-parse contract.
+    - id: prose-blocks-carry-first-delta-timestamps
+      outcome: unchanged
+      reason: Output-scoped prose retains the first contributing delta timestamp.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Server compaction grouping mirrors the existing browser reduction.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: Failure evidence remains one visible settled tail and never reply text.
+files:
+  - docs/superpowers/plans/2026-08-08-transcript-history-relay-reliability.md
+  - packages/protocol/src/transcript-history.ts
+  - packages/protocol/src/transcript-history.spec.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  historical-transcript-pages-match-renderable-units:
+    transcript-history-protocol:
+      action: remove
+      reason: Replace the inaccurate malformed-item and shared-grouping truth.
+    transcript-history-page-builder:
+      action: remove
+      reason: Replace the inaccurate builder contract and regressions.
+    transcript-history-rest:
+      action: remove
+      reason: Replace the old endpoint assumption markers without changing its
+        boundary.
+  historical-transcript-pages-match-output-scoped-rendering:
+    transcript-history-protocol:
+      action: change
+      reason: Publish the corrected output-scoped render-unit contract.
+    transcript-history-page-builder:
+      action: change
+      reason: Isolate grouping per output row and suppress all reasoning summaries.
+    transcript-history-rest:
+      action: change
+      reason: Retain REST enforcement under the corrected render-unit contract.
+applied:
+  applied_at: 2026-08-08T14:27:38.564Z

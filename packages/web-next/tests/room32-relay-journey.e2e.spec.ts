@@ -72,7 +72,12 @@ test.describe('relay tunnel journey', () => {
     const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
     // Relay-mode selection: the hosted SPA would bake this; e2e sets it at runtime.
     await page.addInitScript((url) => {
-      (window as unknown as { __CODOR_RELAY_URL?: string }).__CODOR_RELAY_URL = url;
+      const runtime = window as unknown as {
+        __CODOR_RELAY_URL?: string;
+        __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+      };
+      runtime.__CODOR_RELAY_URL = url;
+      runtime.__codorRelayAppOpens = [];
     }, relayUrl);
     await installFakeMedia(page);
     await page.context().grantPermissions(['microphone']);
@@ -97,6 +102,9 @@ test.describe('relay tunnel journey', () => {
     // (webcrypto) plus tunnelled device auth to succeed first.
     await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    const initialAppOpens = await page.evaluate(() =>
+      (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length);
+    expect(initialAppOpens).toBe(1);
 
     // Post over the tunnel and see it echoed back over the tunnel.
     // Address a HUMAN member so the post satisfies the composer's "say who this
@@ -139,6 +147,7 @@ test.describe('relay tunnel journey', () => {
     await control('/relay-down');
     await expect(page.getByTestId('connection')).toHaveClass(/is-error/, { timeout: 30_000 });
 
+    // harn:assume hosted-app-streams-follow-tunnel-generations ref=coordinated-recovery-browser-regression
     // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-browser-regression
     // Restart the host → the reconnect layering re-opens on the new session.
     await control('/relay-up');
@@ -153,6 +162,10 @@ test.describe('relay tunnel journey', () => {
     await input.press('Enter');
     await expect(page.getByTestId('timeline')).toContainText('back after recovery', { timeout: 20_000 });
     // harn:end relay-app-socket-readiness-requires-server-evidence
+    expect(await page.evaluate(() =>
+      (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length))
+      .toBe(initialAppOpens + 1);
+    // harn:end hosted-app-streams-follow-tunnel-generations
 
     // The relay-mode data path — channel list, summary, compatibility, message
     // history, posts — all went over the tunnel; nothing leaked to a direct /api

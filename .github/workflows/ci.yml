@@ -1,4 +1,4 @@
-# harn:assume github-ci-gates-changes-before-main-cloudflare-deploy ref=github-actions-verify-and-deploy
+# harn:assume github-ci-pages-deploys-and-relay-worker-isolated ref=github-actions-verify-and-deploy
 name: CI
 
 on:
@@ -53,6 +53,9 @@ jobs:
           pnpm audit:license
           pnpm audit:release
 
+      - name: Test relay Worker deployment decision
+        run: pnpm test:relay-deploy-decision
+
   # harn:assume verified-commit-installers-are-sha-addressed-and-ephemeral ref=ci-commit-installer-artifacts
   commit-installers:
     name: Package verified commit installers
@@ -93,9 +96,9 @@ jobs:
   # harn:end verified-commit-installers-are-sha-addressed-and-ephemeral
 
   deploy-production:
-    name: Deploy relay and codor.app
+    name: Deploy codor.app and conditionally relay
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [verify, commit-installers]
+    needs: [verify, commit-installers, relay_decision]
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
@@ -131,8 +134,15 @@ jobs:
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Deploy the blind relay Worker
+      - name: Deploy the blind relay Worker when selected
+        if: needs.relay_decision.outputs.deploy == 'true'
         run: pnpm --filter @codor/relay-worker run deploy
+
+      - name: Record skipped blind relay Worker
+        if: needs.relay_decision.outputs.deploy != 'true'
+        env:
+          RELAY_DECISION_REASON: ${{ needs.relay_decision.outputs.reason }}
+        run: echo "Skipping blind relay Worker - $RELAY_DECISION_REASON"
 
       - name: Build, verify, and deploy codor.app
         run: pnpm deploy:app
@@ -141,4 +151,38 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 8 --retry-all-errors https://relay.codor.app/healthz >/dev/null
           curl --fail --silent --show-error --retry 8 --retry-all-errors https://codor.app/ >/dev/null
-# harn:end github-ci-gates-changes-before-main-cloudflare-deploy
+  relay_decision:
+    name: Decide relay Worker deployment
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      deploy: ${{ steps.decision.outputs.deploy }}
+      reason: ${{ steps.decision.outputs.reason }}
+    steps:
+      - name: Check out the complete pushed history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Evaluate the full pushed range
+        id: decision
+        env:
+          RELAY_COMPARE_BEFORE: ${{ github.event.before }}
+          RELAY_COMPARE_AFTER: ${{ github.sha }}
+        run: |
+          decision="$(node scripts/relay-deploy-decision.mjs --before "$RELAY_COMPARE_BEFORE" --after "$RELAY_COMPARE_AFTER")"
+          printf '%s\n' "$decision"
+          deploy="$(printf '%s\n' "$decision" | sed -n 's/^deploy=//p')"
+          reason="$(printf '%s\n' "$decision" | sed -n 's/^reason=//p')"
+          test "$deploy" = true -o "$deploy" = false
+          test -n "$reason"
+          {
+            echo "deploy=$deploy"
+            echo "reason=$reason"
+          } >> "$GITHUB_OUTPUT"
+# harn:end github-ci-pages-deploys-and-relay-worker-isolated

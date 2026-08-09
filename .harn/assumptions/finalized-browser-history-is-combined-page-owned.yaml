@@ -1,0 +1,21 @@
+id: finalized-browser-history-is-combined-page-owned
+hash: a-0eb6a3e9b3ef
+title: Cold finalized browser history comes only from combined pages
+state: active
+statement: >
+  Once the mounted room hydrates, its cold finalized transcript must render only
+  the combined page's ordered units, complete projected message context, and
+  unit-owned indexed excerpts, never cold WebSocket rows or a full /runs/:id
+  fetch; first-page and cursor request state must live inside that room's
+  injected client store so direct mode uses the same API and same-named rooms on
+  concurrent hosted computers cannot share history, cursors, tokens, or
+  evidence, because the server page is the bounded, redacted authority for
+  immutable transcript history; a failed first-page request remains retryable
+  and does not establish an empty or exhausted room.
+depends_on:
+  - historical-transcript-pages-match-output-scoped-rendering
+  - transcript-history-cursors-cover-complete-established-order
+  - hosted-computer-sessions-keep-state-isolated
+  - redaction-before-fanout
+  - run-journals-own-evidence-across-output-messages
+created_by: transcript-history-reliability-p2-browser-pages

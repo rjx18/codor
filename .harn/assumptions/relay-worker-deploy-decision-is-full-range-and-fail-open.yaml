@@ -1,0 +1,17 @@
+id: relay-worker-deploy-decision-is-full-range-and-fail-open
+hash: a-8a5e487c1660
+title: Relay Worker deployment selection compares the full range and fails open
+state: active
+statement: >
+  The relay Worker deploy decision must compare both revisions of the complete
+  pushed range, use normalized relevant root manifest and lockfile
+  importer/toolchain slices rather than whole-file matches, and select deploy
+  for relay-worker paths, the conservative packages/tunnel contract,
+  tsconfig.base.json, the deployment workflow, and the decision script/tests.
+  Unrelated web/docs files, unrelated root manifest fields, and unrelated
+  lockfile importers must select skip. A missing, unreachable, or ambiguous
+  comparison base or changed slice must fail open to deploy, with the compared
+  revisions and a human-readable reason exposed to the caller, because a false
+  skip could leave the deployed Worker stale.
+depends_on: []
+created_by: transcript-history-reliability-p4-deployment-isolation

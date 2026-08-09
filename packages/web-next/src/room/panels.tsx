@@ -2,12 +2,13 @@ import type { Message, RoomInboxItem } from '@codor/protocol';
 import { Inbox as InboxIcon, PauseCircle, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { fetchMessageHistory, searchMessages } from '@runtime/api.js';
+import { searchMessages } from '@runtime/api.js';
 import type { Connection } from '@runtime/ws.js';
 
-import { HISTORY_PAGE_SIZE, heldDeliveries, roomSlice, useClientStore } from '../app/store.js';
+import { heldDeliveries, roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';
 import { Button, IconButton, Modal } from '../primitives/primitives.js';
+import { revealTranscriptTarget } from './transcript-history.js';
 
 const EMPTY_INBOX_ITEMS: RoomInboxItem[] = [];
 export const JUMP_ANCHOR_EVENT = 'nx-jump-anchor';
@@ -15,19 +16,7 @@ export const JUMP_ANCHOR_EVENT = 'nx-jump-anchor';
 /** Scroll a permalink target into view, paging history back (bounded) until the
  *  message is loaded. */
 export async function jumpToMessage(room: string, id: number, token: () => string): Promise<void> {
-  const store = roomSlice(useClientStore.getState(), room);
-  for (let hops = 0; hops < 10; hops++) {
-    if (roomSlice(useClientStore.getState(), room).messages[id] !== undefined) break;
-    const cursor = roomSlice(useClientStore.getState(), room).historyCursor ?? store.historyCursor;
-    if (cursor === undefined || cursor <= 1) break;
-    try {
-      const page = await fetchMessageHistory(room, { before: cursor, limit: HISTORY_PAGE_SIZE }, { token: token() });
-      if (page.messages.length === 0) break;
-      useClientStore.getState().mergeHistoryPage(room, page.messages);
-    } catch {
-      break;
-    }
-  }
+  await revealTranscriptTarget(useClientStore, room, id, token);
   window.location.hash = `#${id}`;
   // Store merges and React's DOM commit are different steps. Looking up the row
   // in the same microtask intermittently found nothing, leaving a loaded deep
