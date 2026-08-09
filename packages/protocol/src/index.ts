@@ -13,3 +13,4 @@ export * from './adapter.js';
 export * from './agent-presets.js';
 export * from './voice.js';
 export * from './ws.js';
+export * from './worktree.js';

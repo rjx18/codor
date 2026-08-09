@@ -1,0 +1,15 @@
+id: worktree-creation-registers-only-a-new-secondary
+hash: a-1b0ed26fe122
+title: Worktree creation is collision-safe and registers only its result
+state: active
+statement: Creating a worktree must require a normalized non-main alias, a valid
+  new local branch name, and a missing absolute target with an existing safe
+  parent, verify repository and registry constraints before mutation, create
+  from the freshly resolved primary HEAD without force, and register only the
+  exact secondary rediscovered after Git succeeds; existing paths, branches,
+  aliases, primary targets, and cross-repository identities are refused.
+depends_on:
+  - repository-primary-identity-is-git-derived
+  - registered-worktree-identities-are-durable
+  - worktree-git-execution-is-argument-safe
+created_by: native-worktrees-phase1-registry

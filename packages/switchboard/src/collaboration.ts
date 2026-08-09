@@ -3,6 +3,7 @@ import {
   MemberIdSchema,
   MessageIdSchema,
   RoomIdSchema,
+  type ScopedMemberTarget,
   TimestampSchema,
 } from '@codor/protocol';
 import { z } from 'zod';
@@ -55,6 +56,8 @@ export type CollaborationParticipant = z.infer<typeof CollaborationParticipantSc
 export interface CollaborationRoundParticipantInput {
   memberId: string;
   payloadSnapshot: string;
+  /** Stable execution identity when the visible group lives in another room. */
+  target?: ScopedMemberTarget;
   state?: Delivery['state'];
   hopCount?: number;
 }
@@ -75,6 +78,7 @@ export interface GroupRoundPayloadContext {
   root: {
     messageId: number;
     authorHandle: string;
+    authorTarget?: ScopedMemberTarget;
     body: string;
   };
   refs?: {
@@ -88,6 +92,7 @@ export interface GroupRoundPayloadContext {
   results?: {
     ordinal: number;
     memberHandle: string;
+    memberTarget?: ScopedMemberTarget;
     status: GroupResultPresentationStatus;
     messageId?: number;
     body?: string;
@@ -97,17 +102,20 @@ export interface GroupRoundPayloadContext {
 const minuteUtc = (ts: string): string => `${ts.slice(0, 16)}Z`;
 
 const statusBody = (
-  handle: string,
+  label: string,
   status: GroupResultPresentationStatus,
   body: string | undefined,
 ): string => {
-  if (status === 'acknowledged') return `[@${handle} acknowledged; no substantive response.]`;
+  if (status === 'acknowledged') return `[${label} acknowledged; no substantive response.]`;
   if (body !== undefined && body !== '') return body;
   if (status === 'failed') return '[No final response. The run failed.]';
   if (status === 'interrupted') return '[No final response. The run was interrupted.]';
   if (status === 'skipped') return '[No turn started. The member was removed or unavailable.]';
   return '[No final response.]';
 };
+
+const memberLabel = (handle: string, target?: ScopedMemberTarget): string =>
+  target === undefined ? `@${handle}` : `~${target.alias}:@${handle}`;
 
 // harn:assume group-round-payloads-share-one-ordered-view ref=group-round-payload-composer
 // harn:assume group-round-routing-instruction-is-always-on ref=group-routing-instruction
@@ -128,7 +136,7 @@ export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: str
   let payload =
     `[codor group=${ctx.groupId} round=${ctx.roundNumber} channel=${ctx.room}\n` +
     ` root=#${ctx.root.messageId} - you=@${you}]\n\n` +
-    `--- group request #${ctx.root.messageId} - @${ctx.root.authorHandle} ---\n` +
+    `--- group request #${ctx.root.messageId} - ${memberLabel(ctx.root.authorHandle, ctx.root.authorTarget)} ---\n` +
     `${ctx.root.body}\n` +
     '--- end group request ---\n';
 
@@ -151,10 +159,11 @@ export function composeGroupRoundPayload(ctx: GroupRoundPayloadContext, you: str
   }
   for (const [index, result] of results.entries()) {
     const message = result.messageId === undefined ? '' : ` - #${result.messageId}`;
+    const label = memberLabel(result.memberHandle, result.memberTarget);
     payload +=
       `\n--- completed round ${ctx.priorRoundNumber} result ${index + 1}/${results.length}` +
-      ` - @${result.memberHandle} - ${result.status}${message} ---\n` +
-      `${statusBody(result.memberHandle, result.status, result.body)}\n` +
+      ` - ${label} - ${result.status}${message} ---\n` +
+      `${statusBody(label, result.status, result.body)}\n` +
       '--- end result ---\n';
   }
 

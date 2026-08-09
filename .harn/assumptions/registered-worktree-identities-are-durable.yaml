@@ -1,0 +1,15 @@
+id: registered-worktree-identities-are-durable
+hash: a-fdce604467e2
+title: Registered repository and worktree identities survive lifecycle changes
+state: active
+statement: The store must persist one stable repository id per participating
+  room, one stable main-checkout record, and stable selected-secondary ids with
+  reserved or unique aliases, canonical observed paths, Git administrative
+  identity, source, head/branch/availability observations, and registration,
+  update, unregister, and removal timestamps; unregister and removal are
+  tombstone transitions, and re-adopting the same extant Git identity restores
+  its prior Codor id across store reopen.
+depends_on:
+  - repository-primary-identity-is-git-derived
+  - worktree-discovery-never-registers-candidates
+created_by: native-worktrees-phase1-registry

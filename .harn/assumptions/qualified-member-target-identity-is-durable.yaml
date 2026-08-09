@@ -1,0 +1,17 @@
+id: qualified-member-target-identity-is-durable
+hash: a-e8b1c6af3dc8
+title: Qualified targets persist stable worktree and member identity
+state: active
+statement: A ~alias:@handle or ~main:@handle token must resolve through the
+  persisted registered-worktree catalog to exactly one active worktree and
+  active addressable member, and the accepted mention and delivery must persist
+  the stable worktree id, conversation id, and member id so later alias, branch,
+  or path changes and restart cannot retarget it; unqualified handles remain
+  limited to the execution worktree roster and qualified inner handles are never
+  scanned again as local mentions.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - registered-worktrees-materialize-stable-conversations
+  - mention-spans-survive-renames
+  - body-parser-shared-across-router-and-web
+created_by: native-worktrees-phase3-qualified-routing-v3

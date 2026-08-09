@@ -22,4 +22,4 @@ depends_on:
   - one-control-chooses-an-agent-everywhere
   - agent-selection-shows-detected-acp-and-advanced-custom
   - new-agent-requests-require-available-native-or-detected-acp
-created_by: agent-presets-p2-add-agent
+created_by: native-worktrees-agent-presets-integration

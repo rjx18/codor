@@ -1,0 +1,348 @@
+id: native-worktrees-phase5-integration-hardening
+title: Native worktrees Phase 5 - integration hardening
+notes: >-
+  Implement only Phase 5 of .codor/PHASED-PLAN.md on the independently accepted
+  Phase 4 review-fix base dbec4687333a88d44c064b4968fd8d022720c37f. This is the
+  final roadmap phase and is integration hardening, not a new routing, registry,
+  lifecycle, protocol, or browser feature. Preserve the product rule that only
+  explicitly created or adopted secondaries are registered; main is the original
+  conversation; equal handles are worktree-local identities; qualified output
+  remains in its origin; creation never implicitly clones a roster; and version
+  one remains one repository.
+
+  Independent Phase 4 review verified the exact one-commit topology, applied
+  Harn plan, clean tree, 546 focused switchboard tests, 70 focused web tests, a
+  fresh recursive production build, and direct/relay browser regressions room40
+  (5/5) and room41 (9/9). The normalized real-worktree path/branch inventory
+  stayed byte-identical at 99 lines, 4,428 bytes, SHA-256
+  545f9cf8da89573d9fb0ebe78408ebc754d76a8dff9225721fdc5a9e2c2433de.
+
+  Harden accepted scoped identity first. A delivery accepted through
+  ~alias:@handle persists stable repository/worktree/conversation/member ids and
+  bounded alias/handle snapshots. Its historical alias snapshot must not be
+  compared to the worktree's current mutable alias at admission, recovery,
+  redelivery, retry, active-invocation authorization, or onward routing. An
+  alias edit, branch rename, canonical path move, or daemon restart therefore
+  cannot retarget or invalidate already accepted work; it continues on the same
+  stable member and retains the old alias only for historical attribution. New
+  posts and completion use only the current registered alias, so the old alias
+  never becomes a second live selector. Stable repository, worktree,
+  conversation, member, and handle mismatches still fail closed.
+
+  Add one explicit checkout-usability boundary. A persisted qualified target is
+  runnable only while its stable worktree lifecycle is active, its member is
+  addressable, and the last reconciled checkout observation is usable.
+  `available` and Git's protective `locked` observation are usable for agent
+  execution; `missing` and `prunable` are not. A queued, held, retry,
+  redelivery, or recovered delivering attempt whose target is unavailable,
+  unregistered, removed, cross-repository, or otherwise stale must never invoke
+  an adapter, re-resolve locally, clear durable evidence, or resurrect after
+  restart. It settles through the existing origin-owned refusal/attempt
+  transactions, preserving run_msg_id and final evidence and appending at most
+  one visible refusal. An adapter turn already spawned before a later
+  observation change may finish its terminal evidence in the origin, but no
+  fresh or recovered turn may start against an unusable checkout.
+
+  Exercise real concurrency rather than sequential lookalikes. Main and one
+  registered child may each contain an agent with the same handle and may run at
+  the same time because they are distinct stable members. While the main member
+  is active, an explicitly qualified child delivery must use only the child cwd,
+  session, invocation credential, task/usage state, and meter; it must not
+  steer, batch with, authorize as, or serialize behind the main member merely
+  because the handles match. Conversely, two origins targeting the same stable
+  child member remain serialized with no cross-origin steering. Messages, run
+  rows, refs, attribution, and replies remain only in their origin
+  conversations, and restart must not merge the two runtime identities.
+
+  Integrate filesystem safety with the child runtime. Before delegating an
+  explicit filesystem removal, the daemon must resolve the exact active
+  secondary and conservatively refuse before Git if that child still has a
+  non-removed agent with a live cached session, an inflight/durable invocation,
+  or unresolved queued, held, or delivering work. Refusal leaves registry rows,
+  filesystem bytes, Git administrative identity, every branch, session, task,
+  and delivery untouched. DB-only unregister remains distinct and never invokes
+  Git. This guard adds no force/kill/cleanup behavior and does not remove
+  agents; the operator must first make the child runtime safe or choose
+  unregister.
+
+  Add a disposable-Git integration proof around the existing argument-array
+  runner. Create a temporary repository with multiple linked worktrees, leave at
+  least one secondary unregistered, record its path/admin identity/HEAD/status
+  and all branch refs, then run explicit discovery, adoption, creation,
+  unregister, dirty-removal refusal, and clean removal against other selected
+  secondaries. The unregistered checkout must remain byte/identity-equivalent,
+  every branch including the removed checkout's branch must survive, and the
+  recorded production Git argv must contain no shell, worktree prune, branch
+  deletion, force removal, or operation directed at an unselected secondary.
+
+  Implement test-first inside the five declared files. Add bounded Harn regions
+  at file ends for the new integration regressions instead of widening or moving
+  unrelated historical anchors. In store.ts, change only the stable target
+  lookup/liveness seam. In daemon.ts, change only the worktree lifecycle
+  delegation boundary needed for the runtime removal guard; do not rewrite turn
+  admission, recovery, finalization, collaboration, or session ownership. If the
+  required implementation touches any other file or any unplanned anchor, stop
+  and return to Sol for a replacement plan rather than editing this lock.
+
+  Do not change protocol or REST shapes, qualified grammar/completion, message
+  placement, WebSocket or relay frames, UI, Agent Presets/default-roster
+  semantics, Git creation/removal commands, branch semantics, authorization,
+  multi-repository rules, residency, or ordinary/non-Git channel behavior. Do
+  not implement a cloud registry, auto-import, force, prune, recursive delete,
+  branch deletion, session kill, or implicit roster/runtime cleanup. Do not
+  touch the agent-presets or CLI-management worktrees.
+
+  Every Git-backed unit and browser fixture must create its repository and all
+  linked worktrees below its own mkdtemp root, and may clean up only that root.
+  No planning, implementation, test, build, or browser command may discover
+  through Codor, adopt, create, move, rename, dirty, unregister, remove, or
+  otherwise mutate a real user worktree or branch.
+assumptions:
+  create:
+    - id: qualified-execution-requires-usable-checkout
+      title: Qualified execution requires one usable registered checkout
+      statement: A persisted qualified delivery may start, recover, retry, or
+        redeliver only while its stable repository, worktree, conversation, and
+        member identities still match an active registration whose last
+        reconciled availability is available or locked; missing, prunable,
+        unregistered, removed, cross-repository, or removed-member targets must
+        settle visibly in the origin without adapter execution, local fallback,
+        evidence loss, or resurrection across restart.
+      reason: A stable target id prevents retargeting, but execution is unsafe when
+        its registered checkout no longer has a usable filesystem location.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - invalid-qualified-targets-never-fallback
+        - registered-worktree-identities-are-durable
+        - delivery-attempt-wal-reconcile
+    - id: worktree-removal-refuses-live-child-runtime
+      title: Filesystem removal refuses a child with live or unresolved runtime
+      statement: Before any Git filesystem removal, the daemon must refuse an active
+        secondary whose child still owns a live agent session, inflight or
+        durable invocation, or unresolved queued, held, or delivering work;
+        refusal occurs before Git and preserves registry state, filesystem,
+        branches, agents, sessions, tasks, deliveries, and usage, while DB-only
+        unregister remains non-mutating and distinct.
+      reason: Removing a checkout underneath a running or resumable child session is
+        an unsafe filesystem mutation even when Git reports the tree clean.
+      depends_on:
+        - worktree-removal-is-clean-and-branch-preserving
+        - child-members-own-isolated-runtime
+        - worktree-lifecycle-preserves-existing-state-by-default
+  reviewed:
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Stable ids and tombstones remain the only lifecycle identity; mutable
+        observations may affect usability but never create a new target.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: The fixture hardening proves an unselected checkout remains unregistered
+        and untouched through every selected lifecycle operation.
+    - id: worktree-creation-registers-only-a-new-secondary
+      outcome: unchanged
+      reason: Creation remains collision-safe and registers only the exact new target.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Runtime ownership becomes one additional conservative pre-Git refusal;
+        non-force clean removal and branch preservation remain unchanged.
+    - id: worktree-git-execution-is-argument-safe
+      outcome: unchanged
+      reason: Phase 5 records the existing argv runner and proves no shell, force,
+        prune, branch deletion, or unselected target mutation occurs.
+    - id: worktree-lifecycle-preserves-existing-state-by-default
+      outcome: unchanged
+      reason: The removal guard refuses rather than killing sessions, deleting agents,
+        or rewriting child/root runtime state.
+    - id: worktree-alias-and-child-metadata-follow-stable-identity
+      outcome: unchanged
+      reason: Alias edits remain presentation changes and no longer invalidate an
+        already persisted route snapshot bound by stable ids.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Accepted targets survive alias, branch, path, and restart changes by
+        stable identity while new text resolves only the current alias.
+    - id: invalid-qualified-targets-never-fallback
+      outcome: unchanged
+      reason: Unusable lifecycle/path targets join the existing visible refusal path
+        and never reach a same-handle local fallback.
+    - id: child-members-own-isolated-runtime
+      outcome: unchanged
+      reason: Concurrent equal handles prove separate ids, cwd, sessions, credentials,
+        tasks, usage, meters, and restart state.
+    - id: cross-worktree-runtime-stays-target-local
+      outcome: unchanged
+      reason: Qualified work uses only the target child's runtime even while an equal
+        local handle is concurrently active.
+    - id: cross-worktree-output-stays-in-origin
+      outcome: unchanged
+      reason: Concurrent and recovered scoped turns keep all output and refusal
+        evidence in the originating conversation.
+    - id: target-member-turns-serialize-across-origins
+      outcome: unchanged
+      reason: Different stable members may run concurrently, while one child member
+        still serializes work from multiple origins.
+    - id: agent-authority-follows-one-active-invocation
+      outcome: unchanged
+      reason: Equal handles receive distinct invocation credentials and each token
+        authorizes only its exact active origin/home pair.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Phase 5 distinguishes per-member serialization from accidental
+        serialization by handle text.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: An unusable scoped attempt settles once from durable bindings and
+        remains terminal over repeated restart.
+anchors:
+  qualified-execution-requires-usable-checkout:
+    qualified-target-usability-store:
+      action: change
+      reason: Validate stable ids plus usable availability without comparing a mutable
+        alias snapshot.
+    qualified-target-usability-store-regression:
+      action: change
+      reason: Prove alias/path/branch/restart stability and available/locked versus
+        missing/prunable liveness directly at the durable store boundary.
+    qualified-target-usability-daemon-regression:
+      action: change
+      reason: Prove queued, recovered, retry, and active-turn behavior never executes
+        or falls back against an unusable checkout.
+  worktree-removal-refuses-live-child-runtime:
+    worktree-runtime-removal-guard:
+      action: change
+      reason: Refuse before WorktreeManager or Git when the exact child still owns
+        live or unresolved runtime.
+    worktree-runtime-removal-regression:
+      action: change
+      reason: Exercise active, queued, held, delivering, and idle-session refusal with
+        zero registry, filesystem, branch, or runtime mutation.
+  qualified-member-target-identity-is-durable:
+    qualified-routing-store-query:
+      action: change
+      reason: Stable identity validation must stop treating the mutable alias snapshot
+        as current identity.
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Cover accepted alias/path/branch changes and restart without retargeting.
+  worktree-alias-and-child-metadata-follow-stable-identity:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Prove the current alias controls new syntax while accepted snapshots
+        keep their original attribution.
+    worktree-alias-manager:
+      action: keep
+      reason: Alias normalization and mutation already remain Git-free and unchanged.
+  child-members-own-isolated-runtime:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Run equal main/child handles concurrently and compare every runtime
+        scope.
+    worktree-runtime-removal-regression:
+      action: change
+      reason: A child session and unresolved work remain owned and untouched on
+        refusal.
+  cross-worktree-runtime-stays-target-local:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Qualified execution during an equal-handle local turn stays target-local.
+  cross-worktree-output-stays-in-origin:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Concurrent, renamed, unavailable, and recovered cases keep origin-only
+        output and refusal evidence.
+  target-member-turns-serialize-across-origins:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Prove concurrency is per stable member and serialization remains per one
+        target member across origins.
+  agent-authority-follows-one-active-invocation:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Assert separate active credentials and exact origin/home authority.
+  invalid-qualified-targets-never-fallback:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Unavailable, unregistered, and removed targets refuse without
+        same-handle fallback or partial execution.
+  delivery-attempt-wal-reconcile:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Repeated restart settles stale/unusable attempts exactly once.
+  worktree-lifecycle-preserves-existing-state-by-default:
+    worktree-lifecycle-daemon-boundary:
+      action: change
+      reason: Add only the conservative pre-Git runtime guard to filesystem removal.
+    worktree-root-neutral-registration:
+      action: keep
+      reason: Store registration and root-neutral lifecycle writes remain unchanged.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-runtime-removal-guard:
+      action: change
+      reason: Runtime liveness becomes an additional refusal before existing Git
+        checks.
+    phase5-git-fixture-safety-regression:
+      action: change
+      reason: Prove dirty refusal, clean selected removal, unselected preservation,
+        and branch survival together in one disposable repository.
+    worktree-remove-contract:
+      action: keep
+      reason: WorktreeManager's non-force fresh Git validation remains unchanged.
+  worktree-git-execution-is-argument-safe:
+    phase5-git-fixture-safety-regression:
+      action: change
+      reason: Record exact argv across the integration lifecycle and reject forbidden
+        shell/force/prune/branch-delete operations.
+    worktree-git-runner:
+      action: keep
+      reason: The bounded execFile argument-array production runner remains unchanged.
+  worktree-discovery-never-registers-candidates:
+    phase5-git-fixture-safety-regression:
+      action: change
+      reason: Keep one discovered but unselected secondary byte- and identity-stable.
+    worktree-discovery-contract:
+      action: keep
+      reason: Discovery parsing and reconciliation semantics remain unchanged.
+  worktree-creation-registers-only-a-new-secondary:
+    phase5-git-fixture-safety-regression:
+      action: change
+      reason: Creation registers only its selected new secondary and leaves the
+        unregistered sibling untouched.
+    worktree-create-contract:
+      action: keep
+      reason: Production creation validation and Git mutation remain unchanged.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/worktrees.spec.ts
+verification: "Before implementation, run harn find --plan
+  native-worktrees-phase5-integration-hardening, harn plan check
+  native-worktrees-phase5-integration-hardening, and harn check
+  native-worktrees-phase5-integration-hardening. Capture a normalized
+  byte-for-byte `git worktree list --porcelain` path/branch inventory before any
+  test or build. Implement test-first: run each new focused regression against
+  the locked base and require it to fail for the intended alias/usability,
+  concurrency, runtime-removal, or unselected-Git safety reason before changing
+  production. Run git diff --check; pnpm --filter @codor/protocol test; pnpm
+  --filter @codor/switchboard exec vitest run src/store.spec.ts
+  src/worktrees.spec.ts src/router.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; the complete pnpm --filter @codor/switchboard test twice;
+  the complete pnpm --filter @codor/web-next test; pnpm --filter
+  '@codor/switchboard...' build; pnpm --filter '@codor/web-next...' build; then
+  root pnpm build followed by root pnpm test. Run isolated Playwright room34,
+  room39, room40, and room41 specs sequentially, each with a fresh harness and
+  nonoverlapping four-port range; room34 covers hosted multi-computer isolation,
+  room39 covers hosted preset and direct-path compatibility, room40 covers
+  direct group navigation/readiness, and room41 covers direct plus
+  separate-origin relay lifecycle. Verify ignored workspace package links
+  resolve to this checkout before each runtime gate and wait for any unrelated
+  harness swap to restore them rather than touching another worktree. Every Git
+  fixture must remain below its own mkdtemp root and must never delete a branch.
+  Compare the normalized real-worktree inventory after all gates and require
+  identical bytes, count, and SHA-256. Run harn find --file for all five
+  declared files, harn check, and harn check --staged. Stage only this plan and
+  the five declared files, let the pre-commit hook apply the plan and generate
+  assumption truth, and create exactly one Phase 5 implementation commit."
+applied:
+  applied_at: 2026-08-07T16:41:38.211Z

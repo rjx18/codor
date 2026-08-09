@@ -1,0 +1,18 @@
+id: worktree-alias-and-child-metadata-follow-stable-identity
+hash: a-f236fe5262c8
+title: Alias and child metadata follow stable worktree identity
+state: active
+statement: An active secondary alias may be changed only to a normalized unique
+  non-main value and must update that stable child's display name without
+  invoking Git or changing WorktreeId, conversation RoomId, path, Git
+  administrative identity, branch, transcript, members, or persisted route
+  snapshots; every new, migrated, or explicitly re-adopted child must store its
+  canonical registered path as room cwd and clear a root-only starting agent
+  handle while leaving the root Room byte-for-byte unchanged.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - registered-worktrees-materialize-stable-conversations
+  - child-conversation-state-is-room-isolated
+  - qualified-member-target-identity-is-durable
+  - changelog-covers-every-visible-entity
+created_by: native-worktrees-phase4-functional-group-ui

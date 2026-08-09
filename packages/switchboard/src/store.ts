@@ -37,6 +37,7 @@ import {
   type Room,
   type RoomConfig,
   RoomConfigSchema,
+  RoomIdSchema,
   type RoomInboxItem,
   type RoomMeter,
   RoomMeterSchema,
@@ -47,6 +48,20 @@ import {
   type RunSummary,
   RunSummarySchema,
   deriveRoomColor,
+  type WorktreeAvailability,
+  type WorktreeDiscoveryCandidate,
+  type WorktreeLifecycle,
+  type WorktreeSource,
+  type RepositoryRecord,
+  type RegisteredWorktree,
+  type ScopedMemberTarget,
+  type WorktreeRoutingCatalog,
+  WorktreeRoutingCatalogSchema,
+  WorktreeRoutingTargetSchema,
+  WorktreeRoutingTombstoneSchema,
+  WorktreeAliasSchema,
+  RegisteredWorktreeSchema,
+  RepositoryRecordSchema,
 } from '@codor/protocol';
 
 import { estimateCostUsd, priceForModel } from './pricing.js';
@@ -70,6 +85,7 @@ import {
 // harn:assume attach-custody-lease-tracks-child-pid ref=attach-lease-store
 // harn:assume collaboration-groups-are-durable-state ref=collaboration-store-schema
 // harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-schema
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS rooms (
   id TEXT PRIMARY KEY,
@@ -78,6 +94,44 @@ CREATE TABLE IF NOT EXISTS rooms (
   config TEXT NOT NULL,        -- RoomConfig JSON
   seq INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS repositories (
+  id TEXT PRIMARY KEY,
+  room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  common_path TEXT NOT NULL,
+  primary_path TEXT NOT NULL,
+  primary_git_admin_id TEXT NOT NULL,
+  created_ts TEXT NOT NULL,
+  updated_ts TEXT NOT NULL,
+  UNIQUE (room)
+);
+CREATE TABLE IF NOT EXISTS worktrees (
+  id TEXT PRIMARY KEY,
+  repository_id TEXT NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+  room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+  conversation_id TEXT,
+  alias TEXT NOT NULL,
+  path TEXT NOT NULL,
+  git_admin_id TEXT NOT NULL,
+  primary_checkout INTEGER NOT NULL DEFAULT 0 CHECK (primary_checkout IN (0, 1)),
+  source TEXT NOT NULL CHECK (source IN ('main', 'adopted', 'created')),
+  lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'unregistered', 'removed')),
+  availability TEXT NOT NULL CHECK (availability IN ('available', 'missing', 'locked', 'prunable')),
+  locked INTEGER NOT NULL DEFAULT 0 CHECK (locked IN (0, 1)),
+  head TEXT,
+  branch TEXT,
+  registered_ts TEXT NOT NULL,
+  updated_ts TEXT NOT NULL,
+  unregistered_ts TEXT,
+  removed_ts TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_alias_unique
+  ON worktrees (repository_id, alias) WHERE lifecycle = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_admin_unique
+  ON worktrees (repository_id, git_admin_id) WHERE lifecycle = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_path_unique
+  ON worktrees (repository_id, path) WHERE lifecycle = 'active';
+CREATE UNIQUE INDEX IF NOT EXISTS worktrees_active_primary_unique
+  ON worktrees (repository_id) WHERE lifecycle = 'active' AND primary_checkout = 1;
 CREATE TABLE IF NOT EXISTS members (
   id TEXT PRIMARY KEY,
   room TEXT NOT NULL REFERENCES rooms(id),
@@ -112,6 +166,10 @@ CREATE TABLE IF NOT EXISTS messages (
   room TEXT NOT NULL REFERENCES rooms(id),
   id INTEGER NOT NULL,
   author TEXT NOT NULL,
+  author_worktree_id TEXT,
+  author_conversation_id TEXT,
+  author_alias TEXT,
+  author_handle TEXT,
   kind TEXT NOT NULL,
   body TEXT NOT NULL,
   mentions TEXT NOT NULL,      -- MentionSpan[] JSON (member ids, never handles)
@@ -139,6 +197,10 @@ CREATE TABLE IF NOT EXISTS deliveries (
   room TEXT NOT NULL REFERENCES rooms(id),
   message_id INTEGER NOT NULL,
   recipient TEXT NOT NULL,
+  target_worktree_id TEXT,
+  target_conversation_id TEXT,
+  target_alias TEXT,
+  target_handle TEXT,
   state TEXT NOT NULL,
   attempt_count INTEGER NOT NULL DEFAULT 0,
   batch_id TEXT,
@@ -235,6 +297,7 @@ CREATE TABLE IF NOT EXISTS changes (
   PRIMARY KEY (room_id, seq)
 );
 `;
+// harn:end registered-worktree-identities-are-durable
 // harn:end substantive-output-messages-drive-unread
 // harn:end collaboration-groups-are-durable-state
 // harn:end attach-custody-lease-tracks-child-pid
@@ -279,6 +342,34 @@ function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
   // harn:end collaboration-groups-are-durable-state
 }
 // harn:end delivery-payload-snapshotted
+
+// harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-store-query
+/** Additive identity columns keep old messages and deliveries byte-compatible. */
+function migrateQualifiedRouting(db: Database.Database): void {
+  const messageColumns = db.pragma('table_info(messages)') as { name: string }[];
+  for (const column of [
+    'author_worktree_id', 'author_conversation_id', 'author_alias', 'author_handle',
+  ]) {
+    if (!messageColumns.some((candidate) => candidate.name === column)) {
+      db.exec(`ALTER TABLE messages ADD COLUMN ${column} TEXT`);
+    }
+  }
+  const deliveryColumns = db.pragma('table_info(deliveries)') as { name: string }[];
+  for (const column of [
+    'target_worktree_id', 'target_conversation_id', 'target_alias', 'target_handle',
+  ]) {
+    if (!deliveryColumns.some((candidate) => candidate.name === column)) {
+      db.exec(`ALTER TABLE deliveries ADD COLUMN ${column} TEXT`);
+    }
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS delivery_target_fifo
+      ON deliveries (target_conversation_id, recipient, state, queue_seq, id);
+    CREATE INDEX IF NOT EXISTS delivery_global_fifo
+      ON deliveries (queue_seq, id);
+  `);
+}
+// harn:end qualified-member-target-identity-is-durable
 
 function migrateMemberCustody(db: Database.Database): void {
   const columns = db.pragma('table_info(members)') as { name: string }[];
@@ -511,6 +602,110 @@ function migrateRoomReadCursors(db: Database.Database): void {
   `);
 }
 // harn:end human-room-read-cursors-are-durable-and-monotonic
+
+// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-migration
+/**
+ * Phase 1 rows predate conversation_id. Backfill them without using the normal
+ * room-creation path: a child inherits only the root human and reserved system
+ * identities through lookup, so no agent roster or transcript is copied.
+ */
+function migrationChildConversationId(db: Database.Database, worktreeId: string): string {
+  const stem = `wt-${worktreeId.toLowerCase()}`;
+  let candidate = stem;
+  let suffix = 0;
+  while (true) {
+    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(candidate) as { id: string } | undefined;
+    const owner = db.prepare('SELECT id FROM worktrees WHERE conversation_id = ?').get(candidate) as
+      { id: string } | undefined;
+    if (owner?.id === worktreeId || (room === undefined && owner === undefined)) return candidate;
+    suffix += 1;
+    candidate = `${stem}-${String(suffix)}`;
+  }
+}
+
+function appendMigrationChange(
+  db: Database.Database,
+  room: string,
+  entity: ChangeEntity,
+  entityId: string,
+): number {
+  const bumped = db.prepare('UPDATE rooms SET seq = seq + 1 WHERE id = ? RETURNING seq')
+    .get(room) as { seq: number } | undefined;
+  if (!bumped) throw new Error(`no such room: ${room}`);
+  db.prepare('INSERT INTO changes (room_id, seq, entity, entity_id) VALUES (?, ?, ?, ?)')
+    .run(room, bumped.seq, entity, entityId);
+  return bumped.seq;
+}
+
+function migrateWorktreeConversations(db: Database.Database): void {
+  const columns = db.pragma('table_info(worktrees)') as { name: string }[];
+  if (!columns.some((column) => column.name === 'conversation_id')) {
+    db.exec('ALTER TABLE worktrees ADD COLUMN conversation_id TEXT');
+  }
+  db.exec(
+    'CREATE UNIQUE INDEX IF NOT EXISTS worktrees_conversation_unique ON worktrees (conversation_id) WHERE conversation_id IS NOT NULL',
+  );
+
+  const now = new Date().toISOString();
+  const migrate = db.transaction(() => {
+    db.prepare(
+      `UPDATE worktrees SET conversation_id = room
+       WHERE primary_checkout = 1 AND (conversation_id IS NULL OR conversation_id = '')`,
+    ).run();
+
+    const rows = db.prepare(
+      `SELECT id, room, alias, conversation_id
+       FROM worktrees WHERE primary_checkout = 0 ORDER BY id`,
+    ).all() as { id: string; room: string; alias: string; conversation_id: string | null }[];
+    for (const row of rows) {
+      const conversationId = row.conversation_id && row.conversation_id !== ''
+        ? row.conversation_id
+        : migrationChildConversationId(db, row.id);
+      const child = db.prepare('SELECT id, seq FROM rooms WHERE id = ?').get(conversationId) as
+        { id: string; seq: number } | undefined;
+      if (child === undefined) {
+        const root = db.prepare('SELECT name, created_ts, config FROM rooms WHERE id = ?').get(row.room) as
+          { name: string; created_ts: string; config: string } | undefined;
+        if (!root) throw new Error(`no root room for worktree ${row.id}`);
+        db.prepare(
+          'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
+        ).run(conversationId, `${root.name} · ${row.alias}`, now, root.config);
+        appendMigrationChange(db, conversationId, 'room', conversationId);
+        const inherited = db.prepare(
+          `SELECT id, kind FROM members
+           WHERE room = ? AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))
+           ORDER BY id`,
+        ).all(row.room) as { id: string; kind: string }[];
+        const humanIds: string[] = [];
+        for (const member of inherited) {
+          appendMigrationChange(db, conversationId, 'member', member.id);
+          if (member.kind === 'human') humanIds.push(member.id);
+        }
+        const currentSeq = (db.prepare('SELECT seq FROM rooms WHERE id = ?').get(conversationId) as { seq: number }).seq;
+        for (const memberId of humanIds) {
+          db.prepare(
+            `INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+             VALUES (?, ?, ?, ?)`,
+          ).run(conversationId, memberId, currentSeq, now);
+        }
+      } else {
+        const inheritedHumans = db.prepare(
+          `SELECT id FROM members WHERE room = ? AND kind = 'human' ORDER BY id`,
+        ).all(row.room) as { id: string }[];
+        for (const member of inheritedHumans) {
+          db.prepare(
+            `INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+             VALUES (?, ?, ?, ?)`,
+          ).run(conversationId, member.id, child.seq, now);
+        }
+      }
+      db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?')
+        .run(conversationId, row.id);
+    }
+  });
+  migrate();
+}
+// harn:end registered-worktrees-materialize-stable-conversations
 
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
@@ -1004,6 +1199,10 @@ interface MessageRow {
   room: string;
   id: number;
   author: string;
+  author_worktree_id: string | null;
+  author_conversation_id: string | null;
+  author_alias: string | null;
+  author_handle: string | null;
   kind: string;
   body: string;
   mentions: string;
@@ -1031,6 +1230,10 @@ interface DeliveryRow {
   room: string;
   message_id: number;
   recipient: string;
+  target_worktree_id: string | null;
+  target_conversation_id: string | null;
+  target_alias: string | null;
+  target_handle: string | null;
   state: string;
   attempt_count: number;
   batch_id: string | null;
@@ -1106,6 +1309,37 @@ interface RoomRow {
   created_ts: string;
   config: string;
   seq: number;
+}
+
+interface RepositoryRow {
+  id: string;
+  room: string;
+  common_path: string;
+  primary_path: string;
+  primary_git_admin_id: string;
+  created_ts: string;
+  updated_ts: string;
+}
+
+interface WorktreeRow {
+  id: string;
+  repository_id: string;
+  room: string;
+  conversation_id: string | null;
+  alias: string;
+  path: string;
+  git_admin_id: string;
+  primary_checkout: number;
+  source: WorktreeSource;
+  lifecycle: WorktreeLifecycle;
+  availability: WorktreeAvailability;
+  locked: number;
+  head: string | null;
+  branch: string | null;
+  registered_ts: string;
+  updated_ts: string;
+  unregistered_ts: string | null;
+  removed_ts: string | null;
 }
 
 interface MeterRow {
@@ -1230,6 +1464,18 @@ function messageFromRow(row: MessageRow): Message {
     id: row.id,
     room: row.room,
     author: row.author,
+    // harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-message-storage
+    ...(row.author_worktree_id !== null && row.author_conversation_id !== null &&
+      row.author_alias !== null && row.author_handle !== null && {
+        author_target: {
+          worktree_id: row.author_worktree_id,
+          conversation_id: row.author_conversation_id,
+          alias: row.author_alias,
+          handle: row.author_handle,
+          member_id: row.author,
+        },
+      }),
+    // harn:end cross-worktree-output-stays-in-origin
     kind: row.kind,
     body: row.body,
     mentions: JSON.parse(row.mentions),
@@ -1258,6 +1504,18 @@ function deliveryFromRow(row: DeliveryRow): Delivery {
     room: row.room,
     message_id: row.message_id,
     recipient: row.recipient,
+    // harn:assume qualified-member-target-identity-is-durable ref=qualified-delivery-target-schema
+    ...(row.target_worktree_id !== null && row.target_conversation_id !== null &&
+      row.target_alias !== null && row.target_handle !== null && {
+        target: {
+          worktree_id: row.target_worktree_id,
+          conversation_id: row.target_conversation_id,
+          member_id: row.recipient,
+          alias: row.target_alias,
+          handle: row.target_handle,
+        },
+      }),
+    // harn:end qualified-member-target-identity-is-durable
     state: row.state,
     hop_count: row.hop_count,
     attempt_count: row.attempt_count,
@@ -1327,6 +1585,44 @@ function roomFromRow(row: RoomRow): Room {
 }
 // harn:end every-channel-has-a-visible-accent
 
+function repositoryFromRow(row: RepositoryRow): RepositoryRecord {
+  return RepositoryRecordSchema.parse({
+    id: row.id,
+    room: row.room,
+    common_path: row.common_path,
+    primary_path: row.primary_path,
+    primary_git_admin_id: row.primary_git_admin_id,
+    created_ts: row.created_ts,
+    updated_ts: row.updated_ts,
+  });
+}
+
+function worktreeFromRow(row: WorktreeRow): RegisteredWorktree {
+  if (row.conversation_id === null || row.conversation_id === '') {
+    throw new Error(`worktree ${row.id} has no conversation mapping`);
+  }
+  return RegisteredWorktreeSchema.parse({
+    id: row.id,
+    repository_id: row.repository_id,
+    room: row.room,
+    conversation_id: row.conversation_id,
+    alias: row.alias,
+    path: row.path,
+    git_admin_id: row.git_admin_id,
+    primary: toBool(row.primary_checkout),
+    source: row.source,
+    lifecycle: row.lifecycle,
+    availability: row.availability,
+    locked: toBool(row.locked),
+    head: row.head ?? undefined,
+    branch: row.branch ?? undefined,
+    registered_ts: row.registered_ts,
+    updated_ts: row.updated_ts,
+    unregistered_ts: row.unregistered_ts ?? undefined,
+    removed_ts: row.removed_ts ?? undefined,
+  });
+}
+
 function meterFromRow(row: MeterRow): RoomMeter {
   return RoomMeterSchema.parse(row);
 }
@@ -1360,6 +1656,26 @@ export interface AgentRuntimeConfig {
   usage_baseline?: AcpUsageBaseline;
 }
 
+// harn:assume registered-worktree-identities-are-durable ref=worktree-store-lifecycle
+/** A fresh Git observation contains no Codor identity and never becomes an
+ * active row unless an explicit lifecycle method asks the store to register it. */
+export interface WorktreeObservation {
+  path: string;
+  git_admin_id: string;
+  primary: boolean;
+  availability: WorktreeAvailability;
+  locked: boolean;
+  head?: string;
+  branch?: string;
+}
+
+export interface RepositoryObservation {
+  common_path: string;
+  primary_path: string;
+  primary_git_admin_id: string;
+}
+// harn:end registered-worktree-identities-are-durable
+
 // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-room-seed
 /** A fully preflighted agent snapshot that may join the room transaction. */
 export interface InitialAgent {
@@ -1370,6 +1686,7 @@ export interface InitialAgent {
 
 export interface NewMessage {
   author: string;
+  author_target?: ScopedMemberTarget;
   kind: Message['kind'];
   body: string;
   mentions?: Message['mentions'];
@@ -1400,6 +1717,7 @@ export interface SyncResult {
 
 export interface FanoutDelivery {
   recipient: string;
+  target?: ScopedMemberTarget;
   state?: Delivery['state'];
   payload_snapshot?: string;
   hop_count?: number;
@@ -1503,6 +1821,7 @@ export class Store {
       this.db.exec(SCHEMA);
       migrateAgentPresetStore(this.db);
       migrateDeliveryPayloadSnapshot(this.db);
+      migrateQualifiedRouting(this.db);
       migrateMemberCustody(this.db);
       migrateMemberLifecycle(this.db);
       // MUST run after migrateMemberLifecycle: on a legacy database that one REBUILDS the
@@ -1522,6 +1841,7 @@ export class Store {
       migrateMessageContinuations(this.db);
       migrateMessageActivity(this.db);
       migrateRoomReadCursors(this.db);
+      migrateWorktreeConversations(this.db);
       migrateApprovalDeliveryResolution(this.db);
       migrateDeliveryHopCount(this.db);
       migrateDeliverySteering(this.db);
@@ -1532,11 +1852,50 @@ export class Store {
         this.db,
         options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'),
       );
+      this.reconcileWorktreeChildMetadata();
     } catch (error) {
       this.db.close();
       throw error;
     }
   }
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-migration
+  /** Idempotent open-time reconciliation for children materialized before the
+   * canonical projection existed (root config copied verbatim, root cwd, or a
+   * leaked starting agent handle). One ordinary child room change is appended
+   * only when the visible name/config actually drifts; root rows are read,
+   * never written, and root ids/history are untouched. */
+  private reconcileWorktreeChildMetadata(): void {
+    // Active AND tombstoned mapped children: a durable conversation keeps its
+    // truthful metadata through unregister/removal as well.
+    const rows = this.db.prepare(
+      `SELECT room, alias, path, conversation_id
+       FROM worktrees
+       WHERE primary_checkout = 0
+         AND conversation_id IS NOT NULL AND conversation_id != ''`,
+    ).all() as { room: string; alias: string; path: string; conversation_id: string }[];
+    if (rows.length === 0) return;
+    this.db.transaction(() => {
+      for (const row of rows) {
+        const rootRoom = this.getRoom(row.room);
+        const childRow = this.db.prepare('SELECT * FROM rooms WHERE id = ?')
+          .get(row.conversation_id) as RoomRow | undefined;
+        if (rootRoom === undefined || childRow === undefined) continue;
+        const currentConfig = RoomConfigSchema.parse(JSON.parse(childRow.config) as unknown);
+        const patch = this.childMetadataPatch(
+          { name: childRow.name, config: currentConfig },
+          rootRoom.name,
+          row.alias,
+          row.path,
+        );
+        if (patch === undefined) continue;
+        this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
+          .run(patch.name, JSON.stringify(patch.config), row.conversation_id);
+        this.appendChange(row.conversation_id, 'room', row.conversation_id);
+      }
+    })();
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
 
   close(): void {
     this.db.close();
@@ -1610,27 +1969,7 @@ export class Store {
       // These rows are deliberately dead until the daemon has activated each
       // independent runtime. A failed external spawn therefore cannot undo the
       // room transaction or erase a durable member identity.
-      const initialAgents = (opts.initialAgents ?? []).map(({ member, runtime }) => {
-        const inserted = this.insertMember(opts.id, member);
-        if (
-          runtime?.acp_launch !== undefined ||
-          runtime?.lifecycle !== undefined ||
-          runtime?.usage_baseline !== undefined
-        ) {
-          this.db.prepare(
-            `UPDATE members
-             SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
-             WHERE room = ? AND id = ?`,
-          ).run(
-            runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
-            runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
-            runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
-            opts.id,
-            inserted.id,
-          );
-        }
-        return inserted;
-      });
+      const initialAgents = this.insertInitialAgentMembers(opts.id, opts.initialAgents ?? []);
       // harn:end default-roster-channel-members-are-detached-ordered-snapshots
       if (opts.bootstrapWelcome !== undefined) {
         const tutorial = this.insertMember(opts.id, {
@@ -1661,6 +2000,712 @@ export class Store {
     return rows.map(roomFromRow);
   }
 
+  // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-root-query
+  /** All rooms remain available to daemon recovery; only this projection hides children. */
+  listPublicRooms(): Room[] {
+    const rows = this.db.prepare(
+      `SELECT rooms.* FROM rooms
+       WHERE NOT EXISTS (
+         SELECT 1 FROM worktrees
+         WHERE worktrees.conversation_id = rooms.id
+           AND worktrees.primary_checkout = 0
+       )
+       ORDER BY rooms.id`,
+    ).all() as RoomRow[];
+    return rows.map(roomFromRow);
+  }
+
+  isChildRoom(room: string): boolean {
+    const row = this.db.prepare(
+      `SELECT 1 AS child FROM worktrees
+       WHERE conversation_id = ? AND primary_checkout = 0 LIMIT 1`,
+    ).get(room) as { child: number } | undefined;
+    return row !== undefined;
+  }
+
+  rootRoomId(room: string): string | undefined {
+    const row = this.db.prepare(
+      `SELECT room FROM worktrees
+       WHERE conversation_id = ? AND primary_checkout = 0
+       ORDER BY lifecycle = 'active' DESC, updated_ts DESC LIMIT 1`,
+    ).get(room) as { room: string } | undefined;
+    return row?.room;
+  }
+
+  private childRoomIds(root: string): string[] {
+    const rows = this.db.prepare(
+      `SELECT conversation_id FROM worktrees
+       WHERE room = ? AND primary_checkout = 0 AND conversation_id IS NOT NULL
+       ORDER BY conversation_id`,
+    ).all(root) as { conversation_id: string }[];
+    return rows.map((row) => row.conversation_id);
+  }
+  // harn:end main-and-direct-conversations-stay-compatible
+
+  // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-schema
+  private newChildConversationId(worktreeId: string): string {
+    const stem = `wt-${worktreeId.toLowerCase()}`;
+    let candidate = stem;
+    let suffix = 0;
+    while (
+      this.db.prepare('SELECT 1 FROM rooms WHERE id = ?').get(candidate) !== undefined
+      || this.db.prepare('SELECT 1 FROM worktrees WHERE conversation_id = ?').get(candidate) !== undefined
+    ) {
+      suffix += 1;
+      candidate = `${stem}-${String(suffix)}`;
+    }
+    return RoomIdSchema.parse(candidate);
+  }
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-store
+  /** One detached snapshot member insertion shared by channel creation and
+   * child registration: the private runtime columns travel with the row and no
+   * preset or roster reference is ever persisted. */
+  private insertInitialAgentMembers(
+    room: string,
+    initialAgents: readonly InitialAgent[],
+  ): Member[] {
+    return initialAgents.map(({ member, runtime }) => {
+      const inserted = this.insertMember(room, member);
+      if (
+        runtime?.acp_launch !== undefined ||
+        runtime?.lifecycle !== undefined ||
+        runtime?.usage_baseline !== undefined
+      ) {
+        this.db.prepare(
+          `UPDATE members
+           SET acp_launch = ?, session_lifecycle = ?, acp_usage_baseline = ?
+           WHERE room = ? AND id = ?`,
+        ).run(
+          runtime.acp_launch === undefined ? null : JSON.stringify(runtime.acp_launch),
+          runtime.lifecycle === undefined ? null : JSON.stringify(runtime.lifecycle),
+          runtime.usage_baseline === undefined ? null : JSON.stringify(runtime.usage_baseline),
+          room,
+          inserted.id,
+        );
+      }
+      return inserted;
+    });
+  }
+
+  /** A NEW child inherits the root configuration exactly once: its canonical
+   * registered path is the cwd, and a root-only starting agent handle never
+   * leaks across. After creation the child's configuration is room-local
+   * state that only the narrow patch below may touch. */
+  private childRoomProjection(rootName: string, rootConfig: RoomConfig, alias: string, canonicalPath: string): {
+    name: string;
+    config: RoomConfig;
+  } {
+    const { starting_agent_handle: _rootStartingHandle, ...inherited } = rootConfig;
+    return {
+      name: `${rootName} · ${alias}`,
+      config: RoomConfigSchema.parse({ ...inherited, cwd: canonicalPath }),
+    };
+  }
+
+  /** The ONLY reconciliation an existing child may receive: its display name
+   * follows the alias, its cwd follows the canonical registered path, and a
+   * stale root-only starting handle is cleared. Brakes, stall interval,
+   * redaction, color, bridged state, and every other room-local field are
+   * preserved byte-for-byte. Returns undefined when nothing visibly drifts. */
+  private childMetadataPatch(
+    existing: { name: string; config: RoomConfig },
+    rootName: string,
+    alias: string,
+    canonicalPath: string,
+    options: { reconcileConfig: boolean } = { reconcileConfig: true },
+  ): { name: string; config: RoomConfig } | undefined {
+    const name = `${rootName} · ${alias}`;
+    // An alias edit reconciles the display name ONLY; migration/re-adoption
+    // additionally patch exactly the canonical cwd and a stale root-only
+    // starting handle, preserving every other room-local field byte-for-byte.
+    const config = options.reconcileConfig
+      ? RoomConfigSchema.parse((() => {
+          const { starting_agent_handle: _stale, ...preserved } = existing.config;
+          return { ...preserved, cwd: canonicalPath };
+        })())
+      : existing.config;
+    if (existing.name === name && JSON.stringify(existing.config) === JSON.stringify(config)) {
+      return undefined;
+    }
+    return { name, config };
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
+  private ensureChildConversation(
+    root: string,
+    conversationId: string,
+    alias: string,
+    canonicalPath: string,
+    now: string,
+  ): void {
+    const rootRoom = this.getRoom(root);
+    if (rootRoom === undefined) throw new Error(`no root room: ${root}`);
+    const existing = this.db.prepare('SELECT * FROM rooms WHERE id = ?').get(conversationId) as
+      RoomRow | undefined;
+    if (existing !== undefined) {
+      // Explicit re-adoption patches ONLY the name, canonical cwd, and a stale
+      // root starting handle; every other child-local field is preserved, and
+      // one ordinary room change lands only on visible drift.
+      const currentConfig = RoomConfigSchema.parse(JSON.parse(existing.config) as unknown);
+      const patch = this.childMetadataPatch(
+        { name: existing.name, config: currentConfig },
+        rootRoom.name,
+        alias,
+        canonicalPath,
+      );
+      if (patch !== undefined) {
+        this.db.prepare('UPDATE rooms SET name = ?, config = ? WHERE id = ?')
+          .run(patch.name, JSON.stringify(patch.config), conversationId);
+        this.appendChange(conversationId, 'room', conversationId);
+      }
+      for (const member of this.db.prepare(
+        `SELECT id FROM members WHERE room = ? AND kind = 'human' ORDER BY id`,
+      ).all(root) as { id: string }[]) {
+        this.db.prepare(
+          `INSERT OR IGNORE INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+           VALUES (?, ?, ?, ?)`,
+        ).run(conversationId, member.id, existing.seq, now);
+      }
+      return;
+    }
+    const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, alias, canonicalPath);
+    this.db.prepare(
+      'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
+    ).run(conversationId, projection.name, now, JSON.stringify(projection.config));
+    this.appendChange(conversationId, 'room', conversationId);
+    const inherited = this.db.prepare(
+      `SELECT id, kind FROM members
+       WHERE room = ? AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))
+       ORDER BY id`,
+    ).all(root) as { id: string; kind: string }[];
+    const humanIds: string[] = [];
+    for (const member of inherited) {
+      this.appendChange(conversationId, 'member', member.id);
+      if (member.kind === 'human') humanIds.push(member.id);
+    }
+    const currentSeq = this.currentSeq(conversationId);
+    for (const memberId of humanIds) {
+      this.db.prepare(
+        `INSERT INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (room, member_id) DO NOTHING`,
+      ).run(conversationId, memberId, currentSeq, now);
+    }
+  }
+
+  private appendInheritedMemberChanges(root: string, memberId: string): void {
+    for (const child of this.childRoomIds(root)) {
+      this.appendChange(child, 'member', memberId);
+    }
+  }
+  // harn:end registered-worktrees-materialize-stable-conversations
+
+  /** Return the room's repository projection without creating one as a side effect. */
+  getRepository(room: string): RepositoryRecord | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM repositories WHERE room = ? ORDER BY id LIMIT 1')
+      .get(room) as RepositoryRow | undefined;
+    return row === undefined ? undefined : repositoryFromRow(row);
+  }
+
+  getRepositoryByCommonPath(room: string, commonPath: string): RepositoryRecord | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM repositories WHERE room = ? AND common_path = ?')
+      .get(room, commonPath) as RepositoryRow | undefined;
+    return row === undefined ? undefined : repositoryFromRow(row);
+  }
+
+  getWorktree(room: string, worktreeId: string): RegisteredWorktree | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM worktrees WHERE room = ? AND id = ?')
+      .get(room, worktreeId) as WorktreeRow | undefined;
+    return row === undefined ? undefined : worktreeFromRow(row);
+  }
+
+  getWorktreeByConversation(room: string, conversationId: string): RegisteredWorktree | undefined {
+    const row = this.db.prepare(
+      `SELECT * FROM worktrees
+       WHERE room = ? AND conversation_id = ?
+       ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+       LIMIT 1`,
+    ).get(room, conversationId) as WorktreeRow | undefined;
+    return row === undefined ? undefined : worktreeFromRow(row);
+  }
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-store-query
+  /** Read-only, path-free projection for qualified routing and completion. */
+  routingCatalog(room: string): WorktreeRoutingCatalog {
+    const root = this.rootRoomId(room) ?? room;
+    const registered = this.listWorktrees(root, { includeTombstones: true });
+    const targets = registered
+      .filter((worktree) => worktree.lifecycle === 'active' && worktree.conversation_id !== undefined)
+      .map((worktree) => WorktreeRoutingTargetSchema.parse({
+        worktree_id: worktree.id,
+        conversation_id: worktree.conversation_id,
+        alias: worktree.alias,
+        primary: worktree.primary,
+        lifecycle: 'active',
+        members: this.listMembers(worktree.conversation_id)
+          .filter((member) =>
+            member.removed_ts === undefined && (member.kind === 'human' || member.kind === 'agent'))
+          .map((member) => ({
+            member_id: member.id,
+            handle: member.handle,
+            kind: member.kind,
+            display_name: member.display_name,
+            ...(member.purpose !== undefined && { purpose: member.purpose }),
+          })),
+        removed_members: this.listMembers(worktree.conversation_id, { includeRemoved: true })
+          .filter((member) =>
+            member.removed_ts !== undefined && (member.kind === 'human' || member.kind === 'agent'))
+          .map((member) => ({
+            member_id: member.id,
+            handle: member.handle,
+            kind: member.kind,
+          }))
+          .sort((left, right) => left.member_id.localeCompare(right.member_id))
+          .slice(0, 256),
+      }));
+    const tombstones = registered
+      .filter((worktree) => worktree.lifecycle !== 'active' && worktree.conversation_id !== undefined)
+      .map((worktree) => WorktreeRoutingTombstoneSchema.parse({
+        worktree_id: worktree.id,
+        conversation_id: worktree.conversation_id,
+        alias: worktree.alias,
+        lifecycle: worktree.lifecycle,
+      }));
+    return WorktreeRoutingCatalogSchema.parse({ room: root, targets, tombstones });
+  }
+
+  private routingTargetRecord(target: ScopedMemberTarget, originRoom: string): {
+    root: string;
+    worktree: RegisteredWorktree;
+    member: Member;
+  } | undefined {
+    const root = this.rootRoomId(target.conversation_id) ?? target.conversation_id;
+    const originRoot = this.rootRoomId(originRoom) ?? originRoom;
+    const originRepository = this.getRepository(originRoot);
+    const targetRepository = this.getRepository(root);
+    if (
+      originRepository === undefined
+      || targetRepository === undefined
+      || originRepository.id !== targetRepository.id
+    ) return undefined;
+    const worktree = this.getWorktreeByConversation(root, target.conversation_id);
+    if (
+      worktree === undefined
+      || worktree.id !== target.worktree_id
+      || worktree.room !== root
+      || worktree.repository_id !== targetRepository.id
+      || worktree.conversation_id !== target.conversation_id
+    ) return undefined;
+    const member = this.getMember(target.conversation_id, target.member_id);
+    if (
+      member === undefined
+      || member.handle !== target.handle
+      || (member.kind !== 'human' && member.kind !== 'agent')
+    ) return undefined;
+    return { root, worktree, member };
+  }
+
+  /** Re-check a persisted qualified target immediately before execution. The
+   * origin room is explicit and required: a target may only ever be validated
+   * against the repository of the conversation the work came from, never
+   * against itself. */
+  routingTargetIsActive(target: ScopedMemberTarget, originRoom: string): boolean {
+    const located = this.routingTargetRecord(target, originRoom);
+    return located !== undefined
+      && located.worktree.lifecycle === 'active'
+      && (located.worktree.availability === 'available' || located.worktree.availability === 'locked')
+      && located.member.removed_ts === undefined;
+  }
+
+  // harn:end qualified-member-target-identity-is-durable
+
+  getWorktreeByGitAdmin(
+    room: string,
+    gitAdminId: string,
+    options: { includeTombstones?: boolean } = {},
+  ): RegisteredWorktree | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM worktrees
+         WHERE room = ? AND git_admin_id = ?
+           AND (? = 1 OR lifecycle = 'active')
+         ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+         LIMIT 1`,
+      )
+      .get(room, gitAdminId, options.includeTombstones ? 1 : 0) as WorktreeRow | undefined;
+    return row === undefined ? undefined : worktreeFromRow(row);
+  }
+
+  listWorktrees(
+    room: string,
+    options: { includeTombstones?: boolean; repositoryId?: string } = {},
+  ): RegisteredWorktree[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM worktrees
+         WHERE room = ?
+           AND (? IS NULL OR repository_id = ?)
+           AND (? = 1 OR lifecycle = 'active')
+         ORDER BY primary_checkout DESC, alias, id`,
+      )
+      .all(
+        room,
+        options.repositoryId ?? null,
+        options.repositoryId ?? null,
+        options.includeTombstones ? 1 : 0,
+      ) as WorktreeRow[];
+    return rows.map(worktreeFromRow);
+  }
+
+  listRegisteredWorktrees(room: string, repositoryId?: string): RegisteredWorktree[] {
+    return this.listWorktrees(room, { repositoryId });
+  }
+
+  // harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-root-neutral-registration
+  /** Persist the repository, its stable main row, and one explicitly selected
+   * secondary in one SQLite transaction. Registration effects are limited to
+   * repository/worktree rows and CHILD conversation metadata (plus the one
+   * explicitly preflighted new-child seed); every existing root entity — Room
+   * config, roster, history, tasks, usage — is preserved byte-for-byte. */
+  registerWorktree(
+    room: string,
+    repository: RepositoryObservation,
+    main: WorktreeObservation,
+    secondary: WorktreeObservation,
+    alias: string,
+    source: Exclude<WorktreeSource, 'main'>,
+    now = new Date().toISOString(),
+    initialAgents: readonly InitialAgent[] = [],
+  ): { repository: RepositoryRecord; worktree: RegisteredWorktree; seeded: Member[] } {
+    if (!main.primary || secondary.primary) throw new Error('invalid primary/secondary worktree observations');
+    const normalizedAlias = WorktreeAliasSchema.parse(alias);
+    return this.db.transaction(() => {
+      if (!this.getRoom(room)) throw new Error(`no such room: ${room}`);
+
+      const existingRoomRepository = this.db
+        .prepare('SELECT * FROM repositories WHERE room = ? LIMIT 1')
+        .get(room) as RepositoryRow | undefined;
+      if (
+        existingRoomRepository !== undefined
+        && existingRoomRepository.common_path !== repository.common_path
+      ) {
+        throw new Error('a room may register only one Git repository');
+      }
+
+      let repositoryRow = this.db
+        .prepare('SELECT * FROM repositories WHERE room = ? AND common_path = ?')
+        .get(room, repository.common_path) as RepositoryRow | undefined;
+      if (repositoryRow === undefined) {
+        const repositoryId = this.newUlid();
+        this.db.prepare(
+          `INSERT INTO repositories
+             (id, room, common_path, primary_path, primary_git_admin_id, created_ts, updated_ts)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        ).run(
+          repositoryId,
+          room,
+          repository.common_path,
+          repository.primary_path,
+          repository.primary_git_admin_id,
+          now,
+          now,
+        );
+        repositoryRow = this.db
+          .prepare('SELECT * FROM repositories WHERE id = ?')
+          .get(repositoryId) as RepositoryRow;
+      } else {
+        this.db.prepare(
+          `UPDATE repositories
+           SET primary_path = ?, primary_git_admin_id = ?, updated_ts = ?
+           WHERE id = ?`,
+        ).run(repository.primary_path, repository.primary_git_admin_id, now, repositoryRow.id);
+        repositoryRow = this.db
+          .prepare('SELECT * FROM repositories WHERE id = ?')
+          .get(repositoryRow.id) as RepositoryRow;
+      }
+
+      const mainRow = this.db
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE repository_id = ? AND primary_checkout = 1
+           ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+           LIMIT 1`,
+        )
+        .get(repositoryRow.id) as WorktreeRow | undefined;
+      if (mainRow === undefined) {
+        this.insertWorktreeRow(
+          repositoryRow.id,
+          room,
+          'main',
+          main,
+          'main',
+          room,
+          now,
+        );
+      } else {
+        if (mainRow.conversation_id !== room) {
+          this.db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?').run(room, mainRow.id);
+        }
+        this.updateWorktreeRow(mainRow.id, main, {
+          alias: 'main',
+          lifecycle: 'active',
+          source: 'main',
+          unregistered_ts: null,
+          removed_ts: null,
+          updated_ts: now,
+        });
+      }
+
+      const existingSecondary = this.db
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE repository_id = ? AND git_admin_id = ? AND primary_checkout = 0
+           ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+           LIMIT 1`,
+        )
+        .get(repositoryRow.id, secondary.git_admin_id) as WorktreeRow | undefined;
+      let secondaryId: string;
+      if (existingSecondary === undefined) {
+        secondaryId = this.newUlid();
+        this.insertWorktreeRow(
+          repositoryRow.id,
+          room,
+          normalizedAlias,
+          secondary,
+          source,
+          this.newChildConversationId(secondaryId),
+          now,
+          secondaryId,
+        );
+      } else {
+        secondaryId = existingSecondary.id;
+        if (existingSecondary.conversation_id === null || existingSecondary.conversation_id === '') {
+          this.db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?').run(
+            this.newChildConversationId(existingSecondary.id),
+            existingSecondary.id,
+          );
+        }
+        this.updateWorktreeRow(existingSecondary.id, secondary, {
+          alias: normalizedAlias,
+          lifecycle: 'active',
+          // The original source and registration timestamp are identity history;
+          // re-adoption only clears the tombstone and refreshes observations.
+          source: existingSecondary.source,
+          unregistered_ts: null,
+          removed_ts: null,
+          updated_ts: now,
+        });
+      }
+
+      const secondaryRow = this.db.prepare('SELECT * FROM worktrees WHERE id = ?')
+        .get(secondaryId) as WorktreeRow;
+      if (secondaryRow.conversation_id === null || secondaryRow.conversation_id === '') {
+        throw new Error(`worktree ${secondaryId} has no conversation mapping`);
+      }
+      this.ensureChildConversation(room, secondaryRow.conversation_id, normalizedAlias, secondary.path, now);
+      // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-store
+      // Only a brand-new child receives the preflighted detached snapshots,
+      // bound to that exact conversation inside this same transaction. Any
+      // later re-adoption reuses the durable child and seeds nothing.
+      const seeded = existingSecondary === undefined
+        ? this.insertInitialAgentMembers(secondaryRow.conversation_id, initialAgents)
+        : [];
+      // harn:end worktree-child-default-roster-is-an-explicit-snapshot
+
+      const refreshedRepository = this.db
+        .prepare('SELECT * FROM repositories WHERE id = ?')
+        .get(repositoryRow.id) as RepositoryRow;
+      const refreshedWorktree = this.db
+        .prepare(
+          `SELECT * FROM worktrees
+           WHERE repository_id = ? AND git_admin_id = ? AND primary_checkout = 0
+           ORDER BY CASE lifecycle WHEN 'active' THEN 0 ELSE 1 END, updated_ts DESC
+           LIMIT 1`,
+        )
+        .get(repositoryRow.id, secondary.git_admin_id) as WorktreeRow;
+      return {
+        repository: repositoryFromRow(refreshedRepository),
+        worktree: worktreeFromRow(refreshedWorktree),
+        seeded,
+      };
+    })();
+  }
+  // harn:end worktree-lifecycle-preserves-existing-state-by-default
+
+  /** Refresh an active row from a fresh Git observation. This deliberately
+   * bypasses the room changelog because worktree metadata is an additive REST
+   * projection, not room-sync state. */
+  refreshWorktreeObservation(
+    room: string,
+    worktreeId: string,
+    observation: WorktreeObservation,
+    now = new Date().toISOString(),
+  ): RegisteredWorktree {
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active') {
+        throw new Error(`no active worktree: ${worktreeId}`);
+      }
+      this.updateWorktreeRow(existing.id, observation, { updated_ts: now });
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+
+  unregisterWorktree(room: string, worktreeId: string, now = new Date().toISOString()): RegisteredWorktree {
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
+        throw new Error(`only an active secondary worktree can be unregistered: ${worktreeId}`);
+      }
+      this.db.prepare(
+        `UPDATE worktrees
+         SET lifecycle = 'unregistered', unregistered_ts = ?, updated_ts = ?
+         WHERE room = ? AND id = ? AND lifecycle = 'active'`,
+      ).run(now, now, room, worktreeId);
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+
+  removeWorktree(room: string, worktreeId: string, now = new Date().toISOString()): RegisteredWorktree {
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
+        throw new Error(`only an active secondary worktree can be removed: ${worktreeId}`);
+      }
+      this.db.prepare(
+        `UPDATE worktrees
+         SET lifecycle = 'removed', availability = 'missing', locked = 0,
+             removed_ts = ?, updated_ts = ?
+         WHERE room = ? AND id = ? AND lifecycle = 'active'`,
+      ).run(now, now, room, worktreeId);
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+
+  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-store
+  /** Identity-preserving alias mutation: one unique non-main label on an
+   * active secondary, the stable child's display name reconciled in the same
+   * transaction, and NO Git invocation. WorktreeId, conversation RoomId, path,
+   * Git administrative identity, branch, transcript, and members never move. */
+  updateWorktreeAlias(
+    room: string,
+    worktreeId: string,
+    alias: string,
+    now = new Date().toISOString(),
+  ): RegisteredWorktree {
+    const normalized = WorktreeAliasSchema.parse(alias);
+    if (normalized === 'main') throw new Error('the main alias is reserved');
+    return this.db.transaction(() => {
+      const existing = this.getWorktree(room, worktreeId);
+      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
+        throw new Error(`only an active secondary worktree can be renamed: ${worktreeId}`);
+      }
+      const collision = this.listWorktrees(room, { repositoryId: existing.repository_id })
+        .find((candidate) => candidate.alias === normalized && candidate.id !== existing.id);
+      if (collision !== undefined) throw new Error(`worktree alias is already in use: ${normalized}`);
+      this.db.prepare('UPDATE worktrees SET alias = ?, updated_ts = ? WHERE id = ?')
+        .run(normalized, now, existing.id);
+      const rootRoom = this.getRoom(room);
+      if (rootRoom === undefined) throw new Error(`no root room: ${room}`);
+      const child = this.getRoom(existing.conversation_id);
+      if (child !== undefined) {
+        // An alias edit touches ONLY the child display name; room-local
+        // configuration is never rewritten from main.
+        const patch = this.childMetadataPatch(
+          { name: child.name, config: child.config },
+          rootRoom.name,
+          normalized,
+          existing.path,
+          { reconcileConfig: false },
+        );
+        if (patch !== undefined) {
+          this.db.prepare('UPDATE rooms SET name = ? WHERE id = ?').run(patch.name, child.id);
+          this.appendChange(child.id, 'room', child.id);
+        }
+      }
+      return this.getWorktree(room, worktreeId)!;
+    })();
+  }
+  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+
+  private insertWorktreeRow(
+    repositoryId: string,
+    room: string,
+    alias: string,
+    observation: WorktreeObservation,
+    source: WorktreeSource,
+    conversationId: string,
+    now: string,
+    id = this.newUlid(),
+  ): void {
+    this.db.prepare(
+      `INSERT INTO worktrees
+         (id, repository_id, room, conversation_id, alias, path, git_admin_id, primary_checkout, source,
+          lifecycle, availability, locked, head, branch, registered_ts, updated_ts)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      repositoryId,
+      room,
+      conversationId,
+      WorktreeAliasSchema.parse(alias),
+      observation.path,
+      observation.git_admin_id,
+      fromBool(observation.primary),
+      source,
+      observation.availability,
+      fromBool(observation.locked),
+      observation.head ?? null,
+      observation.branch ?? null,
+      now,
+      now,
+    );
+  }
+
+  private updateWorktreeRow(
+    id: string,
+    observation: WorktreeObservation,
+    patch: {
+      alias?: string;
+      lifecycle?: WorktreeLifecycle;
+      source?: WorktreeSource;
+      unregistered_ts?: string | null;
+      removed_ts?: string | null;
+      updated_ts: string;
+    },
+  ): void {
+    const alias = patch.alias === undefined ? undefined : WorktreeAliasSchema.parse(patch.alias);
+    this.db.prepare(
+      `UPDATE worktrees
+       SET alias = COALESCE(?, alias), path = ?, git_admin_id = ?,
+           primary_checkout = ?, source = COALESCE(?, source), lifecycle = COALESCE(?, lifecycle),
+           availability = ?, locked = ?, head = ?, branch = ?,
+           unregistered_ts = CASE WHEN ? = 1 THEN ? ELSE unregistered_ts END,
+           removed_ts = CASE WHEN ? = 1 THEN ? ELSE removed_ts END,
+           updated_ts = ?
+       WHERE id = ?`,
+    ).run(
+      alias ?? null,
+      observation.path,
+      observation.git_admin_id,
+      fromBool(observation.primary),
+      patch.source ?? null,
+      patch.lifecycle ?? null,
+      observation.availability,
+      fromBool(observation.locked),
+      observation.head ?? null,
+      observation.branch ?? null,
+      patch.unregistered_ts === undefined ? 0 : 1,
+      patch.unregistered_ts ?? null,
+      patch.removed_ts === undefined ? 0 : 1,
+      patch.removed_ts ?? null,
+      patch.updated_ts,
+      id,
+    );
+  }
   updateRoomConfig(room: string, patch: Partial<RoomConfig>): Room {
     return this.db.transaction(() => {
       const current = this.getRoom(room);
@@ -1849,6 +2894,16 @@ export class Store {
          VALUES (?, ?, ?, ?)
          ON CONFLICT (room, member_id) DO NOTHING`,
       ).run(room, validated.id, seq, new Date().toISOString());
+      if (!this.isChildRoom(room)) {
+        for (const child of this.childRoomIds(room)) {
+          const childSeq = this.appendChange(child, 'member', validated.id);
+          this.db.prepare(
+            `INSERT INTO room_read_cursors (room, member_id, read_seq, updated_ts)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT (room, member_id) DO NOTHING`,
+          ).run(child, validated.id, childSeq, new Date().toISOString());
+        }
+      }
     }
     // harn:end human-room-read-cursors-are-durable-and-monotonic
     return validated;
@@ -2021,8 +3076,10 @@ export class Store {
     patch: Partial<Omit<Member, 'id' | 'kind'>>,
   ): Member {
     return this.db.transaction(() => {
-      const existing = this.getMember(room, memberId);
+      const requestedRoom = room;
+      const existing = this.getMember(requestedRoom, memberId);
       if (!existing) throw new Error(`no such member: ${memberId}`);
+      const storageRoom = this.memberStorageRoom(requestedRoom, memberId);
       const merged = MemberSchema.parse({ ...existing, ...patch });
       // harn:assume member-task-projection-is-durable-and-session-scoped ref=member-task-storage
       // Preserve the task projection across ordinary config edits; clear it only when
@@ -2031,6 +3088,7 @@ export class Store {
         merged.session_ref !== undefined && merged.session_ref !== existing.session_ref;
       const nextTasks = changesSession ? undefined : merged.tasks;
       // harn:end member-task-projection-is-durable-and-session-scoped
+      room = storageRoom;
       this.db
         .prepare(
           // harn:assume member-config-is-changed-not-respawned ref=member-config-storage
@@ -2072,8 +3130,14 @@ export class Store {
           memberId,
         );
       // harn:end member-config-is-changed-not-respawned
-      this.appendChange(room, 'member', memberId);
-      return { ...merged, tasks: nextTasks };
+      this.appendChange(storageRoom, 'member', memberId);
+      if (storageRoom !== room && (existing.kind === 'human' || existing.kind === 'system')) {
+        this.appendInheritedMemberChanges(storageRoom, memberId);
+      } else if (storageRoom === room && !this.isChildRoom(room)
+        && (existing.kind === 'human' || existing.kind === 'system')) {
+        this.appendInheritedMemberChanges(room, memberId);
+      }
+      return this.getMember(requestedRoom, memberId)!;
     })();
   }
 
@@ -2105,19 +3169,51 @@ export class Store {
   }
   // harn:end agent-member-credentials-stay-secret
 
+  // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-shared-human-resolution
+  private memberStorageRoom(room: string, memberId: string): string {
+    const local = this.db.prepare('SELECT room FROM members WHERE room = ? AND id = ?')
+      .get(room, memberId) as { room: string } | undefined;
+    if (local !== undefined) return local.room;
+    const root = this.rootRoomId(room);
+    if (root === undefined) return room;
+    const inherited = this.db.prepare(
+      `SELECT room FROM members
+       WHERE room = ? AND id = ?
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))`,
+    ).get(root, memberId) as { room: string } | undefined;
+    return inherited?.room ?? room;
+  }
+
   getMember(room: string, memberId: string): Member | undefined {
     const row = this.db
       .prepare('SELECT * FROM members WHERE room = ? AND id = ?')
       .get(room, memberId) as MemberRow | undefined;
-    return row ? memberFromRow(row) : undefined;
+    if (row) return memberFromRow(row);
+    const root = this.rootRoomId(room);
+    if (root === undefined) return undefined;
+    const inherited = this.db.prepare(
+      `SELECT * FROM members
+       WHERE room = ? AND id = ?
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))`,
+    ).get(root, memberId) as MemberRow | undefined;
+    return inherited ? memberFromRow(inherited) : undefined;
   }
 
   getMemberByHandle(room: string, handle: string): Member | undefined {
     const row = this.db
       .prepare('SELECT * FROM members WHERE room = ? AND handle = ? AND removed_ts IS NULL')
       .get(room, handle) as MemberRow | undefined;
-    return row ? memberFromRow(row) : undefined;
+    if (row) return memberFromRow(row);
+    const root = this.rootRoomId(room);
+    if (root === undefined) return undefined;
+    const inherited = this.db.prepare(
+      `SELECT * FROM members
+       WHERE room = ? AND handle = ? AND removed_ts IS NULL
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))`,
+    ).get(root, handle) as MemberRow | undefined;
+    return inherited ? memberFromRow(inherited) : undefined;
   }
+  // harn:end main-and-direct-conversations-stay-compatible
 
   findMemberBySessionRef(
     harness: string,
@@ -2149,7 +3245,16 @@ export class Store {
          AND (? = 1 OR removed_ts IS NULL) ORDER BY id`,
       )
       .all(room, options.includeRemoved ? 1 : 0) as MemberRow[];
-    return rows.map(memberFromRow);
+    const root = this.rootRoomId(room);
+    if (root === undefined) return rows.map(memberFromRow);
+    const inherited = this.db.prepare(
+      `SELECT * FROM members
+       WHERE room = ? AND (? = 1 OR removed_ts IS NULL)
+         AND (kind = 'human' OR (kind = 'system' AND handle = 'switchboard'))
+       ORDER BY id`,
+    ).all(root, options.includeRemoved ? 1 : 0) as MemberRow[];
+    const byId = new Map([...inherited, ...rows].map((row) => [row.id, row]));
+    return [...byId.values()].sort((left, right) => left.id.localeCompare(right.id)).map(memberFromRow);
   }
 
   markAgentRostersStale(room: string): void {
@@ -2342,6 +3447,9 @@ export class Store {
         id: next.id,
         room,
         author: message.author,
+        // harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-origin-transaction
+        author_target: message.author_target,
+        // harn:end cross-worktree-output-stays-in-origin
         kind: message.kind,
         body: message.body,
         mentions: message.mentions ?? [],
@@ -2360,16 +3468,21 @@ export class Store {
       });
       // harn:assume substantive-output-messages-drive-unread ref=message-activity-storage
       const activitySeq = nextActivitySeq(validated, options.activity ?? 'auto', seq);
-      this.db
+        this.db
         .prepare(
-          `INSERT INTO messages (room, id, author, kind, body, mentions, refs, ledger_refs,
+          `INSERT INTO messages (room, id, author, author_worktree_id, author_conversation_id,
+             author_alias, author_handle, kind, body, mentions, refs, ledger_refs,
              reply_to, run, run_parent_id, ask, origin, attachments, voice, ack, pinned, deleted, ts, seq, activity_seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           room,
           validated.id,
           validated.author,
+          validated.author_target?.worktree_id ?? null,
+          validated.author_target?.conversation_id ?? null,
+          validated.author_target?.alias ?? null,
+          validated.author_target?.handle ?? null,
           validated.kind,
           validated.body,
           JSON.stringify(validated.mentions),
@@ -2415,6 +3528,7 @@ export class Store {
         state: delivery.state,
         payload_snapshot: delivery.payload_snapshot,
         hop_count: delivery.hop_count,
+        target: delivery.target,
       }));
       const collaboration = plan.collaboration === undefined
         ? undefined
@@ -2468,6 +3582,7 @@ export class Store {
         state: delivery.state,
         payload_snapshot: delivery.payload_snapshot,
         hop_count: delivery.hop_count,
+        target: delivery.target,
       }));
       const collaboration = routed?.collaboration === undefined
         ? undefined
@@ -2508,6 +3623,7 @@ export class Store {
       author: root.author,
       kind: 'run',
       body: '',
+      author_target: root.author_target,
       run_parent_id: root.id,
     }, { activity: 'defer' });
   }
@@ -2979,6 +4095,7 @@ export class Store {
     delivery: {
       message_id: number;
       recipient: string;
+      target?: ScopedMemberTarget;
       state?: Delivery['state'];
       payload_snapshot?: string;
       hop_count?: number;
@@ -2987,14 +4104,23 @@ export class Store {
     },
   ): Delivery {
     return this.db.transaction(() => {
+      // A stored target is an execution identity, not a hint. Validate the
+      // complete stable tuple while the delivery is still new; stale queued
+      // rows are settled by the daemon and never silently re-resolved.
+      if (delivery.target !== undefined && !this.routingTargetIsActive(delivery.target, room)) {
+        throw new Error(
+          `qualified delivery target is not active: ${delivery.target.alias}:@${delivery.target.handle}`,
+        );
+      }
       const nextQueueSeq = this.db
-        .prepare('SELECT COALESCE(MAX(queue_seq), 0) + 1 AS seq FROM deliveries WHERE room = ?')
-        .get(room) as { seq: number };
+        .prepare('SELECT COALESCE(MAX(queue_seq), 0) + 1 AS seq FROM deliveries')
+        .get() as { seq: number };
       const validated = DeliverySchema.parse({
         id: randomUUID(),
         room,
         message_id: delivery.message_id,
         recipient: delivery.recipient,
+        target: delivery.target,
         state: delivery.state ?? 'queued',
         hop_count: delivery.hop_count ?? 0,
         group_id: delivery.group_id,
@@ -3003,16 +4129,21 @@ export class Store {
       });
       this.db
         .prepare(
-          `INSERT INTO deliveries (id, room, message_id, recipient, state, attempt_count,
+          `INSERT INTO deliveries (id, room, message_id, recipient, target_worktree_id,
+             target_conversation_id, target_alias, target_handle, state, attempt_count,
              batch_id, run_msg_id, read_ts, interaction_resolved_ts, payload_snapshot,
              process_id, process_group_id, hop_count, queue_seq, group_id, group_round, ts)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           validated.id,
           room,
           validated.message_id,
           validated.recipient,
+          validated.target?.worktree_id ?? null,
+          validated.target?.conversation_id ?? null,
+          validated.target?.alias ?? null,
+          validated.target?.handle ?? null,
           validated.state,
           validated.attempt_count,
           orNull(validated.batch_id),
@@ -3036,6 +4167,7 @@ export class Store {
       return validated;
     })();
   }
+  // harn:end collaboration-groups-are-durable-state
 
   updateDelivery(
     room: string,
@@ -3181,12 +4313,72 @@ export class Store {
   }
   // harn:end delivery-fifo-has-durable-sequence
 
+  // harn:assume target-member-turns-serialize-across-origins ref=cross-origin-delivery-queue
+  /** Durable FIFO across every origin conversation for one target member. */
+  listDeliveriesForTarget(
+    targetRoom: string,
+    memberId: string,
+    filter: { state?: Delivery['state'] } = {},
+  ): Delivery[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM deliveries
+       WHERE (
+         (target_conversation_id = ? AND recipient = ?)
+         OR (target_conversation_id IS NULL AND room = ? AND recipient = ?)
+       )
+       AND (? IS NULL OR state = ?)
+       ORDER BY queue_seq, id`,
+    ).all(
+      targetRoom,
+      memberId,
+      targetRoom,
+      memberId,
+      filter.state ?? null,
+      filter.state ?? null,
+    ) as DeliveryRow[];
+    return rows.map(deliveryFromRow);
+  }
+  // harn:end target-member-turns-serialize-across-origins
+
+  // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-resolution
+  /** Durable cross-origin invocations used to restore credential scope after a restart. */
+  listActiveInvocations(memberId: string): {
+    originRoom: string;
+    targetRoom: string;
+    target: ScopedMemberTarget;
+  }[] {
+    const found: {
+      originRoom: string;
+      targetRoom: string;
+      target: ScopedMemberTarget;
+    }[] = [];
+    const seen = new Set<string>();
+    for (const room of this.listRooms()) {
+      for (const delivery of this.listDeliveries(room.id, { state: 'delivering' })) {
+        const target = delivery.target;
+        if (target === undefined || target.member_id !== memberId || delivery.run_msg_id === undefined) continue;
+        if (!this.routingTargetIsActive(target, room.id)) continue;
+        const run = this.getMessage(room.id, delivery.run_msg_id);
+        if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
+        const key = `${room.id}:${run.id}:${target.worktree_id}:${target.conversation_id}:${target.member_id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        found.push({ originRoom: room.id, targetRoom: target.conversation_id, target });
+      }
+    }
+    return found;
+  }
+  // harn:end agent-authority-follows-one-active-invocation
+
   // harn:assume turn-start-transactional ref=atomic-turn-start
   /** Creates/reuses the run and binds the complete batch in one transaction. */
   beginTurn(
     room: string,
     opts: {
       memberId: string;
+      /** Member home conversation; `room` remains the visible origin. */
+      targetRoom?: string;
+      authorTarget?: ScopedMemberTarget;
       deliveryIds: string[];
       startedTs: string;
       model?: string;
@@ -3195,6 +4387,8 @@ export class Store {
     },
   ): AtomicTurnStart | undefined {
     return this.db.transaction(() => {
+      // harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-turn-orchestration
+      const targetRoom = opts.targetRoom ?? room;
       // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-admission-guard
       // Admission is decided HERE, inside the transaction that binds them — not by a
       // filter that ran in an earlier statement. Between selecting a delivery and
@@ -3224,10 +4418,14 @@ export class Store {
           if (delivery.recipient !== opts.memberId) {
             throw new Error(`delivery ${deliveryId} does not belong to member ${opts.memberId}`);
           }
+          if (targetRoom !== room && delivery.target?.conversation_id !== targetRoom) {
+            throw new Error(`delivery ${deliveryId} is not addressed to target conversation ${targetRoom}`);
+          }
           return delivery;
         })
         .filter((delivery) =>
           delivery.state !== 'consumed' &&
+          (delivery.target === undefined || this.routingTargetIsActive(delivery.target, room)) &&
           (delivery.state === 'queued' || boundToReusedRun(delivery)),
         );
 
@@ -3237,10 +4435,10 @@ export class Store {
       // runtime/boot reconciliation moves that attempt to held or consumed, and
       // an explicit reused-run recovery is allowed to reclaim its own binding.
       const ownsUnresolvedAttempt = opts.reuseRunMsgId === undefined && this
-        .listDeliveries(room, { recipient: opts.memberId, state: 'delivering' })
+        .listDeliveriesForTarget(targetRoom, opts.memberId, { state: 'delivering' })
         .some((delivery) => {
           if (delivery.run_msg_id === undefined) return false;
-          const run = this.getMessage(room, delivery.run_msg_id);
+          const run = this.getMessage(delivery.room, delivery.run_msg_id);
           return run?.kind === 'run' && run.run?.status === 'running';
         });
       if (ownsUnresolvedAttempt) return undefined;
@@ -3270,7 +4468,12 @@ export class Store {
               run: { ...existing.run, output_mode: 'messages' },
             }, { activity: 'defer' });
       } else {
-        const posted = this.postMessage(room, { author: opts.memberId, kind: 'run', body: '' });
+        const posted = this.postMessage(room, {
+          author: opts.memberId,
+          kind: 'run',
+          body: '',
+          author_target: opts.authorTarget,
+        });
         // harn:assume resolved-run-cost-estimates-are-finalization-snapshots ref=resolved-run-estimate-schema
         runMessage = this.updateMessage(room, posted.id, {
           run: {
@@ -3296,6 +4499,7 @@ export class Store {
         return updated;
       });
       // harn:end only-an-admissible-delivery-becomes-delivering
+      // harn:end cross-worktree-output-stays-in-origin
       return { runMessage, deliveries };
     })();
   }
@@ -3307,6 +4511,8 @@ export class Store {
     room: string,
     opts: {
       runMsgId: number;
+      /** Runtime home for the target member; visible output remains in `room`. */
+      targetRoom?: string;
       message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ack'>>;
       outputs: TurnOutputPatch[];
       resultMessageId: number;
@@ -3332,6 +4538,8 @@ export class Store {
     },
   ): AtomicTurnCompletion {
     return this.db.transaction(() => {
+      // harn:assume cross-worktree-output-stays-in-origin ref=cross-worktree-origin-transaction
+      const targetRoom = opts.targetRoom ?? room;
       const rootOutput = opts.outputs.find((output) => output.id === opts.runMsgId);
       if (!rootOutput) throw new Error(`turn #${opts.runMsgId} has no root output patch`);
       const message = this.updateMessage(room, opts.runMsgId, {
@@ -3367,9 +4575,9 @@ export class Store {
       for (const deliveryId of opts.inputDeliveryIds) {
         this.updateDelivery(room, deliveryId, { state: 'consumed' });
       }
-      const member = this.updateMember(room, opts.memberId, opts.memberPatch);
-      this.promoteAgentUsageBaseline(room, opts.memberId, opts.runMsgId);
-      const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
+      const member = this.updateMember(targetRoom, opts.memberId, opts.memberPatch);
+      this.promoteAgentUsageBaseline(targetRoom, opts.memberId, opts.runMsgId);
+      const meter = this.bumpMeter(targetRoom, opts.meterDay, opts.meterDelta);
       const deliveries = opts.fanout.map((delivery) =>
         this.createDelivery(room, {
           message_id: opts.resultMessageId,
@@ -3377,6 +4585,7 @@ export class Store {
           state: delivery.state,
           payload_snapshot: delivery.payload_snapshot,
           hop_count: delivery.hop_count,
+          target: delivery.target,
         }),
       );
       if (opts.participantTerminal !== undefined) {
@@ -3658,6 +4867,154 @@ export class Store {
       return { delivery: consumed, participant: skipped };
     })();
   }
+
+  private postSystemRefusalMessage(room: string, body: string): Message {
+    const system = this.listMembers(room).find((member) => member.kind === 'system');
+    if (system === undefined) throw new Error(`room ${room} has no system member`);
+    return this.postMessage(room, { author: system.id, kind: 'system', body });
+  }
+
+  /**
+   * Settle a stale scoped QUEUED/HELD delivery as one durable unit: its
+   * consumed state, its group slot, and exactly one origin refusal commit
+   * together. A repeat call after a crash finds nothing to transition and
+   * posts nothing, so the refusal can never be lost or duplicated. Run-bound
+   * rows belong to settleInvalidScopedAttempt instead.
+   */
+  settleStaleScopedDelivery(
+    room: string,
+    opts: { deliveryId: string; reason: string; settledTs: string },
+  ): {
+    delivery: Delivery;
+    participant?: CollaborationParticipant;
+    refusal?: Message;
+    settled: boolean;
+  } {
+    return this.db.transaction(() => {
+      const delivery = this.getDelivery(room, opts.deliveryId);
+      if (!delivery) throw new Error(`no such delivery: ${opts.deliveryId}`);
+      if (
+        (delivery.state !== 'queued' && delivery.state !== 'held' && delivery.state !== 'consumed') ||
+        delivery.run_msg_id !== undefined
+      ) {
+        throw new Error(`scoped delivery ${opts.deliveryId} already started; settle the attempt instead`);
+      }
+      const participant = delivery.group_id === undefined
+        ? undefined
+        : this.findCollaborationParticipantByDelivery(room, delivery.id);
+      const settled = delivery.state !== 'consumed' ||
+        (participant !== undefined && participant.terminal_status === undefined);
+      if (!settled) {
+        return {
+          delivery,
+          ...(participant !== undefined && { participant }),
+          settled: false,
+        };
+      }
+      const consumed = delivery.state === 'consumed'
+        ? delivery
+        : this.updateDelivery(room, delivery.id, { state: 'consumed' });
+      const skipped = participant !== undefined && participant.terminal_status === undefined
+        ? this.updateCollaborationParticipant(
+            room,
+            participant.group_id,
+            participant.round_number,
+            participant.member_id,
+            { terminal_status: 'skipped', completed_ts: opts.settledTs },
+          )
+        : participant;
+      const refusal = this.postSystemRefusalMessage(room, `qualified target refused: ${opts.reason}`);
+      return {
+        delivery: consumed,
+        ...(skipped !== undefined && { participant: skipped }),
+        refusal,
+        settled: true,
+      };
+    })();
+  }
+
+  /**
+   * Settle a stale scoped attempt whose work had already started — the boot
+   * and retry seam: consume its bound delivery rows, interrupt run evidence
+   * that has no remaining valid work, mark any group participant truthfully
+   * `interrupted`, and append exactly one origin refusal, all in one
+   * transaction. Idempotent: once nothing transitions there is nothing to
+   * emit, so a repeated reconcile neither throws nor duplicates the refusal.
+   */
+  settleInvalidScopedAttempt(
+    room: string,
+    opts: { deliveryIds: string[]; reason: string; settledTs: string },
+  ): {
+    deliveries: Delivery[];
+    participants: CollaborationParticipant[];
+    runs: Message[];
+    refusal?: Message;
+    settled: boolean;
+  } {
+    return this.db.transaction(() => {
+      if (opts.deliveryIds.length === 0) throw new Error('no scoped attempt deliveries to settle');
+      const runIds = new Set<number>();
+      let transitioned = false;
+      const deliveries: Delivery[] = [];
+      const participants: CollaborationParticipant[] = [];
+      for (const deliveryId of opts.deliveryIds) {
+        const delivery = this.getDelivery(room, deliveryId);
+        if (!delivery) throw new Error(`no such delivery: ${deliveryId}`);
+        if (delivery.run_msg_id !== undefined) runIds.add(delivery.run_msg_id);
+        if (delivery.state === 'consumed') {
+          deliveries.push(delivery);
+        } else {
+          transitioned = true;
+          deliveries.push(this.updateDelivery(room, delivery.id, { state: 'consumed' }));
+        }
+        if (delivery.group_id === undefined) continue;
+        const participant = this.findCollaborationParticipantByDelivery(room, delivery.id);
+        if (participant === undefined || participant.terminal_status !== undefined) continue;
+        participants.push(this.updateCollaborationParticipant(
+          room,
+          participant.group_id,
+          participant.round_number,
+          participant.member_id,
+          { terminal_status: 'interrupted', completed_ts: opts.settledTs },
+        ));
+        transitioned = true;
+      }
+      const runs: Message[] = [];
+      for (const runId of runIds) {
+        const run = this.getMessage(room, runId);
+        if (run?.kind !== 'run' || run.run?.status !== 'running') continue;
+        // Interrupt only when no valid bound work remains: a partially stale
+        // batch leaves its surviving rows to the normal recovery seam.
+        const remaining = this.listDeliveries(room)
+          .some((candidate) => candidate.run_msg_id === runId && candidate.state !== 'consumed');
+        if (remaining) continue;
+        runs.push(this.updateMessage(room, run.id, {
+          body: '',
+          mentions: [],
+          refs: [],
+          ledger_refs: [],
+          run: {
+            ...run.run,
+            status: 'interrupted',
+            ended_ts: opts.settledTs,
+            stalled_since: undefined,
+            final_text: undefined,
+          },
+        }));
+        transitioned = true;
+      }
+      const refusal = transitioned
+        ? this.postSystemRefusalMessage(room, `qualified target refused: ${opts.reason}`)
+        : undefined;
+      return {
+        deliveries,
+        participants,
+        runs,
+        ...(refusal !== undefined && { refusal }),
+        settled: transitioned,
+      };
+    })();
+  }
   // harn:end open-collaboration-groups-reconcile-without-resurrection
 
   // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-round-release-transaction
@@ -3721,6 +5078,44 @@ export class Store {
       return { status: 'released', deliveries: next.deliveries, projection: next };
     })();
   }
+
+  /**
+   * Close a terminal round/group and commit its one visible refusal in the
+   * SAME transaction — the invalid-qualified barrier exit. The refusal is
+   * created by the state transition itself, so repeated advancement or a
+   * restart returns `already_released` and can never lose, duplicate, or
+   * reorder the evidence. Returns the durable refusal row for emission.
+   */
+  closeCollaborationRoundWithRefusal(
+    room: string,
+    opts: {
+      groupId: string;
+      roundNumber: number;
+      releasedTs: string;
+      refusalBody: string;
+    },
+  ): { status: 'closed' | 'already_released' | 'pending'; refusal?: Message } {
+    return this.db.transaction((): { status: 'closed' | 'already_released' | 'pending'; refusal?: Message } => {
+      const projection = this.getCollaborationRoundProjection(room, opts.groupId, opts.roundNumber);
+      if (!projection) {
+        throw new Error(`no such collaboration round: ${opts.groupId}/${opts.roundNumber}`);
+      }
+      if (projection.round.state !== 'collecting') return { status: 'already_released' };
+      if (projection.participants.some((participant) => participant.terminal_status === undefined)) {
+        return { status: 'pending' };
+      }
+      this.updateCollaborationRound(room, opts.groupId, opts.roundNumber, {
+        state: 'closed',
+        released_ts: opts.releasedTs,
+      });
+      this.updateCollaborationGroup(room, opts.groupId, {
+        state: 'completed',
+        completed_ts: opts.releasedTs,
+      });
+      const refusal = this.postSystemRefusalMessage(room, opts.refusalBody);
+      return { status: 'closed', refusal };
+    })();
+  }
   // harn:end collaboration-round-release-is-one-barrier
 
   // harn:assume group-round-creation-is-atomic-and-idempotent ref=collaboration-round-materialization
@@ -3733,10 +5128,11 @@ export class Store {
     }
     const seen = new Set<string>();
     for (const participant of participants) {
-      if (seen.has(participant.memberId)) {
+      const identity = `${participant.target?.worktree_id ?? 'local'}:${participant.memberId}`;
+      if (seen.has(identity)) {
         throw new Error(`duplicate collaboration participant: ${participant.memberId}`);
       }
-      seen.add(participant.memberId);
+      seen.add(identity);
       if (participant.state !== undefined && participant.state !== 'queued' && participant.state !== 'held') {
         throw new Error(`invalid initial collaboration delivery state: ${participant.state}`);
       }
@@ -3748,9 +5144,14 @@ export class Store {
     participants: CollaborationRoundParticipantInput[],
   ): void {
     for (const participant of participants) {
-      const member = this.getMember(room, participant.memberId);
+      const member = participant.target === undefined
+        ? this.getMember(room, participant.memberId)
+        : this.routingTargetRecord(participant.target, room)?.member;
       if (!member || member.kind !== 'agent' || member.removed_ts !== undefined) {
         throw new Error(`no active agent member: ${participant.memberId}`);
+      }
+      if (participant.target !== undefined && !this.routingTargetIsActive(participant.target, room)) {
+        throw new Error(`qualified collaboration target is not active: ${participant.target.alias}:@${participant.target.handle}`);
       }
     }
   }
@@ -3761,7 +5162,15 @@ export class Store {
   ): CollaborationRoundProjection {
     const sameMembers = projection.participants.length === requested.length &&
       projection.participants.every(
-        (participant, index) => participant.member_id === requested[index]!.memberId,
+        (participant, index) => {
+          const requestedParticipant = requested[index]!;
+          const delivery = projection.deliveries[index];
+          return participant.member_id === requestedParticipant.memberId
+            && delivery?.target?.worktree_id === requestedParticipant.target?.worktree_id
+            && delivery?.target?.conversation_id === requestedParticipant.target?.conversation_id
+            && delivery?.target?.alias === requestedParticipant.target?.alias
+            && delivery?.target?.handle === requestedParticipant.target?.handle;
+        },
       );
     const sameSnapshots = sameMembers && projection.deliveries.every(
       (delivery, index) =>
@@ -3802,6 +5211,7 @@ export class Store {
         state: input.state,
         payload_snapshot: input.payloadSnapshot,
         hop_count: input.hopCount,
+        target: input.target,
         group_id: group.id,
         group_round: roundNumber,
       });
@@ -3933,6 +5343,8 @@ export class Store {
     opts: {
       runMsgId: number;
       memberId: string;
+      /** Runtime home for the target member; lifecycle rows remain in room. */
+      targetRoom?: string;
       deliveryIds: string[];
       outputs?: TurnOutputPatch[];
       error: string;
@@ -3961,6 +5373,7 @@ export class Store {
     held: string[];
   } {
     return this.db.transaction(() => {
+      const targetRoom = opts.targetRoom ?? room;
       const runMsg = this.getMessage(room, opts.runMsgId);
       if (!runMsg?.run || runMsg.run.status !== 'running') {
         return { repaired: false, deliveries: [], held: [] };
@@ -4029,20 +5442,20 @@ export class Store {
         if (!obsolete) held.push(delivery.id);
       }
 
-      const current = this.getMember(room, opts.memberId);
+      const current = this.getMember(targetRoom, opts.memberId);
       const member = current === undefined
         ? undefined
-        : this.updateMember(room, opts.memberId, {
+        : this.updateMember(targetRoom, opts.memberId, {
           // A repaired attempt leaves the member reachable, not dead: nothing
           // about a finalization rollback says the agent itself is gone.
           state: current.state === 'dead' || current.state === 'paused' ? current.state : 'idle',
         });
-      this.promoteAgentUsageBaseline(room, opts.memberId, opts.runMsgId);
+      this.promoteAgentUsageBaseline(targetRoom, opts.memberId, opts.runMsgId);
 
       // completeTurn's rollback took its meter write with it, so this attempt's
       // spend is currently recorded NOWHERE. Count it here, exactly once — and
       // return it, so a connected UI sees the same total the database now holds.
-      const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
+      const meter = this.bumpMeter(targetRoom, opts.meterDay, opts.meterDelta);
       const system = this.listMembers(room).find((candidate) => candidate.kind === 'system');
       if (!system) throw new Error(`room ${room} has no system member`);
       const handle = `@${member?.handle ?? opts.memberId}`;
@@ -4115,6 +5528,8 @@ export class Store {
     opts: {
       runMsgId: number;
       memberId: string;
+      /** Runtime home for the target member; lifecycle rows remain in room. */
+      targetRoom?: string;
       deliveryIds: string[];
       message: Partial<Pick<Message, 'body' | 'mentions' | 'refs' | 'ledger_refs' | 'run' | 'ack'>>;
       outputs: TurnOutputPatch[];
@@ -4142,6 +5557,7 @@ export class Store {
     refusals: { delivery: Delivery; reason: LifecycleRetryRefusalReason }[];
   } {
     return this.db.transaction(() => {
+      const targetRoom = opts.targetRoom ?? room;
       const rootOutput = opts.outputs.find((output) => output.id === opts.runMsgId) ?? {
         id: opts.runMsgId,
         body: '',
@@ -4174,8 +5590,8 @@ export class Store {
         if (referenced.has(continuation.id) || continuation.deleted === true) continue;
         outputMessages.push(this.deleteMessage(room, continuation.id));
       }
-      const member = this.updateMember(room, opts.memberId, opts.memberPatch);
-      this.promoteAgentUsageBaseline(room, opts.memberId, opts.runMsgId);
+      const member = this.updateMember(targetRoom, opts.memberId, opts.memberPatch);
+      this.promoteAgentUsageBaseline(targetRoom, opts.memberId, opts.runMsgId);
       const requeued: Delivery[] = [];
       const settled: Delivery[] = [];
       const refusals: { delivery: Delivery; reason: LifecycleRetryRefusalReason }[] = [];
@@ -4227,7 +5643,7 @@ export class Store {
           });
         }
       }
-      const meter = this.bumpMeter(room, opts.meterDay, opts.meterDelta);
+      const meter = this.bumpMeter(targetRoom, opts.meterDay, opts.meterDelta);
       let notice: Message | undefined;
       if (refusals.length > 0) {
         const system = this.listMembers(room).find((candidate) => candidate.kind === 'system');

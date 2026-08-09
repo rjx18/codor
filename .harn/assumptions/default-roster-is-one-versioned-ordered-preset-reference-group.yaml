@@ -11,4 +11,4 @@ statement: The switchboard must persist exactly one schema-version-1
   individual agent preset or a bag of copied configs.
 depends_on:
   - individual-agent-presets-are-versioned-local-state
-created_by: agent-presets-p1-domain-persistence
+created_by: native-worktrees-agent-presets-integration

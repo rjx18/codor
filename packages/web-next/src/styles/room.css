@@ -3535,3 +3535,212 @@
   .nx-computer-add-grid { gap: var(--sp-4); }
   .nx-computer-add-step + .nx-computer-add-step { padding-top: var(--sp-4); }
 }
+
+/* harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-style
+   harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-style
+   Group rows nest under the promoted root row; dialogs reuse the restrained
+   field/button vocabulary. Every interactive target reaches 44px on coarse
+   pointers and the 390px channel surface never overflows horizontally. */
+.nx-wt-group {
+  margin: 2px 6px 8px;
+  padding: 6px 0 8px;
+  border-left: 2px solid var(--c-line, rgba(128, 128, 128, 0.25));
+}
+
+.nx-wt-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2, 8px);
+  padding: 0 8px 2px 12px;
+}
+
+.nx-wt-group-label {
+  font: var(--t-eyebrow, 600 11px/1.2 system-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-ink-dim, #7a7f8a);
+}
+
+.nx-wt-group-actions { display: inline-flex; gap: 2px; }
+
+.nx-wt-group-error {
+  margin: 4px 8px;
+  font: var(--t-note, 12px/1.4 system-ui);
+  color: var(--c-danger, #b4433a);
+  overflow-wrap: anywhere;
+}
+
+.nx-wt-list { list-style: none; margin: 0; padding: 0; }
+
+.nx-wt-item { position: relative; }
+
+.nx-wt-row { padding-left: 12px; min-height: 44px; }
+
+.nx-wt-row-icon { flex: none; color: var(--c-ink-dim, #7a7f8a); margin: auto 0; }
+
+.nx-wt-branch {
+  font: var(--t-note, 11px/1.3 ui-monospace, monospace);
+  color: var(--c-ink-dim, #7a7f8a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.nx-wt-row .nx-row-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.nx-wt-manage {
+  position: absolute;
+  inset-inline-end: 8px;
+  top: 6px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--c-line, rgba(128, 128, 128, 0.3));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-ink-dim, #7a7f8a);
+  font: var(--t-note, 12px/1.3 system-ui);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.nx-wt-item:hover .nx-wt-manage,
+.nx-wt-manage:focus-visible { opacity: 1; }
+
+.nx-wt-manage:focus-visible,
+.nx-wt-row:focus-visible,
+.nx-wt-candidate:focus-visible,
+.nx-wt-entry:focus-visible {
+  outline: 2px solid var(--c-focus, #4f6ef7);
+  outline-offset: 1px;
+}
+
+.nx-wt-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0;
+  padding: 6px 10px;
+  min-height: 32px;
+  border: 1px solid var(--c-line, rgba(128, 128, 128, 0.3));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--c-ink, #23262d);
+  font: var(--t-ui, 13px/1.3 system-ui);
+  cursor: pointer;
+}
+
+/* The corrected pre-promotion pair: first Create and explicit Find sit on one
+   wrapping row so both stay reachable without overflowing the panel. */
+.nx-wt-entry-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nx-wt-entry-row .nx-wt-entry { margin: 4px 0 0; }
+
+/* Connection truth on a group row is its own quiet label: it never collapses
+   into the activity text or the unread badge, so one state cannot mask
+   another. */
+.nx-wt-conn {
+  font: var(--t-note, 11px/1.3 system-ui);
+  color: var(--c-ink-dim, #7a7f8a);
+  white-space: nowrap;
+}
+
+.nx-wt-conn.is-connected { color: var(--c-live, #2e7d4f); }
+
+.nx-wt-conn.is-offline { color: var(--c-danger, #b4433a); }
+
+.nx-wt-dialog { display: flex; flex-direction: column; gap: var(--sp-3, 12px); }
+
+.nx-wt-dialog-head h2 { margin: 0; font: var(--t-title, 600 16px/1.3 system-ui); }
+
+.nx-wt-dialog-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--c-line, rgba(128, 128, 128, 0.2));
+}
+
+.nx-wt-dialog-section h3 { margin: 0; font: var(--t-ui-strong, 600 13px/1.3 system-ui); }
+
+.nx-wt-dialog-error {
+  margin: 0;
+  font: var(--t-note, 12px/1.4 system-ui);
+  color: var(--c-danger, #b4433a);
+  overflow-wrap: anywhere;
+}
+
+.nx-wt-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.nx-wt-candidates {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.nx-wt-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid var(--c-line, rgba(128, 128, 128, 0.3));
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.nx-wt-candidate.is-selected {
+  border-color: var(--c-focus, #4f6ef7);
+  background: var(--c-surface-raised, rgba(79, 110, 247, 0.06));
+}
+
+.nx-wt-candidate-branch { font: var(--t-ui-strong, 600 13px/1.3 system-ui); }
+
+.nx-wt-candidate-path {
+  font: var(--t-note, 11px/1.3 ui-monospace, monospace);
+  color: var(--c-ink-dim, #7a7f8a);
+  overflow-wrap: anywhere;
+}
+
+.nx-wt-confirm { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.nx-wt-preview { margin: 0; font: var(--t-note, 12px/1.4 system-ui); overflow-wrap: anywhere; }
+
+@media (pointer: coarse) {
+  .nx-wt-manage { opacity: 1; min-height: 44px; min-width: 44px; }
+  .nx-wt-entry { min-height: 44px; }
+  .nx-wt-group-actions > * { min-width: 44px; min-height: 44px; }
+}
+
+@media (max-width: 719px) {
+  .nx-wt-group { margin-inline: 4px; }
+  .nx-wt-branch { display: none; }
+  .nx-wt-row { padding-left: 10px; }
+  .nx-wt-entry-row { flex-direction: column; align-items: stretch; }
+  .nx-wt-dialog-actions { flex-direction: column-reverse; align-items: stretch; }
+  .nx-wt-dialog-actions > * { min-height: 44px; }
+}
+/* harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
+   harn:end registered-worktree-navigation-is-promotion-gated */

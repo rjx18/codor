@@ -8,6 +8,7 @@ import {
   continuationVisibleMessages,
   deliveryIndicator,
   messageReadSeq,
+  qualifiedAuthorLabel,
   resolveRunningSince,
 } from './Transcript.js';
 import { transcriptMessages } from './transcript-order.js';
@@ -137,6 +138,50 @@ describe('continuation transcript semantics', () => {
   });
 });
 // harn:end continuation-writer-follows-journaled-output-ownership
+
+// harn:assume cross-worktree-output-stays-in-origin ref=qualified-author-rendering-regression
+describe('qualified transcript attribution', () => {
+  it('renders a foreign author with its persisted alias and handle while preserving local labels', () => {
+    const target = {
+      worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      conversation_id: 'wt-review',
+      member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+      alias: 'review',
+      handle: 'coder',
+    };
+    const foreign: Message = {
+      ...chat(7, 'foreign answer'),
+      author: target.member_id,
+      author_target: target,
+    };
+    expect(qualifiedAuthorLabel(foreign)).toBe('~review:@coder');
+    expect(qualifiedAuthorLabel(foreign, {
+      id: target.member_id, handle: 'renamed', kind: 'agent', display_name: 'Renamed',
+      conventions_sent: false, misaddressed: false, roster_stale: false,
+    })).toBe('~review:@renamed');
+    expect(qualifiedAuthorLabel(chat(8), {
+      id: 'local', handle: 'coder', kind: 'agent', display_name: 'Local',
+      conventions_sent: false, misaddressed: false, roster_stale: false,
+    })).toBe('@coder');
+  });
+
+  it('keeps stable scoped labels for every foreign message kind, including removed authors', () => {
+    const target = {
+      worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      conversation_id: 'wt-review',
+      member_id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+      alias: 'review',
+      handle: 'coder',
+    };
+    for (const kind of ['chat', 'run', 'ask', 'approval'] as const) {
+      expect(qualifiedAuthorLabel({ ...chat(20 + kind.length), kind, author: target.member_id, author_target: target }))
+        .toBe('~review:@coder');
+    }
+    expect(qualifiedAuthorLabel({ ...chat(31), author: target.member_id, author_target: target }))
+      .toBe('~review:@coder');
+  });
+});
+// harn:end cross-worktree-output-stays-in-origin
 
 describe('resolveRunningSince', () => {
   const runningRun = (id: number, author: string, startedTs: string): Message => ({

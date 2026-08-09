@@ -1,0 +1,16 @@
+id: child-files-voice-and-keys-are-isolated
+hash: a-60c100234576
+title: Child files, voice metadata, and encryption keys stay conversation-local
+state: active
+statement: Attachments, run blobs, and voice-bearing messages must use the exact
+  child RoomId for storage, lookup, serving, deletion, and hydration, and every
+  child must have its own room-key generation sealed independently to active
+  enrollees; cross-conversation attachment ids and keys are refused, a paired
+  browser creating the child receives only its sealed child key, and a tombstone
+  never deletes historical bytes or key state.
+depends_on:
+  - child-conversation-state-is-room-isolated
+  - attachments-are-capped-files-served-inert
+  - voice-message-metadata-is-bounded-and-additive
+  - sealed-room-keys-per-enrollee
+created_by: native-worktrees-phase2-conversations

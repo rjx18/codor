@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSchema } from './ids.js';
+import { ScopedMemberTargetSchema } from './worktree.js';
 
 export const MessageKindSchema = z.enum(['chat', 'run', 'ask', 'approval', 'system']);
 export type MessageKind = z.infer<typeof MessageKindSchema>;
@@ -16,8 +17,21 @@ export const MentionSpanSchema = z
     member_id: MemberIdSchema,
     start: z.number().int().nonnegative(),
     end: z.number().int().positive(),
+    // harn:assume qualified-member-target-identity-is-durable ref=qualified-mention-schema
+    /** Present only for a qualified `~alias:@handle` mention. */
+    target: ScopedMemberTargetSchema.optional(),
+    // harn:end qualified-member-target-identity-is-durable
   })
-  .refine((span) => span.start < span.end, { message: 'span end must be after start' });
+  .refine((span) => span.start < span.end, { message: 'span end must be after start' })
+  .superRefine((span, ctx) => {
+    if (span.target !== undefined && span.target.member_id !== span.member_id) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['target', 'member_id'],
+        message: 'qualified target member must match mention member_id',
+      });
+    }
+  });
 export type MentionSpan = z.infer<typeof MentionSpanSchema>;
 // harn:end mention-spans-survive-renames
 
@@ -112,6 +126,10 @@ export const MessageSchema = z.object({
   id: MessageIdSchema,
   room: RoomIdSchema,
   author: MemberIdSchema,
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-message-author-schema
+  /** Stable execution identity when a target member replies into another room. */
+  author_target: ScopedMemberTargetSchema.optional(),
+  // harn:end qualified-member-target-identity-is-durable
   kind: MessageKindSchema,
   body: z.string(),
   mentions: z.array(MentionSpanSchema),
@@ -136,6 +154,14 @@ export const MessageSchema = z.object({
   // harn:end voice-message-metadata-is-bounded-and-additive
   ts: TimestampSchema,
   seq: SeqSchema, // room change-sequence at last insert/update
+}).superRefine((message, ctx) => {
+  if (message.author_target !== undefined && message.author_target.member_id !== message.author) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['author_target', 'member_id'],
+      message: 'qualified author target must match message author',
+    });
+  }
 });
 export type Message = z.infer<typeof MessageSchema>;
 

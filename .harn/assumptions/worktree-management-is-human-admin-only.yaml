@@ -1,0 +1,12 @@
+id: worktree-management-is-human-admin-only
+hash: a-c60a967f8d71
+title: Worktree lifecycle is authorized only for human room administrators
+state: active
+statement: Worktree listing and discovery must require authenticated room read
+  access, every adopt, create, unregister, and filesystem-removal request must
+  require an authenticated human room admin or owner, and an agent credential
+  must remain unable to use any worktree management operation.
+depends_on:
+  - roles-gate-human-acts-not-agents
+  - agent-network-authority-is-narrow
+created_by: native-worktrees-phase1-registry

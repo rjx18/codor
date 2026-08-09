@@ -1,0 +1,15 @@
+id: cross-worktree-output-stays-in-origin
+hash: a-f70a3fa37f29
+title: Cross-worktree output stays in one origin transcript
+state: active
+statement: A qualified delivery's chat, run roots and continuations,
+  interim/final replies, refs, interactions, collaboration state, refusal
+  notices, and live frames must be persisted and projected only in the origin
+  conversation, with scoped foreign-author attribution sufficient to render the
+  qualified author without adding that member to the origin roster or copying
+  any message to the target conversation.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - child-conversation-state-is-room-isolated
+  - whole-message-delivery
+created_by: native-worktrees-phase3-qualified-routing-v3

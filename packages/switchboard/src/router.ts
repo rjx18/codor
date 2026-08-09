@@ -6,6 +6,9 @@ import {
   parseBody,
   type ParsedBody,
   type RoomConfig,
+  type ScopedMemberTarget,
+  type WorktreeRoutingCatalog,
+  type WorktreeRoutingTarget,
 } from '@codor/protocol';
 
 export { isAddressable, parseBody } from '@codor/protocol';
@@ -76,7 +79,37 @@ export interface RoutingContext extends EligibilityContext {
    * For agent-authored messages: author of the delivery that triggered the
    * run (for a batched turn, the author of the LAST delivery in the batch).
    */
-  triggerAuthor?: string;
+  triggerAuthor?: string | RoutedRecipient;
+  /** Stable scope of the message being replied to, when it is foreign. */
+  replyAuthor?: RoutedRecipient;
+  /** Persisted scope from a replied-to message, even if it is now stale. */
+  replyTarget?: ScopedMemberTarget;
+  // harn:assume qualified-member-target-identity-is-durable ref=qualified-routing-resolution
+  /** Path-free registered worktree projection used by the shared parser. */
+  qualifiedTargets?: readonly WorktreeRoutingTarget[] | WorktreeRoutingCatalog;
+  /** Full target-room member rows stay daemon-side; the protocol catalog carries only identity. */
+  qualifiedMembers?: ReadonlyMap<string, Member>;
+  // harn:end qualified-member-target-identity-is-durable
+}
+
+export interface RoutedRecipient {
+  member: Member;
+  target?: ScopedMemberTarget;
+}
+
+function targetCatalogContains(
+  target: ScopedMemberTarget,
+  qualifiedTargets: RoutingContext['qualifiedTargets'],
+): boolean {
+  if (qualifiedTargets === undefined) return false;
+  const targets = 'targets' in qualifiedTargets ? qualifiedTargets.targets : qualifiedTargets;
+  return targets.some((candidate) =>
+    candidate.worktree_id === target.worktree_id
+    && candidate.conversation_id === target.conversation_id
+    && candidate.alias === target.alias
+    && candidate.members.some((member) =>
+      member.member_id === target.member_id && member.handle === target.handle),
+  );
 }
 
 export interface RouteResult {
@@ -90,6 +123,11 @@ export interface RouteResult {
   commentary: boolean;
   /** Finalized agent message contained unresolvable handle-shaped tokens. */
   misaddressed: boolean;
+  /** Qualified recipients retain their stable worktree/conversation target. */
+  agentTargets?: RoutedRecipient[];
+  humanTargets?: RoutedRecipient[];
+  /** A strict qualified token failed; callers must refuse the whole post. */
+  qualified_refusal?: string;
 }
 
 const NO_ROUTE: Omit<RouteResult, 'parsed'> = {
@@ -108,15 +146,41 @@ const NO_ROUTE: Omit<RouteResult, 'parsed'> = {
 export function resolveRecipients(message: Message, ctx: RoutingContext): RouteResult {
   const parsed = message.ack === true
     ? { mentions: [], refs: [], ledger_refs: [], unresolved: [] }
-    : parseBody(message.body, ctx.members);
+    : parseBody(message.body, ctx.members, { qualifiedTargets: ctx.qualifiedTargets });
   if (!isRoutable(message, ctx)) return { ...NO_ROUTE, parsed };
 
   const byId = new Map(ctx.members.map((m) => [m.id, m]));
-  const recipients: Member[] = [];
+  const qualifiedById = ctx.qualifiedMembers ?? new Map<string, Member>();
+  const recipients: RoutedRecipient[] = [];
+  const qualifiedMentions = parsed.qualified ?? [];
+  const qualifiedIssues = parsed.qualified_issues ?? [];
+  // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal
+  let qualified_refusal = qualifiedIssues.length > 0
+    ? `qualified target refused: ${qualifiedIssues.map((issue) => `${issue.token} (${issue.reason})`).join(', ')}`
+    : undefined;
+  // harn:end invalid-qualified-targets-never-fallback
   for (const span of parsed.mentions) {
-    if (span.member_id === message.author) continue; // self-mentions ignored
-    const member = byId.get(span.member_id);
-    if (member && !recipients.some((r) => r.id === member.id)) recipients.push(member);
+    const member = span.target === undefined
+      ? byId.get(span.member_id)
+      : qualifiedById.get(span.member_id);
+    if (!member) {
+      if (span.target !== undefined) {
+        qualified_refusal = qualified_refusal === undefined
+          ? `qualified target refused: ${span.target.alias}:@${span.target.handle} (target member unavailable)`
+          : `${qualified_refusal}; ${span.target.alias}:@${span.target.handle} (target member unavailable)`;
+      }
+      continue;
+    }
+    const isSelf = span.member_id === message.author && (
+      span.target === undefined
+      || message.author_target === undefined
+      || span.target.worktree_id === message.author_target.worktree_id
+    );
+    if (isSelf) continue;
+    const key = `${span.target?.worktree_id ?? 'local'}:${member.id}`;
+    if (!recipients.some((r) => `${r.target?.worktree_id ?? 'local'}:${r.member.id}` === key)) {
+      recipients.push({ member, ...(span.target !== undefined && { target: span.target }) });
+    }
   }
 
   // harn:assume default-recipient-fallback-chain ref=substantive-default-recipient
@@ -125,17 +189,50 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
   // then a sole live agent (running placeholders never become "latest");
   // agent messages default to whoever triggered the run (last delivery of a
   // batch). No candidate → room commentary, delivered to nobody.
-  if (recipients.length === 0) {
+  const hasQualifiedIntent = qualifiedMentions.length > 0 || qualifiedIssues.length > 0;
+  if (
+    recipients.length === 0
+    && !hasQualifiedIntent
+    && ctx.replyTarget !== undefined
+    && (
+      ctx.replyAuthor === undefined
+      || !targetCatalogContains(ctx.replyTarget, ctx.qualifiedTargets)
+    )
+  ) {
+    qualified_refusal = `qualified target refused: ${ctx.replyTarget.alias}:@${ctx.replyTarget.handle} (stale scoped reply)`;
+  }
+  if (recipients.length === 0 && !hasQualifiedIntent && qualified_refusal === undefined) {
     const authorKind = ctx.author!.kind;
+    const trigger = ctx.triggerAuthor;
+    const triggerMember = trigger === undefined
+      ? undefined
+      : typeof trigger === 'string'
+        ? byId.get(trigger)
+        : trigger.target === undefined
+          ? byId.get(trigger.member.id)
+          : targetCatalogContains(trigger.target, ctx.qualifiedTargets)
+            ? trigger.member
+            : undefined;
+    if (typeof trigger !== 'string' && trigger?.target !== undefined
+      && !targetCatalogContains(trigger.target, ctx.qualifiedTargets)) {
+      qualified_refusal = `qualified target refused: ${trigger.target.alias}:@${trigger.target.handle} (stale scoped trigger)`;
+    }
     const fallback = authorKind === 'agent'
-      ? (ctx.triggerAuthor === undefined ? undefined : byId.get(ctx.triggerAuthor))
-      : effectiveDefaultAgent({
+      ? triggerMember
+      : (ctx.replyAuthor?.member ?? effectiveDefaultAgent({
           members: ctx.members,
           latestFinalizedAgentId: ctx.latestFinalizedAgentAuthor,
           startingAgentHandle: ctx.roomConfig.starting_agent_handle,
-        });
+        }));
     if (fallback && fallback.id !== message.author && isAddressable(fallback)) {
-      recipients.push(fallback);
+      recipients.push({
+        member: fallback,
+        ...((authorKind === 'agent' && typeof trigger !== 'string' && trigger?.target !== undefined)
+          ? { target: trigger.target }
+          : (authorKind !== 'agent' && ctx.replyAuthor?.target !== undefined
+            ? { target: ctx.replyAuthor.target }
+            : {})),
+      });
     }
   }
   // harn:end default-recipient-fallback-chain
@@ -144,9 +241,25 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
   // Humans never get turns: the daemon materializes the humans list as inbox
   // records (read_ts lifecycle, WS inbox frames); only agents produce
   // queued deliveries that feed adapter turns.
-  const agents = recipients.filter((r) => r.kind === 'agent');
-  const humans = recipients.filter((r) => r.kind === 'human');
+  const agentTargets = recipients.filter((r) => r.member.kind === 'agent');
+  const humanTargets = recipients.filter((r) => r.member.kind === 'human');
+  const agents = agentTargets.map((r) => r.member);
+  const humans = humanTargets.map((r) => r.member);
   // harn:end human-deliveries-are-inbox-records
+
+  // A qualified refusal is atomic: even a valid sibling mention is not allowed
+  // to escape as a partial fanout when the addressed target set is invalid.
+  if (qualified_refusal !== undefined) {
+    return {
+      ...NO_ROUTE,
+      routable: true,
+      parsed,
+      commentary: true,
+      qualified_refusal,
+      agentTargets: [],
+      humanTargets: [],
+    };
+  }
 
   const misaddressed =
     ctx.author!.kind === 'agent' &&
@@ -160,6 +273,11 @@ export function resolveRecipients(message: Message, ctx: RoutingContext): RouteR
     humans,
     commentary: recipients.length === 0,
     misaddressed,
+    ...(qualified_refusal !== undefined && { qualified_refusal }),
+    ...((parsed.qualified !== undefined || recipients.some((recipient) => recipient.target !== undefined)) && {
+      agentTargets,
+      humanTargets,
+    }),
   };
 }
 
@@ -187,6 +305,10 @@ export interface PayloadContext extends DeliveryBriefingContext {
   message: Message;
   authorHandle: string;
   authorKind: Member['kind'];
+  // harn:assume cross-worktree-output-stays-in-origin ref=qualified-author-rendering
+  /** Foreign execution attribution shown without exposing a local filesystem path. */
+  authorTarget?: ScopedMemberTarget;
+  // harn:end cross-worktree-output-stays-in-origin
   /** All recipient handles, mention order — identical on every delivery. */
   toHandles: string[];
   refs: ResolvedRef[];
@@ -245,8 +367,11 @@ export function composePayload(ctx: PayloadContext, you: string): string {
   // harn:assume codor-delivery-header-identifies-channel ref=delivery-header-template
   // harn:assume awaiting-reply-marker-is-delivery-context ref=awaiting-reply-header
   const headerKind = ctx.awaitingReply ? 'chat, awaiting reply' : ctx.authorKind;
+  const from = ctx.authorTarget === undefined
+    ? `@${ctx.authorHandle}`
+    : `~${ctx.authorTarget.alias}:@${ctx.authorHandle}`;
   let payload =
-    `[codor channel=${ctx.room} msg=#${ctx.message.id} from=@${ctx.authorHandle} (${headerKind})\n` +
+    `[codor channel=${ctx.room} msg=#${ctx.message.id} from=${from} (${headerKind})\n` +
     ` to=${to} · you=@${you}]\n` +
     `\n` +
     `${ctx.message.body}\n`;

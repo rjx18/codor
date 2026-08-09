@@ -1,0 +1,20 @@
+id: worktree-lifecycle-ui-is-explicit-and-recoverable
+hash: a-e4240d147342
+title: Worktree lifecycle UI is authorized, explicit, and recoverable
+state: active
+statement: Only a human admin or owner may see mutation controls; Find must
+  discover on explicit open and adopt one selected candidate, Create must
+  collect alias, branch, missing absolute target and optional roster, and
+  unregister, alias edit, and filesystem removal must be distinct deliberate
+  acts whose errors preserve drafts and selection; removal requires a fresh
+  read-only state preview, clear branch-preservation copy, and a second
+  destructive confirmation, remains disabled for dirty, locked, missing,
+  mismatched, or unavailable targets, and stays keyboard-, focus-, phone-,
+  direct-, and relay-transport accessible.
+depends_on:
+  - worktree-management-is-human-admin-only
+  - worktree-discovery-never-registers-candidates
+  - worktree-creation-registers-only-a-new-secondary
+  - worktree-removal-is-clean-and-branch-preserving
+  - registered-worktree-navigation-is-promotion-gated
+created_by: native-worktrees-phase4-functional-group-ui

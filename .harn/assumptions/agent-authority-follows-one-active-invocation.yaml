@@ -1,0 +1,16 @@
+id: agent-authority-follows-one-active-invocation
+hash: a-fa2e71d4f6a3
+title: Agent authority follows exactly one durable active invocation
+state: active
+statement: An agent credential must authorize only its home conversation while
+  idle and only one effective origin conversation while exactly one durable
+  delivering run invokes it cross-worktree; the home selector may map to that
+  origin for the long-lived session CLI, but every other conversation, member,
+  inbox, global operation, and management act remains forbidden, multiple active
+  candidates fail closed, and recovery restores home scope.
+depends_on:
+  - cross-worktree-runtime-stays-target-local
+  - agent-network-authority-is-narrow
+  - member-env-selects-narrow-cli-identity
+  - agent-sync-hydrates-only-own-queued-inbox
+created_by: native-worktrees-phase3-qualified-routing-v3

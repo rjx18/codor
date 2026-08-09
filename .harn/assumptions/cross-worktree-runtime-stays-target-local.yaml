@@ -1,0 +1,15 @@
+id: cross-worktree-runtime-stays-target-local
+hash: a-bd53a8de9258
+title: Cross-worktree execution uses only the target member runtime
+state: active
+statement: A qualified turn must use the target member's own conversation row,
+  cwd, native session and session_ref, credential, adapter cache, tasks,
+  transient wait/usage state, and usage meter while persisting its output to the
+  origin; equal handles in different worktrees must never share or overwrite any
+  of those runtime identities before or after restart.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - child-members-own-isolated-runtime
+  - member-task-projection-is-durable-and-session-scoped
+  - agent-member-credentials-stay-secret
+created_by: native-worktrees-phase3-qualified-routing-v3

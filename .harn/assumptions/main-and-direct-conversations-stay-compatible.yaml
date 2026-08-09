@@ -1,0 +1,12 @@
+id: main-and-direct-conversations-stay-compatible
+hash: a-917cf0627791
+title: Main is the existing conversation and direct channels stay unchanged
+state: active
+statement: A promoted group's main conversation must retain the original room
+  id, Room row, history, members, config, message ids, seq, and encryption key,
+  hidden child rooms must stay out of legacy human/browser top-level room
+  listings, and a room with no registered secondary must preserve the
+  selector-less REST, WebSocket, startup, and persistence behavior exactly.
+depends_on:
+  - registered-worktrees-materialize-stable-conversations
+created_by: native-worktrees-phase2-conversations

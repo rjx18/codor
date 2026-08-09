@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { Agent as HttpAgent, request as httpRequest } from 'node:http';
 import { connect as netConnect } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -14,6 +14,7 @@ import {
   type SpawnOpts,
 } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
 import WebSocket from 'ws';
 import type { VoiceProviderDefinition } from './voice-providers.js';
 
@@ -51,6 +52,10 @@ const testCwd = (name = 'work') => {
   return path;
 };
 
+function fixtureGit(cwd: string, args: readonly string[]): string {
+  return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+}
+
 const spawnAgentWithToken = (handle: string, room = 'eng') => {
   let captured: Session | undefined;
   const originalSpawn = fake.spawn.bind(fake);
@@ -64,7 +69,8 @@ const spawnAgentWithToken = (handle: string, room = 'eng') => {
   spawn.mockRestore();
   const token = captured?.env?.CODOR_MEMBER_TOKEN;
   if (!token) throw new Error(`spawn did not issue a member credential for @${handle}`);
-  return { agent, token };
+  if (captured === undefined) throw new Error(`spawn did not return a session for @${handle}`);
+  return { agent, token, session: captured };
 };
 
 beforeEach(async () => {
@@ -392,6 +398,623 @@ describe('retry_run act (retried-runs-are-fresh-deliveries)', () => {
     owner.ws.close();
   });
 });
+
+// harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-authorization-regression
+// harn:assume agent-network-authority-is-narrow ref=agent-authz-regression
+// harn:assume main-and-direct-conversations-stay-compatible ref=conversation-main-compatibility-regression
+describe('native worktree REST authorization and lifecycle', () => {
+  it('keeps discovery read-only, admits human room readers, and gates lifecycle mutation to admins', async () => {
+    const fixture = join(dir, 'worktree lifecycle fixture');
+    const primary = join(fixture, 'primary checkout');
+    const secondary = join(fixture, 'secondary checkout');
+    const created = join(fixture, 'created checkout');
+    const ownerCreated = join(fixture, 'owner created checkout');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'review/rest', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        ...init.headers,
+      },
+    });
+
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
+    const wrongRoomAdopt = vi.spyOn(daemon.worktrees, 'adopt');
+    const wrongRoomMutation = await jsonRequest(ADMIN_TOKEN, '/api/rooms/other/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'wrong-room' }),
+    });
+    expect(wrongRoomMutation.status).toBe(403);
+    expect(wrongRoomAdopt).not.toHaveBeenCalled();
+    expect(daemon.store.getRepository('other')).toBeUndefined();
+    wrongRoomAdopt.mockRestore();
+
+    const anonymous = await fetch(`${base}/api/rooms/eng/worktrees`);
+    expect(anonymous.status).toBe(401);
+    const observerRead = await jsonRequest(OBSERVER_TOKEN, '/api/rooms/eng/worktrees');
+    expect(observerRead.status).toBe(200);
+    const beforeAdopt = await observerRead.json() as {
+      repository: unknown;
+      registered: unknown[];
+      discovered: { path: string; conversation_id?: string }[];
+    };
+    expect(beforeAdopt.repository).toBeNull();
+    expect(beforeAdopt.registered).toEqual([]);
+    expect(beforeAdopt.discovered.map((candidate) => candidate.path)).toContain(secondary);
+    expect(beforeAdopt.discovered.every((candidate) => candidate.conversation_id === undefined)).toBe(true);
+    expect((await (await fetch(`${base}/api/rooms`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })).json() as { rooms: { id: string }[] }).rooms.map((room) => room.id)).toEqual(['eng', 'other']);
+
+    const agentPrincipal = spawnAgentWithToken('worktree-rest-agent');
+    const listSpy = vi.spyOn(daemon.worktrees, 'list');
+    const agentRead = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees');
+    expect(agentRead.status).toBe(403);
+    expect(listSpy).not.toHaveBeenCalled();
+    listSpy.mockRestore();
+
+    const memberMutation = await jsonRequest(MEMBER_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'member-attempt' }),
+    });
+    expect(memberMutation.status).toBe(403);
+    const observerMutation = await jsonRequest(OBSERVER_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'observer-attempt' }),
+    });
+    expect(observerMutation.status).toBe(403);
+    const agentMutation = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'agent-attempt' }),
+    });
+    expect(agentMutation.status).toBe(403);
+    expect(daemon.store.getRepository('eng')).toBeUndefined();
+
+    const adoptedResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'REST Review' }),
+    });
+    expect(adoptedResponse.status).toBe(201);
+    const adopted = await adoptedResponse.json() as {
+      worktree: { id: string; alias: string; conversation_id: string };
+    };
+    expect(adopted.worktree.alias).toBe('rest-review');
+    expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
+    expect(adoptedResponse.headers.get('content-type')).toContain('application/json');
+    const childRoom = adopted.worktree.conversation_id;
+    const childSync = await fetch(`${base}/api/rooms/${childRoom}/sync?since_seq=0`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(childSync.status).toBe(200);
+    expect((await childSync.json() as { room: { id: string }; members: Member[] }).room.id)
+      .toBe(childRoom);
+    const publicRooms = await fetch(`${base}/api/rooms`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect((await publicRooms.json() as { rooms: { id: string }[] }).rooms.map((room) => room.id))
+      .not.toContain(childRoom);
+
+    const createdResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ alias: 'REST Created', branch: 'feature/rest-created', path: created }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const createdBody = await createdResponse.json() as {
+      worktree: { id: string; path: string; conversation_id: string };
+    };
+    const createdRecord = createdBody;
+    expect(createdRecord.worktree.path).toBe(created);
+    expect(createdRecord.worktree.conversation_id).not.toBe(childRoom);
+    expect(createdBody).not.toHaveProperty('room_key');
+    expect(daemon.store.listRegisteredWorktrees('eng')).toHaveLength(3);
+
+    const unregisteredResponse = await jsonRequest(ADMIN_TOKEN, `/api/rooms/eng/worktrees/${adopted.worktree.id}/unregister`, {
+      method: 'POST',
+      body: '{}',
+    });
+    expect(unregisteredResponse.status).toBe(200);
+    expect(existsSync(secondary)).toBe(true);
+    const readoptedResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary }),
+    });
+    expect(readoptedResponse.status).toBe(201);
+    expect((await readoptedResponse.json() as { worktree: { id: string; conversation_id: string } }).worktree)
+      .toMatchObject({ id: adopted.worktree.id, conversation_id: childRoom });
+
+    const removedResponse = await jsonRequest(ADMIN_TOKEN, `/api/rooms/eng/worktrees/${adopted.worktree.id}/remove`, {
+      method: 'POST',
+      body: '{}',
+    });
+    expect(removedResponse.status).toBe(200);
+    expect(existsSync(secondary)).toBe(false);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/review/rest'])).toContain('review/rest');
+
+    const ownerCreatedResponse = await jsonRequest(TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ alias: 'Owner Created', branch: 'feature/owner-created', path: ownerCreated }),
+    });
+    expect(ownerCreatedResponse.status).toBe(201);
+    expect((await ownerCreatedResponse.json() as { worktree: { path: string } }).worktree.path)
+      .toBe(ownerCreated);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/owner-created']))
+      .toContain('feature/owner-created');
+  });
+
+  const fixtureRepository = (name: string): string => {
+    const primary = join(dir, name, 'primary checkout');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    return primary;
+  };
+
+  it('serves the store-only registered projection to humans and never to agents', async () => {
+    const primary = fixtureRepository('registered projection fixture');
+    const secondary = join(dir, 'registered projection fixture', 'secondary checkout');
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/projection', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+
+    const anonymous = await fetch(`${base}/api/rooms/eng/worktrees/registered`);
+    expect(anonymous.status).toBe(401);
+    const agentPrincipal = spawnAgentWithToken('registered-projection-agent');
+    const agentRead = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees/registered');
+    expect(agentRead.status).toBe(403);
+
+    // Adopt, then tombstone a second child: the projection shows actives only.
+    const adopted = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'projection-child' }),
+    })).json() as { worktree: { id: string } };
+    const second = join(dir, 'registered projection fixture', 'second checkout');
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/projection-two', second, 'HEAD']);
+    const adoptedTwo = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: second, alias: 'projection-two' }),
+    })).json() as { worktree: { id: string } };
+    await jsonRequest(ADMIN_TOKEN, `/api/rooms/eng/worktrees/${adoptedTwo.worktree.id}/unregister`, {
+      method: 'POST', body: '{}',
+    });
+
+    const listSpy = vi.spyOn(daemon.worktrees, 'list');
+    const observerRead = await jsonRequest(OBSERVER_TOKEN, '/api/rooms/eng/worktrees/registered');
+    expect(observerRead.status).toBe(200);
+    expect(listSpy).not.toHaveBeenCalled();
+    listSpy.mockRestore();
+    const projection = await observerRead.json() as {
+      repository: { id: string } | null;
+      registered: { id: string; alias: string; lifecycle: string }[];
+      discovered?: unknown;
+    };
+    expect(projection.repository).not.toBeNull();
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'projection-child']);
+    expect(projection.registered.every((worktree) => worktree.lifecycle === 'active')).toBe(true);
+    expect(projection.registered.some((worktree) => worktree.id === adopted.worktree.id)).toBe(true);
+    expect(projection).not.toHaveProperty('discovered');
+  });
+
+  it('edits an active secondary alias only for admins and keeps every stable identity', async () => {
+    const primary = fixtureRepository('alias route fixture');
+    const secondary = join(dir, 'alias route fixture', 'secondary checkout');
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/alias-route', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const adopted = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ path: secondary, alias: 'alias-child' }),
+    })).json() as { worktree: { id: string; conversation_id: string } };
+    const agentPrincipal = spawnAgentWithToken('alias-route-agent');
+    const url = `/api/rooms/eng/worktrees/${adopted.worktree.id}/alias`;
+
+    for (const token of [MEMBER_TOKEN, OBSERVER_TOKEN, agentPrincipal.token]) {
+      const refused = await jsonRequest(token, url, { method: 'POST', body: JSON.stringify({ alias: 'nope' }) });
+      expect(refused.status).toBe(403);
+    }
+    const renamed = await jsonRequest(ADMIN_TOKEN, url, {
+      method: 'POST', body: JSON.stringify({ alias: ' Renamed Child ' }),
+    });
+    expect(renamed.status).toBe(200);
+    const renamedBody = await renamed.json() as {
+      worktree: { id: string; alias: string; conversation_id: string; path: string };
+    };
+    expect(renamedBody.worktree).toMatchObject({
+      id: adopted.worktree.id,
+      alias: 'renamed-child',
+      conversation_id: adopted.worktree.conversation_id,
+    });
+    expect(daemon.store.getRoom(adopted.worktree.conversation_id)?.name)
+      .toBe('Eng · renamed-child');
+    expect((await jsonRequest(ADMIN_TOKEN, url, {
+      method: 'POST', body: JSON.stringify({ alias: 'renamed-child' }),
+    })).status).toBe(200);
+    expect((await jsonRequest(ADMIN_TOKEN, url, {
+      method: 'POST', body: JSON.stringify({ alias: 'main' }),
+    })).status).toBe(400);
+  });
+
+  it('previews removal read-only for humans with fresh truthful states', async () => {
+    const primary = fixtureRepository('preview route fixture');
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const target = join(dir, 'preview route fixture', 'preview checkout');
+    const created = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ alias: 'preview-child', branch: 'feature/preview-child', path: target }),
+    })).json() as { worktree: { id: string } };
+    const agentPrincipal = spawnAgentWithToken('preview-route-agent');
+    const url = `/api/rooms/eng/worktrees/${created.worktree.id}/removal-preview`;
+
+    expect((await jsonRequest(agentPrincipal.token, url)).status).toBe(403);
+    const registeredBefore = JSON.stringify(daemon.store.listRegisteredWorktrees('eng'));
+    const clean = await jsonRequest(OBSERVER_TOKEN, url);
+    expect(clean.status).toBe(200);
+    expect(await clean.json()).toMatchObject({ state: 'clean', branch_preserved: true });
+    writeFileSync(join(target, 'dirty.txt'), 'dirty\n');
+    const dirty = await jsonRequest(OBSERVER_TOKEN, url);
+    expect(await dirty.json()).toMatchObject({ state: 'dirty', branch_preserved: true });
+    expect(JSON.stringify(daemon.store.listRegisteredWorktrees('eng'))).toBe(registeredBefore);
+    expect(existsSync(target)).toBe(true);
+  });
+
+  it('requires both capabilities for the roster choice and preflights before any Git mutation', async () => {
+    const primary = fixtureRepository('roster create fixture');
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const jsonRequest = (token: string, path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...init.headers },
+    });
+    const preset = daemon.createAgentPreset({ label: 'Roster Kid', handle: 'roster-kid', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [preset.id] });
+
+    // Nonliteral roster input fails validation before anything runs.
+    for (const nonliteral of [false, 'yes', 1]) {
+      const invalid = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          alias: 'roster-nonliteral', branch: 'feature/roster-nonliteral',
+          path: join(dir, 'roster create fixture', `nonliteral-${String(nonliteral)}`),
+          default_roster: nonliteral,
+        }),
+      });
+      expect(invalid.status).toBe(400);
+    }
+
+    // Observer/member/agent lack worktree mutation authority for the choice.
+    const agentPrincipal = spawnAgentWithToken('roster-create-agent');
+    for (const token of [OBSERVER_TOKEN, MEMBER_TOKEN, agentPrincipal.token]) {
+      const refused = await jsonRequest(token, '/api/rooms/eng/worktrees/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          alias: 'roster-refused', branch: 'feature/roster-refused',
+          path: join(dir, 'roster create fixture', 'refused checkout'), default_roster: true,
+        }),
+      });
+      expect(refused.status).toBe(403);
+    }
+
+    // An invalid roster fails before Git or durable registration: a dangling
+    // preset reference injected below the validated Store API.
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+    daemon.store.deleteAgentPreset(preset.id);
+    const dangling = new Database(join(dir, 'db.sqlite'));
+    dangling.pragma('foreign_keys = OFF');
+    dangling.prepare(
+      `INSERT INTO default_roster_items (roster_id, preset_id, ordinal) VALUES ('default', ?, 0)`,
+    ).run(preset.id);
+    dangling.close();
+    const missingTarget = join(dir, 'roster create fixture', 'missing preset checkout');
+    const missing = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        alias: 'roster-missing', branch: 'feature/roster-missing',
+        path: missingTarget, default_roster: true,
+      }),
+    });
+    expect(missing.status).toBe(400);
+    expect(await missing.json()).toMatchObject({ error: expect.stringContaining('missing agent preset') });
+    expect(existsSync(missingTarget)).toBe(false);
+    expect(daemon.store.getRepository('eng')).toBeUndefined();
+    expect(() => fixtureGit(primary, ['show-ref', '--verify', '--quiet', 'refs/heads/feature/roster-missing'])).toThrow();
+
+    // A valid roster seeds exactly the new child; the branch survives.
+    const valid = daemon.createAgentPreset({ label: 'Roster Kid', handle: 'roster-kid', harness: 'fake' });
+    daemon.replaceDefaultRoster({ preset_ids: [valid.id] });
+    const createdTarget = join(dir, 'roster create fixture', 'created checkout');
+    const created = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        alias: 'roster-created', branch: 'feature/roster-created',
+        path: createdTarget, default_roster: true,
+      }),
+    });
+    expect(created.status).toBe(201);
+    const createdBody = await created.json() as { worktree: { conversation_id: string; path: string } };
+    const childAgents = daemon.store.listMembers(createdBody.worktree.conversation_id)
+      .filter((member) => member.kind === 'agent');
+    expect(childAgents.map((member) => member.handle)).toEqual(['roster-kid']);
+    expect(childAgents[0]?.cwd).toBe(createdBody.worktree.path);
+    // No main clone: the roster preset never becomes a root member.
+    expect(
+      daemon.store.listMembers('eng')
+        .filter((member) => member.kind === 'agent' && member.handle === 'roster-kid'),
+    ).toEqual([]);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/roster-created']))
+      .toContain('feature/roster-created');
+    daemon.replaceDefaultRoster({ preset_ids: [] });
+  });
+});
+// harn:end main-and-direct-conversations-stay-compatible
+// harn:end agent-network-authority-is-narrow
+// harn:end worktree-management-is-human-admin-only
+
+// harn:assume child-conversation-state-is-room-isolated ref=conversation-server-isolation-regression
+// harn:assume child-members-own-isolated-runtime ref=conversation-agent-authorization-regression
+describe('child conversation REST and WebSocket isolation', () => {
+  it('keeps child subscriptions exact and limits a child agent to its own room', async () => {
+    const fixture = join(dir, 'child conversation fixture');
+    const primary = join(fixture, 'primary');
+    const childPath = join(fixture, 'child');
+    const siblingPath = join(fixture, 'sibling');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'child fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'child fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/child-room', childPath, 'HEAD']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/sibling-room', siblingPath, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'child-room' });
+    const sibling = await daemon.adoptWorktree('eng', { path: siblingPath, alias: 'sibling-room' });
+    const child = adopted.worktree.conversation_id;
+    const siblingRoom = sibling.worktree.conversation_id;
+
+    const childAgent = spawnAgentWithToken('isolated-child-agent', child);
+    const childRooms = await fetch(`${base}/api/rooms`, {
+      headers: { authorization: `Bearer ${childAgent.token}` },
+    });
+    expect(childRooms.status).toBe(200);
+    expect((await childRooms.json() as { rooms: { id: string }[] }).rooms.map((room) => room.id))
+      .toEqual([child]);
+    expect((await fetch(`${base}/api/rooms/${child}/messages`, {
+      headers: { authorization: `Bearer ${childAgent.token}` },
+    })).status).toBe(200);
+    expect((await fetch(`${base}/api/rooms/eng/messages`, {
+      headers: { authorization: `Bearer ${childAgent.token}` },
+    })).status).toBe(403);
+    expect((await fetch(`${base}/api/rooms/${siblingRoom}/messages`, {
+      headers: { authorization: `Bearer ${childAgent.token}` },
+    })).status).toBe(403);
+
+    const childClient = await connect();
+    childClient.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+    await childClient.next((frame) => frame.type === 'sync_complete' && frame.room === child);
+    childClient.ws.send(JSON.stringify({ type: 'post', room: child, body: 'child-only frame' }));
+    await childClient.next((frame) =>
+      frame.type === 'message' && frame.message.room === child && frame.message.body === 'child-only frame');
+
+    const mainClient = await connect();
+    mainClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+    await mainClient.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+    mainClient.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'main-only frame' }));
+    await mainClient.next((frame) =>
+      frame.type === 'message' && frame.message.room === 'eng' && frame.message.body === 'main-only frame');
+    expect(childClient.frames.some((frame) =>
+      frame.type === 'message' && frame.message.body === 'main-only frame')).toBe(false);
+    expect((await (await fetch(`${base}/api/rooms/${child}/messages`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })).json() as { messages: { body: string }[] }).messages.map((message) => message.body))
+      .toContain('child-only frame');
+    expect((await (await fetch(`${base}/api/rooms/eng/messages`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    })).json() as { messages: { body: string }[] }).messages.map((message) => message.body))
+      .toContain('main-only frame');
+    childClient.ws.close();
+    mainClient.ws.close();
+  });
+});
+// harn:end child-members-own-isolated-runtime
+// harn:end child-conversation-state-is-room-isolated
+
+// harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-server-regression
+it('maps an active target session across home and origin selectors without widening authority', async () => {
+  const fixture = join(dir, 'active invocation fixture');
+  const primary = join(fixture, 'primary');
+  const childPath = join(fixture, 'child');
+  mkdirSync(primary, { recursive: true });
+  fixtureGit(primary, ['init', '-q', '-b', 'main']);
+  fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+  fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+  writeFileSync(join(primary, 'README.md'), 'active invocation fixture\n');
+  fixtureGit(primary, ['add', 'README.md']);
+  fixtureGit(primary, ['commit', '-qm', 'active invocation fixture']);
+  fixtureGit(primary, ['worktree', 'add', '-b', 'feature/active-invocation', childPath, 'HEAD']);
+  daemon.store.updateRoomConfig('eng', { cwd: primary });
+  const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'active-target' });
+  const child = adopted.worktree.conversation_id;
+  const { agent, token: initialToken, session } = spawnAgentWithToken('active-target-agent', child);
+  const sibling = daemon.spawnMember(child, {
+    harness: 'fake', handle: 'target-sibling', cwd: testCwd('target-sibling'),
+  });
+  const unrelated = spawnAgentWithToken('unrelated-origin-agent').agent;
+  daemon.pauseMember('eng', unrelated.id);
+  daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' } });
+
+  fake.enqueue({
+    kind: 'ask',
+    card: { kind: 'ask', prompt: 'Keep the target invocation active?' },
+    reply: () => 'target invocation completed',
+  });
+  daemon.postHumanMessage('eng', '~active-target:@active-target-agent begin scoped work');
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const activeToken = session.env?.CODOR_MEMBER_TOKEN;
+    if (activeToken !== undefined && activeToken !== initialToken
+      && daemon.authenticateAgentToken(activeToken)?.invocation !== undefined) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const originDeliveries = daemon.store.listDeliveries('eng');
+  expect(originDeliveries.filter((delivery) => delivery.target !== undefined)).toEqual([
+    expect.objectContaining({
+      recipient: agent.id,
+      state: 'delivering',
+      target: expect.objectContaining({
+        alias: 'active-target',
+        conversation_id: child,
+        member_id: agent.id,
+      }),
+    }),
+  ]);
+  expect(daemon.store.getMember(child, agent.id)).toEqual(expect.objectContaining({
+    id: agent.id,
+    state: expect.stringMatching(/^(running|awaiting_input)$/),
+  }));
+  expect(fake.deliveries).toHaveLength(1);
+  const activeToken = session.env?.CODOR_MEMBER_TOKEN;
+  expect(activeToken).toBeDefined();
+  expect(daemon.authenticateAgentToken(initialToken)).toBeUndefined();
+  expect(daemon.authenticateAgentToken(activeToken!)).toMatchObject({
+    room: 'eng', homeRoom: child,
+    invocation: { originRoom: 'eng', targetRoom: child },
+  });
+
+  const client = await connectAs(activeToken!);
+  const nextFrame = async (label: string, predicate: (frame: ServerFrame) => boolean) => {
+    try {
+      return await client.next(predicate);
+    } catch (error) {
+      throw new Error(`${label}: ${String(error)}; frames=${JSON.stringify(client.frames)}`);
+    }
+  };
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+  expect(await nextFrame('home self', (frame) => frame.type === 'self' && frame.room === 'eng'))
+    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
+  expect(await nextFrame('home sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng'))
+    .toMatchObject({ type: 'sync_complete', room: 'eng' });
+  const homeTargetMembers = client.frames.filter(
+    (frame): frame is Extract<ServerFrame, { type: 'member' }> =>
+      frame.type === 'member' && frame.room === 'eng' && frame.member.id === agent.id,
+  );
+  expect(homeTargetMembers).toHaveLength(1);
+  expect(client.frames.some((frame) => frame.type === 'member' && frame.member.id === sibling.id))
+    .toBe(false);
+
+  daemon.postHumanMessage('eng', '@unrelated-origin-agent unrelated pending work');
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  expect(await nextFrame('origin self', (frame) => frame.type === 'self' && frame.room === 'eng'))
+    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
+  await nextFrame('origin sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+  const inboxes = client.frames.filter((frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox');
+  expect(inboxes.every((frame) => frame.delivery.recipient === agent.id)).toBe(true);
+
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'other', since_seq: 0, room_addressed: true }));
+  expect(await nextFrame('other refusal', (frame) => frame.type === 'error'))
+    .toMatchObject({ type: 'error' });
+  client.ws.close();
+});
+
+it('drops effective-origin authority on the live socket once the durable target invalidates, restoring home only on fresh auth', async () => {
+  const fixture = join(dir, 'invalidated invocation fixture');
+  const primary = join(fixture, 'primary');
+  const childPath = join(fixture, 'child');
+  mkdirSync(primary, { recursive: true });
+  fixtureGit(primary, ['init', '-q', '-b', 'main']);
+  fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+  fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+  writeFileSync(join(primary, 'README.md'), 'invalidated invocation fixture\n');
+  fixtureGit(primary, ['add', 'README.md']);
+  fixtureGit(primary, ['commit', '-qm', 'invalidated invocation fixture']);
+  fixtureGit(primary, ['worktree', 'add', '-b', 'feature/invalidated-invocation', childPath, 'HEAD']);
+  daemon.store.updateRoomConfig('eng', { cwd: primary });
+  const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'invalid-target' });
+  const child = adopted.worktree.conversation_id;
+  const { agent, session } = spawnAgentWithToken('invalid-target-agent', child);
+  const sibling = daemon.spawnMember(child, {
+    harness: 'fake', handle: 'invalid-target-sibling', cwd: testCwd('invalid-target-sibling'),
+  });
+  daemon.pauseMember(child, sibling.id);
+
+  fake.enqueue({
+    kind: 'ask',
+    card: { kind: 'ask', prompt: 'Keep the doomed invocation active?' },
+    reply: () => 'too late',
+  });
+  daemon.postHumanMessage('eng', '~invalid-target:@invalid-target-agent begin scoped work');
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const activeToken = session.env?.CODOR_MEMBER_TOKEN;
+    if (activeToken !== undefined && daemon.authenticateAgentToken(activeToken)?.invocation !== undefined) break;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  const activeToken = session.env?.CODOR_MEMBER_TOKEN!;
+  expect(daemon.authenticateAgentToken(activeToken)).toMatchObject({
+    room: 'eng', homeRoom: child,
+    invocation: { originRoom: 'eng', targetRoom: child },
+  });
+
+  const client = await connectAs(activeToken);
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  expect(await client.next((frame) => frame.type === 'self' && frame.room === 'eng'))
+    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
+
+  // The durable target invalidates mid-turn: the same socket loses every
+  // effective-origin mapping, including the home selector that used to remap.
+  daemon.store.unregisterWorktree('eng', adopted.worktree.id, '2026-08-06T00:40:00.000Z');
+  expect(daemon.authenticateAgentToken(activeToken)).toMatchObject({ room: child, homeRoom: child });
+  expect(daemon.authenticateAgentToken(activeToken)?.invocation).toBeUndefined();
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 1);
+  client.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 2);
+  client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'still here?' }));
+  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 3);
+  expect(client.frames.filter((frame) => frame.type === 'error')).toHaveLength(3);
+  client.ws.close();
+
+  // A sibling's queued row must never hydrate into the target agent's inbox;
+  // the agent's own queued row must.
+  daemon.postHumanMessage(child, '@invalid-target-sibling sibling work');
+  daemon.postHumanMessage(child, '@invalid-target-agent own queued work');
+
+  // Fresh authentication after settlement restores exactly the home scope.
+  const fresh = await connectAs(activeToken);
+  fresh.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
+  expect(await fresh.next((frame) => frame.type === 'self'))
+    .toMatchObject({ type: 'self', member_id: agent.id });
+  await fresh.next((frame) => frame.type === 'sync_complete');
+  const freshInboxes = fresh.frames.filter(
+    (frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox',
+  );
+  expect(freshInboxes.length).toBeGreaterThan(0);
+  expect(freshInboxes.every((frame) => frame.delivery.recipient === agent.id)).toBe(true);
+  fresh.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
+  expect(await fresh.next((frame) => frame.type === 'error')).toMatchObject({ type: 'error' });
+  fresh.ws.close();
+});
+// harn:end agent-authority-follows-one-active-invocation
 
 afterEach(async () => {
   await server.close();
@@ -1852,6 +2475,68 @@ describe('WebSocket', () => {
 });
 
 describe('Phase 3 REST boundaries', () => {
+  // harn:assume qualified-completion-lists-registered-targets-only ref=qualified-target-catalog-regression
+  it('serves a path-free persisted catalog to humans and denies agent discovery', async () => {
+    const primary = join(dir, 'catalog-repository');
+    const secondary = join(dir, 'catalog-child');
+    const registered = daemon.store.registerWorktree('eng', {
+      common_path: join(primary, '.git'),
+      primary_path: primary,
+      primary_git_admin_id: join(primary, '.git'),
+    }, {
+      path: primary,
+      git_admin_id: join(primary, '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      branch: 'main',
+    }, {
+      path: secondary,
+      git_admin_id: join(primary, '.git', 'worktrees', 'catalog-child'),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: 'feature/catalog-child',
+    }, 'catalog-child', 'adopted');
+    daemon.store.addMember(registered.worktree.conversation_id, {
+      kind: 'agent', handle: 'catalog-agent', display_name: 'Catalog Agent', state: 'idle',
+    });
+
+    const ownerResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(ownerResponse.status).toBe(200);
+    const catalog = await ownerResponse.json() as {
+      room: string;
+      targets: { alias: string; conversation_id: string; members: { handle: string }[] }[];
+      tombstones: unknown[];
+    };
+    expect(catalog.room).toBe('eng');
+    expect(catalog.targets.map((target) => target.alias)).toContain('catalog-child');
+    expect(catalog.targets.find((target) => target.alias === 'catalog-child')?.members)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'catalog-agent' })]));
+    expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
+
+    const memberResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
+      headers: { authorization: `Bearer ${MEMBER_TOKEN}` },
+    });
+    expect(memberResponse.status).toBe(200);
+
+    let session: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    const spawnSpy = vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+      session = originalSpawn(opts);
+      return session;
+    });
+    daemon.spawnMember('eng', { harness: 'fake', handle: 'catalog-local-agent', cwd: testCwd('catalog-agent') });
+    spawnSpy.mockRestore();
+    const agentResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
+      headers: { authorization: `Bearer ${session?.env?.CODOR_MEMBER_TOKEN}` },
+    });
+    expect(agentResponse.status).toBe(403);
+  });
+  // harn:end qualified-completion-lists-registered-targets-only
+
   it('creates derived-id channels with metadata, collision suffixes, and starting agents', async () => {
     const cwd = testCwd('create-project');
     const first = await fetch(`${base}/api/rooms`, {
@@ -1918,6 +2603,124 @@ describe('Phase 3 REST boundaries', () => {
     browser.close();
   });
   // harn:end browser-created-channel-delivers-its-room-key
+
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
+  // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-files-voice-key-regression
+  it('seals only the new child key to a paired browser and keeps operator responses compatible', async () => {
+    const browser = new CryptoVault(join(dir, 'worktree-browser'));
+    const peer = crypto.keys.enrollPeer({
+      ...browser.keys.publicIdentity(), kind: 'device', label: 'worktree browser',
+    });
+    crypto.roomKeys.enrollPeer(peer);
+    const browserToken = await authenticateDevice(browser);
+    const fixture = join(dir, 'worktree browser fixture');
+    const primary = join(fixture, 'primary');
+    const secondary = join(fixture, 'secondary');
+    const browserCreatedSecondary = join(fixture, 'browser created secondary');
+    const operatorSecondary = join(fixture, 'operator secondary');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'browser child fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'browser child fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/browser-child', secondary, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+
+    const adopted = await fetch(`${base}/api/rooms/eng/worktrees/adopt`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${browserToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ path: secondary, alias: 'browser-child' }),
+    });
+    expect(adopted.status).toBe(201);
+    const adoptedBody = await adopted.json() as {
+      worktree: { id: string; conversation_id: string };
+      room_key: { room: string; generation: number; sealed_key: string };
+    };
+    expect(adoptedBody.room_key).toMatchObject({
+      room: adoptedBody.worktree.conversation_id, generation: 1,
+    });
+    const childKey = openSealedBox(adoptedBody.room_key.sealed_key, browser.keys.identity);
+    expect(childKey).toEqual(crypto.roomKeys.roomKey(adoptedBody.worktree.conversation_id));
+    expect(childKey).not.toEqual(crypto.roomKeys.roomKey('eng'));
+
+    const browserCreated = await fetch(`${base}/api/rooms/eng/worktrees`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${browserToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        alias: 'browser-created-child',
+        branch: 'feature/browser-created-child',
+        path: browserCreatedSecondary,
+      }),
+    });
+    expect(browserCreated.status).toBe(201);
+    const browserCreatedBody = await browserCreated.json() as {
+      worktree: { conversation_id: string };
+      room_key: { room: string; generation: number; sealed_key: string };
+    };
+    expect(browserCreatedBody.room_key).toMatchObject({
+      room: browserCreatedBody.worktree.conversation_id, generation: 1,
+    });
+    expect(openSealedBox(browserCreatedBody.room_key.sealed_key, browser.keys.identity))
+      .toEqual(crypto.roomKeys.roomKey(browserCreatedBody.worktree.conversation_id));
+    expect(browserCreatedBody.worktree.conversation_id)
+      .not.toBe(adoptedBody.worktree.conversation_id);
+
+    const operatorCreated = await fetch(`${base}/api/rooms/eng/worktrees/create`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        alias: 'operator-child', branch: 'feature/operator-child', path: operatorSecondary,
+      }),
+    });
+    expect(operatorCreated.status).toBe(201);
+    const operatorBody = await operatorCreated.json() as {
+      worktree: { conversation_id: string };
+    };
+    expect(operatorBody).not.toHaveProperty('room_key');
+    expect(operatorBody.worktree.conversation_id).not.toBe(adoptedBody.worktree.conversation_id);
+    const keyBeforeUnregister = crypto.roomKeys.roomKey(adoptedBody.worktree.conversation_id);
+    const unregistered = await fetch(
+      `${base}/api/rooms/eng/worktrees/${adoptedBody.worktree.id}/unregister`,
+      { method: 'POST', headers: { authorization: `Bearer ${browserToken}` } },
+    );
+    expect(unregistered.status).toBe(200);
+    expect(crypto.roomKeys.roomKey(adoptedBody.worktree.conversation_id)).toEqual(keyBeforeUnregister);
+
+    const attachment = await fetch(
+      `${base}/api/rooms/${adoptedBody.worktree.conversation_id}/attachments?name=child.txt`,
+      {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'text/plain' },
+        body: 'child bytes',
+      },
+    );
+    expect(attachment.status).toBe(200);
+    const attachmentMeta = await attachment.json() as {
+      id: string; name: string; mime: string; size: number;
+    };
+    expect((await fetch(
+      `${base}/api/rooms/eng/attachments/${attachmentMeta.id}`,
+      { headers: { authorization: `Bearer ${TOKEN}` } },
+    )).status).toBe(404);
+    expect(() => daemon.resolveAttachmentsForPost('eng', [attachmentMeta.id])).toThrow('unknown attachment');
+    const childMessage = daemon.postHumanMessage(adoptedBody.worktree.conversation_id, 'child voice', {
+      attachments: [attachmentMeta],
+      voice: { duration_seconds: 2, levels: [0, 50, 100] },
+    });
+    const mainMessage = daemon.postHumanMessage('eng', 'main voice', {
+      voice: { duration_seconds: 2, levels: [100, 50, 0] },
+    });
+    expect(childMessage.id).toBe(1);
+    expect(mainMessage.id).toBe(1);
+    expect(daemon.store.getMessage(adoptedBody.worktree.conversation_id, childMessage.id))
+      .toMatchObject({ attachments: [attachmentMeta], voice: { levels: [0, 50, 100] } });
+    expect(daemon.store.getMessage('eng', mainMessage.id)?.attachments).toBeUndefined();
+    browser.close();
+  });
+  // harn:end child-files-voice-and-keys-are-isolated
+  // harn:end child-files-voice-and-keys-are-isolated
 
   it('lists only home-contained directories for admins with precise status codes', async () => {
     mkdirSync(join(dir, 'alpha'));
@@ -2243,6 +3046,30 @@ describe('git inspection endpoints (room-git-inspection-read-only-from-known-cwd
     daemon.configureRoom('eng', { cwd: initRepo() });
     expect((await fetch(`${base}/api/rooms/eng/git-diff`)).status).toBe(401);
     expect((await fetch(`${base}/api/rooms/eng/git-history`)).status).toBe(401);
+  });
+
+  it('reports repository truth for Git and known non-Git cwds without mutation', async () => {
+    const repo = initRepo();
+    daemon.configureRoom('eng', { cwd: repo });
+    const gitState = await fetch(`${base}/api/rooms/eng/git-diff`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(await gitState.json()).toMatchObject({ repository: true, clean: false });
+
+    // A known existing directory that is not a repository reads honestly:
+    // repository false, an empty clean tree, and no filesystem mutation.
+    const plain = testCwd('plain-known-dir');
+    daemon.configureRoom('eng', { cwd: plain });
+    const plainState = await fetch(`${base}/api/rooms/eng/git-diff`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(plainState.status).toBe(200);
+    expect(await plainState.json()).toMatchObject({
+      repository: false,
+      clean: true,
+      files: [],
+    });
+    expect(existsSync(join(plain, '.git'))).toBe(false);
   });
 
   it("refuses a cwd outside the room's known set", async () => {

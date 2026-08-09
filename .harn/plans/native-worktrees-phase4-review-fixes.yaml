@@ -1,0 +1,366 @@
+id: native-worktrees-phase4-review-fixes
+title: Native worktrees Phase 4 review fixes - preserve root, readiness, and
+  child metadata
+notes: >-
+  Fix only the defects found by Sol's independent review of Phase 4 commit
+  c0f52b379c9a6f29540e37341cd4474797522926. Preserve every prior applied plan
+  and remain inside Phase 4 functional group navigation and explicit lifecycle
+  UI; do not begin Phase 5.
+
+  First, restore the public-root versus selected-conversation boundary. A
+  top-level channel switch, Back/Forward, reload, Settings round-trip, or active
+  hosted-computer change must update the public root and its group projection,
+  clear or resolve the stable WorktreeId selector, and leave the connector on
+  the intended exact conversation. Selecting a child must never make its hidden
+  RoomId the remembered top-level room for either direct or hosted sessions.
+  Main and the selected child may not both expose aria-current. A child link's
+  real href must contain both the public root RoomId and stable WorktreeId so
+  copied links, open-in-new-tab, and modified clicks retain authorization.
+  Reconnect while a child is selected must still observe main plus every active
+  child.
+
+  Second, separate current-generation subscription readiness from retained
+  hydration. Starting or replacing a socket generation makes every desired exact
+  room connecting (or offline until server evidence); a room becomes live only
+  after that room's own addressed sync_complete for the current generation. One
+  frame or a prior hydrated slice must not mark siblings live. Last-good
+  messages/support remain visible while offline or reconnecting, removed
+  registrations stop future subscription, and visible connection state remains
+  independent of working, attention, unread, and Git availability. Keep every
+  hosted computer's desired set, readiness, public root, token, connector, and
+  store isolated.
+
+  Third, preserve durable child configuration. New children may inherit the root
+  configuration once, with canonical child cwd and no root-only starting handle.
+  Open-time migration and explicit re-adoption must patch an existing child only
+  as needed to set its canonical registered cwd, clear a stale
+  starting_agent_handle, and reconcile its name; they must preserve that child's
+  turn/spend brakes, stall interval, redaction, color, bridged state, messages,
+  members, sessions, and all other room-local state. This applies to active and
+  tombstoned mapped children. Alias edit changes only the worktree alias and
+  child display name; it must never rewrite child config from main. Append an
+  ordinary child room change only when the visible child row actually changes,
+  and leave the root byte-for-byte unchanged.
+
+  Fourth, finish the operator entry and relay boundary. A known existing cwd
+  that is not a Git repository must not reveal the pre-promotion entry; the
+  bounded working-state response must report repository truth honestly and all
+  Diff/Git reads used by this entry must use relayFetch in
+  hosted/separate-origin mode. Once a Git repository is confirmed, both Create
+  and Find must be reachable before the first promotion, while the group itself
+  remains hidden. Find still performs discovery only after explicit open,
+  requires exactly one candidate and a nonempty alias before adoption, and never
+  registers an unselected candidate. Preserve the existing post-promotion
+  Create/Find controls, draft/error retention, role gates, removal safety,
+  default-roster choice, normal channels, keyboard/focus behavior, and 390px
+  geometry.
+
+  Independent review verified the exact one-commit topology, applied Harn state,
+  empty-tree staged check, 227 protocol tests, 560 focused switchboard tests, 81
+  focused web tests, the complete 867-test switchboard suite with one
+  intentional skip, the complete 507-test web suite, both recursive builds, and
+  a clean tree. The normalized real-worktree path/branch inventory stayed
+  byte-identical at 99 lines with SHA-256
+  545f9cf8da89573d9fb0ebe78408ebc754d76a8dff9225721fdc5a9e2c2433de. Existing
+  tests did not cover the defects above: RoomPage pins root to its launch prop;
+  connector readiness reads retained hydrated state; hosted active room is
+  derived from the selected connector conversation; existing child projection is
+  rebuilt from root config; the Git entry checks only a non-null cwd through
+  direct fetch; the pre-promotion entry opens Find alone; and child hrefs omit
+  room.
+
+  Do not change registered/discovery/lifecycle REST shapes except the additive
+  honest repository boolean on the existing bounded Git working-state response.
+  Add no WebSocket frame, relay protocol, Git mutation, auto-import, force,
+  prune, branch deletion, multi-repository behavior, qualified-routing change,
+  roster semantic, preset editor, or Phase 5 concurrency/recovery hardening. Do
+  not touch the agent-presets or CLI-management worktrees. Every Git-backed unit
+  and browser fixture must remain below its own mkdtemp root; no command may
+  discover through Codor, adopt, create, move, rename, dirty, unregister,
+  remove, or otherwise mutate a real user worktree or branch.
+assumptions:
+  reviewed:
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: The fix restores stable root-plus-WorktreeId navigation, main/child
+        exclusivity, top-level switching, and promotion gating without changing
+        the persisted registered projection.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Current-generation exact-room readiness and main-plus-child
+        subscriptions are required to make the already-accepted independent
+        status statement true.
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      outcome: unchanged
+      reason: Create and Find become reachable from a confirmed pre-promotion Git
+        context in direct and relay modes while existing explicit lifecycle and
+        safety gates remain unchanged.
+    - id: worktree-alias-and-child-metadata-follow-stable-identity
+      outcome: unchanged
+      reason: Existing child config is room-local state; alias and metadata
+        reconciliation must patch only the declared name, cwd, and stale
+        starting handle fields.
+    - id: worktree-lifecycle-preserves-existing-state-by-default
+      outcome: unchanged
+      reason: Re-adoption and reopen preserve existing child-local configuration as
+        well as every root entity while reconciling only authorized metadata.
+    - id: registered-worktrees-materialize-stable-conversations
+      outcome: unchanged
+      reason: Stable child rooms and tombstones remain intact while their existing
+        metadata is reconciled without replacing configuration or history.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: Ordinary top-level switching and selector-less channels must remain
+        correct before and after group promotion.
+    - id: child-conversation-state-is-room-isolated
+      outcome: unchanged
+      reason: Child configuration and readiness remain exact-room state and never
+        inherit later root mutations or sibling connection evidence.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: A hidden selected conversation must not replace or leak the public root
+        remembered by one hosted computer into another session.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Switching away and back must reuse the warm connector while restoring
+        that computer's public root rather than a hidden child id.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: Settings continues using the selected exact conversation on the same
+        connector while its URL and return path retain the public root selector.
+    - id: room-git-inspection-read-only-from-known-cwds
+      outcome: unchanged
+      reason: The existing bounded read now reports repository truth explicitly and
+        reaches the same authorized endpoint through relayFetch.
+    - id: git-history-pages-are-local-and-commit-addressed
+      outcome: unchanged
+      reason: Routing the shared Git client transport through relayFetch must not
+        change bounded history or immutable commit semantics.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: Readiness consumes the existing addressed sync_complete evidence and
+        adds no frame or server fan-out change.
+anchors:
+  registered-worktree-navigation-is-promotion-gated:
+    worktree-url-selector:
+      action: change
+      reason: Keep the mutable public root separate from the stable optional child
+        selector across top-level navigation, history, reload, and hosted
+        changes.
+    worktree-group-state:
+      action: change
+      reason: Retain last-good groups per current public root and carry explicit
+        current-generation exact-room readiness without flattening hydration.
+    worktree-group-navigation:
+      action: change
+      reason: Make main/child selection exclusive, switch public roots correctly,
+        subscribe main plus children, and emit copy-safe root-qualified hrefs.
+    worktree-group-style:
+      action: change
+      reason: Keep independent connection/status labels and pre-promotion actions
+        bounded at desktop and 390px widths.
+    worktree-group-unit-regression:
+      action: change
+      reason: Cover copy/open hrefs, exclusive aria-current, root changes, fallback,
+        and independent compound status presentation.
+    worktree-group-browser-regression:
+      action: change
+      reason: Exercise top-level A-to-B switching, Back/Forward, reload, copied child
+        links, first promotion, and ordinary-channel preservation.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-observed-room-subscriptions:
+      action: change
+      reason: Preserve the public root in the desired set and track readiness from
+        exact current-generation addressed completion rather than old hydration.
+    worktree-room-readiness-state:
+      action: change
+      reason: Store current-generation connecting/live/offline evidence separately
+        from retained room slices for reactive per-row projection.
+    worktree-conversation-status-model:
+      action: change
+      reason: Render connection independently of working, attention, unread, and Git
+        availability so one state cannot mask another.
+    worktree-observed-room-regression:
+      action: change
+      reason: Prove a retained hydrated sibling stays connecting until its own new
+        sync_complete, main remains subscribed, and removed children stay
+        dropped.
+    worktree-managed-connector-regression:
+      action: change
+      reason: Prove hidden selection and desired/readiness state stay isolated per
+        hosted computer while each public root remains stable.
+    worktree-status-browser-regression:
+      action: change
+      reason: Exercise exact-room reconnect progress and simultaneous last-good work
+        plus honest offline/connecting state.
+  worktree-lifecycle-ui-is-explicit-and-recoverable:
+    worktree-lifecycle-client:
+      action: keep
+      reason: Registered and lifecycle REST calls already use relayFetch and remain
+        unchanged.
+    worktree-git-context-entry:
+      action: change
+      reason: Gate on an explicit repository boolean and expose both first Create and
+        Find only after the existing bounded inspection succeeds.
+    worktree-lifecycle-dialogs:
+      action: change
+      reason: Require a nonempty alias for one selected discovery candidate and make
+        both lifecycle starts reachable before promotion.
+    worktree-lifecycle-style:
+      action: change
+      reason: Fit the corrected pre-promotion Create/Find entry without weakening
+        focus, tap target, or no-overflow behavior.
+    worktree-lifecycle-unit-regression:
+      action: change
+      reason: Cover repository/non-repository gating, first Create and Find, mandatory
+        alias, error/draft retention, and role hiding.
+    worktree-lifecycle-browser-regression:
+      action: change
+      reason: Prove first creation without prior adoption plus separate-origin relay
+        discovery/lifecycle access and non-Git known-cwd hiding.
+  worktree-alias-and-child-metadata-follow-stable-identity:
+    worktree-child-metadata-migration:
+      action: change
+      reason: Reconcile active and tombstoned mapped children by patching only name,
+        canonical cwd, and stale root starting handle while preserving config.
+    worktree-child-metadata-store:
+      action: change
+      reason: Create from root once, patch existing children narrowly, and make alias
+        edits update display name without rewriting room config.
+    worktree-child-metadata-regression:
+      action: change
+      reason: Preserve custom child brakes/redaction/color/bridged state through
+        reopen, alias edit, tombstone, and re-adoption while root stays
+        byte-equal.
+    worktree-alias-manager:
+      action: keep
+      reason: Manager normalization and no-Git delegation remain correct.
+    worktree-alias-rest:
+      action: keep
+      reason: Alias authorization and REST shape remain correct.
+  registered-worktrees-materialize-stable-conversations:
+    worktree-conversation-store-schema:
+      action: change
+      reason: Existing stable child materialization must patch current config rather
+        than rebuilding it from root; ids, tombstones, and history remain
+        unchanged.
+    worktree-conversation-store-regression:
+      action: change
+      reason: Extend durable child reopen/re-adoption coverage to custom config and
+        inactive mapped children.
+    worktree-conversation-migration:
+      action: keep
+      reason: Conversation-id backfill and main transcript preservation remain
+        unchanged.
+  worktree-lifecycle-preserves-existing-state-by-default:
+    worktree-root-neutral-registration:
+      action: keep
+      reason: Root lifecycle boundaries and optional new-child seeding stay unchanged.
+    worktree-root-neutral-regression:
+      action: change
+      reason: Extend evidence that root config/runtime state stays byte-identical
+        while existing child-local config is preserved.
+  room-git-inspection-read-only-from-known-cwds:
+    room-git-inspection-contract:
+      action: change
+      reason: Add an honest repository boolean to the existing bounded working-state
+        response without adding any mutating or unbounded Git command.
+    room-git-inspection-server-regression:
+      action: change
+      reason: Prove repository true/false for known Git and non-Git cwd,
+        authorization, and no filesystem mutation.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Persist a public root separately from the connector's selected hidden
+        conversation inside each session entry.
+  hosted-computer-switching-reuses-warm-session:
+    warm-computer-activation:
+      action: change
+      reason: Switching away and back restores the warm session's public root while
+        retaining its selected child only as conversation-local state.
+  settings-navigation-reuses-live-session:
+    mounted-settings-route:
+      action: change
+      reason: Settings/Back history must carry public root plus optional stable child
+        selector while reusing the live active-conversation connector.
+  main-and-direct-conversations-stay-compatible:
+    conversation-root-query:
+      action: keep
+      reason: Server/store public room listings remain root-only and unchanged.
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Browser coverage must prove ordinary A-to-B channel switching and main
+        selection before, during, and after promotion.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-frame-contract:
+      action: keep
+      reason: No protocol frame changes are permitted.
+    room-addressed-live-fanout:
+      action: keep
+      reason: Existing server live fan-out remains unchanged.
+    room-addressed-hydration:
+      action: keep
+      reason: Existing addressed hydration remains the readiness evidence.
+  git-history-pages-are-local-and-commit-addressed:
+    git-history-daemon-regression:
+      action: keep
+      reason: History ordering, reachability, and patch semantics remain untouched.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/room/git-diff.ts
+  - packages/web-next/src/room/git-diff.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
+verification: Before implementation, run harn find --plan
+  native-worktrees-phase4-review-fixes, harn plan check
+  native-worktrees-phase4-review-fixes, and harn check
+  native-worktrees-phase4-review-fixes. Capture a normalized byte-for-byte git
+  worktree list --porcelain path/branch inventory before any test or build. Run
+  git diff --check; pnpm --filter @codor/protocol test; pnpm --filter
+  @codor/switchboard exec vitest run src/store.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; pnpm --filter @codor/web-next exec vitest run
+  src/room/git-diff.spec.ts src/app/connector.spec.ts
+  src/app/computer-sessions.spec.ts src/app/store.spec.ts
+  src/room/WorktreeGroup.spec.tsx; the complete pnpm --filter @codor/switchboard
+  test; the complete pnpm --filter @codor/web-next test; pnpm --filter
+  '@codor/switchboard...' build; pnpm --filter '@codor/web-next...' build; then
+  root pnpm build followed by root pnpm test. Run isolated Playwright room37,
+  room38, room39, room40, and room41 specs sequentially, each with a fresh
+  harness and nonoverlapping four-port range. Browser coverage must include a
+  direct top-level A-to-B-to-A Back/Forward sequence, child copied/new-tab URL,
+  exclusive main/child aria-current, first-child Create without prior adoption,
+  explicit Find with mandatory alias, a known existing non-Git cwd, and
+  separate-origin relay pre-promotion access with zero escaped direct API
+  requests. Connector tests must retain hydrated slices across socket
+  replacement and require each exact new sync_complete before live; hosted tests
+  must select a hidden child, switch computers away and back, and prove the
+  remembered room is still the public root. Store tests must use disposable
+  SQLite data and prove custom child config survives active reopen, tombstone
+  reopen, alias edit, and re-adoption while only cwd/starting handle/name
+  reconcile. Every Git repository and worktree fixture must live below its own
+  mkdtemp root, no fixture may delete a branch, and no command may mutate a real
+  worktree. Compare the normalized real-worktree inventory after all gates and
+  require identical bytes, count, and SHA-256. Run harn find --file for every
+  declared switchboard file and textual delimiter checks for every ignored web
+  file. Stage only this plan and the 21 declared files, run harn check --staged,
+  let the pre-commit hook apply the plan, and create exactly one review-fix
+  implementation commit.
+applied:
+  applied_at: 2026-08-07T15:52:03.801Z

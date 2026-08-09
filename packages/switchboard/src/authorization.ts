@@ -10,6 +10,7 @@ export type HumanCapability =
   | 'mirror_session_end'
   | 'manage_ledger'
   | 'enable_bridge'
+  | 'manage_worktrees'
   | 'manage_keys'
   | 'manage_devices'
   | 'manage_agents'
@@ -72,6 +73,9 @@ export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   mirror_session_end: 'admin',
   manage_ledger: 'admin',
   manage_agents: 'admin',
+  // harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-role-gate
+  manage_worktrees: 'admin',
+  // harn:end worktree-management-is-human-admin-only
   // harn:end removed-members-remain-attribution-tombstones
   enable_bridge: 'admin',
   set_role: 'owner',

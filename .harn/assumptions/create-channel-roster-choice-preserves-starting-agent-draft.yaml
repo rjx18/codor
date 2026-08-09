@@ -20,4 +20,4 @@ depends_on:
   - paired-empty-state-creates-first-channel
   - agent-controls-shared-by-both-dialogs
   - agent-selection-shows-detected-acp-and-advanced-custom
-created_by: agent-presets-p4-settings-create-ui
+created_by: native-worktrees-agent-presets-integration

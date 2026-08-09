@@ -20,4 +20,4 @@ depends_on:
   - default-roster-is-one-versioned-ordered-preset-reference-group
   - durable-agent-runtime-configuration
   - agent-member-credentials-stay-secret
-created_by: agent-presets-p5-integration-hardening
+created_by: native-worktrees-agent-presets-integration

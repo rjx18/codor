@@ -11,4 +11,4 @@ statement: Deleting an individual preset whose stable id is present in the
   nondeterministic.
 depends_on:
   - default-roster-is-one-versioned-ordered-preset-reference-group
-created_by: agent-presets-p1-domain-persistence
+created_by: native-worktrees-agent-presets-integration

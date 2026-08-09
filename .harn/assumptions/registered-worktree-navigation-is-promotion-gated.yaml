@@ -1,0 +1,16 @@
+id: registered-worktree-navigation-is-promotion-gated
+hash: a-a9008fadb1d8
+title: Registered worktree navigation appears only after explicit promotion
+state: active
+statement: A browser must read persisted active registrations without Git
+  discovery and keep the ordinary channel navigation until at least one
+  secondary is active; after promotion it must show stable main first and only
+  active registered children, preserve main on first promotion, encode an
+  optional stable WorktreeId beside the public root RoomId in history, and fall
+  back to main when a selected child is no longer active, while Find alone may
+  reveal unregistered discovery candidates.
+depends_on:
+  - registered-worktrees-materialize-stable-conversations
+  - main-and-direct-conversations-stay-compatible
+  - worktree-discovery-never-registers-candidates
+created_by: native-worktrees-phase4-functional-group-ui

@@ -19,4 +19,4 @@ depends_on:
   - roles-gate-human-acts-not-agents
   - agent-network-authority-is-narrow
   - hosted-computer-sessions-keep-state-isolated
-created_by: agent-presets-p1-domain-persistence
+created_by: native-worktrees-agent-presets-integration

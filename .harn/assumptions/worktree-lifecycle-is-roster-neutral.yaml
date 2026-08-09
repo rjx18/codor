@@ -1,0 +1,13 @@
+id: worktree-lifecycle-is-roster-neutral
+hash: a-e73739970c3a
+title: Worktree lifecycle does not clone or rewrite channel runtime state
+state: retired
+statement: Repository detection, worktree discovery, adoption, creation,
+  unregister, and removal must not create, copy, rename, or remove room members
+  or mutate room configuration, messages, sessions, credentials, caches, tasks,
+  usage, or roster-staleness state, so a non-Git room or a room with no active
+  registered secondary continues through the ordinary channel path unchanged.
+depends_on:
+  - registered-worktree-identities-are-durable
+created_by: native-worktrees-phase1-registry
+retired_by: native-worktrees-phase4-functional-group-ui

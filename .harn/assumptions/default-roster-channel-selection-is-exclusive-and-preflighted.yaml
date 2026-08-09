@@ -20,4 +20,4 @@ depends_on:
   - new-agent-requests-require-available-native-or-detected-acp
   - canonical-spawn-controls-enforced
   - spawn-default-cwd-is-absolute-or-empty
-created_by: agent-presets-p3-default-roster-create
+created_by: native-worktrees-agent-presets-integration
