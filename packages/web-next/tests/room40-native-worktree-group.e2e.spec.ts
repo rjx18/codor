@@ -1,5 +1,6 @@
 // harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-browser-regression
 // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-status-browser-regression
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 const TOKEN = 'next-e2e-token';
@@ -221,3 +222,30 @@ test.describe('native worktree group navigation', () => {
 });
 // harn:end worktree-conversation-status-is-live-and-independent
 // harn:end registered-worktree-navigation-is-promotion-gated
+
+// harn:assume native-worktree-rail-is-axe-valid ref=worktree-rail-browser-a11y
+test.describe('native worktree rail accessibility', () => {
+  test('uses valid list ownership and stays axe-clean in both themes', async ({ page }) => {
+    await openRoom(page, `/?room=workspace&token=${TOKEN}`);
+    const group = page.getByTestId('worktree-group');
+    await expect(group).toBeVisible();
+    const list = group.locator('ul.nx-wt-list');
+    const shape = await list.evaluate((element) => ({
+      directTags: Array.from(element.children).map((child) => child.tagName),
+      nestedListItems: Array.from(element.children)
+        .reduce((count, row) => count + row.querySelectorAll('li').length, 0),
+      rowChildren: Array.from(element.children).map((row) => Array.from(row.children).map((child) => child.tagName)),
+    }));
+    expect(shape.directTags.length).toBeGreaterThan(0);
+    expect(shape.directTags.every((tag) => tag === 'LI')).toBe(true);
+    expect(shape.nestedListItems).toBe(0);
+    expect(shape.rowChildren.every((children) => children.includes('A'))).toBe(true);
+
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+      const { violations } = await new AxeBuilder({ page }).include('[data-testid="worktree-group"]').analyze();
+      expect(violations.map((violation) => violation.id), theme).toEqual([]);
+    }
+  });
+});
+// harn:end native-worktree-rail-is-axe-valid

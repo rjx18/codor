@@ -3555,12 +3555,14 @@
   padding: 0 8px 2px 12px;
 }
 
+/* harn:assume native-worktree-rail-is-axe-valid ref=worktree-rail-label-style */
 .nx-wt-group-label {
   font: var(--t-eyebrow, 600 11px/1.2 system-ui);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--c-ink-dim, #7a7f8a);
+  color: var(--c-secondary);
 }
+/* harn:end native-worktree-rail-is-axe-valid */
 
 .nx-wt-group-actions { display: inline-flex; gap: 2px; }
 
@@ -3581,7 +3583,7 @@
 
 .nx-wt-branch {
   font: var(--t-note, 11px/1.3 ui-monospace, monospace);
-  color: var(--c-ink-dim, #7a7f8a);
+  color: var(--c-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3604,7 +3606,7 @@
   border: 1px solid var(--c-line, rgba(128, 128, 128, 0.3));
   border-radius: 6px;
   background: transparent;
-  color: var(--c-ink-dim, #7a7f8a);
+  color: var(--c-secondary);
   font: var(--t-note, 12px/1.3 system-ui);
   cursor: pointer;
   opacity: 0;
@@ -3651,13 +3653,13 @@
    another. */
 .nx-wt-conn {
   font: var(--t-note, 11px/1.3 system-ui);
-  color: var(--c-ink-dim, #7a7f8a);
+  color: var(--c-secondary);
   white-space: nowrap;
 }
 
-.nx-wt-conn.is-connected { color: var(--c-live, #2e7d4f); }
+.nx-wt-conn.is-connected { color: var(--c-live-text); }
 
-.nx-wt-conn.is-offline { color: var(--c-danger, #b4433a); }
+.nx-wt-conn.is-offline { color: var(--c-error-text); }
 
 .nx-wt-dialog { display: flex; flex-direction: column; gap: var(--sp-3, 12px); }
 

@@ -87,6 +87,7 @@ export function useWorktreeGroup(root: string, token: () => string): WorktreeGro
   };
 }
 
+// harn:assume native-worktree-rail-is-axe-valid ref=worktree-rail-dom-semantics
 // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-conversation-status-model
 /** Per-row status: CONNECTION (the connector's current-generation exact-room
  * readiness) is rendered on its own, never collapsed into ACTIVITY
@@ -121,51 +122,49 @@ function ChildRow(props: {
         ? 'checkout unavailable'
         : undefined;
   return (
-    <li>
-      <a
-        className={`nx-row nx-wt-row ${props.selected ? 'is-active' : ''}`}
-        href={roomUrl(props.root, props.worktree.id)}
-        aria-current={props.selected ? 'page' : undefined}
-        data-testid={`worktree-link-${props.worktree.id}`}
-        onClick={(event) => {
-          if (event.metaKey || event.ctrlKey || event.shiftKey) return;
-          event.preventDefault();
-          props.onSelect();
-        }}
-      >
-        <GitBranch size={15} aria-hidden="true" className="nx-wt-row-icon" />
-        <span className="nx-row-main">
-          <span className="nx-row-top">
-            <span className="nx-row-name">{props.worktree.alias}</span>
-            {props.worktree.branch !== undefined && (
-              <span className="nx-wt-branch">{props.worktree.branch}</span>
-            )}
-          </span>
-          <span className="nx-row-bottom">
-            {activity !== undefined && (
-              <span
-                className={`nx-row-preview ${attention ? 'is-error' : ''}`}
-                data-testid={`worktree-status-${props.worktree.id}`}
-              >
-                {working && <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>}
-                {activity}
-              </span>
-            )}
-            <span
-              className={`nx-wt-conn is-${props.readiness}`}
-              data-testid={`worktree-connection-${props.worktree.id}`}
-            >
-              {connection}
-            </span>
-            {unread > 0 && (
-              <span className="nx-unread" data-testid={`worktree-unread-${props.worktree.id}`}>
-                {unread > 99 ? '99+' : unread}
-              </span>
-            )}
-          </span>
+    <a
+      className={`nx-row nx-wt-row ${props.selected ? 'is-active' : ''}`}
+      href={roomUrl(props.root, props.worktree.id)}
+      aria-current={props.selected ? 'page' : undefined}
+      data-testid={`worktree-link-${props.worktree.id}`}
+      onClick={(event) => {
+        if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+        event.preventDefault();
+        props.onSelect();
+      }}
+    >
+      <GitBranch size={15} aria-hidden="true" className="nx-wt-row-icon" />
+      <span className="nx-row-main">
+        <span className="nx-row-top">
+          <span className="nx-row-name">{props.worktree.alias}</span>
+          {props.worktree.branch !== undefined && (
+            <span className="nx-wt-branch">{props.worktree.branch}</span>
+          )}
         </span>
-      </a>
-    </li>
+        <span className="nx-row-bottom">
+          {activity !== undefined && (
+            <span
+              className={`nx-row-preview ${attention ? 'is-error' : ''}`}
+              data-testid={`worktree-status-${props.worktree.id}`}
+            >
+              {working && <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>}
+              {activity}
+            </span>
+          )}
+          <span
+            className={`nx-wt-conn is-${props.readiness}`}
+            data-testid={`worktree-connection-${props.worktree.id}`}
+          >
+            {connection}
+          </span>
+          {unread > 0 && (
+            <span className="nx-unread" data-testid={`worktree-unread-${props.worktree.id}`}>
+              {unread > 99 ? '99+' : unread}
+            </span>
+          )}
+        </span>
+      </span>
+    </a>
   );
 }
 // harn:end worktree-conversation-status-is-live-and-independent
@@ -221,7 +220,7 @@ export function WorktreeGroupSection(props: {
       )}
       <ul className="nx-wt-list">
         {group.children.map((worktree) => (
-          <div key={worktree.id} className="nx-wt-item">
+          <li key={worktree.id} className="nx-wt-item">
             <ChildRow
               root={props.root}
               worktree={worktree}
@@ -240,12 +239,13 @@ export function WorktreeGroupSection(props: {
                 Manage
               </button>
             )}
-          </div>
+          </li>
         ))}
       </ul>
     </section>
   );
 }
+// harn:end native-worktree-rail-is-axe-valid
 // harn:end registered-worktree-navigation-is-promotion-gated
 
 // harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-dialogs

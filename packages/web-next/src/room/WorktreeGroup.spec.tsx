@@ -280,6 +280,43 @@ describe('worktree group state and navigation', () => {
 });
 // harn:end registered-worktree-navigation-is-promotion-gated
 
+// harn:assume native-worktree-rail-is-axe-valid ref=worktree-rail-unit-regression
+describe('native worktree rail accessibility structure', () => {
+  it('uses direct list rows with a link and adjacent manage control', async () => {
+    const group = {
+      registered: [MAIN, ALPHA, BRAVO],
+      children: [ALPHA, BRAVO],
+      promoted: true,
+      loaded: true,
+      refresh: () => Promise.resolve(),
+    };
+    await mount(
+      <WorktreeGroupSection
+        root="eng"
+        token={() => 'token'}
+        group={group}
+        selectedWorktree={undefined}
+        readiness={() => 'connected'}
+        canManage={true}
+        onSelect={() => undefined}
+        onOpenDialog={() => undefined}
+      />,
+    );
+
+    const groupElement = byTestId('worktree-group')!;
+    const list = groupElement.querySelector('ul.nx-wt-list')!;
+    const rows = Array.from(list.children);
+    expect(rows.map((row) => row.tagName)).toEqual(['LI', 'LI']);
+    for (const row of rows) {
+      expect(row.classList.contains('nx-wt-item')).toBe(true);
+      expect(row.querySelector('li')).toBeNull();
+      expect(Array.from(row.children).map((child) => child.tagName)).toEqual(['A', 'BUTTON']);
+    }
+    expect(groupElement.querySelector('.nx-wt-group-label')?.textContent).toBe('Worktrees');
+  });
+});
+// harn:end native-worktree-rail-is-axe-valid
+
 // harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-unit-regression
 describe('worktree lifecycle dialogs', () => {
   it('discovers only after Find opens and requires one selected candidate', async () => {

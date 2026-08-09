@@ -1,0 +1,16 @@
+id: native-worktree-rail-is-axe-valid
+hash: a-28d6fc60258e
+title: Native worktree rail has valid list semantics and AA label contrast
+state: active
+statement: The promoted native-worktree rail must render each worktree as a
+  direct li child of its ul, with the navigation link and any authorized
+  adjacent Manage control inside that same row, and its Worktrees group label
+  must use an existing AA-safe semantic text token in both light and dark
+  themes, because the rail is a user-facing navigational surface that must
+  remain operable and understandable to assistive technology without sacrificing
+  its existing status or lifecycle controls.
+depends_on:
+  - registered-worktree-navigation-is-promotion-gated
+  - worktree-conversation-status-is-live-and-independent
+  - worktree-lifecycle-ui-is-explicit-and-recoverable
+created_by: native-worktree-rail-accessibility

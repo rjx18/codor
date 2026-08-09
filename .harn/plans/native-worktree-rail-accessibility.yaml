@@ -1,0 +1,97 @@
+id: native-worktree-rail-accessibility
+title: Repair native worktree rail list semantics and label contrast
+notes: "Make the integrated native-worktree rail valid for assistive technology
+  without changing navigation, readiness, lifecycle actions, or responsive
+  behavior. The promoted group must expose a real ul/li list: each direct li
+  owns one child link and, when authorized, its adjacent Manage button. The
+  Worktrees label must use the existing semantic text token whose light and dark
+  theme values satisfy the label's contrast requirement. Add a unit DOM-shape
+  regression and a focused browser Axe regression on the group in both themes.
+  Do not change the native worktree protocol, server, route, status model,
+  lifecycle operations, or Phase 3 verification."
+assumptions:
+  create:
+    - id: native-worktree-rail-is-axe-valid
+      title: Native worktree rail has valid list semantics and AA label contrast
+      statement: The promoted native-worktree rail must render each worktree as a
+        direct li child of its ul, with the navigation link and any authorized
+        adjacent Manage control inside that same row, and its Worktrees group
+        label must use an existing AA-safe semantic text token in both light and
+        dark themes, because the rail is a user-facing navigational surface that
+        must remain operable and understandable to assistive technology without
+        sacrificing its existing status or lifecycle controls.
+      reason: Room 19 Axe failures expose invalid list/listitem ownership and the
+        undefined dim-ink fallback fails contrast at the label's small size.
+      depends_on:
+        - registered-worktree-navigation-is-promotion-gated
+        - worktree-conversation-status-is-live-and-independent
+        - worktree-lifecycle-ui-is-explicit-and-recoverable
+  reviewed:
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: Only the DOM wrapper changes; promotion, stable hrefs, selection,
+        history, and main/child navigation remain unchanged.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Child rows still compute and render the same independent readiness,
+        activity, unread, and availability evidence.
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      outcome: unchanged
+      reason: Manage, Create, Find, confirmation, authorization, focus, and phone
+        behavior remain unchanged; only the surrounding list semantics are
+        repaired.
+anchors:
+  native-worktree-rail-is-axe-valid:
+    worktree-rail-dom-semantics:
+      action: change
+      reason: Make the list's direct children real li rows while keeping the link and
+        adjacent Manage control in each row.
+    worktree-rail-label-style:
+      action: change
+      reason: Replace the undefined contrast-unpromising label fallback with the
+        existing semantic text token used by both themes.
+    worktree-rail-unit-regression:
+      action: change
+      reason: Assert direct ul/li ownership and the row's link/control structure in
+        the focused WorktreeGroup unit suite.
+    worktree-rail-browser-a11y:
+      action: change
+      reason: Run focused Axe checks and DOM semantics assertions on the promoted rail
+        in light and dark themes.
+  registered-worktree-navigation-is-promotion-gated:
+    worktree-group-navigation:
+      action: change
+      reason: The row wrapper and ChildRow markup change inside the existing
+        navigation anchor while navigation behavior remains intact.
+    worktree-group-style:
+      action: change
+      reason: The label color changes inside the existing promoted-group style anchor;
+        layout and target sizing remain unchanged.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-conversation-status-model:
+      action: change
+      reason: ChildRow drops only its nested li wrapper; all independent status
+        computation and rendered evidence remain unchanged.
+  worktree-lifecycle-ui-is-explicit-and-recoverable:
+    worktree-lifecycle-style:
+      action: change
+      reason: The shared style block contains the corrected label token, while all
+        lifecycle controls and their behavior remain unchanged.
+files:
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+verification: Before editing, confirm the clean 160b883 baseline and run harn
+  find for every existing assumption plus harn find --file for each declared
+  source file. Run the focused WorktreeGroup unit suite, exact Room 19 and Room
+  40 Playwright specs sequentially with fresh non-overlapping harness ports, and
+  the web-next build. The Room 40 browser regression must assert the promoted ul
+  has only direct li rows, no nested li ownership, and zero Axe violations in
+  light and dark themes; Room 19 must remain Axe-clean. Run harn find --changed,
+  harn check, harn apply, harn check --staged, git diff --check, and verify the
+  final worktree is clean. Stage only this plan, the four declared files, and
+  generated assumption truth, then create exactly one implementation commit; do
+  not push, deploy, release, or begin Phase 3.
+applied:
+  applied_at: 2026-08-09T06:47:10.770Z
