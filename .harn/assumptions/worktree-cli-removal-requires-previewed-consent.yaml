@@ -1,0 +1,17 @@
+id: worktree-cli-removal-requires-previewed-consent
+hash: a-2762214319ca
+title: Worktree CLI removal requires previewed explicit consent
+state: active
+statement: Worktree CLI unregister and filesystem removal must resolve one
+  active non-main stable identity and mutate only after affirmative TTY consent
+  or unattended `--yes`; filesystem removal must additionally obtain a fresh
+  accepted preview with exactly clean state and explicit branch preservation
+  before prompting, while every refusal, decline, or race leaves Git, files,
+  branches, registry, child history, and runtime untouched and no force path
+  exists, because removing a registration or checkout must remain deliberate and
+  the server must retain final authority over conservative removal.
+depends_on:
+  - structured-worktree-cli-uses-accepted-lifecycle
+  - worktree-removal-is-clean-and-branch-preserving
+  - worktree-removal-refuses-live-child-runtime
+created_by: cli-management-phase4-worktrees-qualified-posting

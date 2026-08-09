@@ -1,0 +1,106 @@
+id: agent-presets-p1-review-fix-acp-resolver
+title: Phase 1 review fix - use exact ACP executable admission semantics
+notes: >-
+  This is a second bounded review-fix for Phase 1, based on clean commit
+  1966a4e403fbe9b2aec0757cf423cff514bd2edd. It does not change the preset,
+  roster, persistence, authorization, REST, or transport contracts and does not
+  begin Phase 2.
+
+  Independent review proved that the first review-fix validates a custom ACP
+  executable with the generic adapter-catalog PATH probe rather than ACP's
+  exported resolveAcpExecutable function required by the locked plan. The two
+  helpers are observably different: with an executable named probe on PATH,
+  executableOnPath('./probe') returns true while resolveAcpExecutable('./probe')
+  rejects the relative slash-bearing form. The current code can therefore save a
+  preset which ACP itself rejects when it later spawns.
+
+  Preset validation must call the existing exported no-invocation ACP resolver
+  for every custom ACP launch after strict protocol parsing and canonical spawn
+  option validation. It validates current executability but stores the original
+  bounded launch unchanged, so each eventual ACP spawn/rebuild still resolves it
+  again. Named ACP provider detection continues through the daemon's frozen
+  provider registry and injectable catalog presence check. Native harness
+  availability and model/policy/thinking validation remain unchanged. No preset
+  validation may call adapter.spawn or create a member.
+
+  The direct regression must use a genuinely resolvable custom executable,
+  reject an unavailable executable, and specifically reject a relative
+  slash-bearing executable even when the generic catalog presence seam says it
+  is available. It must prove neither the native nor ACP adapter spawned and no
+  rejected create/update changed stored presets or roster state.
+
+  The REST principal matrix added by the prior fix covers list/get/create and
+  roster get/replace but omits preset update and delete for several principal
+  classes. Extend that same focused test so owner, paired browser owner, and
+  admin can exercise every preset CRUD operation and both roster operations,
+  while anonymous, observer, member, and a real agent credential receive 401/403
+  for every one of those routes. Authorized readers may see the custom launch;
+  denied responses must not expose it.
+
+  No Store, protocol, server-route, web-runtime, UI, member/channel creation,
+  WebSocket, CLI, relay, cloud, or account implementation changes are allowed.
+assumptions:
+  reviewed:
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: Its existing current-catalog and no-spawn contract is unchanged; this
+        fix makes custom ACP admission use the exact runtime resolver.
+    - id: agent-preset-management-is-authorized-and-transport-neutral
+      outcome: unchanged
+      reason: Route guards and behavior remain unchanged; the focused suite completes
+        the already-declared principal and operation matrix.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: Preset validation now directly reuses its exported executable resolver;
+        launch schema, shell, environment, and runtime spawn behavior do not
+        change.
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Generic ACP configurability and native/named presence still use catalog
+        truth; custom launch executability is correctly delegated to ACP itself.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Policy and thinking validation continues through validateSpawnOptions
+        and no adapter spawn path changes.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Ordinary new-agent admission is untouched; preset custom-launch checks
+        now match the executable semantics it reaches through ACP spawn.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Human capabilities do not change; tests complete coverage of every
+        existing preset and roster route for each role class.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent capabilities remain unchanged; the focused matrix proves its real
+        issued credential cannot update or delete presets either.
+anchors:
+  individual-agent-presets-are-bounded-catalog-validated-configurations:
+    individual-agent-preset-catalog-validation:
+      action: change
+      reason: Replace the generic PATH probe for custom launches with ACP's exported
+        exact no-invocation executable resolver.
+    individual-agent-preset-direct-validation-regression:
+      action: change
+      reason: Prove valid, unavailable, and relative slash-bearing custom executable
+        behavior, rollback, and no native or ACP spawn.
+  agent-preset-management-is-authorized-and-transport-neutral:
+    agent-preset-rest-regression:
+      action: change
+      reason: Complete owner/browser/admin and anonymous/observer/member/agent checks
+        across list, get, create, update, delete, roster get, and roster
+        replace.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/agent-presets.spec.ts
+verification: Run pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts; pnpm --filter @codor/protocol test; pnpm --filter
+  @codor/web-next exec vitest run src/runtime/api.spec.ts; pnpm --filter
+  @codor/protocol build; pnpm --filter @codor/switchboard build; pnpm --filter
+  @codor/web-next build; harn find --plan
+  agent-presets-p1-review-fix-acp-resolver; harn check
+  agent-presets-p1-review-fix-acp-resolver; and the staged Harn check/apply gate
+  before one implementation commit. Do not run web e2e because this fix changes
+  no UI.
+applied:
+  applied_at: 2026-08-06T07:48:40.197Z

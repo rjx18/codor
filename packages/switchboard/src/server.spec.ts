@@ -188,6 +188,27 @@ describe('agent member credential principal', () => {
     const denied = await client.next((frame) =>
       frame.type === 'error' && frame.message.includes('agent cannot configure'));
     expect(denied).toMatchObject({ type: 'error', ref: 'act' });
+    client.ws.send(JSON.stringify({
+      type: 'list_rooms', all: true, ref: 'agent-list',
+    }));
+    expect(await client.next((frame) => frame.type === 'rooms' && frame.ref === 'agent-list'))
+      .toMatchObject({ type: 'rooms', ref: 'agent-list', rooms: [{ id: 'eng' }] });
+    for (const [ref, frame] of [
+      ['agent-create', {
+        type: 'create_room', ref: 'agent-create',
+        request: { name: 'Forbidden', owner: { handle: 'richard', display_name: 'Richard' } },
+      }],
+      ['agent-rename', {
+        type: 'act', room: 'eng', ref: 'agent-rename', act: { act: 'rename_room', name: 'Nope' },
+      }],
+      ['agent-archive', {
+        type: 'act', room: 'eng', ref: 'agent-archive', act: { act: 'archive_room' },
+      }],
+    ] as const) {
+      client.ws.send(JSON.stringify(frame));
+      expect(await client.next((candidate) => candidate.type === 'error' && candidate.ref === ref))
+        .toMatchObject({ type: 'error', ref });
+    }
     client.ws.close();
 
     expect(daemon.store.getMember('eng', agent.id)!.policy).toBeUndefined();
@@ -224,6 +245,264 @@ describe('agent member credential principal', () => {
 });
 // harn:end agent-network-authority-is-narrow
 // harn:end agent-member-credentials-stay-secret
+
+// harn:assume management-frames-correlate-one-result ref=management-correlation-server-regression
+// harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server-regression
+describe('correlated channel management over WebSocket', () => {
+  it('ignores unrelated room results, creates, renames, archives, and filters discovery', async () => {
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'unrelated-list' }));
+    client.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'target-list' }));
+    const listed = await client.next((frame) => frame.type === 'rooms' && frame.ref === 'target-list');
+    expect(listed).toMatchObject({ type: 'rooms', ref: 'target-list', rooms: [{ id: 'eng' }] });
+    expect(client.frames.some((frame) => frame.type === 'rooms' && frame.ref === 'unrelated-list')).toBe(true);
+
+    client.ws.send(JSON.stringify({
+      type: 'create_room',
+      ref: 'create-channel',
+      request: {
+        id: 'new-channel',
+        name: 'New Channel',
+        owner: { handle: 'richard', display_name: 'Richard' },
+        cwd: testCwd('new-channel'),
+      },
+    }));
+    const created = await client.next((frame) => frame.type === 'room' && frame.ref === 'create-channel');
+    expect(created).toMatchObject({
+      type: 'room', ref: 'create-channel', room: { id: 'new-channel', name: 'New Channel' },
+    });
+
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'new-channel', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'new-channel', ref: 'rename-channel',
+      act: { act: 'rename_room', name: 'Renamed Channel' },
+    }));
+    const renamed = await client.next((frame) => frame.type === 'room' && frame.ref === 'rename-channel');
+    expect(renamed).toMatchObject({
+      type: 'room', ref: 'rename-channel', room: { name: 'Renamed Channel' },
+    });
+
+    const owner = daemon.ownerOf('new-channel');
+    const member = daemon.store.addMember('new-channel', {
+      kind: 'agent', handle: 'kept-agent', display_name: 'Kept Agent', state: 'idle',
+    });
+    const message = daemon.store.postMessage('new-channel', {
+      author: owner.id, kind: 'chat', body: 'kept message',
+    });
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'new-channel', ref: 'archive-channel', act: { act: 'archive_room' },
+    }));
+    const archived = await client.next((frame) => frame.type === 'room' && frame.ref === 'archive-channel');
+    expect(archived).toMatchObject({
+      type: 'room', ref: 'archive-channel', room: { config: { archived_ts: expect.any(String) } },
+    });
+    expect(daemon.store.getMember('new-channel', member.id)).toBeDefined();
+    expect(daemon.store.getMessage('new-channel', message.id)?.body).toBe('kept message');
+
+    client.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'active-list' }));
+    const active = await client.next((frame) => frame.type === 'rooms' && frame.ref === 'active-list');
+    expect(active.type === 'rooms' && active.rooms.some((room) => room.id === 'new-channel')).toBe(false);
+    client.ws.send(JSON.stringify({ type: 'list_rooms', all: true, ref: 'all-list' }));
+    const all = await client.next((frame) => frame.type === 'rooms' && frame.ref === 'all-list');
+    expect(all.type === 'rooms' && all.rooms.map((room) => room.id)).toContain('new-channel');
+    client.ws.close();
+  });
+
+  it('owner-gates channel mutation while preserving read/list access', async () => {
+    const created = daemon.store.getRoom('eng')!;
+    const ownerClient = await connect();
+    ownerClient.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'owner-list', all: true }));
+    expect(await ownerClient.next((frame) => frame.type === 'rooms' && frame.ref === 'owner-list'))
+      .toMatchObject({ type: 'rooms', ref: 'owner-list' });
+
+    const adminClient = await connectAs(ADMIN_TOKEN);
+    adminClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'admin-rename', act: { act: 'rename_room', name: 'Nope' },
+    }));
+    expect(await adminClient.next((frame) => frame.type === 'error' && frame.ref === 'admin-rename'))
+      .toMatchObject({ type: 'error', ref: 'admin-rename', message: expect.stringContaining('cannot rename room') });
+
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'list_rooms', ref: 'member-list' }));
+    expect(await memberClient.next((frame) => frame.type === 'rooms' && frame.ref === 'member-list'))
+      .toMatchObject({ type: 'rooms', ref: 'member-list' });
+    memberClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'member-archive', act: { act: 'archive_room' },
+    }));
+    expect(await memberClient.next((frame) => frame.type === 'error' && frame.ref === 'member-archive'))
+      .toMatchObject({ type: 'error', ref: 'member-archive' });
+
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    observerClient.ws.send(JSON.stringify({
+      type: 'create_room', ref: 'observer-create',
+      request: { name: 'Forbidden', owner: { handle: 'richard', display_name: 'Richard' } },
+    }));
+    expect(await observerClient.next((frame) => frame.type === 'error' && frame.ref === 'observer-create'))
+      .toMatchObject({ type: 'error', ref: 'observer-create' });
+    expect(daemon.store.getRoom('eng')).toEqual(created);
+
+    ownerClient.ws.close();
+    adminClient.ws.close();
+    memberClient.ws.close();
+    observerClient.ws.close();
+  });
+});
+// harn:end channel-archive-is-durable-soft-state
+// harn:end management-frames-correlate-one-result
+
+// harn:assume agent-management-correlates-safe-member-results ref=agent-management-server-regression
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-server-regression
+// harn:assume agent-pause-refuses-active-turn ref=agent-pause-server-regression
+// harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+// harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+describe('correlated agent management over WebSocket', () => {
+  it('correlates lifecycle results, gates mutations, and keeps admin state inert', async () => {
+    const owner = await connect();
+    const cwd = testCwd('structured-agent');
+    const deliveriesBefore = fake.deliveries.length;
+    owner.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await owner.next((frame) => frame.type === 'sync_complete');
+    owner.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'agent-list-empty' }));
+    expect(await owner.next((frame) => frame.type === 'agents' && frame.ref === 'agent-list-empty'))
+      .toMatchObject({ type: 'agents', room: 'eng', agents: [], ref: 'agent-list-empty' });
+
+    owner.ws.send(JSON.stringify({
+      type: 'add_agent', room: 'eng', ref: 'agent-add', adapter: 'fake',
+      handle: 'worker', cwd, policy: 'read-only',
+    }));
+    const added = await owner.next((frame) => frame.type === 'member' && frame.ref === 'agent-add');
+    expect(added).toMatchObject({ type: 'member', room: 'eng', ref: 'agent-add', member: {
+      kind: 'agent', handle: 'worker', harness: 'fake', state: 'idle', policy: 'read-only',
+    } });
+    if (added.type !== 'member') throw new Error('missing correlated member');
+    const agentId = added.member.id;
+
+    owner.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'agent-list' }));
+    const listed = await owner.next((frame) => frame.type === 'agents' && frame.ref === 'agent-list');
+    expect(listed).toMatchObject({ type: 'agents', agents: [{ id: agentId, handle: 'worker' }] });
+    expect(owner.frames.some((frame) => frame.type === 'member' && frame.ref === undefined)).toBe(true);
+
+    for (const [ref, act, expected] of [
+      ['agent-configure', { act: 'configure', member_id: agentId, model: 'safe-model' }, { model: 'safe-model' }],
+      ['agent-rename', { act: 'rename', member_id: agentId, handle: 'worker-renamed' }, { handle: 'worker-renamed' }],
+      ['agent-pause', { act: 'pause', member_id: agentId }, { state: 'paused' }],
+      ['agent-revive', { act: 'revive', member_id: agentId }, { state: 'idle' }],
+    ] as const) {
+      owner.ws.send(JSON.stringify({ type: 'act', room: 'eng', ref, act }));
+      expect(await owner.next((frame) => frame.type === 'member' && frame.ref === ref))
+        .toMatchObject({ type: 'member', ref, member: expected });
+    }
+
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'member-list' }));
+    expect(await memberClient.next((frame) => frame.type === 'agents' && frame.ref === 'member-list'))
+      .toMatchObject({ type: 'agents', ref: 'member-list' });
+    memberClient.ws.send(JSON.stringify({
+      type: 'add_agent', room: 'eng', ref: 'member-add', adapter: 'fake', handle: 'member-agent', cwd,
+    }));
+    expect(await memberClient.next((frame) => frame.type === 'error' && frame.ref === 'member-add'))
+      .toMatchObject({ type: 'error', ref: 'member-add', message: expect.stringContaining('manage agents') });
+
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    observerClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'observer-pause', act: { act: 'pause', member_id: agentId },
+    }));
+    expect(await observerClient.next((frame) => frame.type === 'error' && frame.ref === 'observer-pause'))
+      .toMatchObject({ type: 'error', ref: 'observer-pause' });
+
+    const adminClient = await connectAs(ADMIN_TOKEN);
+    adminClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'admin-configure',
+      act: { act: 'configure', member_id: agentId, model: 'admin-model' },
+    }));
+    expect(await adminClient.next((frame) => frame.type === 'member' && frame.ref === 'admin-configure'))
+      .toMatchObject({ type: 'member', ref: 'admin-configure', member: { id: agentId, model: 'admin-model' } });
+
+    let agentSession: Session | undefined;
+    const originalSpawn = fake.spawn.bind(fake);
+    vi.spyOn(fake, 'spawn').mockImplementationOnce((opts: SpawnOpts) => {
+      agentSession = originalSpawn(opts);
+      return agentSession;
+    });
+    const principalAgent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'principal-agent', cwd: testCwd('principal-agent'),
+    });
+    const principalToken = agentSession!.env!.CODOR_MEMBER_TOKEN!;
+    const agentClient = await connectAs(principalToken);
+    agentClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'principal-list' }));
+    expect(await agentClient.next((frame) => frame.type === 'agents' && frame.ref === 'principal-list'))
+      .toMatchObject({ type: 'agents', ref: 'principal-list' });
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
+    agentClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'other', ref: 'cross-room-list' }));
+    expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'cross-room-list'))
+      .toMatchObject({ type: 'error', ref: 'cross-room-list' });
+    agentClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'principal-remove', act: { act: 'remove', member_id: agentId },
+    }));
+    expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'principal-remove'))
+      .toMatchObject({ type: 'error', ref: 'principal-remove' });
+
+    owner.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'agent-remove', act: { act: 'remove', member_id: agentId },
+    }));
+    expect(await owner.next((frame) => frame.type === 'member' && frame.ref === 'agent-remove'))
+      .toMatchObject({ type: 'member', ref: 'agent-remove', member: { removed_ts: expect.any(String), state: 'dead' } });
+    owner.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'agent-list-after-remove' }));
+    expect(await owner.next((frame) => frame.type === 'agents' && frame.ref === 'agent-list-after-remove'))
+      .toMatchObject({ type: 'agents', agents: [{ handle: 'principal-agent' }] });
+    expect(fake.deliveries.length).toBe(deliveriesBefore);
+
+    owner.ws.close();
+    adminClient.ws.close();
+    memberClient.ws.close();
+    observerClient.ws.close();
+    agentClient.ws.close();
+    expect(principalAgent.kind).toBe('agent');
+  });
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end roles-gate-human-acts-not-agents
+// harn:end agent-pause-refuses-active-turn
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+// harn:end agent-management-correlates-safe-member-results
+
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-server-regression
+// harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+it('adds a fresh preset snapshot as one safe correlated member and denies agent credentials', async () => {
+  const preset = daemon.createAgentPreset({
+    label: 'Server preset', handle: 'server-preset', harness: 'fake', policy: 'workspace-write',
+  });
+  const cwd = testCwd('preset-server-add');
+  const beforeMessages = daemon.store.listMessages('eng', { limit: 100 }).length;
+  const beforeDeliveries = fake.deliveries.length;
+
+  const owner = await connect();
+  owner.ws.send(JSON.stringify({
+    type: 'add_agent', room: 'eng', ref: 'preset-add', preset_id: preset.id,
+    cwd, purpose: 'server preset purpose', policy: 'read-only',
+  }));
+  const added = await owner.next((frame) => frame.type === 'member' && frame.ref === 'preset-add');
+  expect(added).toMatchObject({ type: 'member', ref: 'preset-add', member: {
+    handle: 'server-preset', cwd, purpose: 'server preset purpose', policy: 'read-only',
+  } });
+  expect(JSON.stringify(added)).not.toContain('preset_id');
+  expect(JSON.stringify(added)).not.toContain('acp_launch');
+
+  const denied = spawnAgentWithToken('preset-denied');
+  const agentClient = await connectAs(denied.token);
+  agentClient.ws.send(JSON.stringify({
+    type: 'add_agent', room: 'eng', ref: 'agent-preset-denied', preset_id: preset.id, cwd,
+  }));
+  expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'agent-preset-denied'))
+    .toMatchObject({ type: 'error', ref: 'agent-preset-denied' });
+  expect(daemon.store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages);
+  expect(fake.deliveries).toHaveLength(beforeDeliveries);
+  owner.ws.close();
+  agentClient.ws.close();
+});
+// harn:end agent-network-authority-is-narrow
+// harn:end agent-add-selects-public-adapter-or-detached-preset
 
 // harn:assume agent-sync-hydrates-only-own-queued-inbox ref=own-queued-sync-regression
 describe('agent queued inbox hydration', () => {
@@ -4149,7 +4428,7 @@ describe('named ACP providers over REST', () => {
   // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
 });
 
-// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-server-regression
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-server-regression
 describe('ordinary WebSocket spawn display names', () => {
   it('atomically persists a supplied name, defaults omission, and rejects a member principal', async () => {
     const ownerClient = await connect();
@@ -4193,7 +4472,7 @@ describe('ordinary WebSocket spawn display names', () => {
     memberClient.ws.close();
   });
 });
-// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
 
 describe('universal pairing mint (relay-enabled routes)', () => {
   it('serves the dual-door offer from /api/pairing/offers and maps /api/relay/pair to the code line', async () => {

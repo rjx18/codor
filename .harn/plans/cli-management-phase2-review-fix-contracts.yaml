@@ -1,0 +1,251 @@
+id: cli-management-phase2-review-fix-contracts
+title: Correct Phase 2 pause, refusal exits, and Harn anchor coverage
+notes: >-
+  This is the bounded review fix for applied Phase 2 plan
+  cli-management-phase2-agent-lifecycle at commit
+  cdad5db82946ee60602cebe1888874cd03a8975b. Independent review confirmed the
+  one-commit boundary, correlation and authorization paths, safe projection,
+  command compatibility, package suites, builds, and packed runtime, but found
+  three Phase 2 contract defects.
+
+  First, pause currently accepts an idle or queued member even while an
+  interactive attach lease is active or being acquired. That can relabel a
+  native session which another process still controls as paused, and attach
+  completion can then overwrite the pause. Refuse pause before any state write
+  when the member has a durable attach lease or a pending attach acquisition.
+  Keep pause a queue hold: do not interrupt a turn or terminal, do not alter the
+  attach lifecycle, and preserve the approved idle, queued, and unreachable
+  transitions when no attach is active. Keep structured revive and every flat
+  lifecycle command unchanged.
+
+  Second, the shared management error classifier does not recognize two existing
+  state/custody refusals used by structured commands: configuring a mirrored
+  member and reviving a dead member without a resumable session or adapter
+  capability. These currently fall through to transport/protocol exit 7.
+  Classify those bounded messages as conflict/refusal exit 6. Preserve exit 2
+  for malformed or unsupported configuration, 3 authentication, 4 authorization,
+  5 missing channel/agent, and 7 genuine transport/protocol failure. Continue
+  emitting empty stdout and one stack-free redacted stderr line without
+  credentials, bearer values, token-bearing URLs, private ACP launch material,
+  host identity, or native session references.
+
+  Third, the Phase 2 commit left the three new daemon regression anchors
+  unclosed and closed the nested CLI command anchors out of LIFO order. Harn
+  therefore does not associate the daemon lifecycle regression with
+  agent-add-selects-one-public-adapter, agent-pause-refuses-active-turn, or
+  agent-management-does-not-invent-work, and does not associate the `agent`
+  implementation with structured-agent-cli-preserves-flat-lifecycle. Repair only
+  those marker boundaries, preserving code ownership and behavior, and prove
+  with `harn find` that all intended refs resolve to the exact test and command
+  regions.
+
+  Add focused regression coverage for active attach refusal without mutation,
+  mirrored configure and non-resumable revive exit 6, admin correlated mutation
+  success, and the structured agent family through explicit URL/token. Preserve
+  local socket behavior, the remote local-credential boundary, JSON purity,
+  secret redaction, and every flat command. Do not implement presets, default
+  roster, worktrees, qualified posting, new agent operations, custom ACP input,
+  hard deletion, SQLite access, cloud/account/relay/token work, or any Phase 3
+  behavior. Implement this locked review fix in exactly one commit.
+assumptions:
+  create: []
+  reviewed:
+    - id: agent-pause-refuses-active-turn
+      outcome: unchanged
+      reason: Refusing active or pending interactive attach ownership makes the
+        existing queue-hold statement true without changing allowed idle,
+        queued, or unreachable transitions.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Pause observes the existing pending/durable attach boundary but does not
+        alter lease acquisition, process identity, heartbeat, or completion
+        semantics.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Existing custody and resumability refusals are normalized to the
+        already-approved conflict exit while the shared formatter and redaction
+        boundary remain unchanged.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Mirrored configuration remains refused by the daemon; only its
+        structured CLI exit classification gains the correct conflict class.
+    - id: copilot-vscode-revive-requires-exact-live-cache
+      outcome: unchanged
+      reason: Non-resumable and missing-session revive paths continue failing closed;
+        only their structured CLI exit classification is corrected.
+    - id: structured-agent-cli-preserves-flat-lifecycle
+      outcome: unchanged
+      reason: Repair the command-region anchor and add remote transport proof without
+        changing the seven structured commands or any flat command.
+    - id: agent-add-selects-one-public-adapter
+      outcome: unchanged
+      reason: Close the intended daemon regression anchor around the existing
+        canonical selector proof without changing adapter resolution.
+    - id: agent-management-does-not-invent-work
+      outcome: unchanged
+      reason: Close the intended daemon regression anchor around the existing
+        no-delivery/no-run proof without changing lifecycle behavior.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: Correct nested marker order around the existing channel-scoped agent
+        command family without changing user terminology.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Add an explicit admin correlated mutation success assertion while
+        retaining member, observer, and agent denial behavior.
+    - id: agent-management-correlates-safe-member-results
+      outcome: unchanged
+      reason: Explicit URL/token coverage continues to consume exactly one matching
+        safe result through the same shared management client.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: The focused remote proof supplies its token explicitly and does not
+        change local socket or credential selection.
+  retire: []
+anchors:
+  agent-pause-refuses-active-turn:
+    agent-pause-state-transition:
+      action: change
+      reason: Refuse a durable or pending interactive attach before writing the paused
+        state.
+    agent-pause-daemon-regression:
+      action: change
+      reason: Close the intended anchor and prove attach refusal leaves member and
+        lease state unchanged alongside the existing lifecycle guards.
+    agent-pause-server-regression:
+      action: keep
+      reason: Correlated pause dispatch and owner behavior remain unchanged.
+  attach-custody-lease-tracks-child-pid:
+    attach-release-handshake:
+      action: keep
+      reason: Lease acquisition, native child identity, and release behavior are not
+        modified by the pause-side refusal.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Recognize mirrored custody, missing resumable session, and unsupported
+        resume as conflict/refusal rather than transport failure.
+    management-error-regression:
+      action: change
+      reason: Assert exact exit 6 for the bounded configure/revive messages and retain
+        existing code precedence and redaction checks.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Keep the source wrapper's one-line shared redacted formatter.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Keep the generated wrapper's shared formatter and exit propagation.
+  member-config-is-changed-not-respawned:
+    configure-member-daemon:
+      action: keep
+      reason: The existing mirrored-custody refusal and configuration semantics remain
+        unchanged.
+    configure-member-regression:
+      action: keep
+      reason: Existing durable configuration and active-turn tests remain intact.
+  copilot-vscode-revive-requires-exact-live-cache:
+    revive-native-session:
+      action: keep
+      reason: Exact-session revive and fail-closed adapter behavior remain unchanged.
+    revive-session-regression:
+      action: keep
+      reason: Existing daemon revive coverage remains intact.
+  structured-agent-cli-preserves-flat-lifecycle:
+    structured-agent-command-surface:
+      action: change
+      reason: Correct only the nested Harn end-marker order so the existing
+        seven-command implementation is anchored to this assumption.
+    structured-agent-cli-regression:
+      action: change
+      reason: Add explicit URL/token agent-list coverage and retain exact command
+        registration and flat lifecycle compatibility assertions.
+    structured-agent-packed-smoke:
+      action: keep
+      reason: The accepted installed seven-command lifecycle proof remains unchanged.
+  agent-add-selects-one-public-adapter:
+    daemon-spawn-control-regression:
+      action: change
+      reason: Close the intended selector regression marker around the existing
+        no-write-on-unknown-adapter assertion.
+    agent-add-catalog-resolution:
+      action: keep
+      reason: Canonical server-side public adapter resolution remains unchanged.
+    agent-add-server-regression:
+      action: keep
+      reason: Existing correlated add and authorization coverage remains unchanged.
+  agent-management-does-not-invent-work:
+    agent-management-no-work-regression:
+      action: change
+      reason: Close the intended daemon marker around the existing zero-delivery and
+        zero-run lifecycle assertions.
+    agent-management-packed-no-turn:
+      action: keep
+      reason: The installed no-paid-turn proof remains unchanged.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: Reorder only the nested command-region end markers while retaining
+        channel terminology.
+    cli-channel-regression:
+      action: change
+      reason: Retain exact top-level and structured-agent command names while adding
+        the remote invocation proof.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: keep
+      reason: The admin threshold and agent exclusion matrix remain unchanged.
+    role-matrix-integration:
+      action: change
+      reason: Add explicit admin correlated mutation success to the existing
+        owner/member/observer/agent management regression.
+  agent-management-correlates-safe-member-results:
+    agent-management-correlation-client:
+      action: keep
+      reason: The shared ref-matching loop remains unchanged.
+    agent-management-client-regression:
+      action: keep
+      reason: Existing unrelated-frame correlation unit coverage remains intact.
+    agent-management-server-regression:
+      action: change
+      reason: Extend the existing server integration only with admin success.
+    agent-management-projection:
+      action: keep
+      reason: The bounded safe output allowlist remains unchanged.
+  member-env-selects-narrow-cli-identity:
+    member-connection-options:
+      action: keep
+      reason: Local and explicit transport/token selection remains unchanged.
+    member-identity-regression:
+      action: change
+      reason: Exercise structured agent listing through an explicit loopback URL and
+        explicit token using the same connection helper.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+verification: Run focused daemon tests for pause state guards and active attach
+  refusal, focused switchboard server tests for correlated owner/admin success
+  and member/observer/agent denial, focused CLI tests for mirrored configure and
+  non-resumable revive exit 6, explicit URL/token agent listing, command
+  registration, output safety, and flat lifecycle compatibility; then run `pnpm
+  --filter @codor/switchboard test`, `pnpm --filter @codor/cli test`, `pnpm
+  --filter '@codor/cli...' build`, `pnpm build`, and
+  `scripts/packed-install-test.sh`. Assert pause refusal performs no member or
+  lease mutation; structured failures produce exit 6, empty stdout, exactly one
+  redacted stack-free stderr line, and no credential, bearer, private ACP
+  launch, host, or native session value; remote execution supplies an explicit
+  token and returns one safe JSON value; and all existing flat commands remain
+  registered and unchanged. Run `harn find agent-pause-refuses-active-turn`,
+  `harn find agent-add-selects-one-public-adapter`, `harn find
+  agent-management-does-not-invent-work`, and `harn find
+  structured-agent-cli-preserves-flat-lifecycle` and confirm the repaired daemon
+  and command refs resolve. Before the one review-fix commit run `harn find
+  --plan cli-management-phase2-review-fix-contracts`, `harn check
+  cli-management-phase2-review-fix-contracts`, stage only declared files and
+  generated Harn state, and let the pre-commit hook apply and recheck it.
+applied:
+  applied_at: 2026-08-06T09:58:56.129Z

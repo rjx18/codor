@@ -1,0 +1,16 @@
+id: channel-archive-is-durable-soft-state
+hash: a-83cad35427c7
+title: Channel archive is durable soft state and never record deletion
+state: active
+statement: Archiving a channel must atomically persist one archive timestamp
+  with one room changelog update, omit the channel from default discovery,
+  retain it for explicit show and all-channel listing, refuse repeat archive or
+  rename of archived state, and preserve every related durable and runtime
+  record without offering hard delete or restore, because Phase 1 removal is
+  reversible data retention rather than destructive erasure or agent lifecycle
+  management.
+depends_on:
+  - changelog-covers-every-visible-entity
+  - roles-gate-human-acts-not-agents
+  - channel-creation-derived-and-seeded
+created_by: cli-management-phase1-channels

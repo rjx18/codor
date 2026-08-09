@@ -1,0 +1,320 @@
+id: cli-management-phase4-review-fix-contracts
+title: Correct Phase 4 ordering, fresh confirmation, exit, anchor, and evidence
+  contracts
+notes: >-
+  This is the bounded review fix for applied Phase 4 commit
+  ee66c53a03930e072dbdd6f74ca18743fa899647. Independent review confirmed the
+  exact one-commit boundary, clean applied Harn state, singular list/add/remove
+  command family, accepted REST-only lifecycle delegation, safe fixed-field
+  projections, no direct Git or SQLite access, qualified foreign-peer wait
+  behavior, disposable real-Git lifecycle behavior, full CLI tests, and CLI
+  dependency build. It found three reproducible runtime contract defects plus
+  missing production anchor ownership and focused evidence from the locked plan.
+  Fix only these issues; do not rewrite or expand the applied plan and do not
+  begin Phase 5.
+
+  First, the helper named compareBytes uses JavaScript string comparison. That
+  is UTF-16 code-unit order, not byte order, and reverses valid Unicode path
+  pairs such as U+10000 and U+E000 relative to their UTF-8 bytes. Replace it
+  with an explicit stable UTF-8 byte comparison and use it for every promised
+  bytewise key. Keep main/primary-first behavior and alias/id/path tie-breakers
+  unchanged. Add a regression whose supplementary-plane and BMP paths fail under
+  UTF-16 ordering, plus stable tie-breaker, safe-field, human-control, and
+  compact-JSON assertions. Do not use locale-sensitive comparison.
+
+  Second, filesystem removal lists and selects a worktree, obtains the accepted
+  fresh removal preview, but prompts with the stale list snapshot. If an alias
+  or canonical path changes between those reads, the prompt does not name the
+  exact fresh safe alias/path it is about to remove. For --filesystem, retain
+  the stable selected id and route, require the preview worktree id to match it,
+  and source the one-line escaped confirmation alias/path from that fresh
+  preview. Treat a mismatched preview identity as an invalid protocol response
+  with transport exit 7 and no prompt or mutation. DB-only unregister continues
+  to prompt from the immediately selected active registration because it has no
+  preview endpoint. The server remains final authority and repeats every check
+  after consent; no force, prune, branch delete, direct filesystem, or direct
+  Git path is added.
+
+  Third, the shared classifier applies broad invocation phrases such as `must
+  be` before worktree lifecycle phrases. The accepted final-removal race
+  `worktree must be clean before removal` therefore exits 2 instead of conflict
+  6, while `room has no existing repository cwd`, `cwd is not inside a Git
+  worktree`, `created worktree belongs to a different repository`, `created
+  worktree could not be rediscovered`, `registered worktree is missing or
+  mismatched`, and `the main alias is reserved` fall through to transport 7.
+  Classify the complete accepted worktree error vocabulary by semantics, not by
+  incidental broad words: request/schema/absolute-path/parent-shape/invalid-new-
+  branch errors are 2; authentication is 3; authorization is 4; missing channel
+  or selector is 5; existing targets or branches, main/duplicate/ambiguous
+  aliases, repository/discovery/availability/lock/dirty/missing/mismatch/live-
+  runtime/unresolved-work/race and other daemon/Git lifecycle refusals are 6;
+  and only actual HTTP/transport/protocol failures are 7. Preserve not-found
+  precedence for auth-like ids, one stack-free redacted stderr line, empty
+  stdout, and selected token/token-bearing URL redaction. Pin every literal
+  refusal currently emitted by the accepted worktree manager/daemon so future
+  wording precedence cannot silently regress.
+
+  Fourth, repair the Phase 4 source markers. The applied commit repeatedly opens
+  worktree-management-rendering and worktree-management-client without closing
+  them, leaves worktree-command-surface and its nested removal marker open, and
+  closes the outer post-wait assumption while the qualified-post-wait marker is
+  still open. Harn therefore finds the test/packed anchors but no Phase 4
+  production anchors in worktree-management.ts or program.ts. Consolidate each
+  production region into one exact LIFO-balanced span, give the command's
+  removal wiring its own unambiguous ref, and make every plan-declared Phase 4
+  production and regression ref resolve. Do not edit generated assumption truth
+  directly or move unrelated legacy anchors merely to satisfy line mapping.
+
+  Finally, close the focused verification gaps that allowed the defects through.
+  Add source CLI evidence for fresh-preview prompt identity and mismatch
+  refusal; owner/admin lifecycle success; member/observer mutation and real
+  agent read/ mutation refusal as authorized by the accepted role matrix; local
+  installed operator-token fallback; explicit loopback URL/token; non-loopback
+  URL with no automatic installed credential; exact JSON purity/redaction;
+  explicit --default-roster forwarding; and no mutation on all refusals. Reuse
+  the existing mkdtemp Git/server fixtures and argument-array helpers. Extend
+  the installed packed proof with one valid-mode no-repository lifecycle refusal
+  that exits 6, leaves stdout empty, emits exactly one redacted stderr line, and
+  retains the existing malformed-mode exit 2 and unknown-selector exit 5 checks.
+  Preserve every existing Phase 1-4 unit, packed, browser, REST, flat command,
+  Windows shim, Unix socket, and explicit URL/token contract.
+
+  Explicitly excluded: new commands or options, changed JSON fields or human
+  columns, worktree show/rename/alias commands, protocol/server/daemon/store/Git
+  behavior, WebSocket worktree frames, force removal, prune, branch deletion,
+  hard channel deletion, UI changes, routing grammar changes, credentials,
+  cloud/account/relay work, documentation/release metadata, Phase 5, and
+  unrelated cleanup. Produce exactly one review-fix implementation commit.
+assumptions:
+  create: []
+  retire: []
+  reviewed:
+    - id: structured-worktree-cli-uses-accepted-lifecycle
+      outcome: unchanged
+      reason: Correct bytewise ordering, validate fresh preview identity, complete
+        source ownership, and add the missing CLI boundary evidence without
+        changing the accepted lifecycle or public projection.
+    - id: worktree-cli-removal-requires-previewed-consent
+      outcome: unchanged
+      reason: The filesystem prompt must use the accepted fresh preview identity;
+        consent, server recheck, branch preservation, and no-force semantics
+        stay unchanged.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Complete the promised worktree invocation/refusal matrix while
+        preserving every existing management class and redaction boundary.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: UTF-8 ordering and fresh prompt data remain fixed safe projections; JSON
+        stays one compact value and diagnostics stay on stderr.
+    - id: qualified-cli-wait-preserves-scoped-peer-identity
+      outcome: unchanged
+      reason: Runtime behavior already passes; repair its missing LIFO end marker and
+        retain foreign-peer, direct-self, peer-finished, and local compatibility
+        evidence.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: The qualified region is nested correctly inside the unchanged exact
+        delivery-consumption wait.
+    - id: cli-observability-uses-scoped-rest
+      outcome: unchanged
+      reason: Worktree commands keep using the existing authenticated scoped REST
+        helper; tests complete local/explicit/non-loopback credential evidence.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: Member and agent credentials remain preferred to the operator token and
+        cannot gain worktree mutation authority.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: The server role matrix remains untouched; source CLI tests exercise its
+        owner/admin and denied-principal boundary.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: CLI tests prove only literal default_roster true is forwarded on
+        explicit create; daemon preflight and snapshot behavior remain
+        authoritative.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Stable-id preview/remove routes, fresh state, final server recheck, and
+        branch preservation remain unchanged.
+    - id: worktree-removal-refuses-live-child-runtime
+      outcome: unchanged
+      reason: Live and unresolved child runtime stay server-owned conflict refusals;
+        the CLI gains only exact exit evidence.
+    - id: worktree-git-execution-is-argument-safe
+      outcome: unchanged
+      reason: All path/branch values remain URL or JSON data and no CLI Git execution
+        is introduced.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: Source and packaged entrypoints retain shared exit and one-line redacted
+        formatting.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: Add one Git-less installed conflict classification check without
+        weakening the existing clean-clone runtime proof.
+anchors:
+  structured-worktree-cli-uses-accepted-lifecycle:
+    worktree-management-rendering:
+      action: change
+      reason: Consolidate and close production rendering ownership, replace UTF-16
+        comparison with explicit UTF-8 byte order, and retain fixed safe fields.
+    worktree-management-client:
+      action: change
+      reason: Consolidate and close accepted REST/schema/selector ownership and reject
+        a preview whose stable id does not match the selected route.
+    worktree-command-surface:
+      action: change
+      reason: Close the singular command-family marker and source filesystem prompt
+        identity from the fresh preview.
+    worktree-management-client-regression:
+      action: change
+      reason: Add Unicode byte-order, tie-breaker, route/schema, preview-identity,
+        safe-field, human escaping, JSON, and mismatch tests.
+    worktree-cli-regression:
+      action: change
+      reason: Complete role, credential, default-roster, prompt, refusal, no-mutation,
+        and compatibility evidence through the real CLI boundary.
+    worktree-packed-smoke:
+      action: change
+      reason: Retain safe installed list/help checks and add the valid-mode
+        no-repository conflict proof.
+  worktree-cli-removal-requires-previewed-consent:
+    worktree-removal-confirmation:
+      action: change
+      reason: Close the helper marker and retain escaped TTY and unattended/JSON --yes
+        rules.
+    worktree-removal-command-confirmation:
+      action: change
+      reason: Add one unambiguous command-wiring anchor around preview identity,
+        refusal-before-prompt, fresh prompt data, consent, and stable-id
+        mutation.
+    worktree-removal-confirmation-regression:
+      action: change
+      reason: Prove changed preview alias/path is what the prompt names, mismatched
+        ids never prompt, and refusal/decline never mutates.
+    worktree-removal-packed-smoke:
+      action: change
+      reason: Pin installed exits 2, 5, and 6 with empty stdout, one stderr line, and
+        redaction.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Give accepted worktree input and lifecycle phrases explicit precedence
+        before broad shared wording.
+    management-error-regression:
+      action: change
+      reason: Replace the compressed assertions with a readable complete accepted
+        worktree vocabulary matrix and genuine transport/redaction controls.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Source entrypoint behavior remains unchanged.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Packaged entrypoint behavior remains unchanged.
+    packed-management-failure-regression:
+      action: change
+      reason: The installed source wrapper must expose the same exact 2/5/6 mapping.
+  qualified-cli-wait-preserves-scoped-peer-identity:
+    qualified-post-wait:
+      action: change
+      reason: Add the missing LIFO end marker around the already-correct authoritative
+        peer tracking.
+    qualified-post-wait-regression:
+      action: keep
+      reason: Existing foreign equal-handle direct-reply integration remains unchanged
+        and must pass.
+  cli-waits-consume-only-matching-deliveries:
+    post-wait-command:
+      action: change
+      reason: Its nested qualified marker is closed before the existing outer marker;
+        delivery matching behavior is byte-for-byte unchanged.
+    wait-matrix-regression:
+      action: keep
+      reason: Existing local direct reply, timeout, and consumption matrix stays
+        unchanged.
+  cli-observability-uses-scoped-rest:
+    scoped-rest-client:
+      action: keep
+      reason: Credential selection and REST construction stay unchanged.
+  member-env-selects-narrow-cli-identity:
+    member-connection-options:
+      action: keep
+      reason: Existing WebSocket identity preference remains unchanged.
+    member-identity-regression:
+      action: change
+      reason: Complete member/observer/agent worktree denial plus local operator,
+        explicit URL/token, and non-loopback no-auto-credential evidence.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-role-gate:
+      action: keep
+      reason: Server authorization is unchanged.
+    worktree-lifecycle-authorization-regression:
+      action: keep
+      reason: Existing server principal matrix remains authoritative.
+  worktree-child-default-roster-is-an-explicit-snapshot:
+    child-default-roster-protocol:
+      action: keep
+      reason: Accepted literal-only request field remains unchanged.
+    child-default-roster-daemon:
+      action: keep
+      reason: Daemon preflight and snapshot activation remain unchanged.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-rest:
+      action: keep
+      reason: Accepted preview/unregister/remove routes remain final authority.
+    worktree-runtime-removal-guard:
+      action: keep
+      reason: Final Git and runtime checks remain daemon-owned.
+  worktree-removal-refuses-live-child-runtime:
+    worktree-runtime-removal-guard:
+      action: keep
+      reason: No client force or bypass is added.
+  worktree-git-execution-is-argument-safe:
+    worktree-git-runner:
+      action: keep
+      reason: CLI values remain structured REST data and never reach shell text.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: keep
+      reason: Generated wrapper remains unchanged.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Extend the installed proof without weakening existing lifecycle,
+        browser, API, offline, or teardown checks.
+files:
+  - packages/cli/src/worktree-management.ts
+  - packages/cli/src/worktree-management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - scripts/packed-install-test.sh
+verification: "Capture and hash normalized `git worktree list --porcelain`
+  before implementation and after every real-Git gate; only the expected branch
+  HEAD may change at the one commit. Use TDD: first add focused failing
+  regressions for supplementary-plane versus BMP byte ordering, fresh-preview
+  prompt data, mismatched preview id, every accepted worktree input/lifecycle
+  error class, credential/role/default-roster wiring, and installed valid-mode
+  conflict. Then run `pnpm --filter @codor/cli test`, `pnpm --filter
+  @codor/protocol test`, the focused accepted switchboard
+  worktree/router/collaboration/daemon/server tests, `pnpm --filter
+  @codor/switchboard test`, `pnpm --filter @codor/web-next test`, `pnpm --filter
+  '@codor/cli...' build`, `pnpm build`, root `pnpm test`, and
+  `scripts/packed-install-test.sh`. All existing Phase 1-4 flat/structured
+  commands, Windows argument tests, Unix socket behavior, explicit URL/token
+  behavior, browser/REST contracts, qualified local/foreign wait behavior,
+  packed runtime, and secret redaction must remain green. Run `harn find` for
+  structured-worktree-cli-uses-accepted-lifecycle,
+  worktree-cli-removal-requires-previewed-consent,
+  qualified-cli-wait-preserves-scoped-peer-identity, and every ref declared by
+  this plan; production refs in worktree-management.ts and program.ts must be
+  present and LIFO-balanced. Run `harn find --plan
+  cli-management-phase4-review-fix-contracts`, `harn plan check
+  cli-management-phase4-review-fix-contracts`, and `harn check
+  cli-management-phase4-review-fix-contracts`; stage only this plan and the
+  seven declared files, run `harn check --staged`, let the commit hook apply the
+  plan without bypass, and create exactly one review-fix commit."
+applied:
+  applied_at: 2026-08-08T03:47:10.992Z

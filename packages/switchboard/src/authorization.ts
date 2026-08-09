@@ -50,6 +50,10 @@ export const CAPABILITY_MINIMUM_ROLE: Record<HumanCapability, Role> = {
   // Retrying a failed/interrupted run re-delivers its instructions (P9);
   // owner/admin only, agents refused (AGENT_CAPABILITIES omits it).
   retry_run: 'admin',
+  // harn:assume roles-gate-human-acts-not-agents ref=role-matrix-source
+  rename_room: 'owner',
+  archive_room: 'owner',
+  // harn:end roles-gate-human-acts-not-agents
   // Compacting an agent's engine session spends the operator's context on their
   // behalf; owner/admin only, and AGENT_CAPABILITIES omits it so an agent can
   // never compact itself or a peer.

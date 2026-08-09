@@ -1,0 +1,627 @@
+id: cli-management-phase4-worktrees-qualified-posting
+title: Phase 4 worktree lifecycle CLI and qualified post waiting
+notes: >-
+  Implement only Phase 4 of .codor/PHASED-PLAN.md on the clean accepted Native
+  Worktrees integration merge f1d8073f0ec9038122eb81ee4022216be81148ea. The
+  prerequisite is already accepted: repository/worktree identity, discovery,
+  create/adopt, stable child conversations, unregister, conservative filesystem
+  removal, branch preservation, qualified routing, target-local runtime,
+  origin-local output, cross-origin serialization, and the browser lifecycle UI.
+  This phase exposes that accepted lifecycle through the CLI and completes
+  qualified post/wait behavior without changing persistence, Git, routing, REST,
+  browser, relay, or authorization semantics.
+
+  Add exactly one singular `worktree` family with `list`, `add`, and `remove`.
+  `worktree list --channel <channel> [--cwd <repository-cwd>] [--json]` calls
+  the accepted explicit discovery/list endpoint and reports both active
+  registrations and freshly discovered candidates. `worktree add --channel
+  <channel> --adopt --path <absolute-path> [--alias <alias>] [--cwd
+  <repository-cwd>] [--json]` adopts exactly one already discovered Git
+  worktree. `worktree add --channel <channel> --create --path <absolute-path>
+  --alias <alias> --branch <branch> [--default-roster] [--cwd <repository-cwd>]
+  [--json]` creates and registers exactly one new secondary through the accepted
+  collision-safe API. `--adopt` and `--create` are required and mutually
+  exclusive; branch and default-roster are create-only; create requires alias
+  and branch; adopt permits the server to derive an alias when omitted. No
+  implicit create-on-missing, adopt-on-existing, discovery mutation, alias-edit
+  command, manual starting-agent form, or force flag is allowed.
+  `--default-roster` sends only literal `default_roster:true`, retains the
+  accepted dual worktree/agent authorization and complete preflight, and seeds
+  only the brand-new child with detached snapshots at its canonical cwd.
+
+  `worktree remove <worktree-id-or-alias> --channel <channel> [--cwd
+  <repository-cwd>] [--filesystem] [--yes] [--json]` resolves one active
+  non-main registration by exact stable ULID first and then exact unique alias.
+  Without `--filesystem` it calls only accepted DB-only unregister, leaving the
+  Git checkout, filesystem, branch, child history, and runtime records intact.
+  With `--filesystem` it must first call the accepted read-only removal preview,
+  refuse unless state is exactly `clean` and `branch_preserved` is true, then
+  call the accepted removal endpoint only after consent. The daemon repeats the
+  repository, identity, path, lock, availability, clean-state, and live-runtime
+  checks immediately before non-force `git worktree remove`; the CLI adds no
+  alternate force, prune, branch-delete, recursive filesystem, or direct Git
+  path. Both unregister and filesystem removal are deliberate destructive
+  lifecycle actions: an interactive TTY receives one escaped one-line stderr
+  prompt, decline mutates nothing, and unattended or JSON use requires `--yes`.
+  The filesystem prompt must name the exact safe alias/path and say that the
+  branch is preserved; preview failures occur before a prompt.
+
+  Use the accepted authenticated REST endpoints, schemas, validation, daemon,
+  Store, and argument-array Git runner exactly as they exist. The CLI may
+  refactor its existing scoped REST helper into one JSON request helper, but it
+  must not add WebSocket worktree frames, direct daemon imports for lifecycle,
+  SQLite access, filesystem mutation, shell execution, or an authorization
+  bypass. An ordinary installed-local invocation uses the loopback daemon and
+  the installed mode-0600 operator credential when no narrower token is
+  selected. An explicit loopback or directly reachable `--url` plus `--token`
+  remains supported. The installed operator credential must never be loaded or
+  sent automatically when an explicit URL/CODOR_URL has a non-loopback origin;
+  member credentials remain preferred over inherited operator tokens and are
+  correctly refused by the server's human-only worktree boundary. Query/body
+  paths, aliases, and branches are literal URL/JSON data and never shell text.
+
+  Parse every response through the accepted protocol schemas, then project fixed
+  public CLI shapes. A list projection contains `repository` as null or only
+  `{id,room,primary_path}`, plus deterministic `registered` and `discovered`
+  arrays. Registered entries contain only id, alias, path, conversation_id,
+  primary, source, lifecycle, availability, locked, and optional branch/head.
+  Discovered entries contain only path, primary, availability, locked, optional
+  branch/head, and optional registered_id, alias, and conversation_id. Lifecycle
+  success contains only the registered projection. Never print repository
+  common_path, Git administrative ids, sealed room keys, credentials, bearer
+  values, environment, ACP launches, native session references, or host runtime
+  detail. Registered output is main first and then bytewise alias/id; discovered
+  output is primary first and then bytewise path. Human rows have one fixed
+  column order and escape tabs, newlines, carriage returns, escapes,
+  backslashes, and controls. `--json` writes exactly one compact value with no
+  prompt or diagnostic on stdout.
+
+  Extend the existing shared management exit/redaction contract to worktree
+  failures: option/schema/path/alias/branch errors and missing consent are exit
+  2; authentication is 3; authorization is 4; a missing channel or unknown
+  worktree selector is 5; duplicate/ambiguous/main, repository, discovery,
+  existing target/branch, unavailable, dirty, locked, prunable, missing or
+  mismatched checkout, live/unresolved child runtime, or other lifecycle refusal
+  is 6; and actual HTTP/transport/protocol failure is 7. Failure leaves stdout
+  empty and produces exactly one stack-free redacted stderr line in both source
+  and packed entrypoints. Error and prompt rendering must safely escape hostile
+  paths/aliases and never echo a bearer or token-bearing URL.
+
+  Preserve the server's existing `~alias:@handle` and `~main:@handle` grammar,
+  strict refusal, stable mention target, target-local execution, and
+  origin-local output. Ordinary `codor post` already sends the body unchanged
+  and therefore needs no parser or routing change. For `codor post --wait`, use
+  the authoritative accepted `posted.mentions`: include every resolved active
+  addressed member id other than self even when a qualified member is absent
+  from the origin room's local member map. Continue to ignore unmentioned
+  traffic and consume only the first own delivery whose author is one of those
+  exact ids and whose body directly mentions self. Same-round terminal peer
+  completion remains successful control flow. Unqualified `@handle` resolution
+  remains local, equal handles across worktrees are never conflated, malformed
+  or stale qualified targets still fail atomically without local/default
+  fallback, and the CLI must not read routing catalogs or synthesize target
+  identity itself.
+
+  Add focused unit and integration coverage using only mkdtemp repositories and
+  disposable worktrees. Prove deterministic safe projections, hostile path/alias
+  escaping, exact REST routes and schemas, explicit add-mode option validation,
+  local operator-token fallback, non-loopback no-auto-credential, explicit
+  URL/token, owner/admin success, member/observer/agent refusal, JSON purity,
+  stable exits, and secret redaction. With real Git prove discovery is
+  read-only, adoption and creation support spaces and shell-significant literal
+  paths, create/default-roster semantics, unregister leaves checkout and branch,
+  dirty/locked/missing/mismatched/main/live-runtime removal refusal, clean
+  confirmed removal deletes only the checkout, and every branch remains. Prove
+  local and qualified same-handle routing choose different stable members,
+  qualified `post --wait` registers/correlates the foreign peer and consumes
+  only its direct reply, peer-finished behavior remains correct, and ordinary
+  local post/wait is unchanged. Capture and compare the real user worktree
+  inventory around all Git-backed gates so tests cannot modify any existing
+  checkout.
+
+  Preserve all Phase 1-3 structured families and outputs, every flat command,
+  the accepted Native Worktrees REST/browser/runtime contracts, Windows shims,
+  Unix socket management behavior, URL/token behavior, package closure, and
+  packed runtime. Extend the packed proof only with packaging-relevant worktree
+  command/help, safe JSON/error/confirmation, and qualified-body compatibility
+  that can run in its existing Git-less offline image; real Git lifecycle proof
+  remains in isolated host tests, while the complete packed
+  create/message/archive/recovery workflow belongs to Phase 5.
+
+  Explicitly excluded: worktree show/rename/alias-edit/discover/create/remove
+  subfamilies beyond the three commands above; force removal, prune, branch
+  deletion, hard channel deletion, worktree UI changes, routing grammar or
+  server lifecycle changes, new WebSocket frames, new credentials, accounts,
+  cloud or relay management, documentation/README/upgrade notes, release
+  metadata, and any Phase 5 work. One implementation commit must consume this
+  plan.
+assumptions:
+  create:
+    - id: structured-worktree-cli-uses-accepted-lifecycle
+      title: Structured worktree CLI uses the accepted conservative lifecycle
+      statement: The singular worktree CLI must expose only deterministic list,
+        explicit create-or-adopt add, and confirmed unregister-or-filesystem
+        remove commands through the authenticated accepted REST schemas and
+        daemon lifecycle, select one active non-main identity exactly, keep all
+        path and branch values as literal data, and render only fixed safe
+        operator projections without Git administrative ids, room keys,
+        credentials, private launches, or native sessions, because automation
+        must manage real worktrees without becoming a second Git, persistence,
+        authorization, or secret-bearing implementation.
+      reason: Phase 4 needs one scriptable surface over the accepted Native Worktrees
+        contract while preserving its lifecycle and security authority.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - worktree-discovery-never-registers-candidates
+        - worktree-creation-registers-only-a-new-secondary
+        - worktree-management-is-human-admin-only
+        - worktree-lifecycle-preserves-existing-state-by-default
+        - worktree-child-default-roster-is-an-explicit-snapshot
+        - worktree-git-execution-is-argument-safe
+        - management-output-is-json-pure-and-safe
+        - management-failures-have-stable-redacted-exits
+        - cli-observability-uses-scoped-rest
+        - member-env-selects-narrow-cli-identity
+    - id: worktree-cli-removal-requires-previewed-consent
+      title: Worktree CLI removal requires previewed explicit consent
+      statement: Worktree CLI unregister and filesystem removal must resolve one
+        active non-main stable identity and mutate only after affirmative TTY
+        consent or unattended `--yes`; filesystem removal must additionally
+        obtain a fresh accepted preview with exactly clean state and explicit
+        branch preservation before prompting, while every refusal, decline, or
+        race leaves Git, files, branches, registry, child history, and runtime
+        untouched and no force path exists, because removing a registration or
+        checkout must remain deliberate and the server must retain final
+        authority over conservative removal.
+      reason: The accepted API distinguishes DB-only unregister from guarded
+        filesystem removal; CLI automation needs that distinction and consent
+        boundary to remain observable.
+      depends_on:
+        - structured-worktree-cli-uses-accepted-lifecycle
+        - worktree-removal-is-clean-and-branch-preserving
+        - worktree-removal-refuses-live-child-runtime
+    - id: qualified-cli-wait-preserves-scoped-peer-identity
+      title: Qualified CLI waits preserve the server-resolved foreign peer
+      statement: After a successful post containing one or more qualified targets,
+        `post --wait` must register every authoritative resolved mentioned
+        member id other than self even when that member is absent from the
+        origin roster, then complete only for an exact addressed author that
+        directly mentions self or for accepted same-round peer completion, while
+        unqualified mentions remain local and malformed, stale, or ambiguous
+        qualified intent still refuses atomically without fallback, because a
+        CLI wait may observe cross-worktree collaboration but may not
+        reinterpret or weaken the server's stable routing identity.
+      reason: The accepted router resolves qualified mentions correctly, but the
+        existing CLI discards foreign peers when constructing its wait set.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - invalid-qualified-targets-never-fallback
+        - cross-worktree-output-stays-in-origin
+        - cross-worktree-runtime-stays-target-local
+        - cli-waits-consume-only-matching-deliveries
+        - same-round-terminal-peers-end-live-waits
+  reviewed:
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: CLI selectors and projections consume stable accepted identities without
+        altering their persistence or tombstone transitions.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: List may discover, but only explicit adopt may register one exact
+        candidate.
+    - id: worktree-creation-registers-only-a-new-secondary
+      outcome: unchanged
+      reason: CLI create supplies the strict accepted inputs and adds no Git path.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: REST continues to gate reads and mutations; the CLI adds no local
+        privilege bypass.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: CLI uses preview/unregister/remove separately and exposes no force or
+        branch deletion.
+    - id: worktree-removal-refuses-live-child-runtime
+      outcome: unchanged
+      reason: Final removal remains daemon-authoritative after CLI confirmation.
+    - id: worktree-lifecycle-preserves-existing-state-by-default
+      outcome: unchanged
+      reason: Add defaults to no roster and unregister/removal do not clone or rewrite
+        runtime state.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: Only explicit create --default-roster sends the literal opt-in.
+    - id: worktree-git-execution-is-argument-safe
+      outcome: unchanged
+      reason: CLI values remain URL/JSON data and the accepted manager remains the
+        only Git runner.
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      outcome: unchanged
+      reason: The browser lifecycle is unchanged; CLI deliberately mirrors its
+        create/adopt/unregister/preview/remove distinctions.
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: CLI discovery does not alter background navigation or promotion.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: CLI posts body text unchanged and consumes only the server-persisted
+        resolved mention identity.
+    - id: invalid-qualified-targets-never-fallback
+      outcome: unchanged
+      reason: No client-side parsing or fallback is added.
+    - id: cross-worktree-output-stays-in-origin
+      outcome: unchanged
+      reason: Qualified CLI waits stay subscribed to and consume from the origin.
+    - id: cross-worktree-runtime-stays-target-local
+      outcome: unchanged
+      reason: CLI wait tracking never reads or mutates the target runtime.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: Foreign peers are added only from authoritative posted mentions;
+        exact-author/direct-self matching and consumption remain unchanged.
+    - id: same-round-terminal-peers-end-live-waits
+      outcome: unchanged
+      reason: Existing peer-finished control flow remains byte-compatible for local
+        and qualified peers.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: Worktree commands extend the same deterministic stdout and secret
+        exclusion rules.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Worktree errors are classified into the existing seven public exit
+        classes and use the same source/packed failure boundary.
+    - id: cli-observability-uses-scoped-rest
+      outcome: unchanged
+      reason: Refactoring the authenticated REST helper preserves status/search
+        behavior while worktree management uses the same local/explicit-origin
+        credential boundary.
+    - id: member-env-selects-narrow-cli-identity
+      outcome: unchanged
+      reason: A selected member credential stays preferred and is refused rather than
+        upgraded for worktree management.
+    - id: server-token-required
+      outcome: unchanged
+      reason: Every explicit REST call remains bearer authenticated.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: The accepted server remains the only authority for human roles.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent credentials gain no worktree read or mutation capability.
+    - id: structured-channel-cli-preserves-flat-listing
+      outcome: unchanged
+      reason: Worktree commands are a separate top-level family and channel syntax is
+        untouched.
+    - id: structured-agent-cli-preserves-flat-lifecycle-and-presets
+      outcome: unchanged
+      reason: Agent, preset, roster, and every flat command remain unchanged.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: The generated wrapper keeps the shared exported rejection boundary.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: The new CLI source is discovered by the existing package build and must
+        be proven from the packed artifact.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: The existing clean-clone packed proof is extended without weakening its
+        offline/native/runtime checks.
+    - id: human-facing-surfaces-call-rooms-channels
+      outcome: unchanged
+      reason: New options say channel while accepted implementation paths retain room
+        terminology.
+anchors:
+  structured-worktree-cli-uses-accepted-lifecycle:
+    worktree-management-client:
+      action: change
+      reason: Add schema-validated accepted REST list/adopt/create/unregister/remove
+        calls with literal query/body values.
+    worktree-management-rendering:
+      action: change
+      reason: Add safe deterministic registered/discovered/lifecycle projections.
+    worktree-management-client-regression:
+      action: change
+      reason: Pin endpoints, strict parsing, ordering, escaping, and safe fields.
+    worktree-command-surface:
+      action: change
+      reason: Register exactly list/add/remove with explicit mode/option validation.
+    worktree-cli-regression:
+      action: change
+      reason: Exercise local and URL/token lifecycle, roles, Git, JSON, exits, and
+        compatibility through the real CLI/server.
+    worktree-packed-smoke:
+      action: change
+      reason: Prove the installed family, safe JSON/error behavior, and no secret
+        output in the existing Git-less packed runtime.
+  worktree-cli-removal-requires-previewed-consent:
+    worktree-removal-confirmation:
+      action: change
+      reason: Add escaped interactive/unattended confirmation after clean preview.
+    worktree-removal-confirmation-regression:
+      action: change
+      reason: Prove decline/no-yes/previews/races do not mutate and branch survives.
+    worktree-removal-packed-smoke:
+      action: change
+      reason: Prove unattended confirmation and one-line installed refusal without
+        requiring Git in the packed image.
+  qualified-cli-wait-preserves-scoped-peer-identity:
+    qualified-post-wait:
+      action: change
+      reason: Retain authoritative foreign mentioned ids instead of filtering them
+        through the origin roster.
+    qualified-post-wait-regression:
+      action: change
+      reason: Prove equal handles, exact foreign reply correlation, peer completion,
+        and unchanged local waits.
+  cli-observability-uses-scoped-rest:
+    scoped-rest-client:
+      action: change
+      reason: Generalize the existing safe authenticated JSON request helper without
+        changing status/search behavior or credential selection.
+    status-command:
+      action: keep
+      reason: Status command behavior and projection remain unchanged.
+    search-command:
+      action: keep
+      reason: Search command behavior and projection remain unchanged.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Classify worktree invocation, not-found, and lifecycle refusal text.
+    management-error-regression:
+      action: change
+      reason: Cover exact worktree exit classes and redaction.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Source failure boundary remains unchanged.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Packaged wrapper failure boundary remains unchanged.
+    packed-management-failure-regression:
+      action: change
+      reason: Extend installed one-line/empty-stdout/redaction proof for worktrees.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: keep
+      reason: Existing channel/agent/preset renderers and redaction remain unchanged.
+    management-output-regression:
+      action: change
+      reason: Extend real CLI JSON purity and safe output coverage.
+  cli-waits-consume-only-matching-deliveries:
+    post-wait-command:
+      action: change
+      reason: Build peers from all authoritative active posted mentions, including
+        qualified foreign targets.
+    wait-matrix-regression:
+      action: change
+      reason: Add qualified same-handle and exact reply cases while retaining the
+        existing wait matrix.
+    collaboration-room-sync:
+      action: keep
+      reason: Origin sync and queued-delivery consumption remain unchanged.
+    tail-wait-command:
+      action: keep
+      reason: Tail until modes are outside Phase 4 and remain unchanged.
+  same-round-terminal-peers-end-live-waits:
+    collaboration-cli-wait-exit:
+      action: keep
+      reason: Existing member-frame completion helper remains unchanged.
+    collaboration-cli-wait-exit-regression:
+      action: change
+      reason: Extend the regression to a qualified peer without changing control flow.
+    collaboration-wait-context:
+      action: keep
+      reason: Accepted daemon wait context already supports scoped group peers.
+    collaboration-wait-release-regression:
+      action: keep
+      reason: Accepted daemon behavior needs no Phase 4 change.
+  registered-worktree-identities-are-durable:
+    worktree-protocol-contract:
+      action: keep
+      reason: Accepted protocol and REST lifecycle are consumed unchanged.
+    worktree-runtime-reconciliation:
+      action: keep
+      reason: Reconciliation remains daemon-owned.
+    worktree-store-lifecycle:
+      action: keep
+      reason: CLI never mutates persistence directly.
+  worktree-discovery-never-registers-candidates:
+    worktree-discovery-contract:
+      action: keep
+      reason: Accepted manager/protocol behavior remains unchanged.
+    worktree-discovery-rest:
+      action: keep
+      reason: CLI calls the existing route.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-contract:
+      action: keep
+      reason: Accepted create schema and Git manager remain unchanged.
+    worktree-create-rest:
+      action: keep
+      reason: CLI calls the existing route.
+  worktree-management-is-human-admin-only:
+    worktree-lifecycle-role-gate:
+      action: keep
+      reason: Authorization source and server gate remain unchanged.
+    worktree-lifecycle-authorization-regression:
+      action: keep
+      reason: Existing REST principal matrix remains unchanged and is supplemented at
+        the CLI boundary.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-contract:
+      action: keep
+      reason: Accepted schema/manager remains final authority.
+    worktree-remove-rest:
+      action: keep
+      reason: CLI calls existing preview/unregister/remove routes only.
+    worktree-runtime-removal-guard:
+      action: keep
+      reason: Daemon live-runtime guard remains unchanged.
+  worktree-removal-refuses-live-child-runtime:
+    worktree-runtime-removal-guard:
+      action: keep
+      reason: No client override or force path is added.
+  worktree-lifecycle-preserves-existing-state-by-default:
+    worktree-lifecycle-daemon-boundary:
+      action: keep
+      reason: CLI delegates without changing lifecycle semantics.
+    worktree-root-neutral-registration:
+      action: keep
+      reason: Root and child state persistence remain unchanged.
+  worktree-child-default-roster-is-an-explicit-snapshot:
+    child-default-roster-protocol:
+      action: keep
+      reason: CLI sends only the accepted literal opt-in.
+    child-default-roster-daemon:
+      action: keep
+      reason: Preflight/snapshot activation remains daemon-owned.
+    child-default-roster-manager:
+      action: keep
+      reason: Git cleanup and registration remain manager-owned.
+  worktree-git-execution-is-argument-safe:
+    worktree-git-runner:
+      action: keep
+      reason: CLI never invokes Git.
+    worktree-git-runner-regression:
+      action: keep
+      reason: Existing argument-array tests remain authoritative.
+  qualified-member-target-identity-is-durable:
+    qualified-body-grammar:
+      action: keep
+      reason: CLI sends bodies unchanged and performs no qualified parsing.
+    qualified-routing-resolution:
+      action: keep
+      reason: Accepted router remains sole resolver.
+    qualified-mention-schema:
+      action: keep
+      reason: CLI consumes the existing target-bearing mention projection.
+  invalid-qualified-targets-never-fallback:
+    qualified-post-error-boundary:
+      action: keep
+      reason: Atomic server refusal remains unchanged.
+    qualified-routing-refusal:
+      action: keep
+      reason: No client fallback is added.
+  cross-worktree-output-stays-in-origin:
+    cross-worktree-origin-transaction:
+      action: keep
+      reason: CLI waits on the origin only.
+    cross-worktree-turn-orchestration:
+      action: keep
+      reason: Server routing/output placement remains unchanged.
+  cross-worktree-runtime-stays-target-local:
+    cross-worktree-runtime-target:
+      action: keep
+      reason: CLI does not inspect target runtime.
+    cross-worktree-runtime-live-frame:
+      action: keep
+      reason: Target-only live frames remain unchanged.
+  member-env-selects-narrow-cli-identity:
+    member-connection-options:
+      action: keep
+      reason: Existing token preference remains unchanged.
+    explicit-token-unix-transport:
+      action: keep
+      reason: Existing WebSocket commands remain unchanged.
+    member-identity-regression:
+      action: change
+      reason: Extend the identity matrix to prove member-token worktree refusal.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: keep
+      reason: Accepted human roles remain unchanged.
+    role-matrix-integration:
+      action: keep
+      reason: Server authorization remains unchanged.
+  agent-network-authority-is-narrow:
+    agent-capability-matrix:
+      action: keep
+      reason: No agent capability is added.
+    agent-room-authorization:
+      action: keep
+      reason: REST denial remains server-owned.
+    agent-authz-regression:
+      action: keep
+      reason: Existing server coverage remains unchanged.
+  structured-channel-cli-preserves-flat-listing:
+    structured-channel-command-surface:
+      action: keep
+      reason: Channel commands remain unchanged.
+    structured-channel-cli-regression:
+      action: keep
+      reason: Existing compatibility test must stay unchanged.
+    structured-channel-packed-smoke:
+      action: keep
+      reason: Existing installed channel proof stays unchanged.
+  structured-agent-cli-preserves-flat-lifecycle-and-presets:
+    structured-agent-command-surface:
+      action: keep
+      reason: Agent/preset/roster surface remains unchanged.
+    structured-agent-cli-regression:
+      action: keep
+      reason: Existing compatibility test must stay unchanged.
+    structured-agent-packed-smoke:
+      action: keep
+      reason: Existing installed agent proof stays unchanged.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Extend the installed CLI proof without weakening existing checks.
+  public-package-bundles-complete-codor-runtime:
+    artifact-runtime-builder:
+      action: keep
+      reason: Existing recursive source/package discovery should include the new
+        compiled CLI module without modification.
+    artifact-runtime-regression:
+      action: keep
+      reason: Existing closure proof remains unchanged.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: keep
+      reason: Wrapper source remains unchanged.
+  human-facing-surfaces-call-rooms-channels:
+    cli-channel-terminology:
+      action: change
+      reason: New worktree options and help must use channel terminology.
+files:
+  - packages/cli/src/worktree-management.ts
+  - packages/cli/src/worktree-management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - scripts/packed-install-test.sh
+verification: Before implementation capture a normalized `git worktree list
+  --porcelain` inventory and its SHA-256; repeat after every real-Git gate and
+  require exact equality apart from the expected CLI branch HEAD after the one
+  commit. Run focused TDD regressions for
+  `packages/cli/src/worktree-management.spec.ts`, the
+  worktree/management/qualified-wait sections of
+  `packages/cli/src/index.spec.ts`, and management classification. Every
+  Git-backed test must create one repository and all disposable worktrees below
+  its own mkdtemp root, use argument arrays, preserve every branch, and remove
+  only its fixture root; no command or test may enter, create, move, register,
+  unregister, remove, or modify a real user worktree. Run `pnpm --filter
+  @codor/protocol test`, the focused switchboard worktree/router/collaboration/
+  daemon/server tests, `pnpm --filter @codor/switchboard test`, `pnpm --filter
+  @codor/cli test`, `pnpm --filter @codor/web-next test`, `pnpm --filter
+  '@codor/cli...' build`, `pnpm build`, root `pnpm test`, and
+  `scripts/packed-install-test.sh`. The packed proof must retain all existing
+  checks and add only Git-less installed command/help, safe JSON/refusal,
+  confirmation, qualified-body, exit, and redaction coverage. Explicitly prove
+  local operator-token fallback, non-loopback credential non-disclosure,
+  explicit URL/token, the owner/admin/member/observer/agent matrix,
+  deterministic human/JSON output, hostile path escaping, exact exit classes,
+  discovery non-mutation, safe create/adopt, detached roster opt-in, DB-only
+  unregister, clean-only filesystem removal, dirty/locked/missing/mismatched/
+  main/live-runtime refusal, branch preservation, shell-significant paths,
+  equal-handle local versus qualified routing, foreign direct-reply wait
+  correlation, peer-finished and local wait compatibility, no direct SQLite/Git
+  or private identity output, and all Phase 1-3/REST/browser compatibility. Run
+  `harn find --plan cli-management-phase4-worktrees-qualified-posting`, `harn
+  plan check cli-management-phase4-worktrees-qualified-posting`, and `harn check
+  cli-management-phase4-worktrees-qualified-posting`; stage only this plan and
+  the seven declared files, run `harn check --staged`, let the hook apply the
+  plan/generate truth, and create exactly one Phase 4 implementation commit.
+applied:
+  applied_at: 2026-08-08T03:10:02.573Z

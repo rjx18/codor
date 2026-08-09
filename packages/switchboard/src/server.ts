@@ -15,6 +15,8 @@ import {
   AcpProviderIdSchema,
   AgentPresetIdSchema,
   AgentPresetInputSchema,
+  type AgentPreset,
+  type AgentPresetPublic,
   ClientFrameSchema,
   CreateRoomRequestSchema,
   DefaultRosterInputSchema,
@@ -139,6 +141,31 @@ type AuthPrincipal =
       homeRoom: string;
       invocation?: { originRoom: string; targetRoom: string; target: ScopedMemberTarget };
     };
+
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-safe-schema
+/** Project only the selector/configuration fields safe for CLI automation. */
+function projectAgentPreset(preset: AgentPreset): AgentPresetPublic {
+  const customAcp = preset.harness === 'acp'
+    && preset.acp_provider === undefined
+    && preset.acp_launch !== undefined;
+  return {
+    id: preset.id,
+    schema_version: preset.schema_version,
+    created_ts: preset.created_ts,
+    updated_ts: preset.updated_ts,
+    label: preset.label,
+    handle: preset.handle,
+    ...(preset.display_name !== undefined && { display_name: preset.display_name }),
+    adapter: preset.harness === 'acp' && preset.acp_provider !== undefined
+      ? `acp:${preset.acp_provider}`
+      : preset.harness,
+    ...(preset.model !== undefined && { model: preset.model }),
+    ...(preset.thinking !== undefined && { thinking: preset.thinking }),
+    ...(preset.policy !== undefined && { policy: preset.policy }),
+    ...(customAcp && { custom_acp: true as const }),
+  };
+}
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
 
 const PAIRING_CODE_ATTEMPTS = 5;
 const PAIRING_CODE_WINDOW_MS = 60_000;
@@ -385,14 +412,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
 
   // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-root-query
-  const roomsFor = (principal: AuthPrincipal) => (
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server
+  /** Default discovery hides archived channels; management `--all` opts in. */
+  const roomsFor = (principal: AuthPrincipal, includeArchived = false) => (
     principal.kind === 'agent' ? daemon.store.listRooms() : daemon.store.listPublicRooms()
   ).filter((room) => {
+    if (!includeArchived && room.config.archived_ts !== undefined) return false;
     if (principal.kind === 'owner' || principal.kind === 'browser') return true;
     if (principal.kind === 'agent') return room.id === principal.room;
     return daemon.store.getMember(room.id, principal.memberId)?.kind === 'human';
   });
   // harn:end main-and-direct-conversations-stay-compatible
+  // harn:end channel-archive-is-durable-soft-state
   // harn:end agent-network-authority-is-narrow
 
   // harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-role-gate
@@ -852,7 +883,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
 
-  // harn:assume agent-preset-management-is-authorized-and-transport-neutral ref=agent-preset-rest-boundary
+  // harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-rest-boundary
   const sendAgentPresetError = (reply: FastifyReply, error: unknown) => {
     if (error instanceof AgentPresetNotFoundError) {
       return reply.code(404).send({ error: error.message });
@@ -942,7 +973,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return sendAgentPresetError(reply, error);
     }
   });
-  // harn:end agent-preset-management-is-authorized-and-transport-neutral
+  // harn:end agent-preset-management-is-authorized-across-rest-and-cli
 
   // harn:assume local-directory-listing-home-contained ref=local-dirs-rest-boundary
   app.get('/api/local/dirs', (req, reply) => {
@@ -1850,15 +1881,87 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         socket.send(JSON.stringify(frame));
       };
 
+      // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-server
+      const sendManagedMember = (room: string, member: Member, ref: string | undefined): void => {
+        if (ref === undefined) return;
+        send({
+          type: 'member',
+          seq: daemon.store.currentSeq(room),
+          member: daemon.project(room, member),
+          room,
+          ref,
+        });
+      };
+      // harn:end agent-management-correlates-safe-member-results
+
       socket.on('message', (raw: Buffer) => {
-        let frame;
+        let parsed: unknown;
         try {
-          frame = ClientFrameSchema.parse(JSON.parse(raw.toString()));
+          parsed = JSON.parse(raw.toString());
         } catch (error) {
           return send({ type: 'error', message: `invalid frame: ${String(error)}` });
         }
+        const rawRef = typeof parsed === 'object' && parsed !== null && 'ref' in parsed
+          && typeof parsed.ref === 'string' && parsed.ref.length > 0 && parsed.ref.length <= 128
+          ? parsed.ref
+          : undefined;
+        let frame;
         try {
-          if (frame.type === 'mirror_turn') {
+          frame = ClientFrameSchema.parse(parsed);
+        } catch (error) {
+          return send({
+            type: 'error',
+            message: `invalid frame: ${String(error)}`,
+            ...(rawRef !== undefined && { ref: rawRef }),
+          });
+        }
+        try {
+          // harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-dispatch
+          if (frame.type === 'list_agent_presets') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            send({
+              type: 'agent_presets',
+              ref: frame.ref,
+              presets: daemon.listAgentPresets().map(projectAgentPreset),
+            });
+          } else if (frame.type === 'create_agent_preset') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const preset = daemon.createAgentPreset(frame.input);
+            send({ type: 'agent_preset', ref: frame.ref, preset: projectAgentPreset(preset) });
+          } else if (frame.type === 'update_agent_preset') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const preset = daemon.updateAgentPreset(frame.preset_id, frame.input);
+            send({ type: 'agent_preset', ref: frame.ref, preset: projectAgentPreset(preset) });
+          } else if (frame.type === 'delete_agent_preset') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            daemon.deleteAgentPreset(frame.preset_id);
+            send({
+              type: 'agent_preset_deleted',
+              ref: frame.ref,
+              id: frame.preset_id,
+              deleted: true,
+            });
+          } else if (frame.type === 'get_default_roster') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            send({ type: 'default_roster', ref: frame.ref, roster: daemon.getDefaultRoster() });
+          } else if (frame.type === 'set_default_roster') {
+            if (!authorizeGlobal(principal, 'manage_agents')) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const roster = daemon.replaceDefaultRoster(frame.input);
+            send({ type: 'default_roster', ref: frame.ref, roster });
+          // harn:end agent-preset-management-is-authorized-across-rest-and-cli
+          } else if (frame.type === 'mirror_turn') {
             const joined = daemon.store.findMemberBySessionRef(frame.harness, frame.session_ref);
             if (!joined) throw new Error(`no mirrored member for ${frame.harness} session ${frame.session_ref}`);
             assertRoomCapability(principal, joined.room, 'mirror_turn');
@@ -1877,6 +1980,47 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               type: 'mirror_ack',
               adopted: daemon.mirrorSessionEnd(frame.harness, frame.session_ref),
             });
+          // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-server
+          } else if (frame.type === 'list_agents') {
+            assertRoomCapability(principal, frame.room, 'read');
+            const agents = daemon.store.listMembers(frame.room)
+              .filter((member) => member.kind === 'agent' && member.removed_ts === undefined)
+              .sort((left, right) => left.id.localeCompare(right.id));
+            send({
+              type: 'agents',
+              room: frame.room,
+              agents: agents.map((member) => daemon.project(frame.room, member)),
+              ref: frame.ref,
+            });
+          } else if (frame.type === 'add_agent') {
+            assertRoomCapability(principal, frame.room, 'manage_agents');
+            // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-catalog-resolution
+            const member = frame.preset_id !== undefined
+              ? daemon.spawnMemberFromPreset(frame.room, frame.preset_id, {
+                  handle: frame.handle,
+                  cwd: frame.cwd,
+                  policy: frame.policy,
+                  model: frame.model,
+                  thinking: frame.thinking,
+                  display_name: frame.display_name,
+                  purpose: frame.purpose,
+                })
+              : (() => {
+                  const adapter = daemon.resolvePublicAgentAdapter(frame.adapter!);
+                  return daemon.spawnMember(frame.room, {
+                    harness: adapter.harness,
+                    handle: frame.handle!,
+                    cwd: frame.cwd,
+                    policy: frame.policy ?? 'read-only',
+                    model: frame.model,
+                    thinking: frame.thinking,
+                    display_name: frame.display_name,
+                    purpose: frame.purpose,
+                    acp_provider: adapter.acp_provider,
+                  });
+                })();
+            sendManagedMember(frame.room, member, frame.ref);
+          // harn:end agent-management-correlates-safe-member-results
           } else if (frame.type === 'list_rooms') {
             if (principal.kind === 'agent') {
               assertRoomCapability(principal, principal.room, 'read');
@@ -1884,10 +2028,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               throw new Error('forbidden: principal cannot list rooms');
             }
             // harn:assume list-rooms-reply-carries-per-room-seq ref=rooms-reply-seq-populate
-            const listedRooms = roomsFor(principal);
+            const listedRooms = roomsFor(principal, frame.all === true);
             send({
               type: 'rooms',
               rooms: listedRooms.map((room) => daemon.project(room.id, room)),
+              // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+              ...(frame.ref !== undefined && { ref: frame.ref }),
+              // harn:end management-frames-correlate-one-result
               // Per-room committed seq lets a multiplexed client warm-resync any
               // room that fell behind since its last applied frame — the recovery
               // path for a live-socket miss short of a reload.
@@ -1896,6 +2043,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               ),
             });
             // harn:end list-rooms-reply-carries-per-room-seq
+          } else if (frame.type === 'create_room') {
+            // harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+            if (!authorizeGlobal(principal, 'manage_rooms')) {
+              throw new Error('forbidden: principal cannot manage rooms');
+            }
+            // harn:end roles-gate-human-acts-not-agents
+            if (
+              frame.request.starting_agent?.acp_launch !== undefined
+              && !authorizeGlobal(principal, 'manage_agents')
+            ) {
+              throw new Error('forbidden: principal cannot manage agents');
+            }
+            const created = daemon.createRoom(frame.request);
+            options.crypto?.roomKeys.ensureRoom(created.room.id);
+            send({
+              type: 'room',
+              seq: daemon.store.currentSeq(created.room.id),
+              room: daemon.project(created.room.id, created.room),
+              // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+              ref: frame.ref,
+              // harn:end management-frames-correlate-one-result
+            });
           } else if (frame.type === 'subscribe') {
             // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-admission
             const browserClient = principal.kind === 'browser'
@@ -2098,6 +2267,28 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 }),
                 ...(act.stall_minutes !== undefined && { stall_minutes: act.stall_minutes }),
               });
+            // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-server
+            } else if (act.act === 'rename_room') {
+              const updated = daemon.renameRoom(frame.room, act.name);
+              send({
+                type: 'room',
+                seq: daemon.store.currentSeq(frame.room),
+                room: daemon.project(frame.room, updated),
+                // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+                ...(frame.ref !== undefined && { ref: frame.ref }),
+                // harn:end management-frames-correlate-one-result
+              });
+            } else if (act.act === 'archive_room') {
+              const updated = daemon.archiveRoom(frame.room);
+              send({
+                type: 'room',
+                seq: daemon.store.currentSeq(frame.room),
+                room: daemon.project(frame.room, updated),
+                // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+                ...(frame.ref !== undefined && { ref: frame.ref }),
+                // harn:end management-frames-correlate-one-result
+              });
+            // harn:end channel-archive-is-durable-soft-state
             }
             else if (act.act === 'redeliver') daemon.redeliver(frame.room, act.delivery_id);
             else if (act.act === 'release_hold') daemon.releaseHold(frame.room, act.delivery_id);
@@ -2132,9 +2323,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               daemon.spawnMember(frame.room, {
                 harness: act.harness,
                 handle: act.handle,
-                // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-dispatch
+                // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-display-name-dispatch
                 display_name: act.display_name,
-                // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+                // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
                 cwd: act.cwd,
                 policy: act.policy,
                 model: act.model,
@@ -2146,17 +2337,33 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 // harn:end named-acp-provider-selection-resolves-to-private-structured-launch
               });
             } else if (act.act === 'configure') {
-              daemon.configureMember(
+              const updated = daemon.configureMember(
                 frame.room,
                 act.member_id,
                 { model: act.model, thinking: act.thinking, policy: act.policy },
                 { actor: actor.id },
               );
-            } else if (act.act === 'rename') daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
-            else if (act.act === 'revive') daemon.reviveMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            } else if (act.act === 'rename') {
+              const updated = daemon.renameMember(frame.room, act.member_id, act.handle, act.display_name);
+              sendManagedMember(frame.room, updated, frame.ref);
+            } else if (act.act === 'revive') {
+              // The structured ref opts into paused-or-dead revive. The existing
+              // unreferenced flat act remains the dead-only recovery contract.
+              const updated = frame.ref === undefined
+                ? daemon.reviveMember(frame.room, act.member_id)
+                : daemon.reviveManagedMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            }
             else if (act.act === 'kill') daemon.killMember(frame.room, act.member_id);
-            else if (act.act === 'remove') daemon.removeMember(frame.room, act.member_id);
-            else if (act.act === 'pause') daemon.pauseMember(frame.room, act.member_id);
+            else if (act.act === 'remove') {
+              const updated = daemon.removeMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            }
+            else if (act.act === 'pause') {
+              const updated = daemon.pauseMember(frame.room, act.member_id);
+              sendManagedMember(frame.room, updated, frame.ref);
+            }
             else if (act.act === 'unpause') daemon.unpauseMember(frame.room, act.member_id);
             else if (act.act === 'interrupt') daemon.interruptMember(frame.room, act.member_id);
             // Compaction is a round trip to the engine: report its refusal or
@@ -2183,7 +2390,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             else if (act.act === 'retry_run') daemon.retryRun(frame.room, act.message_id, actor.id);
           }
         } catch (error) {
-          send({ type: 'error', message: String(error), ref: frame.type });
+          // harn:assume management-frames-correlate-one-result ref=management-correlation-server
+          send({
+            type: 'error',
+            message: String(error),
+            ref: ('ref' in frame ? frame.ref : undefined) ?? frame.type,
+          });
+          // harn:end management-frames-correlate-one-result
         }
       });
     });

@@ -1,0 +1,23 @@
+id: individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
+hash: a-f8451aadb7f0
+title: Browser preset selection still fills one editable ordinary spawn draft
+state: active
+statement: Browser Add agent must show authorized individual presets beside its
+  built-in shortcuts, resolve a freshly read valid preset through the accepted
+  REST ingress into the same editable handle, display-name, harness, model,
+  thinking, policy, and ACP controls, preserve room cwd and per-add purpose, and
+  submit exactly one ordinary spawn act with concrete values and no
+  preset/roster reference; malformed, deleted, or catalog-invalid presets must
+  leave the draft unchanged, and later edit or deletion cannot mutate a selected
+  draft or member, because the new CLI ingress does not turn browser preset
+  selection into live state or a second creation lifecycle.
+depends_on:
+  - individual-agent-presets-are-bounded-catalog-validated-configurations
+  - individual-agent-presets-are-versioned-local-state
+  - agent-preset-management-is-authorized-across-rest-and-cli
+  - web-spawn-dialog-exposes-canonical-agent-controls
+  - agent-controls-shared-by-both-dialogs
+  - one-control-chooses-an-agent-everywhere
+  - agent-selection-shows-detected-acp-and-advanced-custom
+  - new-agent-requests-require-available-native-or-detected-acp
+created_by: cli-management-phase3-agent-presets-default-roster

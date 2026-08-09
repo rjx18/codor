@@ -3,15 +3,20 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  AcpProviderIdSchema,
+  AgentPresetInputSchema,
   MemberStatusResponseSchema,
   MessageSchema,
   RunSearchHitSchema,
   type AttachLease,
+  type AcpLaunchConfig,
   type Delivery,
   type Member,
   type Message,
+  type Policy,
   type RunSearchHit,
   type ServerFrame,
+  type ThinkingLevel,
 } from '@codor/protocol';
 import { Command, Option } from 'commander';
 import {
@@ -31,11 +36,56 @@ import {
 } from './attach.js';
 import { ProtocolClient, type ProtocolClientOptions } from './connection.js';
 import { detectSession } from './detect.js';
+import {
+  MANAGEMENT_EXIT_CODES,
+  ManagementError,
+  archiveManagedRoom,
+  addManagedAgent,
+  addManagedPresetAgent,
+  classifyManagementError,
+  confirmAgentRemove,
+  confirmAgentPresetDelete,
+  confirmArchive,
+  createManagedRoom,
+  createManagedAgentPreset,
+  deleteManagedAgentPreset,
+  getManagedDefaultRoster,
+  listManagedAgentPresets,
+  listManagedAgents,
+  listManagedRooms,
+  mutateManagedAgent,
+  renameManagedRoom,
+  renderAgent,
+  renderAgentList,
+  renderAgentPreset,
+  renderAgentPresetList,
+  renderDefaultRoster,
+  renderDeletedPreset,
+  renderChannel,
+  renderChannelList,
+  resolveManagedAgent,
+  setManagedDefaultRoster,
+  updateManagedAgentPreset,
+} from './management.js';
 import { parseMirrorHook } from './mirror.js';
 import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
 import { renderPairingCard } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
 import { parseLine, startOutpost, startCodor, waitForShutdown } from './up.js';
+import {
+  adoptWorktree,
+  confirmWorktreeRemoval,
+  createWorktree,
+  escapeWorktreeHumanCell,
+  listWorktrees,
+  previewWorktreeRemoval,
+  removeFilesystemWorktree,
+  removeWorktree,
+  renderWorktree,
+  renderWorktreeList,
+  resolveWorktreeSelector,
+  type WorktreeRestClient,
+} from './worktree-management.js';
 
 export interface CliContext {
   stdout?(line: string): void;
@@ -48,6 +98,8 @@ export interface CliContext {
   setup?: SetupOverrides;
   /** Overrides the TTY probe that picks `codor pair`'s card vs plain output. */
   isTTY?: boolean;
+  /** Test seam for the interactive channel archive confirmation. */
+  confirm?(prompt: string): Promise<string | boolean>;
 }
 
 interface GlobalOptions {
@@ -370,6 +422,14 @@ export function createProgram(context: CliContext = {}): Command {
     }
   };
 
+  const withManagementClient = async <T>(fn: (client: ProtocolClient) => Promise<T>): Promise<T> => {
+    try {
+      return await withClient(fn);
+    } catch (error) {
+      throw classifyManagementError(error);
+    }
+  };
+
   const channel = (options: OptionalChannelOptions): string => {
     const room = options.channel ?? env.CODOR_CHANNEL;
     if (!room) throw new Error('--channel or CODOR_CHANNEL is required');
@@ -443,6 +503,11 @@ export function createProgram(context: CliContext = {}): Command {
     return value;
   };
 
+  const worktreeRestClient: WorktreeRestClient = {
+    get: (path) => fetchJson(restUrl(path)),
+    post: (path, body) => postJson(path, body),
+  };
+
   const withCrypto = <T>(fn: (crypto: CryptoVault) => T): T => {
     const crypto = new CryptoVault(program.opts<GlobalOptions>().dataDir);
     try {
@@ -514,18 +579,208 @@ export function createProgram(context: CliContext = {}): Command {
       await waitForShutdown(running.close);
     });
 
-  program.command('channels').description('list channels').action(async () => {
-    await withClient(async (client) => {
-      client.send({ type: 'list_rooms' });
-      for (;;) {
-        const frame = await client.next();
-        if (frame.type === 'error') throw new Error(frame.message);
-        if (frame.type !== 'rooms') continue;
-        for (const room of frame.rooms) out(`${room.id}\t${room.name}`);
-        return;
-      }
+  const channelManagement = program
+    .command('channels')
+    .alias('channel')
+    .description('list active channels')
+    .action(async () => {
+      await withClient(async (client) => {
+        client.send({ type: 'list_rooms' });
+        for (;;) {
+          const frame = await client.next();
+          if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type !== 'rooms') continue;
+          for (const room of frame.rooms) out(`${room.id}\t${room.name}`);
+          return;
+        }
+      });
     });
-  });
+
+  // harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-command-surface
+  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-terminology
+  channelManagement
+    .command('list')
+    .description('list active channels')
+    .option('--all', 'include archived channels')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: { all?: boolean; json?: boolean }) => {
+      await withManagementClient(async (client) => {
+        const rooms = await listManagedRooms(client, { all: options.all === true });
+        const rendered = renderChannelList(rooms, options.json === true);
+        if (rendered !== '') out(rendered);
+      });
+    });
+
+  // harn:assume channel-cli-selects-one-initial-agent-mode ref=channel-create-initial-agent-options
+  channelManagement
+    .command('create')
+    .description('create a channel')
+    .argument('<name>', 'channel name')
+    .requiredOption('--owner <handle>', 'owner handle')
+    .option('--owner-name <display-name>', 'owner display name')
+    .option('--id <id>', 'explicit channel id')
+    .option('--color <color>', 'channel accent color')
+    .option('--cwd <path>', 'channel working directory')
+    .option('--default-roster', 'start the channel with the configured default roster')
+    .option('--starting-agent <handle>', 'start one manually selected agent')
+    .option('--adapter <selector>', 'starting-agent public adapter selector')
+    .option('--starting-name <display-name>', 'starting agent display name')
+    .option('--starting-policy <policy>', 'starting agent permission policy')
+    .option('--starting-model <model>', 'starting agent model override')
+    .option('--starting-thinking <level>', 'starting agent thinking level')
+    .option('--starting-acp-executable <command>', 'custom ACP executable for the starting agent')
+    .option('--starting-acp-arg <arg>', 'literal custom ACP argument (repeatable)', collectString, [])
+    .option('--json', 'emit one JSON value')
+    .action(async (name: string, options: {
+      owner: string;
+      ownerName?: string;
+      id?: string;
+      color?: string;
+      cwd?: string;
+      defaultRoster?: boolean;
+      startingAgent?: string;
+      adapter?: string;
+      startingName?: string;
+      startingPolicy?: Policy;
+      startingModel?: string;
+      startingThinking?: ThinkingLevel;
+      startingAcpExecutable?: string;
+      startingAcpArg: string[];
+      json?: boolean;
+    }) => {
+      if (name.length === 0 || options.owner.length === 0) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'channel name and owner are required');
+      }
+      const startingFlags = options.startingAgent !== undefined
+        || options.adapter !== undefined
+        || options.startingName !== undefined
+        || options.startingPolicy !== undefined
+        || options.startingModel !== undefined
+        || options.startingThinking !== undefined
+        || options.startingAcpExecutable !== undefined
+        || options.startingAcpArg.length > 0;
+      if (options.defaultRoster === true && startingFlags) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--default-roster cannot be combined with starting-agent options',
+        );
+      }
+      if (options.startingAgent === undefined && startingFlags) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'starting-agent options require --starting-agent',
+        );
+      }
+      if (options.startingAgent !== undefined && options.adapter === undefined) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--starting-agent requires --adapter',
+        );
+      }
+      const startingAgent = options.startingAgent === undefined
+        ? undefined
+        : (() => {
+            const selector = parsePublicSelector(options.adapter!, {
+              model: options.startingModel,
+              modelLabel: 'starting agent',
+              acpExecutable: options.startingAcpExecutable,
+              acpArg: options.startingAcpArg,
+            });
+            return {
+              harness: selector.harness,
+              handle: options.startingAgent!.replace(/^@/, ''),
+              ...(options.startingName !== undefined && { display_name: options.startingName }),
+              ...(selector.model !== undefined && { model: selector.model }),
+              ...(options.startingThinking !== undefined && { thinking: options.startingThinking }),
+              policy: options.startingPolicy ?? 'read-only',
+              ...(selector.acp_provider !== undefined && { acp_provider: selector.acp_provider }),
+              ...(selector.acp_launch !== undefined && { acp_launch: selector.acp_launch }),
+            };
+          })();
+      await withManagementClient(async (client) => {
+        const room = await createManagedRoom(client, {
+          ...(options.id !== undefined && { id: options.id }),
+          name,
+          owner: {
+            handle: options.owner,
+            display_name: options.ownerName ?? options.owner,
+          },
+          ...(options.color !== undefined && { color: options.color }),
+          ...(options.cwd !== undefined && { cwd: options.cwd }),
+          ...(options.defaultRoster === true && { default_roster: true as const }),
+          ...(startingAgent !== undefined && { starting_agent: startingAgent }),
+        });
+        const rendered = renderChannel(room, options.json === true);
+        out(rendered);
+      });
+    });
+  // harn:end channel-cli-selects-one-initial-agent-mode
+
+  channelManagement
+    .command('show')
+    .description('show a channel')
+    .argument('<channel>', 'channel id')
+    .option('--json', 'emit one JSON value')
+    .action(async (channelId: string, options: { json?: boolean }) => {
+      await withManagementClient(async (client) => {
+        const rooms = await listManagedRooms(client, { all: true });
+        const room = rooms.find((candidate) => candidate.id === channelId);
+        if (room === undefined) {
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such channel ${channelId}`);
+        }
+        out(renderChannel(room, options.json === true));
+      });
+    });
+
+  channelManagement
+    .command('rename')
+    .description('rename an active channel')
+    .argument('<channel>', 'channel id')
+    .argument('<name>', 'new channel name')
+    .option('--json', 'emit one JSON value')
+    .action(async (channelId: string, name: string, options: { json?: boolean }) => {
+      if (name.length === 0) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'channel name is required');
+      }
+      await withManagementClient(async (client) => {
+        const room = await renameManagedRoom(client, channelId, name);
+        out(renderChannel(room, options.json === true));
+      });
+    });
+
+  // harn:assume channel-archive-requires-explicit-confirmation ref=channel-archive-command-confirmation
+  channelManagement
+    .command('archive')
+    .description('soft-archive a channel')
+    .argument('<channel>', 'channel id')
+    .option('--yes', 'confirm archive without prompting')
+    .option('--json', 'emit one JSON value')
+    .action(async (channelId: string, options: { yes?: boolean; json?: boolean }) => {
+      const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      await withManagementClient(async (client) => {
+        const rooms = await listManagedRooms(client, { all: true });
+        const room = rooms.find((candidate) => candidate.id === channelId);
+        if (room === undefined) {
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such channel ${channelId}`);
+        }
+        if (room.config.archived_ts !== undefined) {
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, `channel ${channelId} is already archived`);
+        }
+        await confirmArchive({
+          label: channelId,
+          yes: options.yes === true,
+          json: options.json === true,
+          isTTY,
+          stderr: err,
+          confirm: context.confirm,
+        });
+        const archived = await archiveManagedRoom(client, channelId);
+        out(renderChannel(archived, options.json === true));
+      });
+    });
+  // harn:end channel-archive-requires-explicit-confirmation
+  // harn:end human-facing-surfaces-call-rooms-channels
+  // harn:end structured-channel-cli-preserves-flat-listing
 
   program
     .command('serve')
@@ -542,6 +797,236 @@ export function createProgram(context: CliContext = {}): Command {
       await waitForShutdown(running.close);
     });
   // harn:end adapter-registry-sole-harness-source
+function collectString(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+interface PublicSelectorOptions {
+  model?: string;
+  acpExecutable?: string;
+  acpArg?: string[];
+  modelLabel?: string;
+}
+
+/** Convert the CLI's public selector spelling into the existing protocol input. */
+function parsePublicSelector(selector: string, options: PublicSelectorOptions = {}): {
+  harness: string;
+  acp_provider?: string;
+  acp_launch?: AcpLaunchConfig;
+  model?: string;
+} {
+  const normalized = selector.trim();
+  if (normalized === '') {
+    throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'adapter selector is required');
+  }
+  const hasExecutable = options.acpExecutable !== undefined;
+  const args = options.acpArg ?? [];
+  const hasCustomFlags = hasExecutable || args.length > 0;
+  if (normalized === 'acp') {
+    if (options.model !== undefined) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        `${options.modelLabel ?? 'ACP'} does not accept --model`,
+      );
+    }
+    if (!hasExecutable) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        'generic acp requires --acp-executable',
+      );
+    }
+    return { harness: 'acp', acp_launch: { executable: options.acpExecutable!, argv: args } };
+  }
+  if (normalized.startsWith('acp:')) {
+    const provider = normalized.slice('acp:'.length);
+    if (!AcpProviderIdSchema.safeParse(provider).success) {
+      throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'invalid ACP provider selector');
+    }
+    if (hasCustomFlags) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        'named ACP selectors cannot use custom launch flags',
+      );
+    }
+    if (options.model !== undefined) {
+      throw new ManagementError(
+        MANAGEMENT_EXIT_CODES.invocation,
+        `${options.modelLabel ?? 'ACP'} does not accept --model`,
+      );
+    }
+    return { harness: 'acp', acp_provider: provider };
+  }
+  if (hasCustomFlags) {
+    throw new ManagementError(
+      MANAGEMENT_EXIT_CODES.invocation,
+      'custom launch flags require the generic acp selector',
+    );
+  }
+  return { harness: normalized, ...(options.model !== undefined && { model: options.model }) };
+}
+
+interface PresetConfigurationOptions {
+  label: string;
+  handle: string;
+  adapter: string;
+  name?: string;
+  model?: string;
+  thinking?: ThinkingLevel;
+  policy?: Policy;
+  acpExecutable?: string;
+  acpArg?: string[];
+}
+
+function parseAgentPresetInput(options: PresetConfigurationOptions) {
+  const selector = parsePublicSelector(options.adapter, {
+    model: options.model,
+    modelLabel: 'agent preset',
+    acpExecutable: options.acpExecutable,
+    acpArg: options.acpArg,
+  });
+  try {
+    return AgentPresetInputSchema.parse({
+      label: options.label,
+      handle: options.handle.replace(/^@/, ''),
+      ...(options.name !== undefined && { display_name: options.name }),
+      harness: selector.harness,
+      ...(selector.acp_provider !== undefined && { acp_provider: selector.acp_provider }),
+      ...(selector.acp_launch !== undefined && { acp_launch: selector.acp_launch }),
+      ...(selector.model !== undefined && { model: selector.model }),
+      ...(options.thinking !== undefined && { thinking: options.thinking }),
+      ...(options.policy !== undefined && { policy: options.policy }),
+    });
+  } catch (error) {
+    throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'invalid agent preset configuration', { cause: error });
+  }
+}
+
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-command-surface
+const agentPresetManagement = program.command('agent-preset').description('manage reusable agent presets');
+agentPresetManagement
+  .command('list')
+  .description('list agent presets')
+  .option('--json', 'emit one JSON value')
+  .action(async (options: { json?: boolean }) => {
+    await withManagementClient(async (client) => {
+      const presets = await listManagedAgentPresets(client);
+      const rendered = renderAgentPresetList(presets, options.json === true);
+      if (rendered !== '') out(rendered);
+    });
+  });
+
+const addPresetOptions = (command: Command): void => {
+  command
+    .requiredOption('--handle <handle>', 'preset member handle')
+    .requiredOption('--adapter <selector>', 'public adapter selector')
+    .option('--name <display-name>', 'preset display name')
+    .option('--model <model>', 'preset model override')
+    .option('--thinking <level>', 'preset thinking level')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access')
+    .option('--acp-executable <command>', 'custom ACP executable')
+    .option('--acp-arg <arg>', 'literal custom ACP argument (repeatable)', collectString, [])
+    .option('--json', 'emit one JSON value');
+};
+
+const createPreset = agentPresetManagement
+  .command('create')
+  .description('create an agent preset')
+  .argument('<label>', 'preset label');
+addPresetOptions(createPreset);
+createPreset.action(async (label: string, options: {
+  handle: string;
+  adapter: string;
+  name?: string;
+  model?: string;
+  thinking?: ThinkingLevel;
+  policy?: Policy;
+  acpExecutable?: string;
+  acpArg: string[];
+  json?: boolean;
+}) => {
+  const input = parseAgentPresetInput({ ...options, label });
+  await withManagementClient(async (client) => {
+    const preset = await createManagedAgentPreset(client, input);
+    out(renderAgentPreset(preset, options.json === true));
+  });
+});
+
+const updatePreset = agentPresetManagement
+  .command('update')
+  .description('replace an agent preset')
+  .argument('<preset-id>', 'exact preset id')
+  .requiredOption('--label <label>', 'replacement preset label');
+addPresetOptions(updatePreset);
+updatePreset.action(async (presetId: string, options: {
+  label: string;
+  handle: string;
+  adapter: string;
+  name?: string;
+  model?: string;
+  thinking?: ThinkingLevel;
+  policy?: Policy;
+  acpExecutable?: string;
+  acpArg: string[];
+  json?: boolean;
+}) => {
+  const input = parseAgentPresetInput({ ...options, label: options.label });
+  await withManagementClient(async (client) => {
+    const preset = await updateManagedAgentPreset(client, presetId, input);
+    out(renderAgentPreset(preset, options.json === true));
+  });
+});
+
+agentPresetManagement
+  .command('delete')
+  .description('delete an agent preset')
+  .argument('<preset-id>', 'exact preset id')
+  .option('--yes', 'confirm deletion without prompting')
+  .option('--json', 'emit one JSON value')
+  .action(async (presetId: string, options: { yes?: boolean; json?: boolean }) => {
+    const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+    await withManagementClient(async (client) => {
+      const presets = await listManagedAgentPresets(client);
+      const preset = presets.find((candidate) => candidate.id === presetId);
+      if (preset === undefined) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such agent preset ${presetId}`);
+      }
+      await confirmAgentPresetDelete({
+        label: `${preset.label} (${preset.id})`,
+        yes: options.yes === true,
+        json: options.json === true,
+        isTTY,
+        stderr: err,
+        confirm: context.confirm,
+      });
+      const deleted = await deleteManagedAgentPreset(client, preset.id);
+      out(renderDeletedPreset(deleted, options.json === true));
+    });
+  });
+
+const defaultRosterManagement = program.command('default-roster').description('manage the default agent roster');
+defaultRosterManagement
+  .command('show')
+  .description('show the ordered default roster')
+  .option('--json', 'emit one JSON value')
+  .action(async (options: { json?: boolean }) => {
+    await withManagementClient(async (client) => {
+      const roster = await getManagedDefaultRoster(client);
+      const rendered = renderDefaultRoster(roster, options.json === true);
+      if (rendered !== '') out(rendered);
+    });
+  });
+defaultRosterManagement
+  .command('set')
+  .description('replace the ordered default roster')
+  .argument('[preset-id...]', 'preset ids in creation order')
+  .option('--json', 'emit one JSON value')
+  .action(async (presetIds: string[], options: { json?: boolean }) => {
+    await withManagementClient(async (client) => {
+      const roster = await setManagedDefaultRoster(client, presetIds ?? []);
+      out(renderDefaultRoster(roster, options.json === true));
+    });
+  });
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
 
   // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-command-surface
   // harn:assume public-install-is-the-primary-command-with-setup-alias ref=install-command-alias
@@ -647,9 +1132,11 @@ export function createProgram(context: CliContext = {}): Command {
         out(`posted #${posted.id}`);
         if (!options.wait) return;
         if (!env.CODOR_MEMBER_TOKEN) throw new Error('post --wait requires CODOR_MEMBER_TOKEN');
+        // harn:assume qualified-cli-wait-preserves-scoped-peer-identity ref=qualified-post-wait
         const peers = [...new Set(posted.mentions.map((mention) => mention.member_id))]
-          .filter((id) => id !== initial.self && initial.members.get(id)?.removed_ts === undefined);
+          .filter((id) => id !== initial.self);
         if (peers.length === 0) throw new Error('post --wait requires at least one addressed member');
+        // harn:end qualified-cli-wait-preserves-scoped-peer-identity
         const deadline = Date.now() + options.timeout * 1_000;
         let registered = false;
         try {
@@ -1346,10 +1833,451 @@ export function createProgram(context: CliContext = {}): Command {
       const result = (await postJson('/api/relay/rotate')) as { session_id: string };
       out(`rotated; new session ${result.session_id}`);
     });
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-command-surface
+  const agentManagement = program.command('agent').description('manage channel agents');
+  agentManagement
+    .command('list')
+    .description('list channel agents')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: ChannelOptions & { json?: boolean }) => {
+      await withManagementClient(async (client) => {
+        const agents = await listManagedAgents(client, options.channel);
+        const rendered = renderAgentList(agents, options.json === true);
+        if (rendered !== '') out(rendered);
+      });
+    });
+
+  agentManagement
+    .command('add')
+    .description('add a channel agent')
+    .argument('[handle]', 'agent handle; omitted when --preset supplies it')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--adapter <adapter>', 'installed public adapter id')
+    .option('--preset <preset-id>', 'exact agent preset id')
+    .requiredOption('--cwd <path>', 'working directory')
+    .option('--name <display-name>', 'agent display name')
+    .option('--purpose <purpose>', 'agent purpose')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access')
+    .option('--model <model>', 'model override')
+    .option('--thinking <level>', 'thinking level')
+    .option('--json', 'emit one JSON value')
+    .action(async (rawHandle: string | undefined, options: ChannelOptions & {
+      adapter?: string;
+      preset?: string;
+      cwd: string;
+      name?: string;
+      purpose?: string;
+      policy?: Policy;
+      model?: string;
+      thinking?: ThinkingLevel;
+      json?: boolean;
+    }) => {
+      if ((options.adapter === undefined) === (options.preset === undefined)) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'agent add requires exactly one of --adapter or --preset',
+        );
+      }
+      if (options.preset === undefined && rawHandle === undefined) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'manual agent add requires a handle',
+        );
+      }
+      const handle = rawHandle?.replace(/^@/, '');
+      await withManagementClient(async (client) => {
+        const agent = options.preset !== undefined
+          ? await addManagedPresetAgent(client, options.channel, {
+              preset_id: options.preset,
+              ...(handle !== undefined && { handle }),
+              cwd: options.cwd,
+              ...(options.policy !== undefined && { policy: options.policy }),
+              model: options.model,
+              thinking: options.thinking,
+              ...(options.name !== undefined && { display_name: options.name }),
+              ...(options.purpose !== undefined && { purpose: options.purpose }),
+            })
+          : await addManagedAgent(client, options.channel, {
+              adapter: options.adapter!,
+              handle: handle!,
+              cwd: options.cwd,
+              ...(options.policy !== undefined && { policy: options.policy }),
+              model: options.model,
+              thinking: options.thinking,
+              ...(options.name !== undefined && { display_name: options.name }),
+              ...(options.purpose !== undefined && { purpose: options.purpose }),
+            });
+        out(renderAgent(agent, options.json === true));
+      });
+    });
+
+  agentManagement
+    .command('configure')
+    .description('configure an existing channel agent')
+    .argument('<agent>', 'agent id or handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--model <model>', 'model override')
+    .option('--clear-model', 'clear the model override')
+    .option('--thinking <level>', 'thinking level')
+    .option('--clear-thinking', 'clear the thinking override')
+    .option('--policy <policy>', 'read-only, workspace-write, or full-access')
+    .option('--json', 'emit one JSON value')
+    .action(async (target: string, options: ChannelOptions & {
+      model?: string;
+      clearModel?: boolean;
+      thinking?: ThinkingLevel;
+      clearThinking?: boolean;
+      policy?: Policy;
+      json?: boolean;
+    }) => {
+      const hasModel = options.model !== undefined;
+      const hasThinking = options.thinking !== undefined;
+      if (hasModel && options.clearModel) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, '--model and --clear-model are mutually exclusive');
+      }
+      if (hasThinking && options.clearThinking) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, '--thinking and --clear-thinking are mutually exclusive');
+      }
+      if (!hasModel && !options.clearModel && !hasThinking && !options.clearThinking && options.policy === undefined) {
+        throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'agent configure requires a setting change');
+      }
+      await withManagementClient(async (client) => {
+        const agent = await resolveManagedAgent(client, options.channel, target);
+        const updated = await mutateManagedAgent(client, options.channel, {
+          act: 'configure',
+          member_id: agent.id,
+          ...((hasModel || options.clearModel) && { model: options.clearModel ? null : options.model }),
+          ...((hasThinking || options.clearThinking) && { thinking: options.clearThinking ? null : options.thinking }),
+          ...(options.policy !== undefined && { policy: options.policy }),
+        });
+        out(renderAgent(updated, options.json === true));
+      });
+    });
+
+  agentManagement
+    .command('rename')
+    .description('rename a channel agent')
+    .argument('<agent>', 'agent id or handle')
+    .argument('<handle>', 'new agent handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--name <display-name>', 'new display name')
+    .option('--json', 'emit one JSON value')
+    .action(async (target: string, rawHandle: string, options: ChannelOptions & {
+      name?: string;
+      json?: boolean;
+    }) => {
+      const handle = rawHandle.replace(/^@/, '');
+      await withManagementClient(async (client) => {
+        const agent = await resolveManagedAgent(client, options.channel, target);
+        const updated = await mutateManagedAgent(client, options.channel, {
+          act: 'rename',
+          member_id: agent.id,
+          handle,
+          ...(options.name !== undefined && { display_name: options.name }),
+        });
+        out(renderAgent(updated, options.json === true));
+      });
+    });
+
+  for (const action of ['pause', 'revive'] as const) {
+    agentManagement
+      .command(action)
+      .description(`${action} a channel agent`)
+      .argument('<agent>', 'agent id or handle')
+      .requiredOption('--channel <channel>', 'channel id')
+      .option('--json', 'emit one JSON value')
+      .action(async (target: string, options: ChannelOptions & { json?: boolean }) => {
+        await withManagementClient(async (client) => {
+          const agent = await resolveManagedAgent(client, options.channel, target);
+          const updated = await mutateManagedAgent(client, options.channel, {
+            act: action,
+            member_id: agent.id,
+          });
+          out(renderAgent(updated, options.json === true));
+        });
+      });
+  }
+
+  agentManagement
+    .command('remove')
+    .description('remove a channel agent')
+    .argument('<agent>', 'agent id or handle')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--yes', 'confirm removal without prompting')
+    .option('--json', 'emit one JSON value')
+    .action(async (target: string, options: ChannelOptions & { yes?: boolean; json?: boolean }) => {
+      const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      await withManagementClient(async (client) => {
+        const agent = await resolveManagedAgent(client, options.channel, target);
+        await confirmAgentRemove({
+          label: `@${agent.handle} in channel ${options.channel}`,
+          yes: options.yes === true,
+          json: options.json === true,
+          isTTY,
+          stderr: err,
+          confirm: context.confirm,
+        });
+        const removed = await mutateManagedAgent(client, options.channel, {
+          act: 'remove',
+          member_id: agent.id,
+        });
+        out(renderAgent(removed, options.json === true));
+      });
+    });
   // harn:end human-facing-surfaces-call-rooms-channels
+  // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
+
+  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-command-surface
+  const worktreeManagement = program
+    .command('worktree')
+    .description('manage registered worktrees');
+
+  worktreeManagement
+    .command('list')
+    .description('list registered and discovered worktrees')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--cwd <path>', 'repository working directory')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: ChannelOptions & { cwd?: string; json?: boolean }) => {
+      const listed = await listWorktrees(worktreeRestClient, options.channel, options.cwd);
+      out(renderWorktreeList(listed, options.json === true));
+    });
+
+  worktreeManagement
+    .command('add')
+    .description('adopt or create one secondary worktree')
+    .requiredOption('--channel <channel>', 'channel id')
+    .requiredOption('--path <absolute-path>', 'worktree path')
+    .option('--adopt', 'adopt one already discovered worktree')
+    .option('--create', 'create and register one new worktree')
+    .option('--alias <alias>', 'worktree alias')
+    .option('--branch <branch>', 'new local branch')
+    .option('--default-roster', 'seed the child from the configured default roster')
+    .option('--cwd <path>', 'repository working directory')
+    .option('--json', 'emit one JSON value')
+    .action(async (options: ChannelOptions & {
+      path: string;
+      adopt?: boolean;
+      create?: boolean;
+      alias?: string;
+      branch?: string;
+      defaultRoster?: boolean;
+      cwd?: string;
+      json?: boolean;
+    }) => {
+      const adopt = options.adopt === true;
+      const create = options.create === true;
+      if (adopt === create) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          'worktree add requires exactly one of --adopt or --create',
+        );
+      }
+      if (adopt && (options.branch !== undefined || options.defaultRoster === true)) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--branch and --default-roster require --create',
+        );
+      }
+      if (create && (options.alias === undefined || options.branch === undefined)) {
+        throw new ManagementError(
+          MANAGEMENT_EXIT_CODES.invocation,
+          '--create requires --alias and --branch',
+        );
+      }
+      const worktree = adopt
+        ? await adoptWorktree(worktreeRestClient, options.channel, {
+            path: options.path,
+            ...(options.alias !== undefined && { alias: options.alias }),
+          }, options.cwd)
+        : await createWorktree(worktreeRestClient, options.channel, {
+            path: options.path,
+            alias: options.alias!,
+            branch: options.branch!,
+            ...(options.defaultRoster === true && { default_roster: true as const }),
+          }, options.cwd);
+      out(renderWorktree(worktree, options.json === true));
+    });
+
+  // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-command-confirmation
+  worktreeManagement
+    .command('remove')
+    .description('unregister or remove one secondary worktree')
+    .argument('<worktree>', 'worktree id or alias')
+    .requiredOption('--channel <channel>', 'channel id')
+    .option('--cwd <path>', 'repository working directory')
+    .option('--filesystem', 'remove the clean checkout after preview')
+    .option('--yes', 'confirm removal without prompting')
+    .option('--json', 'emit one JSON value')
+    .action(async (selector: string, options: ChannelOptions & {
+      cwd?: string;
+      filesystem?: boolean;
+      yes?: boolean;
+      json?: boolean;
+    }) => {
+      const listed = await listWorktrees(worktreeRestClient, options.channel, options.cwd);
+      const selected = resolveWorktreeSelector(listed.registered, selector);
+      let confirmationWorktree = selected;
+      if (options.filesystem === true) {
+        const preview = await previewWorktreeRemoval(
+          worktreeRestClient,
+          options.channel,
+          selected.id,
+          options.cwd,
+        );
+        if (preview.state !== 'clean' || preview.branch_preserved !== true) {
+          const detail = preview.detail === undefined
+            ? `worktree removal refused: ${preview.state}`
+            : escapeWorktreeHumanCell(preview.detail);
+          throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, detail);
+        }
+        confirmationWorktree = preview.worktree;
+      }
+      const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      await confirmWorktreeRemoval({
+        alias: confirmationWorktree.alias,
+        path: confirmationWorktree.path,
+        yes: options.yes === true,
+        json: options.json === true,
+        isTTY,
+        stderr: err,
+        confirm: context.confirm,
+      });
+      const removed = options.filesystem === true
+        ? await removeFilesystemWorktree(worktreeRestClient, options.channel, selected.id, options.cwd)
+        : await removeWorktree(worktreeRestClient, options.channel, selected.id);
+      out(renderWorktree(removed, options.json === true));
+    });
+  // harn:end worktree-cli-removal-requires-previewed-consent
+  // harn:end structured-worktree-cli-uses-accepted-lifecycle
+
+  const structuredChannelCommands = (channelManagement.commands as Command[]).splice(0);
+  channelManagement.aliases().splice(0);
+  const structuredChannelManagement = program
+    .command('channel')
+    .description('manage channels');
+  for (const command of structuredChannelCommands) structuredChannelManagement.addCommand(command);
+
+  // harn:assume structured-management-help-and-docs-are-complete ref=management-help-metadata
+  const addManagementHelp = (command: Command, text: string): void => {
+    command.addHelpText('after', `\n${text}\n`);
+  };
+  program.addHelpText('after', [
+    '',
+    'Management families (use family help for accepted subcommands):',
+    '  codor channel --help       manage channels; archive is soft retention only',
+    '  codor agent --help         manage channel agents',
+    '  codor agent-preset --help  manage individual reusable presets',
+    '  codor default-roster --help  manage the ordered default roster',
+    '  codor worktree --help      manage create/adopt and unregister/filesystem worktrees',
+    '',
+    'Local commands use the protected local socket by default. For an explicit loopback',
+    'connection, use --url <loopback-url> --token <token>. Mutating archive, delete,',
+    'and removal actions require confirmation; use --yes for unattended JSON calls.',
+    'Existing flat commands remain compatible.',
+    '',
+    'Examples:',
+    '  codor channel list',
+    '  codor channel list --json',
+    '  codor --url <loopback-url> --token <token> channel show desk --json',
+  ].join('\n'));
+  addManagementHelp(structuredChannelManagement, [
+    'Archive is soft retention only; there is no hard-delete or restore command.',
+    'Examples:',
+    '  codor channel show desk --json',
+    '  codor channel archive desk --yes --json',
+  ].join('\n'));
+  addManagementHelp(agentManagement, [
+    'Agent add selects exactly one public adapter or preset.',
+    'Examples:',
+    '  codor agent add reviewer --channel desk --adapter housecat --cwd "$PWD"',
+    '  codor agent add --channel desk --preset <preset-id> --cwd "$PWD"',
+  ].join('\n'));
+  addManagementHelp(agentPresetManagement, [
+    'Agent-preset is individual reusable preset CRUD and is separate from default-roster.',
+    'Examples:',
+    '  codor agent-preset create "Review helper" --handle reviewer --adapter housecat',
+    '  codor agent-preset list --json',
+  ].join('\n'));
+  addManagementHelp(defaultRosterManagement, [
+    'Default-roster set replaces the entire ordered roster and is separate from individual presets.',
+    'Examples:',
+    '  codor default-roster show --json',
+    '  codor default-roster set <preset-id> --json',
+  ].join('\n'));
+  addManagementHelp(worktreeManagement, [
+    'Worktree add requires --create or --adopt. Remove unregisters by default;',
+    '--filesystem enables guarded clean checkout removal after preview.',
+    'Examples:',
+    '  codor worktree list --channel desk --json',
+    '  codor worktree add --channel desk --create --path <absolute-path> --alias child --branch <branch>',
+    '  codor worktree remove child --channel desk --filesystem --yes --json',
+  ].join('\n'));
+  // harn:end structured-management-help-and-docs-are-complete
+
+  const topLevelCommands = program.commands as Command[];
+  const phase3Commands = [agentPresetManagement, defaultRosterManagement];
+  for (const command of phase3Commands) {
+    const index = topLevelCommands.indexOf(command);
+    if (index >= 0) topLevelCommands.splice(index, 1);
+  }
+  const serveIndex = topLevelCommands.findIndex((command) => command.name() === 'serve');
+  topLevelCommands.splice(serveIndex < 0 ? topLevelCommands.length : serveIndex, 0, ...phase3Commands);
+  const configureCommander = (command: Command): void => {
+    command
+      .exitOverride()
+      .configureOutput({ writeErr: () => undefined });
+    for (const child of command.commands) configureCommander(child);
+  };
+  configureCommander(program);
   return program;
 }
 
 export async function runCli(argv = process.argv, context: CliContext = {}): Promise<void> {
-  await createProgram(context).parseAsync(argv);
+  try {
+    await createProgram(context).parseAsync(argv);
+  } catch (error) {
+    if (!isCommanderFailure(error)) throw error;
+    if (error.exitCode === 0) return;
+    const structuredRoot = structuredManagementRoot(argv);
+    if (structuredRoot !== undefined) {
+      const message = error.code === 'commander.help' ? `${structuredRoot} requires a subcommand` : error.message;
+      throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, message, { cause: error });
+    }
+    throw error;
+  }
+}
+
+interface CommanderFailure {
+  code: string;
+  exitCode: number;
+  message: string;
+}
+
+function isCommanderFailure(error: unknown): error is CommanderFailure {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as Partial<CommanderFailure>;
+  return typeof candidate.code === 'string'
+    && candidate.code.startsWith('commander.')
+    && typeof candidate.exitCode === 'number'
+    && typeof candidate.message === 'string';
+}
+
+function structuredManagementRoot(argv: readonly string[]): 'channel' | 'agent' | 'agent-preset' | 'default-roster' | 'worktree' | undefined {
+  const args = argv.slice(2);
+  const optionsWithValues = new Set(['--data-dir', '--url', '--token']);
+  for (let index = 0; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (optionsWithValues.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if ([...optionsWithValues].some((option) => argument.startsWith(`${option}=`))) continue;
+    if (argument.startsWith('-')) return undefined;
+    return argument === 'channel' || argument === 'agent' || argument === 'agent-preset' || argument === 'default-roster' || argument === 'worktree'
+      ? argument
+      : undefined;
+  }
+  return undefined;
 }

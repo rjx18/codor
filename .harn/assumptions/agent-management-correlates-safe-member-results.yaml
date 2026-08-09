@@ -1,0 +1,18 @@
+id: agent-management-correlates-safe-member-results
+hash: a-6eece9c75984
+title: Agent management completes on one correlated safe member result
+state: active
+statement: Every structured agent list, add, configure, rename, pause, revive,
+  and remove operation must carry one opaque unique ref and complete only on its
+  matching authoritative agents/member result or error, while the CLI projects
+  only bounded public agent identity/configuration fields and never prints
+  credentials, private ACP launches, native session references, host runtime
+  identity, or unrelated member traffic, because agent lifecycle automation
+  shares a busy authenticated socket and agent records contain authority and
+  native identity that scripts must not receive accidentally.
+depends_on:
+  - management-frames-correlate-one-result
+  - management-output-is-json-pure-and-safe
+  - agent-member-credentials-stay-secret
+  - durable-agent-runtime-configuration
+created_by: cli-management-phase2-agent-lifecycle

@@ -122,6 +122,113 @@ const resultMessageFor = (root: Message) => daemon.store.getMessage(
   root.run?.result_message_id ?? root.id,
 )!;
 
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=daemon-spawn-control-regression
+// harn:assume agent-pause-refuses-active-turn ref=agent-pause-daemon-regression
+// harn:assume agent-management-does-not-invent-work ref=agent-management-no-work-regression
+describe('structured agent lifecycle guards', () => {
+  it('resolves the canonical public adapter identity before any member write', () => {
+    expect(daemon.resolvePublicAgentAdapter('fake')).toEqual({ harness: 'fake' });
+    expect(() => daemon.resolvePublicAgentAdapter('missing')).toThrow("unknown adapter 'missing'");
+    expect(daemon.store.listMembers('eng')).toHaveLength(2);
+    expect(daemon.store.listMembers('eng').some((member) => member.kind === 'agent')).toBe(false);
+  });
+
+  it('refuses active or uncertain pauses and revives paused and dead members', async () => {
+    const agent = spawnAgent('lifecycle-agent');
+    daemon.store.updateMember('eng', agent.id, { state: 'running' });
+    expect(() => daemon.pauseMember('eng', agent.id)).toThrow(/active turn.*stop the turn first/);
+    expect(daemon.store.getMember('eng', agent.id)?.state).toBe('running');
+
+    daemon.store.updateMember('eng', agent.id, { state: 'custody_uncertain' });
+    expect(() => daemon.pauseMember('eng', agent.id)).toThrow('custody is uncertain');
+    expect(daemon.store.getMember('eng', agent.id)?.state).toBe('custody_uncertain');
+
+    daemon.store.updateMember('eng', agent.id, { state: 'idle' });
+    const paused = daemon.pauseMember('eng', agent.id);
+    expect(paused.state).toBe('paused');
+    expect(daemon.reviveManagedMember('eng', agent.id).state).toBe('idle');
+
+    daemon.store.updateMember('eng', agent.id, { session_ref: 'lifecycle-session' });
+    daemon.killMember('eng', agent.id);
+    expect(daemon.reviveManagedMember('eng', agent.id).state).toBe('idle');
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(0);
+    expect(runMessages()).toHaveLength(0);
+  });
+
+  it('refuses pause while an interactive attach is active or pending without mutation', async () => {
+    const attached = spawnAgent('attached-pause');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@attached-pause initialize');
+    await daemon.settle();
+    const acquired = await daemon.acquireAttachLease('eng', attached.id, 1234);
+    const beforeActive = daemon.store.getMember('eng', attached.id)!;
+    expect(() => daemon.pauseMember('eng', attached.id)).toThrow('active interactive attach lease');
+    expect(daemon.store.getMember('eng', attached.id)).toEqual(beforeActive);
+    expect(daemon.store.getAttachLease(acquired.lease.id)).toEqual(acquired.lease);
+    daemon.reportAttachChild(acquired.lease.id, 999_998, 999_998);
+    expect(daemon.completeAttachLease(acquired.lease.id).status).toBe('completed');
+
+    const pending = spawnAgent('pending-pause');
+    fake.enqueue({ kind: 'complete', final_text: '@richard initialized' });
+    daemon.postHumanMessage('eng', '@pending-pause initialize');
+    await daemon.settle();
+    fake.enqueue({ kind: 'complete', final_text: '@richard pending turn', delay_ms: 100 });
+    daemon.postHumanMessage('eng', '@pending-pause start pending attach');
+    await until(() => daemon.store.getMember('eng', pending.id)?.state === 'running' ? true : undefined);
+    daemon.store.updateMember('eng', pending.id, { state: 'idle' });
+    const pendingAcquisition = daemon.acquireAttachLease('eng', pending.id, 5678);
+    await Promise.resolve();
+    const beforePending = daemon.store.getMember('eng', pending.id)!;
+    expect(() => daemon.pauseMember('eng', pending.id)).toThrow('active interactive attach lease');
+    expect(daemon.store.getMember('eng', pending.id)).toEqual(beforePending);
+    expect(daemon.store.getAttachLeaseForMember(pending.id)).toBeUndefined();
+    const pendingLease = await pendingAcquisition;
+    daemon.reportAttachChild(pendingLease.lease.id, 999_997, 999_997);
+    expect(daemon.completeAttachLease(pendingLease.lease.id).status).toBe('completed');
+    await daemon.settle();
+  });
+});
+
+// harn:end agent-management-does-not-invent-work
+// harn:end agent-pause-refuses-active-turn
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=daemon-spawn-control-regression
+// harn:assume agent-management-does-not-invent-work ref=agent-management-no-work-regression
+it('takes a fresh detached preset snapshot with per-add overrides and no collaboration work', () => {
+  const preset = daemon.createAgentPreset({
+    label: 'Preset worker', handle: 'preset-worker', harness: 'fake', policy: 'workspace-write',
+  });
+  const beforeMembers = daemon.store.listMembers('eng').length;
+  const beforeMessages = daemon.store.listMessages('eng', { limit: 100 }).length;
+  const beforeDeliveries = fake.deliveries.length;
+  const firstCwd = testCwd('preset-first');
+  const first = daemon.spawnMemberFromPreset('eng', preset.id, {
+    cwd: firstCwd, handle: 'override-worker', purpose: 'one-off purpose', policy: 'read-only',
+  });
+  expect(first).toMatchObject({
+    handle: 'override-worker', cwd: firstCwd, purpose: 'one-off purpose', policy: 'read-only', harness: 'fake',
+  });
+  expect(first).not.toHaveProperty('preset_id');
+  expect(first).not.toHaveProperty('acp_launch');
+  daemon.updateAgentPreset(preset.id, {
+    label: 'Preset worker changed', handle: 'changed-worker', harness: 'fake', policy: 'full-access',
+  });
+  const second = daemon.spawnMemberFromPreset('eng', preset.id, { cwd: testCwd('preset-second') });
+  expect(second).toMatchObject({ handle: 'changed-worker', policy: 'full-access' });
+  expect(daemon.store.listMembers('eng')).toHaveLength(beforeMembers + 2);
+  expect(daemon.store.listMessages('eng', { limit: 100 })).toHaveLength(beforeMessages);
+  expect(fake.deliveries).toHaveLength(beforeDeliveries);
+
+  daemon.deleteAgentPreset(preset.id);
+  expect(() => daemon.spawnMemberFromPreset('eng', preset.id, { cwd: testCwd('preset-missing') }))
+    .toThrow(/no such agent preset/);
+  expect(daemon.store.listMembers('eng')).toHaveLength(beforeMembers + 2);
+});
+// harn:end agent-management-does-not-invent-work
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+
 // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-regression
 // harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=aggregate-routing-regression
 describe('chronological continuation writer', () => {

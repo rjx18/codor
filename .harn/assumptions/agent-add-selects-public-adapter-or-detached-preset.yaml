@@ -1,0 +1,24 @@
+id: agent-add-selects-public-adapter-or-detached-preset
+hash: a-c7d6b62169bc
+title: Agent add selects one manual adapter or one detached preset safely
+state: active
+statement: Structured agent add must accept exactly one canonical public adapter
+  selector or one stable preset id; the manual path retains its required handle
+  and safe read-only default, while the preset path freshly reads and
+  catalog-validates the current strict preset inside the authorized daemon,
+  applies only explicit compatible overrides plus per-add cwd and purpose,
+  resolves private ACP launch material without returning or adding it to the
+  request frame, and creates one ordinary concrete member with no source
+  reference or invented work, because reusable configuration must be useful to
+  automation without becoming live membership state or a secret-bearing client
+  payload.
+depends_on:
+  - adapter-registry-sole-harness-source
+  - new-agent-requests-require-available-native-or-detected-acp
+  - individual-agent-presets-are-bounded-catalog-validated-configurations
+  - individual-agent-presets-are-versioned-local-state
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+  - canonical-spawn-controls-enforced
+  - working-directories-validated-before-spawn
+  - agent-management-does-not-invent-work
+created_by: cli-management-phase3-agent-presets-default-roster

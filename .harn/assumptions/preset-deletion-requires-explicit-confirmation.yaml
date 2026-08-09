@@ -1,0 +1,14 @@
+id: preset-deletion-requires-explicit-confirmation
+hash: a-29841b21c1f7
+title: Preset deletion requires interactive consent or unattended yes
+state: active
+statement: Structured agent-preset delete must issue its mutation only after an
+  explicit affirmative TTY response or --yes, require --yes without a TTY and in
+  JSON mode, keep its safe id/label prompt off stdout, and leave the preset and
+  roster unchanged on refusal, missing consent, or reference conflict, because
+  deletion removes reusable operator configuration even though existing detached
+  members remain intact.
+depends_on:
+  - structured-preset-and-roster-cli-is-safe-and-ordered
+  - default-roster-references-block-preset-deletion
+created_by: cli-management-phase3-agent-presets-default-roster

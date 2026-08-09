@@ -12,7 +12,19 @@ import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSche
 import { AssignableHandleSchema } from './member.js';
 import { MemberSchema } from './member.js';
 import { MessageSchema, VoiceNoteSchema } from './message.js';
-import { RoomMeterSchema, RoomSchema, RoomSupportSchema } from './room.js';
+import {
+  CreateRoomRequestSchema,
+  RoomMeterSchema,
+  RoomSchema,
+  RoomSupportSchema,
+} from './room.js';
+import {
+  AgentPresetIdSchema,
+  AgentPresetInputSchema,
+  AgentPresetPublicSchema,
+  DefaultRosterInputSchema,
+  DefaultRosterSchema,
+} from './agent-presets.js';
 
 // ── client → server ────────────────────────────────────────────────────────
 
@@ -67,8 +79,115 @@ export const PostFrameSchema = z.object({
 });
 export type PostFrame = z.infer<typeof PostFrameSchema>;
 
-export const ListRoomsFrameSchema = z.object({ type: z.literal('list_rooms') });
+// harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+/** Opaque request ids are echoed only on the authoritative management result. */
+export const ManagementRefSchema = z.string().min(1).max(128);
+
+export const ListRoomsFrameSchema = z.object({
+  type: z.literal('list_rooms'),
+  /** Optional for legacy callers; structured management callers always set it. */
+  ref: ManagementRefSchema.optional(),
+  /** Include soft-archived channels in discovery. */
+  all: z.boolean().optional(),
+});
 export type ListRoomsFrame = z.infer<typeof ListRoomsFrameSchema>;
+
+export const CreateRoomFrameSchema = z.object({
+  type: z.literal('create_room'),
+  ref: ManagementRefSchema,
+  request: CreateRoomRequestSchema,
+});
+export type CreateRoomFrame = z.infer<typeof CreateRoomFrameSchema>;
+
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-protocol
+/** Global preset and roster management stays on the same authenticated socket
+ * as room management. Every request carries an opaque correlation ref. */
+export const ListAgentPresetsFrameSchema = z.object({
+  type: z.literal('list_agent_presets'),
+  ref: ManagementRefSchema,
+}).strict();
+export type ListAgentPresetsFrame = z.infer<typeof ListAgentPresetsFrameSchema>;
+
+export const CreateAgentPresetFrameSchema = z.object({
+  type: z.literal('create_agent_preset'),
+  ref: ManagementRefSchema,
+  input: AgentPresetInputSchema,
+}).strict();
+export type CreateAgentPresetFrame = z.infer<typeof CreateAgentPresetFrameSchema>;
+
+export const UpdateAgentPresetFrameSchema = z.object({
+  type: z.literal('update_agent_preset'),
+  ref: ManagementRefSchema,
+  preset_id: AgentPresetIdSchema,
+  input: AgentPresetInputSchema,
+}).strict();
+export type UpdateAgentPresetFrame = z.infer<typeof UpdateAgentPresetFrameSchema>;
+
+export const DeleteAgentPresetFrameSchema = z.object({
+  type: z.literal('delete_agent_preset'),
+  ref: ManagementRefSchema,
+  preset_id: AgentPresetIdSchema,
+}).strict();
+export type DeleteAgentPresetFrame = z.infer<typeof DeleteAgentPresetFrameSchema>;
+
+export const GetDefaultRosterFrameSchema = z.object({
+  type: z.literal('get_default_roster'),
+  ref: ManagementRefSchema,
+}).strict();
+export type GetDefaultRosterFrame = z.infer<typeof GetDefaultRosterFrameSchema>;
+
+export const SetDefaultRosterFrameSchema = z.object({
+  type: z.literal('set_default_roster'),
+  ref: ManagementRefSchema,
+  input: DefaultRosterInputSchema,
+}).strict();
+export type SetDefaultRosterFrame = z.infer<typeof SetDefaultRosterFrameSchema>;
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli
+
+// harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
+/** Room-scoped structured agent discovery. The ref is required so the CLI can
+ * distinguish the authoritative snapshot from ordinary member fanout. */
+export const ListAgentsFrameSchema = z.object({
+  type: z.literal('list_agents'),
+  room: RoomIdSchema,
+  ref: ManagementRefSchema,
+}).strict();
+export type ListAgentsFrame = z.infer<typeof ListAgentsFrameSchema>;
+
+/** Public structured agent creation. The daemon resolves either `adapter` or a
+ * durable `preset_id` through its installed catalog; private ACP launch material
+ * is intentionally not a wire field. */
+export const AddAgentFrameSchema = z.object({
+  type: z.literal('add_agent'),
+  room: RoomIdSchema,
+  ref: ManagementRefSchema,
+  adapter: z.string().trim().min(1).max(128).optional(),
+  preset_id: AgentPresetIdSchema.optional(),
+  handle: AssignableHandleSchema.optional(),
+  cwd: z.string().min(1),
+  policy: PolicySchema.optional(),
+  model: z.string().min(1).optional(),
+  thinking: ThinkingLevelSchema.optional(),
+  display_name: z.string().optional(),
+  purpose: z.string().optional(),
+}).strict().superRefine((frame, ctx) => {
+  const hasAdapter = frame.adapter !== undefined;
+  const hasPreset = frame.preset_id !== undefined;
+  if (hasAdapter === hasPreset) {
+    ctx.addIssue({
+      code: 'custom', path: ['adapter'],
+      message: 'agent add requires exactly one of adapter or preset_id',
+    });
+  }
+  if (!hasPreset && frame.handle === undefined) {
+    ctx.addIssue({
+      code: 'custom', path: ['handle'],
+      message: 'manual agent add requires a handle',
+    });
+  }
+});
+export type AddAgentFrame = z.infer<typeof AddAgentFrameSchema>;
+// harn:end agent-management-correlates-safe-member-results
 
 export const ActSchema = z.discriminatedUnion('act', [
   z.object({
@@ -115,11 +234,11 @@ export const ActSchema = z.discriminatedUnion('act', [
     act: z.literal('spawn'),
     harness: z.string().min(1),
     handle: AssignableHandleSchema,
-    // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-contract
+    // harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-display-name-contract
     // A reusable preset may carry a display name. Keep it bounded and optional so
     // older/manual clients retain the handle-derived default.
     display_name: z.string().trim().min(1).max(120).optional(),
-    // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+    // harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
     cwd: z.string().min(1),
     model: z.string().optional(),
     policy: z.string().optional(),
@@ -199,6 +318,10 @@ export const ActSchema = z.discriminatedUnion('act', [
     act: z.literal('retry_run'),
     message_id: MessageIdSchema,
   }),
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol
+  z.object({ act: z.literal('rename_room'), name: z.string().min(1) }),
+  z.object({ act: z.literal('archive_room') }),
+  // harn:end channel-archive-is-durable-soft-state
 ])
   // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-act-schema
   // A discriminated union cannot refine a single member, so the ACP spawn one-of is
@@ -229,6 +352,9 @@ export const ActFrameSchema = z.object({
   type: z.literal('act'),
   room: RoomIdSchema,
   act: ActSchema,
+  // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+  ref: ManagementRefSchema.optional(),
+  // harn:end management-frames-correlate-one-result
 });
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 
@@ -251,6 +377,15 @@ export type MirrorSessionEndFrame = z.infer<typeof MirrorSessionEndFrameSchema>;
 
 export const ClientFrameSchema = z.discriminatedUnion('type', [
   ListRoomsFrameSchema,
+  CreateRoomFrameSchema,
+  ListAgentPresetsFrameSchema,
+  CreateAgentPresetFrameSchema,
+  UpdateAgentPresetFrameSchema,
+  DeleteAgentPresetFrameSchema,
+  GetDefaultRosterFrameSchema,
+  SetDefaultRosterFrameSchema,
+  ListAgentsFrameSchema,
+  AddAgentFrameSchema,
   SubscribeFrameSchema,
   PostFrameSchema,
   ActFrameSchema,
@@ -289,6 +424,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('rooms'),
     rooms: z.array(RoomSchema),
+    // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+    ref: ManagementRefSchema.optional(),
+    // harn:end management-frames-correlate-one-result
     // Optional per-room committed seq, keyed by room id, so a client multiplexing
     // many rooms on one socket can detect a subscribed room that fell behind and
     // warm-resync only it. Absent from older servers → client skips
@@ -296,6 +434,29 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
     room_seqs: z.record(RoomIdSchema, SeqSchema).optional(),
   }),
   // harn:end list-rooms-reply-carries-per-room-seq
+  // harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-protocol
+  z.object({
+    type: z.literal('agent_presets'),
+    presets: z.array(AgentPresetPublicSchema),
+    ref: ManagementRefSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('agent_preset'),
+    preset: AgentPresetPublicSchema,
+    ref: ManagementRefSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('agent_preset_deleted'),
+    id: AgentPresetIdSchema,
+    deleted: z.literal(true),
+    ref: ManagementRefSchema,
+  }).strict(),
+  z.object({
+    type: z.literal('default_roster'),
+    roster: DefaultRosterSchema,
+    ref: ManagementRefSchema,
+  }).strict(),
+  // harn:end agent-preset-management-is-authorized-across-rest-and-cli
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
   z.object({ type: z.literal('self'), member_id: MemberIdSchema, room: RoomIdSchema.optional() }),
   // harn:end multiplexed-subscriptions-identify-their-room
@@ -314,8 +475,24 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
-  z.object({ type: z.literal('member'), seq: SeqSchema, member: MemberSchema, room: RoomIdSchema.optional() }),
+  z.object({
+    type: z.literal('member'),
+    seq: SeqSchema,
+    member: MemberSchema,
+    room: RoomIdSchema.optional(),
+    // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
+    ref: ManagementRefSchema.optional(),
+    // harn:end agent-management-correlates-safe-member-results
+  }),
   // harn:end multiplexed-subscriptions-identify-their-room
+  // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-protocol
+  z.object({
+    type: z.literal('agents'),
+    room: RoomIdSchema,
+    agents: z.array(MemberSchema),
+    ref: ManagementRefSchema,
+  }),
+  // harn:end agent-management-correlates-safe-member-results
   z.object({ type: z.literal('inbox'), seq: SeqSchema, delivery: DeliverySchema }),
   // harn:assume live-delivery-consumption-is-idempotent ref=consume-result-frame
   z.object({
@@ -325,7 +502,14 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   }),
   // harn:end live-delivery-consumption-is-idempotent
   z.object({ type: z.literal('meter'), seq: SeqSchema, meter: RoomMeterSchema }),
-  z.object({ type: z.literal('room'), seq: SeqSchema, room: RoomSchema }),
+  z.object({
+    type: z.literal('room'),
+    seq: SeqSchema,
+    room: RoomSchema,
+    // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+    ref: ManagementRefSchema.optional(),
+    // harn:end management-frames-correlate-one-result
+  }),
   // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-protocol
   z.object({ type: z.literal('room_support'), seq: SeqSchema, support: RoomSupportSchema }),
   // harn:end room-support-is-bounded-recipient-scoped-state
@@ -358,7 +542,9 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('error'),
     message: z.string(),
-    ref: z.string().optional(), // offending frame/act identifier when known
+    // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
+    ref: ManagementRefSchema.optional(), // offending frame/act identifier when known
+    // harn:end management-frames-correlate-one-result
   }),
 ]);
 export type ServerFrame = z.infer<typeof ServerFrameSchema>;

@@ -1,0 +1,136 @@
+id: cli-management-phase4-review-fix-classifier-closure
+title: Close the accepted worktree lifecycle refusal classifier matrix
+notes: >-
+  This is the second and final bounded review fix for Phase 4, based on clean
+  commit fececb2129dccff309808a93e214a4a2e2715531. Independent review confirmed
+  that the first review-fix correctly implements UTF-8 byte ordering, fresh
+  preview identity validation and prompting, credential locality, fixed safe
+  projections, repaired LIFO production anchors, installed 2/5/6 proof, and
+  qualified wait compatibility. Its CLI dependency build passes and Harn shows
+  the review plan applied with the expected production refs.
+
+  The first review-fix replaced the old broad worktree conflict fallback with
+  explicit invocation and conflict matchers, but its regression enumerated only
+  a subset of the accepted runtime vocabulary. A fresh built audit against the
+  exact errors emitted by WorktreeManager and Store reproducibly returns
+  transport 7 for four lifecycle refusals: `registered worktree identity does
+  not match Git`, `could not verify local branch: <branch>`, `no active
+  worktree: <id>`, and `only an active secondary worktree can be unregistered:
+  <id>`. These are not HTTP, socket, framing, or protocol failures. The first
+  two are final Git identity/ref verification refusals; the latter two are
+  stable-id lifecycle races possible after the CLI list/selection and consent
+  steps. All four must be conflict exit 6 with empty stdout and the existing
+  one-line redacted stderr behavior.
+
+  Add those exact bounded phrases to the worktree conflict classifier and to the
+  readable table-driven management regression. Audit every current worktree
+  lifecycle error literal in packages/switchboard/src/worktrees.ts, the worktree
+  lifecycle methods in Store, and the daemon's worktree delegation boundary; the
+  table must contain every public invocation or lifecycle phrase reachable from
+  `worktree list/add/remove`, including the already-covered final-removal dirty
+  race. Retain invocation 2 for schema/absolute-path/parent-
+  shape/invalid-new-branch/invalid-cwd inputs, authentication 3, authorization
+  4, missing channel or initial CLI selector 5, conflict 6 for lifecycle/race/
+  Git refusal, and transport 7 only for actual HTTP/socket/protocol/invalid-
+  response failures. Preserve not-found precedence for auth-like ids and every
+  Phase 1-4 management classification.
+
+  Do not change worktree commands, projections, confirmation, REST, protocol,
+  daemon, Store, Git, routing, credentials, packed scripts, UI, docs, or Phase
+  5. Do not reformat or refactor unrelated management code. Produce exactly one
+  review-fix implementation commit touching only the two declared CLI files and
+  this applied plan.
+assumptions:
+  create: []
+  retire: []
+  reviewed:
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Complete the accepted worktree conflict vocabulary without changing any
+        public exit class, stderr, stdout, or redaction contract.
+    - id: structured-worktree-cli-uses-accepted-lifecycle
+      outcome: unchanged
+      reason: Final Git verification and post-selection lifecycle races are reported
+        as refusals rather than transport failures; lifecycle behavior is
+        unchanged.
+    - id: worktree-cli-removal-requires-previewed-consent
+      outcome: unchanged
+      reason: A concurrent unregister after consent remains non-mutating conflict
+        control flow and no confirmation or removal behavior changes.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: This fix changes only exit classification; output projection and
+        diagnostic redaction remain untouched.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: Source and packaged wrappers continue consuming the shared classifier
+        with one stack-free redacted stderr line.
+anchors:
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Add the four omitted accepted WorktreeManager/Store lifecycle phrases to
+        the explicit conflict matcher.
+    management-error-regression:
+      action: change
+      reason: Pin every current list/add/remove input, lifecycle, race, and genuine
+        transport phrase in the readable classification table.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Source wrapper behavior is unchanged.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Packaged wrapper behavior is unchanged.
+    packed-management-failure-regression:
+      action: keep
+      reason: The existing installed 2/5/6 and redaction proof remains sufficient and
+        must pass unchanged.
+  structured-worktree-cli-uses-accepted-lifecycle:
+    worktree-management-client:
+      action: keep
+      reason: REST/schema/selector implementation is unchanged.
+    worktree-command-surface:
+      action: keep
+      reason: Worktree list/add/remove syntax and behavior are unchanged.
+    worktree-management-client-regression:
+      action: keep
+      reason: Ordering, projection, preview, route, and schema tests remain unchanged.
+    worktree-cli-regression:
+      action: keep
+      reason: Real Git, credentials, roles, roster, confirmation, and wait evidence
+        remains unchanged.
+  worktree-cli-removal-requires-previewed-consent:
+    worktree-removal-command-confirmation:
+      action: keep
+      reason: Fresh preview and consent wiring remain unchanged.
+    worktree-removal-confirmation-regression:
+      action: keep
+      reason: Fresh identity and no-mutation regressions remain unchanged.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: keep
+      reason: Safe rendering and redaction implementation is unchanged.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: keep
+      reason: Public delegation stays byte-for-byte unchanged.
+files:
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+verification: "Use TDD: add all four omitted phrases with expected conflict exit
+  6 and run `pnpm --filter @codor/cli exec node ../../scripts/test-env.mjs
+  vitest run src/management.spec.ts` against the unmodified classifier to
+  observe those cases fail as 7; then make the minimal matcher change and rerun
+  it green. Compare the table to every current worktree error literal in
+  packages/switchboard/src/worktrees.ts, Store worktree lifecycle methods, and
+  daemon worktree delegation/removal guards. Run `pnpm --filter @codor/cli
+  test`, `pnpm --filter '@codor/cli...' build`, `pnpm build`, root `pnpm test`,
+  and `scripts/packed-install-test.sh`; the Node engine warning is acceptable
+  but failures are not. Confirm the worktree inventory remains unchanged. Run
+  `harn find --plan cli-management-phase4-review-fix-classifier-closure`, `harn
+  plan check cli-management-phase4-review-fix-classifier-closure`, and `harn
+  check cli-management-phase4-review-fix-classifier-closure`; stage only this
+  plan and the two declared CLI files, run `harn check --staged`, let the commit
+  hook apply the plan without bypass, and create exactly one review-fix commit."
+applied:
+  applied_at: 2026-08-08T04:03:02.182Z

@@ -1,0 +1,25 @@
+id: structured-management-help-and-docs-are-complete
+hash: a-2636223dd8b0
+title: Structured management help and upgrade docs stay complete
+state: active
+statement: Root and per-family CLI help, the packaged README, and Unreleased
+  upgrade notes must enumerate only the accepted channel, agent, agent-preset,
+  default-roster, and worktree families and their exact subcommands; explain
+  archive-only retention, adapter-or-preset selection, individual preset versus
+  ordered roster semantics, explicit worktree create/adopt versus
+  unregister/filesystem removal, JSON and confirmation behavior, ordinary local
+  and optional explicit connection modes, and flat-command compatibility; and
+  never reveal a credential, private launch, native session, hard delete,
+  restore, or hosted control plane, because an upgrade must make automation
+  discoverable without changing its contract.
+depends_on:
+  - structured-channel-cli-preserves-flat-listing
+  - structured-agent-cli-preserves-flat-lifecycle-and-presets
+  - structured-preset-and-roster-cli-is-safe-and-ordered
+  - structured-worktree-cli-uses-accepted-lifecycle
+  - management-output-is-json-pure-and-safe
+  - management-failures-have-stable-redacted-exits
+  - cli-help-never-renders-selected-bearer
+  - public-package-readme-renders-on-npm
+  - member-env-selects-narrow-cli-identity
+created_by: cli-management-phase5-packaging-integration

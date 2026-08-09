@@ -1,0 +1,19 @@
+id: structured-preset-and-roster-cli-is-safe-and-ordered
+hash: a-864ee117ac3e
+title: Preset and default-roster CLI output is safe, deterministic, and ordered
+state: active
+statement: Structured preset CRUD and default-roster show/set must correlate one
+  authoritative result, use exact stable ids and full-replacement semantics,
+  preserve roster positional order and atomic reference validation, render fixed
+  escaped human output or exactly one compact JSON value, and expose only a
+  bounded public preset projection that identifies named/custom ACP without
+  executable or argv details, while prompts and failures remain stderr-only and
+  redact every selected launch value, because automation needs deterministic
+  configuration management without receiving authority-bearing or private
+  runtime data.
+depends_on:
+  - agent-preset-management-is-authorized-across-rest-and-cli
+  - management-output-is-json-pure-and-safe
+  - management-failures-have-stable-redacted-exits
+  - default-roster-references-block-preset-deletion
+created_by: cli-management-phase3-agent-presets-default-roster

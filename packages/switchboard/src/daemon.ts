@@ -1100,6 +1100,22 @@ export class Daemon {
     return this.ledger?.graph(room) ?? { nodes: [], edges: [] };
   }
 
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-daemon
+  /** Apply an authorized channel rename through the durable store. */
+  renameRoom(room: string, name: string) {
+    const updated = this.store.renameRoom(room, name);
+    this.emit(room, { type: 'room', seq: this.store.currentSeq(room), room: updated });
+    return updated;
+  }
+
+  /** Soft-archive a channel; this never touches members, messages, or agents. */
+  archiveRoom(room: string) {
+    const updated = this.store.archiveRoom(room);
+    this.emit(room, { type: 'room', seq: this.store.currentSeq(room), room: updated });
+    return updated;
+  }
+  // harn:end channel-archive-is-durable-soft-state
+
   // harn:assume bridge-enable-admin-or-owner ref=bridge-daemon-ingress
   enableBridge(
     room: string,
@@ -1364,6 +1380,32 @@ export class Daemon {
   }
   // harn:end named-acp-provider-catalog-is-path-detected-and-command-private
   // harn:end adapters-own-their-model-catalog
+
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-catalog-resolution
+  /** Resolve the one safe adapter identity accepted by structured agent add.
+   * The catalog is the only public source of selection truth. Generic ACP is
+   * deliberately excluded here because it needs private executable/argv
+   * material; curated named providers are translated to ACP identity and are
+   * compiled to their private launch only by spawnMember. */
+  resolvePublicAgentAdapter(selector: string): { harness: string; acp_provider?: string } {
+    const entry = this.registeredAdapters().find((candidate) => candidate.id === selector);
+    if (entry === undefined) throw new Error(`unknown adapter '${selector}'`);
+    if (entry.configurable === true || entry.advanced === true) {
+      throw new Error(`adapter '${selector}' requires private custom ACP configuration`);
+    }
+    if (entry.shadowed_by_native !== undefined) {
+      throw new Error(
+        `adapter '${selector}' is shadowed by native adapter '${entry.shadowed_by_native}'`,
+      );
+    }
+    if (!entry.installed) throw new Error(`adapter '${selector}' is not installed on the daemon host`);
+    if (entry.harness === undefined) throw new Error(`adapter '${selector}' has no runtime identity`);
+    return {
+      harness: entry.harness,
+      ...(entry.acp_provider !== undefined && { acp_provider: entry.acp_provider }),
+    };
+  }
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
 
   // harn:assume named-acp-provider-catalog-is-path-detected-and-command-private ref=acp-provider-catalog-runtime
   /**
@@ -1681,6 +1723,59 @@ export class Daemon {
   }
   // harn:end working-directories-validated-before-spawn
 
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-preset-snapshot
+  /**
+   * Read and validate one preset at the moment of add, then detach its concrete
+   * configuration through the ordinary spawn lifecycle. The preset id is not
+   * persisted on the member and private ACP launch material never leaves this
+   * daemon method.
+   */
+  spawnMemberFromPreset(
+    room: string,
+    presetId: string,
+    opts: {
+      cwd: string;
+      handle?: string;
+      display_name?: string;
+      policy?: string;
+      model?: string;
+      thinking?: Session['thinking'];
+      purpose?: string;
+    },
+  ): Member {
+    const preset = this.store.getAgentPreset(presetId);
+    if (preset === undefined) throw new AgentPresetNotFoundError(presetId);
+    const validated = this.validateAgentPreset({
+      label: preset.label,
+      handle: preset.handle,
+      display_name: preset.display_name,
+      harness: preset.harness,
+      model: preset.model,
+      thinking: preset.thinking,
+      policy: preset.policy,
+      acp_provider: preset.acp_provider,
+      acp_launch: preset.acp_launch,
+    });
+    if (validated.harness === 'acp' && opts.model !== undefined) {
+      throw new Error('ACP preset agents do not accept a client-selected model');
+    }
+    return this.spawnMember(room, {
+      harness: validated.harness,
+      handle: opts.handle ?? validated.handle,
+      display_name: opts.display_name ?? validated.display_name,
+      cwd: opts.cwd,
+      policy: opts.policy ?? validated.policy ?? 'read-only',
+      model: opts.model ?? validated.model,
+      thinking: opts.thinking ?? validated.thinking,
+      purpose: opts.purpose,
+      // A named provider remains a public selector and is resolved privately by
+      // spawnMember. A custom launch is passed only inside the daemon.
+      acp_provider: validated.acp_provider,
+      acp_launch: validated.acp_launch,
+    });
+  }
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
+
   // harn:assume room-home-single-authority ref=remote-run-home-finalization
   spawnRemoteMember(
     room: string,
@@ -1814,6 +1909,19 @@ export class Daemon {
     return member;
   }
   // harn:end copilot-vscode-revive-requires-exact-live-cache
+
+  // harn:assume agent-pause-refuses-active-turn ref=agent-pause-state-transition
+  /** Structured revive is compatible with both paused and dead members. The
+   * legacy reviveMember contract remains dead-only for the flat command. */
+  reviveManagedMember(room: string, memberId: string): Member {
+    const existing = this.store.getMember(room, memberId);
+    if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
+    if (existing.removed_ts !== undefined) throw new Error(`member @${existing.handle} was removed`);
+    if (existing.state === 'paused') return this.unpauseMember(room, memberId);
+    if (existing.state === 'dead') return this.reviveMember(room, memberId);
+    throw new Error(`member @${existing.handle} is ${existing.state ?? 'not stopped'}; revive requires paused or dead`);
+  }
+  // harn:end agent-pause-refuses-active-turn
 
   // harn:assume adoption-explicit-or-sessionend ref=mirrored-adoption-transition
   joinMember(
@@ -2195,7 +2303,21 @@ export class Daemon {
   pauseMember(room: string, memberId: string): Member {
     const existing = this.store.getMember(room, memberId);
     if (!existing || existing.kind !== 'agent') throw new Error(`no such agent member: ${memberId}`);
+    if (existing.removed_ts !== undefined) throw new Error(`member @${existing.handle} was removed`);
+    if (this.store.getAttachLeaseForMember(memberId) || this.pendingAttach.has(memberId)) {
+      throw new Error(`member @${existing.handle} has an active interactive attach lease`);
+    }
     if (existing.state === 'dead') throw new Error(`member @${existing.handle} is dead; revive it instead`);
+    if (existing.state === 'paused') throw new Error(`member @${existing.handle} is already paused`);
+    if (existing.state === 'custody_uncertain') {
+      throw new Error(`cannot pause @${existing.handle} while custody is uncertain`);
+    }
+    if (existing.state === 'running' || existing.state === 'awaiting_input') {
+      throw new Error(`cannot pause @${existing.handle} during an active turn (${existing.state}); stop the turn first`);
+    }
+    if (existing.state !== 'idle' && existing.state !== 'queued' && existing.state !== 'unreachable') {
+      throw new Error(`cannot pause @${existing.handle} while ${existing.state ?? 'in flight'}`);
+    }
     const member = this.store.updateMember(room, memberId, { state: 'paused' });
     this.emitMember(room, member);
     return member;

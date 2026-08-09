@@ -779,7 +779,7 @@ describe('spawn control vocabularies', () => {
   // harn:end harness-declares-supported-thinking-levels
 });
 
-// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-regression
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2 ref=agent-preset-spawn-display-name-regression
 describe('preset display names on ordinary spawn acts', () => {
   it('accepts a bounded optional display name and keeps omission compatible', () => {
     expect(ActSchema.parse({
@@ -797,7 +797,7 @@ describe('preset display names on ordinary spawn acts', () => {
     }).success).toBe(false);
   });
 });
-// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
 
 // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
 describe('named ACP provider identity and one-of selection', () => {
@@ -1064,6 +1064,84 @@ describe('WS client frames', () => {
       rooms: [{ id: 'eng', name: 'Eng', created_ts: TS, config: {} }],
     }).success).toBe(true);
   });
+
+  // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol-regression
+  it('accepts correlated management frames while preserving legacy shapes', () => {
+    expect(ClientFrameSchema.parse({ type: 'list_rooms', ref: 'list-1', all: true })).toEqual({
+      type: 'list_rooms', ref: 'list-1', all: true,
+    });
+    expect(ClientFrameSchema.parse({
+      type: 'create_room',
+      ref: 'create-1',
+      request: { name: 'New', owner: { handle: 'richard', display_name: 'Richard' } },
+    })).toMatchObject({ type: 'create_room', ref: 'create-1' });
+    expect(ClientFrameSchema.parse({
+      type: 'act', room: 'r', ref: 'rename-1', act: { act: 'rename_room', name: 'Renamed' },
+    })).toMatchObject({ type: 'act', room: 'r', ref: 'rename-1' });
+    expect(ClientFrameSchema.parse({
+      type: 'act', room: 'r', ref: 'archive-1', act: { act: 'archive_room' },
+    })).toMatchObject({ type: 'act', room: 'r', ref: 'archive-1' });
+    expect(ServerFrameSchema.parse({
+      type: 'rooms', ref: 'list-1', rooms: [], room_seqs: {},
+    })).toMatchObject({ type: 'rooms', ref: 'list-1' });
+    expect(ServerFrameSchema.parse({
+      type: 'room', ref: 'rename-1', seq: 1,
+      room: { id: 'r', name: 'Renamed', created_ts: TS, config: {} },
+    })).toMatchObject({ type: 'room', ref: 'rename-1' });
+    expect(ServerFrameSchema.parse({ type: 'error', ref: 'archive-1', message: 'refused' }))
+      .toEqual({ type: 'error', ref: 'archive-1', message: 'refused' });
+  });
+  // harn:end management-frames-correlate-one-result
+
+  // harn:assume agent-management-correlates-safe-member-results ref=agent-management-protocol-regression
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-protocol
+  it('accepts correlated agent management frames without a private launch escape hatch', () => {
+    const add = {
+      type: 'add_agent' as const,
+      room: 'eng',
+      ref: 'agent-add-1',
+      adapter: 'housecat',
+      handle: 'worker',
+      cwd: '/work',
+      policy: 'read-only' as const,
+    };
+    expect(ClientFrameSchema.parse({ type: 'list_agents', room: 'eng', ref: 'agent-list-1' }))
+      .toEqual({ type: 'list_agents', room: 'eng', ref: 'agent-list-1' });
+    expect(ClientFrameSchema.parse(add)).toEqual(add);
+    expect(ClientFrameSchema.safeParse({ ...add, acp_launch: { executable: 'sh', argv: [] } }).success)
+      .toBe(false);
+
+    const member = {
+      id: ULID_A,
+      kind: 'agent' as const,
+      handle: 'worker',
+      display_name: 'Worker',
+      harness: 'housecat',
+      cwd: '/work',
+      policy: 'read-only',
+      state: 'idle' as const,
+    };
+    expect(ServerFrameSchema.parse({
+      type: 'agents', room: 'eng', agents: [member], ref: 'agent-list-1',
+    })).toMatchObject({ type: 'agents', room: 'eng', ref: 'agent-list-1' });
+    expect(ServerFrameSchema.parse({
+      type: 'member', seq: 1, room: 'eng', member, ref: 'agent-add-1',
+    })).toMatchObject({ type: 'member', room: 'eng', ref: 'agent-add-1' });
+  });
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
+  // harn:end agent-management-correlates-safe-member-results
+
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-protocol-regression
+  it('carries soft archive metadata without introducing delete or restore acts', () => {
+    const archived = RoomSchema.parse({
+      id: 'r', name: 'Archived', created_ts: TS,
+      config: { archived_ts: TS, color: '#80c56d' },
+    });
+    expect(archived.config.archived_ts).toBe(TS);
+    expect(ActSchema.safeParse({ act: 'delete_room' }).success).toBe(false);
+    expect(ActSchema.safeParse({ act: 'restore_room' }).success).toBe(false);
+  });
+  // harn:end channel-archive-is-durable-soft-state
 
   it('subscribe cursors on since_seq — and requires it', () => {
     expect(
@@ -1737,3 +1815,108 @@ describe('voice note metadata', () => {
   });
 });
 // harn:end voice-message-metadata-is-bounded-and-additive
+
+// harn:assume agent-preset-management-is-authorized-across-rest-and-cli ref=agent-preset-management-authorization-regression
+describe('preset and roster management frame schemas', () => {
+  const presetInput = { label: 'Preset', handle: 'preset', harness: 'fake' };
+  const presetId = ULID_A;
+
+  it('parses all strict correlated requests and four launch-free result shapes', () => {
+    const requests = [
+      { type: 'list_agent_presets', ref: 'preset-list' },
+      { type: 'create_agent_preset', ref: 'preset-create', input: presetInput },
+      { type: 'update_agent_preset', ref: 'preset-update', preset_id: presetId, input: presetInput },
+      { type: 'delete_agent_preset', ref: 'preset-delete', preset_id: presetId },
+      { type: 'get_default_roster', ref: 'roster-get' },
+      { type: 'set_default_roster', ref: 'roster-set', input: { preset_ids: [presetId, ULID_B] } },
+    ] as const;
+    for (const request of requests) expect(ClientFrameSchema.parse(request)).toEqual(request);
+    expect(ClientFrameSchema.safeParse({ ...requests[0], extra: true }).success).toBe(false);
+
+    const publicPreset = {
+      id: presetId,
+      schema_version: 1 as const,
+      created_ts: TS,
+      updated_ts: TS,
+      label: 'Preset',
+      handle: 'preset',
+      adapter: 'acp',
+      custom_acp: true as const,
+    };
+    expect(ServerFrameSchema.parse({
+      type: 'agent_presets', ref: 'preset-list', presets: [publicPreset],
+    })).toMatchObject({ type: 'agent_presets', ref: 'preset-list' });
+    expect(ServerFrameSchema.parse({
+      type: 'agent_preset', ref: 'preset-create', preset: publicPreset,
+    })).toMatchObject({ type: 'agent_preset', ref: 'preset-create' });
+    expect(ServerFrameSchema.parse({
+      type: 'agent_preset_deleted', ref: 'preset-delete', id: presetId, deleted: true,
+    })).toMatchObject({ type: 'agent_preset_deleted', ref: 'preset-delete' });
+    expect(ServerFrameSchema.parse({
+      type: 'default_roster', ref: 'roster-get',
+      roster: { id: 'default', schema_version: 1, updated_ts: TS, preset_ids: [presetId] },
+    })).toMatchObject({ type: 'default_roster', ref: 'roster-get' });
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'preset-create', preset: {
+        ...publicPreset, acp_launch: { executable: 'private-agent', argv: ['--secret'] },
+      },
+    }).success).toBe(false);
+  });
+});
+// harn:end agent-preset-management-is-authorized-across-rest-and-cli
+
+// harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
+describe('public ACP preset selector bounds', () => {
+  const publicPreset = {
+    id: ULID_A,
+    schema_version: 1 as const,
+    created_ts: TS,
+    updated_ts: TS,
+    label: 'Maximum provider',
+    handle: 'maximum-provider',
+  };
+
+  it('accepts the maximum named provider and rejects selectors beyond it', () => {
+    const maximumProvider = `a${'p'.repeat(63)}`;
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'maximum', preset: {
+        ...publicPreset, adapter: `acp:${maximumProvider}`,
+      },
+    }).success).toBe(true);
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'too-long', preset: {
+        ...publicPreset, adapter: `acp:${'a'.repeat(65)}`,
+      },
+    }).success).toBe(false);
+    expect(ServerFrameSchema.safeParse({
+      type: 'agent_preset', ref: 'private', preset: {
+        ...publicPreset, adapter: 'acp', custom_acp: true,
+        acp_launch: { executable: 'private-agent', argv: ['--secret'] },
+      },
+    }).success).toBe(false);
+  });
+});
+// harn:end named-acp-provider-selection-resolves-to-private-structured-launch
+
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-protocol
+// harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-protocol-regression
+describe('agent add selection frame contract', () => {
+  it('requires exactly one selector, conditionally requires a manual handle, and rejects private launch fields', () => {
+    const manual = {
+      type: 'add_agent' as const,
+      room: 'eng', ref: 'manual-add', adapter: 'housecat', handle: 'legacy', cwd: '/work',
+    };
+    expect(ClientFrameSchema.parse(manual)).toEqual(manual);
+    expect(ClientFrameSchema.safeParse({ ...manual, handle: undefined }).success).toBe(false);
+    expect(ClientFrameSchema.parse({
+      type: 'add_agent', room: 'eng', ref: 'preset-add', preset_id: ULID_A, cwd: '/work',
+    })).toMatchObject({ preset_id: ULID_A });
+    expect(ClientFrameSchema.safeParse({ ...manual, adapter: undefined, preset_id: ULID_A }).success).toBe(true);
+    expect(ClientFrameSchema.safeParse({ ...manual, preset_id: ULID_A }).success).toBe(false);
+    expect(ClientFrameSchema.safeParse({ ...manual, adapter: undefined }).success).toBe(false);
+    expect(ClientFrameSchema.safeParse({ ...manual, acp_launch: { executable: 'sh', argv: [] } }).success)
+      .toBe(false);
+  });
+});
+// harn:end agent-add-selects-public-adapter-or-detached-preset
+// harn:end agent-add-selects-public-adapter-or-detached-preset

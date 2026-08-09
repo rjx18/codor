@@ -2,7 +2,7 @@ id: agent-preset-management-is-authorized-and-transport-neutral
 hash: a-b3e8b944f57f
 title: Preset and default-roster management uses one manage-agents REST contract
   in direct and hosted modes
-state: active
+state: retired
 statement: Every network read or mutation of individual presets or the default
   roster must require the existing global manage_agents capability, reject
   anonymous, observer, member, and agent principals, and return only through the
@@ -19,4 +19,5 @@ depends_on:
   - roles-gate-human-acts-not-agents
   - agent-network-authority-is-narrow
   - hosted-computer-sessions-keep-state-isolated
-created_by: native-worktrees-agent-presets-integration
+created_by: agent-presets-p1-domain-persistence
+retired_by: cli-management-phase3-agent-presets-default-roster

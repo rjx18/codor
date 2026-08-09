@@ -1,0 +1,471 @@
+id: cli-management-phase3-review-fix-contracts
+title: Correct Phase 3 safe projection, prompt, exit, and verification contracts
+notes: >-
+  This is the bounded review fix for applied Phase 3 commit
+  de642a25073b1a2efd6bcb5a78fe74796b5e9a40. Independent review confirmed the
+  exact one-commit boundary, clean applied Harn state, additive protocol and
+  command families, local/URL transports, daemon-side detached preset spawn,
+  REST/browser compatibility, package suites, and dependency build. It found
+  three runtime contract defects plus incomplete focused evidence/anchor
+  ownership from the locked plan. Fix only those issues; do not rewrite or
+  expand the applied plan.
+
+  First, AgentPresetPublicSchema currently bounds the public `adapter` selector
+  with AGENT_PRESET_MAX_HARNESS_LENGTH (64). AcpProviderIdSchema validly accepts
+  a 64-character provider id, whose public selector is four characters longer
+  after the `acp:` prefix, so a valid named-ACP preset can be stored but its
+  launch-free CLI result frame is rejected. Bound the public selector for every
+  valid harness/provider spelling (without relaxing the stored harness or
+  provider schemas), and add boundary tests for a maximum named provider plus
+  rejection beyond the real selector bound. Continue returning only the safe
+  provider id; no executable or argv field/value may appear.
+
+  Second, `agent-preset delete` interpolates the preset label directly into its
+  stderr confirmation. Preset labels may contain tabs, newlines, escapes,
+  backslashes, and other control characters, so an authorized stored label can
+  create multiple prompt lines or terminal control sequences. Escape the label
+  through the same printable human-cell encoding used by preset output before
+  constructing the prompt. Keep the exact stable id visible, keep ordinary safe
+  labels byte-compatible, emit one stderr prompt line, and retain TTY,
+  JSON/unattended --yes, decline, reference conflict, and zero-mutation
+  behavior. Do not reject or rewrite stored labels.
+
+  Third, the shared classifier maps the daemon's stale catalog message `model
+  '<id>' is not currently offered by harness '<id>'` to transport exit 7.
+  Classify this bounded catalog refusal as conflict exit 6, while retaining exit
+  2 for malformed schema/options and unsupported thinking, 3 auth, 4
+  authorization, 5 missing targets, and 7 genuine transport/protocol failures.
+  Preserve one redacted stack-free stderr line, empty stdout, and private
+  executable/argv/token redaction.
+
+  Fourth, add the focused tests and source-anchor closures that the locked Phase
+  3 plan declared but the implementation commit did not establish. Harn find
+  currently cannot resolve agent-preset-management-authorization-regression,
+  agent-preset-management-client, agent-preset-management-client-regression,
+  agent-preset-command-surface, preset-delete-confirmation,
+  agent-add-protocol-regression, or the intended safe prompt implementation
+  ownership. Close every opened marker in LIFO order and make each named ref
+  resolve to the exact implementation or regression it claims; do not create
+  substitute assumptions or edit generated assumption truth directly.
+
+  Focused protocol coverage must parse all six strict correlated preset/roster
+  requests, all four safe result shapes, exact adapter-or-preset selection,
+  conditional manual handle, legacy manual compatibility, bounded refs/ids, and
+  rejection of launch/unknown fields in safe results and add-agent frames.
+  Focused WebSocket coverage must exercise owner/admin preset CRUD and ordered
+  roster success, member/observer/agent denial, one matching correlated result
+  or error after unrelated traffic, atomic missing/reference failures, and a
+  custom-ACP result containing only adapter `acp` plus custom_acp true. Retain
+  the complete accepted REST matrix unchanged.
+
+  Focused daemon/CLI coverage must prove fresh native, named ACP, and custom ACP
+  preset add snapshots; per-add cwd/purpose and explicit override behavior;
+  missing/deleted/stale refusal before member persistence; no stored preset id,
+  private launch output, message, delivery, run, or paid turn; multiple preset
+  label/id ordering; full replacement optional-field clearing; exact roster
+  order, empty/duplicate/missing/reference behavior and restart persistence;
+  channel omission, empty/default roster, and manual native/named/custom
+  Starting agent mutual exclusion; complete no-room preflight failure; detached
+  members after preset/roster changes; and member-local runtime spawn failure
+  leaving the failed member dead while later members continue. These tests may
+  reuse the already-accepted Store/daemon fixtures and must not change domain
+  behavior merely to simplify a fixture.
+
+  Add unit coverage for preset management correlation after unrelated preset,
+  room/member, and differently referenced error frames; deterministic
+  locale-independent label-then-id ordering; fixed escaped human rows; one
+  compact JSON value; maximum named/custom safe projection; private
+  launch/credential/session/host absence; and the hostile-label one-line prompt.
+  Existing source/packed command compatibility and the installed Phase 3 smoke
+  remain mandatory. The packed script already exercises installed CRUD, roster,
+  channel creation, preset-backed add, reference conflict, redaction, legacy
+  lifecycle, browser/API, and teardown; retain it unchanged unless a source fix
+  genuinely requires a bounded regression there.
+
+  Explicitly excluded: new commands/options/result fields, partial update,
+  changed preset/roster persistence, changed REST/browser responses, alternate
+  authorization, direct SQLite, worktrees, qualified posting, documentation,
+  hard deletion, cloud/account/relay/token work, Phase 4/5, and unrelated
+  cleanup. Produce exactly one review-fix implementation commit.
+assumptions:
+  create: []
+  retire: []
+  reviewed:
+    - id: structured-preset-and-roster-cli-is-safe-and-ordered
+      outcome: unchanged
+      reason: Correct the safe selector bound, locale-independent ordering, prompt
+        escaping, correlation evidence, and missing anchors so the applied
+        deterministic launch-free statement is actually enforced.
+    - id: preset-deletion-requires-explicit-confirmation
+      outcome: unchanged
+      reason: Escape only the user-controlled label before the existing one-line
+        prompt; target resolution, TTY/JSON --yes, decline, conflict, and
+        no-mutation semantics remain unchanged.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: Reclassify one existing stale-model refusal as conflict 6 and retain all
+        other exit precedence, output, stack, and redaction behavior.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: Preset human rows and prompts use the accepted control escaping, JSON
+        stays one compact value, and launch/session/credential fields remain
+        absent.
+    - id: agent-preset-management-is-authorized-across-rest-and-cli
+      outcome: unchanged
+      reason: Add missing WebSocket owner/admin/denied-principal and correlation
+        regressions around the already-implemented global manage_agents
+        dispatcher; REST and daemon methods are unchanged.
+    - id: agent-add-selects-public-adapter-or-detached-preset
+      outcome: unchanged
+      reason: Add the missing protocol/daemon/server/CLI matrix for the existing
+        mutually exclusive manual or fresh detached preset path without changing
+        spawn behavior.
+    - id: structured-agent-cli-preserves-flat-lifecycle-and-presets
+      outcome: unchanged
+      reason: Repair Phase 3 command/test markers and retain the exact four preset,
+        two roster, seven agent, five channel, and all flat command surfaces.
+    - id: channel-cli-selects-one-initial-agent-mode
+      outcome: unchanged
+      reason: Add missing native/named/custom/default/empty/failure CLI coverage; the
+        existing conditional options and daemon creation path remain unchanged.
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: Public selector result length is distinct from the strict stored
+        harness/provider bounds; catalog validation and full replacement remain
+        authoritative.
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      outcome: unchanged
+      reason: Add the missing CLI exact-order/atomic/restart evidence without changing
+        the singleton Store representation or replacement method.
+    - id: default-roster-references-block-preset-deletion
+      outcome: unchanged
+      reason: Retain the existing atomic reference conflict and prove confirmation
+        cannot bypass it.
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: Add CLI-driven invalid/empty/ordered preflight evidence around the
+        unchanged daemon expansion.
+    - id: default-roster-channel-members-are-detached-ordered-snapshots
+      outcome: unchanged
+      reason: Prove later preset/roster mutation and restart cannot rewrite the
+        concrete members created by the CLI.
+    - id: initial-roster-runtime-failures-are-member-local-and-actionable
+      outcome: unchanged
+      reason: Add CLI observation of the accepted dead-member/continue-later behavior
+        without changing activation or diagnostics.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: Add missing preset/roster unrelated-frame coverage; the shared matching
+        loop and unique refs remain unchanged.
+    - id: agent-management-correlates-safe-member-results
+      outcome: unchanged
+      reason: Preset-backed add continues returning the existing safe member result;
+        new tests assert no source or private runtime fields.
+    - id: agent-management-does-not-invent-work
+      outcome: unchanged
+      reason: Focused tests prove preset-backed adds and configuration operations
+        create no messages, deliveries, runs, or paid turns.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Test the existing manage_agents owner/admin threshold and lower-role
+        denial; do not alter the capability matrix.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Add explicit global preset/roster and preset-add denial for an agent
+        credential without changing its room-scoped permissions.
+    - id: named-acp-provider-selection-resolves-to-private-structured-launch
+      outcome: unchanged
+      reason: Accept the full valid public selector length and test named/custom
+        snapshots while exact launch remains daemon-private.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: Tests exercise literal custom input and output/error redaction through
+        the existing structured shell-free validator.
+    - id: public-cli-delegation-reports-concise-failures
+      outcome: unchanged
+      reason: Source and packaged wrappers retain shared exit and one-line redacted
+        formatting.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: Rerun the existing installed Phase 3 proof unchanged after the source
+        fixes.
+anchors:
+  structured-preset-and-roster-cli-is-safe-and-ordered:
+    agent-preset-safe-schema:
+      action: change
+      reason: Bound the public adapter selector for every valid acp-prefixed provider
+        and prove maximum/custom projections reject all launch fields.
+    agent-preset-management-client:
+      action: change
+      reason: Add the intended nested marker around correlated preset/roster helpers
+        and make label sorting locale-independent.
+    agent-preset-management-client-regression:
+      action: change
+      reason: Add the intended unit marker and test unrelated correlation, order,
+        control escaping, safe projections, JSON purity, and secret absence.
+    agent-preset-command-surface:
+      action: change
+      reason: Close the currently unmatched marker in LIFO order around exactly the
+        four preset and two roster commands.
+    agent-preset-cli-regression:
+      action: change
+      reason: Expand the existing integration with multiple/custom presets, full
+        replacement, roster order/atomicity/restart, and safe failures.
+    agent-preset-packed-smoke:
+      action: keep
+      reason: The accepted installed Phase 3 command/redaction proof is sufficient and
+        unchanged.
+  preset-deletion-requires-explicit-confirmation:
+    preset-delete-confirmation:
+      action: change
+      reason: Add the intended implementation marker and escape the stored label
+        before constructing one safe stderr prompt line.
+    preset-delete-confirmation-regression:
+      action: change
+      reason: Prove hostile label escaping plus existing TTY/JSON/unattended,
+        reference-conflict, decline, and no-mutation cases.
+  management-failures-have-stable-redacted-exits:
+    management-error-contract:
+      action: change
+      reason: Recognize the exact stale-model catalog refusal as conflict exit 6.
+    management-error-regression:
+      action: change
+      reason: Pin stale model 6, malformed/unsupported 2, auth 3/4, missing 5, genuine
+        transport 7, and selected custom-launch/token redaction precedence.
+    source-cli-failure-entrypoint:
+      action: keep
+      reason: Source wrapper behavior remains unchanged.
+    public-cli-failure-entrypoint:
+      action: keep
+      reason: Packaged wrapper behavior remains unchanged.
+    packed-management-failure-regression:
+      action: keep
+      reason: Existing installed exit/redaction checks remain unchanged.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: change
+      reason: Reuse printable control escaping for the delete prompt and deterministic
+        preset order.
+    management-output-regression:
+      action: change
+      reason: Add hostile label/order/max-selector/launch-free human and JSON
+        assertions.
+  agent-preset-management-is-authorized-across-rest-and-cli:
+    agent-preset-management-protocol:
+      action: keep
+      reason: Production frame schemas remain unchanged except the separate safe
+        projection bound.
+    agent-preset-management-dispatch:
+      action: keep
+      reason: Existing manage_agents dispatch and daemon calls are correct.
+    agent-preset-management-authorization-regression:
+      action: change
+      reason: Add the missing owner/admin CRUD/roster success, lower-principal denial,
+        correlation, atomic failure, and custom safe-result WebSocket matrix.
+    agent-preset-rest-boundary:
+      action: keep
+      reason: Browser REST routes and full authorized editing responses remain
+        unchanged.
+    agent-preset-rest-regression:
+      action: keep
+      reason: Existing complete REST principal/behavior matrix remains unchanged.
+  agent-add-selects-public-adapter-or-detached-preset:
+    agent-add-protocol:
+      action: change
+      reason: Add exact adapter-or-preset, conditional handle, legacy manual, and
+        no-launch protocol assertions inside the existing anchor.
+    agent-add-protocol-regression:
+      action: change
+      reason: Add the intended focused marker to those protocol assertions.
+    agent-add-catalog-resolution:
+      action: keep
+      reason: Manual public selector resolution remains unchanged.
+    agent-add-preset-snapshot:
+      action: keep
+      reason: Existing fresh detached daemon implementation remains unchanged.
+    daemon-spawn-control-regression:
+      action: change
+      reason: Add native/named/custom preset defaults/overrides, stale/missing, no
+        persistence/reference, and zero-work daemon tests.
+    agent-add-server-regression:
+      action: change
+      reason: Add preset-backed safe correlated success and denied-principal/no-write
+        server cases to existing agent management coverage.
+    agent-add-cli-regression:
+      action: change
+      reason: Expand local/URL CLI coverage for exact-one selection, overrides, custom
+        secrecy, detachment, stale/missing refusal, and old manual syntax.
+    agent-add-packed-smoke:
+      action: keep
+      reason: Existing installed manual and preset-backed no-turn smoke remains
+        unchanged.
+  structured-agent-cli-preserves-flat-lifecycle-and-presets:
+    structured-agent-command-surface:
+      action: keep
+      reason: Exact public command registrations and options remain unchanged.
+    structured-agent-cli-regression:
+      action: change
+      reason: Retain exact registration and all flat/structured compatibility
+        assertions with expanded Phase 3 cases.
+    structured-agent-packed-smoke:
+      action: keep
+      reason: Existing installed compatibility smoke remains unchanged.
+  channel-cli-selects-one-initial-agent-mode:
+    channel-create-initial-agent-options:
+      action: keep
+      reason: Existing conditional option parser and request mapping remain unchanged.
+    channel-create-initial-agent-regression:
+      action: change
+      reason: Add omission, native/named/custom, empty/ordered roster, mutual
+        exclusion, preflight, detachment, restart, and runtime failure cases.
+    channel-create-initial-agent-packed-smoke:
+      action: keep
+      reason: Existing installed roster-channel proof remains unchanged.
+  management-frames-correlate-one-result:
+    management-correlation-client:
+      action: change
+      reason: Nest the intended preset/roster client marker around the unchanged
+        matching loop consumers.
+    management-correlation-cli-regression:
+      action: change
+      reason: Add unrelated preset/room/member/result/error correlation tests.
+    management-correlation-protocol:
+      action: keep
+      reason: Existing opaque ref schema and result fields remain unchanged.
+    management-correlation-server:
+      action: keep
+      reason: Existing shared error correlation remains unchanged.
+  individual-agent-presets-are-bounded-catalog-validated-configurations:
+    individual-agent-preset-schema:
+      action: change
+      reason: Correct only the derived public selector bound, not strict
+        persisted/input fields.
+    individual-agent-preset-schema-regression:
+      action: change
+      reason: Add max provider projection and launch stripping without changing stored
+        schema tests.
+    individual-agent-preset-catalog-validation:
+      action: keep
+      reason: Daemon validation remains unchanged.
+    individual-agent-preset-direct-validation-regression:
+      action: change
+      reason: Add fresh stale-model/custom preset-add assertions using current
+        validation.
+  default-roster-is-one-versioned-ordered-preset-reference-group:
+    default-roster-order-regression:
+      action: change
+      reason: Add CLI multiple-id order, empty, duplicate, missing, atomic, and
+        restart assertions.
+    default-roster-store:
+      action: keep
+      reason: Store schema and atomic methods remain unchanged.
+  default-roster-references-block-preset-deletion:
+    preset-roster-reference-integrity:
+      action: keep
+      reason: Store reference guard remains unchanged.
+    preset-roster-reference-regression:
+      action: change
+      reason: Add confirmed CLI conflict and post-removal deletion evidence.
+  default-roster-channel-selection-is-exclusive-and-preflighted:
+    default-roster-create-request-contract:
+      action: keep
+      reason: Request schema remains unchanged.
+    default-roster-expansion-preflight:
+      action: keep
+      reason: Daemon preflight remains unchanged.
+    default-roster-expansion-regression:
+      action: change
+      reason: Add CLI empty/ordered/invalid no-room evidence.
+  default-roster-channel-members-are-detached-ordered-snapshots:
+    default-roster-snapshot-regression:
+      action: change
+      reason: Add CLI detachment after configuration changes and restart.
+  initial-roster-runtime-failures-are-member-local-and-actionable:
+    initial-agent-runtime-activation:
+      action: keep
+      reason: Activation implementation remains unchanged.
+    initial-agent-runtime-failure-regression:
+      action: change
+      reason: Add CLI-created channel observation of dead failure and later
+        continuation.
+  agent-management-does-not-invent-work:
+    agent-management-no-work-regression:
+      action: change
+      reason: Add preset-backed add counters to the existing zero-work daemon proof.
+    agent-management-packed-no-turn:
+      action: keep
+      reason: Existing installed no-turn proof remains unchanged.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: keep
+      reason: Capability definitions remain unchanged.
+    role-matrix-integration:
+      action: change
+      reason: Add global preset/roster owner/admin and denied-role WebSocket cases.
+  agent-network-authority-is-narrow:
+    agent-capability-matrix:
+      action: keep
+      reason: Agent capability matrix remains unchanged.
+    agent-room-authorization:
+      action: change
+      reason: Add explicit agent-principal global management/preset-add denial
+        coverage.
+    agent-authz-regression:
+      action: change
+      reason: Prove no global read/mutation or self-escalation for agent credentials.
+  named-acp-provider-selection-resolves-to-private-structured-launch:
+    acp-provider-protocol-regression:
+      action: change
+      reason: Add maximum public selector and safe named/custom result assertions.
+    acp-provider-spawn-resolution:
+      action: keep
+      reason: Existing private daemon resolution remains unchanged.
+    acp-provider-server-regression:
+      action: change
+      reason: Add named/custom preset add and initial-agent output secrecy evidence.
+  acp-launch-is-structured-authorized-and-bounded:
+    acp-launch-schema:
+      action: keep
+      reason: Existing structured bounds remain unchanged.
+    acp-launch-regression:
+      action: change
+      reason: Exercise CLI custom executable/argv validation and redaction without
+        changing schema.
+  public-cli-delegation-reports-concise-failures:
+    public-wrapper-delegation:
+      action: keep
+      reason: Generated public wrapper remains unchanged.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: keep
+      reason: Existing clean-clone installed Phase 3 proof remains unchanged and must
+        be rerun.
+files:
+  - packages/protocol/src/agent-presets.ts
+  - packages/protocol/src/agent-presets.spec.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/agent-presets.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/cli/src/management.ts
+  - packages/cli/src/management.spec.ts
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+verification: Run `pnpm --filter @codor/protocol test`, `pnpm --filter
+  @codor/switchboard test`, `pnpm --filter @codor/cli test`, `pnpm --filter
+  @codor/web-next test`, `pnpm --filter '@codor/cli...' build`, `pnpm build`,
+  and `scripts/packed-install-test.sh`. The focused tests named above must prove
+  maximum safe selector parsing, hostile one-line prompt escaping, stale model
+  exit 6, all preset/roster frame shapes and result correlation, complete role
+  matrix, native/named/custom snapshot secrecy, deterministic order,
+  full-replacement and ordered atomic restart behavior, channel initial-agent
+  modes/preflight/detachment/runtime failure, JSON purity, exact exit/redaction,
+  and all existing flat/structured/REST/browser compatibility. Before the one
+  review-fix commit run `harn find` for every new Phase 3 assumption and confirm
+  every plan-declared ref resolves, then `harn find --plan
+  cli-management-phase3-review-fix-contracts`, `harn check
+  cli-management-phase3-review-fix-contracts`, stage only declared files and
+  generated Harn state, and let the pre-commit hook run staged
+  check/apply/staged check.
+applied:
+  applied_at: 2026-08-06T11:55:05.060Z

@@ -2710,6 +2710,9 @@ export class Store {
     return this.db.transaction(() => {
       const current = this.getRoom(room);
       if (!current) throw new Error(`no such room: ${room}`);
+      if ('archived_ts' in patch && patch.archived_ts !== current.config.archived_ts) {
+        throw new Error(`archived state for channel ${room} is immutable`);
+      }
       const config = RoomConfigSchema.parse({ ...current.config, ...patch });
       this.db
         .prepare('UPDATE rooms SET config = ? WHERE id = ?')
@@ -2718,6 +2721,41 @@ export class Store {
       return this.getRoom(room)!;
     })();
   }
+
+  // harn:assume channel-archive-is-durable-soft-state ref=channel-archive-storage
+  /** Rename an active channel and append exactly one room change. */
+  renameRoom(room: string, name: string): Room {
+    return this.db.transaction(() => {
+      const current = this.getRoom(room);
+      if (!current) throw new Error(`no such room: ${room}`);
+      if (current.config.archived_ts !== undefined) {
+        throw new Error(`channel ${room} is archived and cannot be renamed`);
+      }
+      const validatedName = RoomSchema.parse({ ...current, name }).name;
+      this.db.prepare('UPDATE rooms SET name = ? WHERE id = ?').run(validatedName, room);
+      this.appendChange(room, 'room', room);
+      return this.getRoom(room)!;
+    })();
+  }
+
+  /** Archive an active channel without deleting any related durable records. */
+  archiveRoom(room: string): Room {
+    return this.db.transaction(() => {
+      const current = this.getRoom(room);
+      if (!current) throw new Error(`no such room: ${room}`);
+      if (current.config.archived_ts !== undefined) {
+        throw new Error(`channel ${room} is already archived`);
+      }
+      const archivedTs = new Date().toISOString();
+      const config = RoomConfigSchema.parse({ ...current.config, archived_ts: archivedTs });
+      this.db
+        .prepare('UPDATE rooms SET config = ? WHERE id = ?')
+        .run(JSON.stringify(config), room);
+      this.appendChange(room, 'room', room);
+      return this.getRoom(room)!;
+    })();
+  }
+  // harn:end channel-archive-is-durable-soft-state
 
   // harn:assume individual-agent-presets-are-versioned-local-state ref=individual-agent-preset-store-crud
   listAgentPresets(): AgentPreset[] {

@@ -1,0 +1,20 @@
+id: agent-add-selects-one-public-adapter
+hash: a-9855ae8d2fa2
+title: Agent add selects one canonical public adapter without launch leakage
+state: retired
+statement: Structured agent add must resolve one exact current public adapter
+  catalog id server-side, admit installed native and loaded configured adapters
+  or a detected named ACP provider, default policy to read-only, validate
+  cwd/policy/thinking before persistence, and refuse unknown, unavailable,
+  generic custom-ACP, or malformed selection without accepting or revealing
+  executable/argv data, because the daemon registry is the sole truthful adapter
+  source and the CLI must not invent a second catalog or private launch channel.
+depends_on:
+  - adapter-registry-sole-harness-source
+  - adapter-catalog-distinguishes-installed-and-configurable
+  - new-agent-requests-require-available-native-or-detected-acp
+  - named-acp-provider-selection-resolves-to-private-structured-launch
+  - canonical-spawn-controls-enforced
+  - working-directories-validated-before-spawn
+created_by: cli-management-phase2-agent-lifecycle
+retired_by: cli-management-phase3-agent-presets-default-roster

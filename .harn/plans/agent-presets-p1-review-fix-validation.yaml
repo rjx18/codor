@@ -1,0 +1,136 @@
+id: agent-presets-p1-review-fix-validation
+title: Phase 1 review fix - close preset validation, migration, and authorization gaps
+notes: >-
+  This is a bounded review-fix for the already-applied Phase 1 plan at commit
+  f30c5ec59958aa8250cf7deb0ce71145f6ddb8c7. It does not change the Phase 1
+  domain, persistence, REST, or transport contracts and does not begin Phase 2.
+
+  Independent review found two implementation defects. First, a custom ACP
+  preset currently passes validation when its executable cannot resolve, and a
+  generic adapter registered under the acp id can pass merely because it looks
+  installed even when it is not the configurable ACP transport promised by the
+  catalog contract. Preset validation must require the generic ACP registration
+  to be configurable, parse the existing bounded structured launch, and call the
+  existing side-effect-free ACP executable resolver for a custom launch. Named
+  providers continue to use the frozen provider registry and current PATH
+  detection. No validation path may call adapter.spawn or create a member.
+
+  Second, updating a syntactically valid but nonexistent preset currently throws
+  a generic daemon Error, which the existing REST mapper returns as 400. The
+  daemon must preserve the existing pre-validation existence check but throw the
+  Store's typed AgentPresetNotFoundError so the already-defined REST mapping
+  returns the planned explicit 404. Create, update, roster replacement, and
+  referenced deletion must remain mutation-free when validation fails.
+
+  The focused suite must also close review gaps in the locked Phase 1
+  verification. A migration regression must remove the feature tables from a
+  populated database, reopen it through Store, and prove the empty v1 preset and
+  roster state is added without altering existing rooms or members. Roster
+  version, timestamp, exact order, and references must survive reopen. Catalog
+  regressions must cover configurable ACP, unavailable custom executables,
+  detected and unavailable named providers, catalog-invalid create and update
+  rollback, and no spawn of either native or ACP adapters. REST regressions must
+  cover owner, paired-browser-owner, and admin success; anonymous, observer,
+  member, and real agent-credential rejection on preset and roster reads and
+  writes; authorized custom-launch visibility only; valid unknown update 404;
+  stale roster 404; referenced-delete 409; and successful 204 deletion.
+
+  No protocol schema, Store schema/CRUD implementation, server route, web
+  runtime helper, UI, room/member creation contract, WebSocket act, CLI, relay,
+  cloud, or account behavior changes in this review fix.
+assumptions:
+  reviewed:
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: The existing Phase 1 assumption already requires current catalog
+        validation and no spawn; this fix makes custom and generic ACP
+        validation meet that declared contract without changing its meaning.
+    - id: individual-agent-presets-are-versioned-local-state
+      outcome: unchanged
+      reason: Store persistence semantics remain unchanged; the focused suite gains
+        the missing populated pre-feature migration proof.
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      outcome: unchanged
+      reason: The singleton roster implementation remains unchanged; restart tests now
+        verify the existing version, timestamp, order, and reference contract.
+    - id: default-roster-references-block-preset-deletion
+      outcome: unchanged
+      reason: Existing RESTRICT behavior remains unchanged and is retained in the
+        expanded direct HTTP regression.
+    - id: agent-preset-management-is-authorized-and-transport-neutral
+      outcome: unchanged
+      reason: Existing route gates and transports remain unchanged; typed not-found
+        propagation and the complete principal matrix are corrected and proven.
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Preset validation consumes the existing configurable marker and
+        availability truth; catalog detection and projection do not change.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Policy and thinking validation continues through the existing spawn
+        option validator, while executable resolution remains side-effect-free.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Ordinary new-agent admission does not change; preset writes align with
+        its native/configurable/detected availability preflight without
+        spawning.
+    - id: named-acp-provider-selection-resolves-to-private-structured-launch
+      outcome: unchanged
+      reason: Named presets still persist only the safe provider id and use the frozen
+        registry plus current presence detection.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: The fix reuses its existing schema and exported no-invocation executable
+        resolver; shell, environment, argv, and spawn behavior do not change.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: The human capability matrix is unchanged; the focused route suite proves
+        owner-equivalent browser and admin admission plus lower-role denial.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Agent capabilities remain unchanged; a real issued agent credential is
+        added to the preset/roster global-operation denial regression.
+    - id: server-token-required
+      outcome: unchanged
+      reason: Route admission is unchanged and the focused suite retains anonymous
+        rejection for preset and roster management.
+anchors:
+  individual-agent-presets-are-bounded-catalog-validated-configurations:
+    individual-agent-preset-catalog-validation:
+      action: change
+      reason: Require a configurable generic ACP registration, resolve custom ACP
+        executables without spawning, and propagate typed not-found on update.
+    individual-agent-preset-direct-validation-regression:
+      action: change
+      reason: Prove generic/configurable ACP truth, custom and named executable
+        availability, create/update rollback, and no native or ACP spawn.
+  individual-agent-presets-are-versioned-local-state:
+    individual-agent-preset-persistence-regression:
+      action: change
+      reason: Add a real populated pre-feature-table migration and unchanged
+        room/member proof while retaining CRUD/reopen coverage.
+  default-roster-is-one-versioned-ordered-preset-reference-group:
+    default-roster-order-regression:
+      action: change
+      reason: Assert singleton id/version/timestamp and exact ordered references
+        survive reopen in addition to atomic reorder and rejection behavior.
+  agent-preset-management-is-authorized-and-transport-neutral:
+    agent-preset-rest-regression:
+      action: change
+      reason: Cover the complete principal matrix, custom-launch confidentiality,
+        valid unknown update 404, stale roster 404, conflict 409, and delete
+        204.
+files:
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/agent-presets.spec.ts
+verification: Run pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts; pnpm --filter @codor/protocol test; pnpm --filter
+  @codor/web-next exec vitest run src/runtime/api.spec.ts; pnpm --filter
+  @codor/protocol build; pnpm --filter @codor/switchboard build; pnpm --filter
+  @codor/web-next build; harn find --plan
+  agent-presets-p1-review-fix-validation; harn check
+  agent-presets-p1-review-fix-validation; and the staged Harn check/apply gate
+  before one implementation commit. Do not run web e2e because this review fix
+  changes no UI.
+applied:
+  applied_at: 2026-08-06T07:39:06.745Z

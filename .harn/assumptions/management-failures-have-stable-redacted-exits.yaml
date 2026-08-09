@@ -1,0 +1,15 @@
+id: management-failures-have-stable-redacted-exits
+hash: a-824791d82c99
+title: Management failures use stable exit classes and redacted stderr
+state: active
+statement: New management failures must preserve one stable nonzero exit class
+  for invocation or confirmation, authentication, authorization, not found,
+  conflict or refusal, and transport or protocol failure, while both source and
+  packaged entrypoints print exactly one stack-free stderr line with selected
+  tokens, bearer material, and token-bearing URLs redacted and leave stdout
+  empty, because unattended callers need to distinguish remediation without
+  leaking the credential that failed.
+depends_on:
+  - management-output-is-json-pure-and-safe
+  - public-cli-delegation-reports-concise-failures
+created_by: cli-management-phase1-channels

@@ -1,0 +1,13 @@
+id: channel-archive-requires-explicit-confirmation
+hash: a-cd8a8dca7a8f
+title: Channel archive requires interactive consent or unattended yes
+state: active
+statement: Channel archive must mutate only after an explicit affirmative TTY
+  response or `--yes`, must require `--yes` without a TTY and in JSON mode, must
+  keep its prompt off stdout, and must leave state unchanged on refusal, because
+  archive hides a channel from normal discovery and unattended jobs cannot imply
+  destructive consent.
+depends_on:
+  - structured-channel-cli-preserves-flat-listing
+  - management-output-is-json-pure-and-safe
+created_by: cli-management-phase1-channels

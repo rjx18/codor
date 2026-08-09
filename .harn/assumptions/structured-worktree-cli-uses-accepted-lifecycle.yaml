@@ -1,0 +1,25 @@
+id: structured-worktree-cli-uses-accepted-lifecycle
+hash: a-f655b3f42f14
+title: Structured worktree CLI uses the accepted conservative lifecycle
+state: active
+statement: The singular worktree CLI must expose only deterministic list,
+  explicit create-or-adopt add, and confirmed unregister-or-filesystem remove
+  commands through the authenticated accepted REST schemas and daemon lifecycle,
+  select one active non-main identity exactly, keep all path and branch values
+  as literal data, and render only fixed safe operator projections without Git
+  administrative ids, room keys, credentials, private launches, or native
+  sessions, because automation must manage real worktrees without becoming a
+  second Git, persistence, authorization, or secret-bearing implementation.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - worktree-discovery-never-registers-candidates
+  - worktree-creation-registers-only-a-new-secondary
+  - worktree-management-is-human-admin-only
+  - worktree-lifecycle-preserves-existing-state-by-default
+  - worktree-child-default-roster-is-an-explicit-snapshot
+  - worktree-git-execution-is-argument-safe
+  - management-output-is-json-pure-and-safe
+  - management-failures-have-stable-redacted-exits
+  - cli-observability-uses-scoped-rest
+  - member-env-selects-narrow-cli-identity
+created_by: cli-management-phase4-worktrees-qualified-posting

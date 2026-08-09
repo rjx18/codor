@@ -1,0 +1,16 @@
+id: management-output-is-json-pure-and-safe
+hash: a-d91dc310607e
+title: Management output is deterministic, JSON-pure, and identity-safe
+state: active
+statement: Every structured management command must render fixed-order
+  deterministic human text or exactly one compact JSON value on stdout, keep
+  prompts and diagnostics on stderr, and project only public management fields
+  without credentials, bearer values, member secrets, private ACP launches, or
+  native session references, because scripts must be able to parse success
+  output without terminal noise or accidental authority disclosure.
+depends_on:
+  - structured-channel-cli-preserves-flat-listing
+  - cli-help-never-renders-selected-bearer
+  - redaction-before-fanout
+  - agent-member-credentials-stay-secret
+created_by: cli-management-phase1-channels

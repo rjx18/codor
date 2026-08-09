@@ -22,17 +22,21 @@ import WebSocket from 'ws';
 
 import {
   createProgram,
+  MANAGEMENT_EXIT_CODES,
+  ManagementError,
+  cliExitCode,
   detectSession,
   nativeResumeCommand,
   packageName,
   parseMirrorHook,
   renderTerminalQr,
+  redactDiagnostic,
   runCli,
   startCodor,
 } from './index.js';
 import { parseLine, startOutpost } from './up.js';
 import { parseAdapterModules } from './program.js';
-import { probeCodorStatus, waitForCodor } from './setup.js';
+import { operatorTokenPath, probeCodorStatus, waitForCodor } from './setup.js';
 
 let dir: string;
 let daemon: Daemon;
@@ -140,12 +144,13 @@ const startLiveTurn = async (memberId: string) => {
 };
 
 describe('@codor/cli', () => {
-  // harn:assume human-facing-surfaces-call-rooms-channels ref=cli-channel-regression
   it('registers the complete M1 command surface', () => {
     expect(packageName()).toBe('@codor/cli');
     expect(createProgram().commands.map((command) => command.name())).toEqual([
       'up',
       'channels',
+      'agent-preset',
+      'default-roster',
       'serve',
       'install',
       'spawn',
@@ -165,14 +170,33 @@ describe('@codor/cli', () => {
       'revoke',
       'ledger',
       'relay',
+      'agent', 'worktree', 'channel',
     ]);
     const program = createProgram();
+    const flatChannels = program.commands.find((command) => command.name() === 'channels');
+    const structuredChannels = program.commands.find((command) => command.name() === 'channel');
+    expect(flatChannels?.aliases()).toEqual([]);
+    expect(flatChannels?.commands).toEqual([]);
+    expect(structuredChannels?.aliases()).toEqual([]);
+    expect(structuredChannels?.commands.map((command) => command.name())).toEqual([
+      'list', 'create', 'show', 'rename', 'archive',
+    ]);
+    const structuredAgents = program.commands.find((command) => command.name() === 'agent');
+    expect(structuredAgents?.aliases()).toEqual([]);
+    expect(structuredAgents?.commands.map((command) => command.name())).toEqual([
+      'list', 'add', 'configure', 'rename', 'pause', 'revive', 'remove',
+    ]);
+    expect(program.commands.find((command) => command.name() === 'agent-preset')?.commands.map((command) => command.name()))
+      .toEqual(['list', 'create', 'update', 'delete']);
+    expect(program.commands.find((command) => command.name() === 'default-roster')?.commands.map((command) => command.name()))
+      .toEqual(['show', 'set']);
+    expect(program.commands.find((command) => command.name() === 'agent')?.commands.find((command) => command.name() === 'add')?.options.map((option) => option.long))
+      .toContain('--preset');
     expect(program.commands.find((command) => command.name() === 'spawn')?.options.map((option) => option.long))
       .toContain('--channel');
     expect(program.commands.flatMap((command) => command.options.map((option) => option.long)))
       .not.toContain('--room');
   });
-  // harn:end human-facing-surfaces-call-rooms-channels
 
   // harn:assume codor-runtime-identity-is-a-clean-break ref=runtime-identity-regression
   it('uses Codor runtime identity for the command, service, install target, and default paths', () => {
@@ -1085,6 +1109,410 @@ describe('@codor/cli', () => {
     expect(output.some((line) => line.startsWith('@reviewer\tidle\tfake'))).toBe(true);
   });
 
+  // harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-cli-regression
+  // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
+  // harn:assume management-failures-have-stable-redacted-exits ref=management-error-regression
+  // harn:assume channel-archive-requires-explicit-confirmation ref=channel-archive-confirmation-regression
+  it('manages channels with deterministic output, confirmation, safe failures, and URL transport', async () => {
+    const invoke = async (
+      args: string[],
+      overrides: { isTTY?: boolean; confirm?: (prompt: string) => Promise<string | boolean> } = {},
+    ) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: overrides.isTTY ?? false,
+          confirm: overrides.confirm,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const listed = await invoke(['channel', 'list', '--json']);
+    expect(listed.error).toBeUndefined();
+    expect(listed.stderr).toEqual([]);
+    expect(listed.stdout).toHaveLength(1);
+    expect(JSON.parse(listed.stdout[0]!)).toEqual([expect.objectContaining({
+      id: 'eng', name: 'Engineering', status: 'active',
+    })]);
+
+    for (const id of ['unauthorized', 'bearer', '401']) {
+      const missing = await invoke(['channel', 'show', id]);
+      expect(missing.error).toBeInstanceOf(ManagementError);
+      expect(cliExitCode(missing.error)).toBe(5);
+      expect(missing.stdout).toEqual([]);
+      expect(missing.stderr).toEqual([]);
+    }
+
+    const invalidOwner = await invoke(['channel', 'create', 'Invalid Owner', '--owner', 'bad handle']);
+    expect(invalidOwner.error).toBeInstanceOf(ManagementError);
+    expect(cliExitCode(invalidOwner.error)).toBe(2);
+    expect(invalidOwner.stdout).toEqual([]);
+    expect(invalidOwner.stderr).toEqual([]);
+
+    const cwd = join(dir, 'created-cwd');
+    mkdirSync(cwd);
+    const created = await invoke([
+      'channel', 'create', 'Created Channel', '--owner', 'richard', '--owner-name', 'Richard',
+      '--id', 'created-channel', '--cwd', cwd, '--json',
+    ]);
+    expect(created.error).toBeUndefined();
+    const createdJson = JSON.parse(created.stdout[0]!);
+    expect(createdJson).toMatchObject({
+      id: 'created-channel', name: 'Created Channel', status: 'active', cwd,
+    });
+    expect(createdJson).not.toHaveProperty('members');
+    expect(createdJson).not.toHaveProperty('session_ref');
+
+    const renamed = await invoke(['channel', 'rename', 'created-channel', 'Renamed Channel', '--json']);
+    expect(renamed.error).toBeUndefined();
+    expect(JSON.parse(renamed.stdout[0]!)).toMatchObject({
+      id: 'created-channel', name: 'Renamed Channel', status: 'active',
+    });
+
+    const declined = await invoke(['channel', 'archive', 'created-channel'], {
+      isTTY: true,
+      confirm: async () => false,
+    });
+    expect(declined.error).toBeInstanceOf(ManagementError);
+    expect(cliExitCode(declined.error)).toBe(2);
+    expect(declined.stdout).toEqual([]);
+    expect(declined.stderr).toEqual(['Archive channel created-channel? [y/N]']);
+    expect(daemon.store.getRoom('created-channel')?.config.archived_ts).toBeUndefined();
+
+    const unattended = await invoke(['channel', 'archive', 'created-channel']);
+    expect(unattended.error).toBeInstanceOf(ManagementError);
+    expect(cliExitCode(unattended.error)).toBe(2);
+    expect(unattended.stdout).toEqual([]);
+    expect(daemon.store.getRoom('created-channel')?.config.archived_ts).toBeUndefined();
+
+    const archived = await invoke(['channel', 'archive', 'created-channel', '--yes', '--json']);
+    expect(archived.error).toBeUndefined();
+    expect(archived.stderr).toEqual([]);
+    expect(JSON.parse(archived.stdout[0]!)).toMatchObject({
+      id: 'created-channel', status: 'archived', archived_ts: expect.any(String),
+    });
+
+    const activeAfterArchive = await invoke(['channel', 'list', '--json']);
+    expect(JSON.parse(activeAfterArchive.stdout[0]!)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'created-channel' })]),
+    );
+    const allAfterArchive = await invoke(['channel', 'list', '--all', '--json']);
+    expect(JSON.parse(allAfterArchive.stdout[0]!)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'created-channel', status: 'archived' })]),
+    );
+
+    const shown = await invoke(['channel', 'show', 'created-channel']);
+    expect(shown.stdout[0]).toMatch(/^id\tcreated-channel\nname\tRenamed Channel\nstatus\tarchived\n/);
+
+    const flat = await invoke(['channels']);
+    expect(flat.stdout).toEqual(['eng\tEngineering']);
+
+    output = [];
+    await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'channel', 'list', '--json',
+    ], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+      isTTY: false,
+    });
+    expect(JSON.parse(output.at(-1)!)).toEqual([expect.objectContaining({ id: 'eng' })]);
+
+    const redacted = redactDiagnostic(
+      new Error('Bearer secret-token https://host.test/ws?token=secret-token'),
+      ['node', 'codor', '--token', 'secret-token'],
+      { CODOR_TOKEN: 'secret-token' },
+    );
+    expect(redacted).not.toContain('secret-token');
+    expect(redacted).toContain('<redacted>');
+  });
+  // harn:end channel-archive-requires-explicit-confirmation
+  // harn:end management-failures-have-stable-redacted-exits
+  // harn:end management-output-is-json-pure-and-safe
+  // harn:end structured-channel-cli-preserves-flat-listing
+
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-cli-regression
+  // harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-cli-regression
+  // harn:assume preset-deletion-requires-explicit-confirmation ref=preset-delete-confirmation-regression
+  // harn:assume channel-cli-selects-one-initial-agent-mode ref=channel-create-initial-agent-regression
+  // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-cli-regression
+  // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
+  // harn:assume management-failures-have-stable-redacted-exits ref=management-error-regression
+  // harn:assume default-roster-channel-members-are-detached-ordered-snapshots ref=default-roster-snapshot-regression
+  it('manages presets, rosters, initial agents, and detached preset adds over both transports', async () => {
+    const invoke = async (
+      args: string[],
+      overrides: { isTTY?: boolean; confirm?: (prompt: string) => Promise<string | boolean> } = {},
+    ) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: overrides.isTTY ?? false,
+          confirm: overrides.confirm,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const presetCwd = join(dir, 'preset-add');
+    mkdirSync(presetCwd);
+    const created = await invoke([
+      'agent-preset', 'create', 'Helper\tOne', '--handle', 'preset-helper', '--adapter', 'fake',
+      '--policy', 'workspace-write', '--json',
+    ]);
+    expect(created.error).toBeUndefined();
+    const preset = JSON.parse(created.stdout[0]!) as Record<string, unknown>;
+    expect(preset).toMatchObject({ label: 'Helper\tOne', handle: 'preset-helper', adapter: 'fake', policy: 'workspace-write' });
+    expect(preset).not.toHaveProperty('acp_launch');
+
+    const presetId = String(preset.id);
+    const alphaCreated = await invoke([
+      'agent-preset', 'create', 'Alpha helper', '--handle', 'alpha-preset', '--adapter', 'fake', '--json',
+    ]);
+    const alphaId = String((JSON.parse(alphaCreated.stdout[0]!) as Record<string, unknown>).id);
+    const hostileCreated = await invoke([
+      'agent-preset', 'create', 'Hostile\tlabel\r\n\u001b[31m\\tail',
+      '--handle', 'hostile-preset', '--adapter', 'fake', '--json',
+    ]);
+    const hostileId = String((JSON.parse(hostileCreated.stdout[0]!) as Record<string, unknown>).id);
+    const listed = await invoke(['agent-preset', 'list', '--json']);
+    expect((JSON.parse(listed.stdout[0]!) as Array<{ label: string }>).map((entry) => entry.label))
+      .toEqual(['Alpha helper', 'Helper\tOne', 'Hostile\tlabel\r\n\u001b[31m\\tail']);
+
+    const updated = await invoke([
+      'agent-preset', 'update', presetId, '--label', 'Helper Two', '--handle', 'preset-helper-2',
+      '--adapter', 'fake', '--json',
+    ]);
+    expect(updated.error).toBeUndefined();
+    expect(JSON.parse(updated.stdout[0]!)).toMatchObject({ id: presetId, label: 'Helper Two', handle: 'preset-helper-2' });
+    expect(JSON.parse(updated.stdout[0]!)).not.toHaveProperty('policy');
+
+    const roster = await invoke(['default-roster', 'set', presetId, '--json']);
+    expect(JSON.parse(roster.stdout[0]!)).toMatchObject({ id: 'default', preset_ids: [presetId] });
+    const shownRoster = await invoke(['default-roster', 'show']);
+    expect(shownRoster.stdout).toEqual([`0\t${presetId}`]);
+
+    const defaultRoomCwd = join(dir, 'default-room');
+    mkdirSync(defaultRoomCwd);
+    const defaultRoom = await invoke([
+      'channel', 'create', 'Preset Channel', '--owner', 'richard', '--id', 'preset-channel',
+      '--cwd', defaultRoomCwd, '--default-roster', '--json',
+    ]);
+    expect(defaultRoom.error).toBeUndefined();
+    expect(JSON.parse(defaultRoom.stdout[0]!)).toMatchObject({ id: 'preset-channel' });
+    expect(daemon.store.listMembers('preset-channel').map((member) => member.handle)).toContain('preset-helper-2');
+
+    const manualCwd = join(dir, 'manual-start');
+    mkdirSync(manualCwd);
+    const manualRoom = await invoke([
+      'channel', 'create', 'Manual Starting Agent', '--owner', 'richard', '--id', 'manual-start',
+      '--cwd', manualCwd, '--starting-agent', 'manual-worker', '--adapter', 'fake', '--json',
+    ]);
+    expect(manualRoom.error).toBeUndefined();
+    expect(daemon.store.getMemberByHandle('manual-start', 'manual-worker')).toMatchObject({ harness: 'fake' });
+
+    const add = await invoke([
+      'agent', 'add', '--channel', 'eng', '--preset', presetId, '--cwd', presetCwd, '--purpose', 'per-add', '--json',
+    ]);
+    expect(add.error).toBeUndefined();
+    const added = JSON.parse(add.stdout[0]!) as Record<string, unknown>;
+    expect(added).toMatchObject({ handle: 'preset-helper-2', cwd: presetCwd, purpose: 'per-add', policy: 'read-only' });
+    expect(added).not.toHaveProperty('preset_id');
+    expect(added).not.toHaveProperty('session_ref');
+
+    const remoteList: string[] = [];
+    await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'agent-preset', 'list', '--json',
+    ], { stdout: (line) => remoteList.push(line), stderr: () => undefined });
+    expect((JSON.parse(remoteList[0]!) as Array<{ label: string; id: string }>).map((entry) => entry.label))
+      .toEqual(['Alpha helper', 'Helper Two', 'Hostile\tlabel\r\n\u001b[31m\\tail']);
+    expect(JSON.parse(remoteList[0]!)).toEqual(expect.arrayContaining([expect.objectContaining({ id: presetId })]));
+
+    const hostileDeclined = await invoke(['agent-preset', 'delete', hostileId], {
+      isTTY: true,
+      confirm: async () => false,
+    });
+    expect(hostileDeclined.error).toMatchObject({
+      name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation,
+    });
+    expect(hostileDeclined.stderr).toEqual([[
+      'Delete agent preset Hostile\\tlabel\\r\\n\\x1b[31m\\\\tail',
+      ` (${hostileId})? [y/N]`,
+    ].join('')]);
+    expect(hostileDeclined.stderr[0]).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/);
+    expect(hostileDeclined.stderr[0]!.split('\n')).toHaveLength(1);
+    expect(daemon.getAgentPreset(hostileId)).toBeDefined();
+    await invoke(['agent-preset', 'delete', hostileId, '--yes', '--json']);
+    await invoke(['agent-preset', 'delete', alphaId, '--yes', '--json']);
+
+    const declined = await invoke(['agent-preset', 'delete', presetId], {
+      isTTY: true,
+      confirm: async () => false,
+    });
+    expect(declined.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(declined.stdout).toEqual([]);
+    expect(declined.stderr).toEqual([`Delete agent preset Helper Two (${presetId})? [y/N]`]);
+    expect(daemon.getAgentPreset(presetId)).toBeDefined();
+
+    const cleared = await invoke(['default-roster', 'set', '--json']);
+    expect(JSON.parse(cleared.stdout[0]!)).toMatchObject({ preset_ids: [] });
+    const deleted = await invoke(['agent-preset', 'delete', presetId, '--yes', '--json']);
+    expect(JSON.parse(deleted.stdout[0]!)).toEqual({ id: presetId, deleted: true });
+
+    const orphan = await invoke([
+      'channel', 'create', 'Orphan Starting Option', '--owner', 'richard', '--adapter', 'fake', '--json',
+    ]);
+    expect(orphan.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(daemon.store.getRoom('orphan-starting-option')).toBeUndefined();
+    const mixed = await invoke([
+      'channel', 'create', 'Mixed Initial Modes', '--owner', 'richard', '--id', 'mixed-initial-modes',
+      '--cwd', manualCwd, '--default-roster', '--starting-agent', 'mixed-worker', '--adapter', 'fake', '--json',
+    ]);
+    expect(mixed.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(daemon.store.getRoom('mixed-initial-modes')).toBeUndefined();
+  });
+  // harn:end default-roster-channel-members-are-detached-ordered-snapshots
+  // harn:end management-failures-have-stable-redacted-exits
+  // harn:end management-output-is-json-pure-and-safe
+  // harn:end agent-add-selects-public-adapter-or-detached-preset
+  // harn:end channel-cli-selects-one-initial-agent-mode
+  // harn:end preset-deletion-requires-explicit-confirmation
+  // harn:end structured-preset-and-roster-cli-is-safe-and-ordered
+  // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
+
+  // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-cli-regression
+  // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
+  // harn:assume agent-remove-requires-explicit-confirmation ref=agent-remove-confirmation-regression
+  it('manages agents through the correlated lifecycle family without changing flat commands', async () => {
+    const invoke = async (args: string[], overrides: { isTTY?: boolean } = {}) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: overrides.isTTY ?? false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const cwd = join(dir, 'managed-agent');
+    mkdirSync(cwd);
+    const added = await invoke([
+      'agent', 'add', '@worker', '--channel', 'eng', '--adapter', 'fake', '--cwd', cwd, '--json',
+    ]);
+    expect(added.error).toBeUndefined();
+    expect(JSON.parse(added.stdout[0]!)).toMatchObject({
+      handle: 'worker', status: 'idle', adapter: 'fake', cwd, policy: 'read-only',
+    });
+
+    const configured = await invoke([
+      'agent', 'configure', 'worker', '--channel', 'eng', '--model', 'safe-model', '--json',
+    ]);
+    expect(configured.error).toBeUndefined();
+    expect(JSON.parse(configured.stdout[0]!)).toMatchObject({ model: 'safe-model' });
+
+    const renamed = await invoke([
+      'agent', 'rename', 'worker', 'worker-renamed', '--channel', 'eng', '--name', 'Worker', '--json',
+    ]);
+    expect(renamed.error).toBeUndefined();
+    expect(JSON.parse(renamed.stdout[0]!)).toMatchObject({ handle: 'worker-renamed', display_name: 'Worker' });
+
+    const paused = await invoke(['agent', 'pause', '@worker-renamed', '--channel', 'eng', '--json']);
+    expect(paused.error).toBeUndefined();
+    expect(JSON.parse(paused.stdout[0]!)).toMatchObject({ status: 'paused' });
+
+    const revived = await invoke(['agent', 'revive', 'worker-renamed', '--channel', 'eng', '--json']);
+    expect(revived.error).toBeUndefined();
+    expect(JSON.parse(revived.stdout[0]!)).toMatchObject({ status: 'idle' });
+
+    const declined = await invoke(['agent', 'remove', 'worker-renamed', '--channel', 'eng']);
+    expect(declined.error).toMatchObject({ name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.invocation });
+    expect(daemon.store.getMemberByHandle('eng', 'worker-renamed')?.removed_ts).toBeUndefined();
+
+    const removed = await invoke(['agent', 'remove', 'worker-renamed', '--channel', 'eng', '--yes', '--json']);
+    expect(removed.error).toBeUndefined();
+    const removedJson = JSON.parse(removed.stdout[0]!);
+    expect(removedJson).toMatchObject({ handle: 'worker-renamed', status: 'dead', removed_ts: expect.any(String) });
+    expect(removedJson).not.toHaveProperty('session_ref');
+    expect(removedJson).not.toHaveProperty('host');
+    expect(removedJson).not.toHaveProperty('acp_launch');
+
+    const listed = await invoke(['agent', 'list', '--channel', 'eng', '--json']);
+    expect(JSON.parse(listed.stdout[0]!)).toEqual([]);
+    expect((await invoke(['channels'])).stdout).toEqual(['eng\tEngineering']);
+  });
+  // harn:end agent-remove-requires-explicit-confirmation
+  // harn:end management-output-is-json-pure-and-safe
+
+  it('classifies mirrored configuration and non-resumable revive as conflicts', async () => {
+    const invoke = async (args: string[]) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const mirroredCwd = join(dir, 'mirrored-agent');
+    mkdirSync(mirroredCwd);
+    const mirrored = daemon.joinMember('eng', {
+      harness: 'fake', handle: 'mirrored-agent', session_ref: 'mirrored-session', cwd: mirroredCwd,
+    });
+    const mirroredConfigure = await invoke([
+      'agent', 'configure', mirrored.handle, '--channel', 'eng', '--model', 'blocked-model', '--json',
+    ]);
+    expect(mirroredConfigure.error).toMatchObject({
+      name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.conflict,
+    });
+    expect(mirroredConfigure.stdout).toEqual([]);
+    expect(mirroredConfigure.stderr).toEqual([]);
+    expect(daemon.store.getMember('eng', mirrored.id)?.model).toBeUndefined();
+
+    const unrevivableCwd = join(dir, 'unrevivable-agent');
+    mkdirSync(unrevivableCwd);
+    const unrevivable = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'unrevivable', cwd: unrevivableCwd,
+    });
+    daemon.killMember('eng', unrevivable.id);
+    const unresumableRevive = await invoke([
+      'agent', 'revive', unrevivable.handle, '--channel', 'eng', '--json',
+    ]);
+    expect(unresumableRevive.error).toMatchObject({
+      name: 'ManagementError', exitCode: MANAGEMENT_EXIT_CODES.conflict,
+    });
+    expect(unresumableRevive.stdout).toEqual([]);
+    expect(unresumableRevive.stderr).toEqual([]);
+  });
+
+  // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
+
   // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-cli-regression
   it('tails a continuation row without a lifecycle summary, in id order', async () => {
     // The dormant writer will emit exactly this shape: a kind=run row carrying
@@ -1163,6 +1591,20 @@ describe('@codor/cli', () => {
       author: alpha.member.id,
       body: 'remote member attribution',
     });
+
+    output = [];
+    await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'agent', 'list', '--channel', 'eng', '--json',
+    ], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+      isTTY: false,
+    });
+    expect(output).toHaveLength(1);
+    expect(JSON.parse(output[0]!)).toEqual([
+      expect.objectContaining({ handle: 'alpha', adapter: 'fake', status: 'idle' }),
+    ]);
   });
   // harn:end member-env-selects-narrow-cli-identity
 
@@ -1740,7 +2182,6 @@ describe('@codor/cli', () => {
   });
   // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
-  // harn:assume adapter-registry-sole-harness-source ref=registry-cli-composition
   it('normalizes repeatable adapter flags and starts with the configured registry', async () => {
     expect(parseAdapterModules([
       'fixture-harness=./adapter.mjs',
@@ -1806,8 +2247,6 @@ describe('@codor/cli', () => {
     expect(disabled.opts().trustTailscaleServe).toBe(false);
     expect(enabled.opts().trustTailscaleServe).toBe(true);
   });
-  // harn:end adapter-registry-sole-harness-source
-
   it('exposes install as the primary installer command with setup as a working alias', () => {
     const program = createProgram();
     const install = program.commands.find((command) => command.name() === 'install');
@@ -1838,3 +2277,444 @@ describe('@codor/cli', () => {
     expect(output.join('\n')).toContain('[dry-run]');
   });
 });
+const fixtureGit = (cwd: string, args: readonly string[]): string => execFileSync(
+  'git',
+  ['-C', cwd, ...args],
+  { encoding: 'utf8' },
+);
+describe('Phase 4 worktree and qualified wait CLI', () => {
+  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-command-surface
+  it('registers only the singular worktree list/add/remove family', async () => {
+    const program = createProgram();
+    const structuredWorktrees = program.commands.find((command) => command.name() === 'worktree');
+    expect(structuredWorktrees?.aliases()).toEqual([]);
+    expect(structuredWorktrees?.commands.map((command) => command.name())).toEqual(['list', 'add', 'remove']);
+    expect(structuredWorktrees?.commands.find((command) => command.name() === 'add')?.options.map((option) => option.long))
+      .toEqual(expect.arrayContaining(['--adopt', '--create', '--path', '--channel']));
+    expect(structuredWorktrees?.commands.find((command) => command.name() === 'remove')?.options.map((option) => option.long))
+      .toEqual(expect.arrayContaining(['--filesystem', '--yes', '--json', '--channel']));
+    await expect(runCli(['node', 'codor', 'worktree'], {
+      env: {},
+      stdout: () => undefined,
+      stderr: () => undefined,
+    })).rejects.toMatchObject({ exitCode: 2 });
+    await expect(runCli(['node', 'codor', 'worktree', 'add', '--channel', 'eng', '--path', '/tmp/x'], {
+      env: {},
+      stdout: () => undefined,
+      stderr: () => undefined,
+    })).rejects.toMatchObject({ exitCode: 2 });
+  });
+
+  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-cli-regression
+  it('manages disposable Git worktrees through the authenticated REST lifecycle', async () => {
+    const fixture = join(dir, 'worktree CLI fixture with spaces');
+    const primary = join(fixture, 'primary checkout');
+    const adopted = join(fixture, 'adopted checkout');
+    const created = join(fixture, 'created checkout');
+    const dirty = join(fixture, 'dirty checkout');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/adopted', adopted, 'HEAD']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/dirty', dirty, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+
+    const origin = `http://127.0.0.1:${String(server.port)}`;
+    const invoke = async (...args: string[]) => {
+      const stdout: string[] = [];
+      const stderr: string[] = [];
+      let error: unknown;
+      try {
+        await runCli([
+          'node', 'codor', '--data-dir', dir, '--url', origin, '--token', 'cli-token', ...args,
+        ], {
+          stdout: (line) => stdout.push(line),
+          stderr: (line) => stderr.push(line),
+          isTTY: false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return { stdout, stderr, error };
+    };
+
+    const listed = await invoke('worktree', 'list', '--channel', 'eng', '--cwd', primary, '--json');
+    expect(listed.error).toBeUndefined();
+    expect(listed.stdout).toHaveLength(1);
+    const list = JSON.parse(listed.stdout[0]!) as {
+      repository: Record<string, unknown> | null;
+      discovered: { path: string; primary: boolean }[];
+    };
+    expect(list.repository).toBeNull();
+    expect(list.discovered).toContainEqual(expect.objectContaining({ path: adopted, primary: false }));
+    expect(JSON.stringify(list)).not.toContain('git_admin_id');
+    expect(JSON.stringify(list)).not.toContain('common_path');
+
+    const adoptedResult = await invoke(
+      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', adopted, '--alias', 'adopted-child', '--cwd', primary, '--json',
+    );
+    expect(adoptedResult.error).toBeUndefined();
+    expect(JSON.parse(adoptedResult.stdout[0]!)).toMatchObject({
+      alias: 'adopted-child', source: 'adopted', branch: 'feature/adopted',
+    });
+
+    const createdResult = await invoke(
+      'worktree', 'add', '--channel', 'eng', '--create', '--path', created,
+      '--alias', 'created-child', '--branch', 'feature/created', '--cwd', primary, '--json',
+    );
+    expect(createdResult.error).toBeUndefined();
+    expect(JSON.parse(createdResult.stdout[0]!)).toMatchObject({
+      alias: 'created-child', source: 'created', branch: 'feature/created',
+    });
+
+    const dirtyAdopted = await invoke(
+      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', dirty, '--alias', 'dirty-child', '--cwd', primary, '--json',
+    );
+    expect(dirtyAdopted.error).toBeUndefined();
+
+    const unregistered = await invoke(
+      'worktree', 'remove', 'adopted-child', '--channel', 'eng', '--yes', '--json',
+    );
+    expect(unregistered.error).toBeUndefined();
+    expect(existsSync(adopted)).toBe(true);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/adopted'])).toContain('feature/adopted');
+
+    writeFileSync(join(dirty, 'uncommitted.txt'), 'dirty\n');
+    const dirtyRemoval = await invoke(
+      'worktree', 'remove', 'dirty-child', '--channel', 'eng', '--filesystem', '--yes', '--json',
+    );
+    expect(dirtyRemoval.error).toMatchObject({ exitCode: 6 });
+    expect(dirtyRemoval.stdout).toEqual([]);
+    expect(existsSync(dirty)).toBe(true);
+
+    const removed = await invoke(
+      'worktree', 'remove', 'created-child', '--channel', 'eng', '--filesystem', '--yes', '--json',
+    );
+    expect(removed.error).toBeUndefined();
+    expect(existsSync(created)).toBe(false);
+    expect(fixtureGit(primary, ['show-ref', '--verify', 'refs/heads/feature/created'])).toContain('feature/created');
+
+    const alpha = credentialedAgent('worktree-cli-agent');
+    const agentAttempt = await runCli([
+      'node', 'codor', '--data-dir', dir, '--url', origin,
+      'worktree', 'list', '--channel', 'eng', '--json',
+    ], {
+      env: alpha.env,
+      stdout: () => undefined,
+      stderr: () => undefined,
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(agentAttempt).toMatchObject({ exitCode: 4 });
+  });
+
+  it('uses the fresh preview identity for consent and refuses mismatched preview ids', async () => {
+    const fixture = restWorktreeFixture();
+    const calls: Array<{ method: string; path: string; body?: string; authorization?: string }> = [];
+    let mismatch = false;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const authorization = new Headers(init?.headers).get('authorization') ?? undefined;
+      calls.push({
+        method: init?.method ?? 'GET',
+        path: url.pathname,
+        ...(typeof init?.body === 'string' && { body: init.body }),
+        ...(authorization !== undefined && { authorization }),
+      });
+      if (url.pathname.endsWith('/removal-preview')) {
+        return new Response(JSON.stringify({
+          repository: fixture.repository,
+          worktree: mismatch ? { ...fixture.fresh, id: '01C4F6Y9J4QJ5F4KZ5T6X2V3W4' } : fixture.fresh,
+          state: 'clean',
+          branch_preserved: true,
+        }), { status: 200 });
+      }
+      if (url.pathname.endsWith('/remove')) {
+        return new Response(JSON.stringify({ repository: fixture.repository, worktree: fixture.fresh }), { status: 200 });
+      }
+      return new Response(JSON.stringify(fixture.list), { status: 200 });
+    });
+    try {
+      const prompt: string[] = [];
+      const stdout: string[] = [];
+      await runCli([
+        'node', 'codor', '--data-dir', dir, '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
+        'worktree', 'remove', fixture.selected.id, '--channel', 'eng', '--filesystem',
+      ], {
+        stdout: (line) => stdout.push(line),
+        stderr: (line) => prompt.push(line),
+        isTTY: true,
+        confirm: async (line) => {
+          prompt.push(`confirm:${line}`);
+          return 'yes';
+        },
+      });
+      expect(prompt[0]).toContain('fresh-child');
+      expect(prompt[0]).toContain('/repo/fresh-child');
+      expect(prompt[0]).not.toContain('stale-child');
+      expect(prompt[0]).not.toContain('/repo/stale-child');
+      expect(prompt.filter((line) => !line.startsWith('confirm:'))).toHaveLength(1);
+      expect(stdout).toHaveLength(1);
+      expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1);
+
+      mismatch = true;
+      calls.length = 0;
+      prompt.length = 0;
+      await expect(runCli([
+        'node', 'codor', '--data-dir', dir, '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
+        'worktree', 'remove', fixture.selected.id, '--channel', 'eng', '--filesystem',
+      ], {
+        stdout: () => undefined,
+        stderr: (line) => prompt.push(line),
+        isTTY: true,
+        confirm: async () => 'yes',
+      })).rejects.toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.transport });
+      expect(prompt).toEqual([]);
+      expect(calls.filter((call) => call.method === 'POST')).toEqual([]);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it('keeps credential locality, role refusals, default-roster forwarding, and no-mutation boundaries', async () => {
+    const fixture = restWorktreeFixture();
+    const home = join(dir, 'operator home');
+    mkdirSync(join(home, '.config', 'codor'), { recursive: true });
+    writeFileSync(operatorTokenPath(home), 'operator-token\n', { mode: 0o600 });
+    const requests: Array<{ method: string; path: string; authorization?: string; body?: unknown }> = [];
+    let successfulMutations = 0;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const authorization = new Headers(init?.headers).get('authorization') ?? undefined;
+      const token = authorization?.replace(/^Bearer /, '');
+      requests.push({
+        method: init?.method ?? 'GET',
+        path: url.pathname,
+        ...(authorization !== undefined && { authorization }),
+        ...(typeof init?.body === 'string' && { body: JSON.parse(init.body) as unknown }),
+      });
+      if (token !== 'operator-token' && token !== 'explicit-token') {
+        return new Response(JSON.stringify({ error: 'forbidden: worktree lifecycle is restricted to owners and admins' }), { status: 403 });
+      }
+      if (init?.method === 'POST') {
+        successfulMutations += 1;
+        return new Response(JSON.stringify({ repository: fixture.repository, worktree: fixture.selected }), { status: 200 });
+      }
+      return new Response(JSON.stringify(fixture.list), { status: 200 });
+    });
+    const invoke = async (args: string[], env: NodeJS.ProcessEnv) => {
+      let error: unknown;
+      try {
+        await runCli(['node', 'codor', '--data-dir', dir, ...args], {
+          env,
+          stdout: () => undefined,
+          stderr: () => undefined,
+          isTTY: false,
+        });
+      } catch (caught) {
+        error = caught;
+      }
+      return error;
+    };
+    try {
+      await invoke(['--url', 'http://127.0.0.1:8137', 'worktree', 'list', '--channel', 'eng', '--json'], { HOME: home });
+      expect(requests[0]).toMatchObject({ method: 'GET', authorization: 'Bearer operator-token' });
+
+      await invoke([
+        '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
+        'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/new',
+        '--alias', 'new-child', '--branch', 'feature/new', '--default-roster', '--json',
+      ], {});
+      expect(requests.at(-1)).toMatchObject({
+        method: 'POST',
+        authorization: 'Bearer explicit-token',
+        body: { path: '/repo/new', alias: 'new-child', branch: 'feature/new', default_roster: true },
+      });
+
+      const beforeRemote = requests.length;
+      expect(await invoke(['--url', 'https://remote.example.test', 'worktree', 'list', '--channel', 'eng', '--json'], { HOME: home }))
+        .toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authentication });
+      expect(requests).toHaveLength(beforeRemote);
+
+      const successfulPosts = successfulMutations;
+      for (const token of ['member-token', 'observer-token']) {
+        const refusal = await invoke([
+          '--url', 'http://127.0.0.1:8137', '--token', token,
+          'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/refused',
+          '--alias', 'refused-child', '--branch', 'feature/refused', '--json',
+        ], {});
+        expect(refusal).toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authorization });
+      }
+      for (const args of [
+        ['worktree', 'list', '--channel', 'eng', '--json'],
+        ['worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/agent-refused', '--alias', 'agent-refused', '--branch', 'feature/agent-refused', '--json'],
+      ]) {
+        const refusal = await invoke(['--url', 'http://127.0.0.1:8137', '--token', 'agent-token', ...args], {});
+        expect(refusal).toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authorization });
+      }
+      expect(successfulMutations).toBe(successfulPosts);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  // harn:assume qualified-cli-wait-preserves-scoped-peer-identity ref=qualified-post-wait-regression
+  it('post --wait keeps an authoritative foreign peer with an equal local handle', async () => {
+    const fixture = join(dir, 'qualified wait fixture');
+    const primary = join(fixture, 'primary');
+    const child = join(fixture, 'child');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/qualified-wait', child, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const target = await daemon.adoptWorktree('eng', { path: child, alias: 'foreign' });
+    const origin = credentialedAgent('same-handle');
+    const foreign = daemon.spawnMember(target.worktree.conversation_id, {
+      harness: 'fake',
+      handle: 'same-handle',
+      cwd: child,
+    });
+    fake.enqueue(
+      { kind: 'complete', final_text: 'origin is still working', delay_ms: 300 },
+      { kind: 'complete', final_text: 'foreign setup remains active', delay_ms: 1_000 },
+    );
+    daemon.postHumanMessage('eng', '@same-handle ~foreign:@same-handle establish the scoped group');
+    await until(() => daemon.store.getMember('eng', origin.member.id)?.state === 'running' ? true : undefined);
+    setTimeout(() => {
+      daemon.postAgentMessage('eng', foreign.id, '~main:@same-handle foreign answer');
+    }, 60);
+
+    output = [];
+    await memberCli(origin.env, 'post', '--wait', '--timeout', '1', '~foreign:@same-handle scoped question');
+    expect(output.at(-1)).toBe('~main:@same-handle foreign answer');
+    const posted = daemon.store.listMessages('eng', { limit: 20 }).find((message) =>
+      message.body === '~foreign:@same-handle scoped question');
+    expect(posted?.mentions.map((mention) => mention.member_id)).toContain(foreign.id);
+    expect(daemon.store.listDeliveries('eng', { recipient: origin.member.id })
+      .some((delivery) => delivery.state === 'consumed')).toBe(true);
+    await daemon.settle();
+  });
+});
+
+const restWorktreeFixture = () => {
+  const repository = {
+    id: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+    room: 'eng',
+    common_path: '/repo',
+    primary_path: '/repo/main',
+    primary_git_admin_id: '/repo/main/.git',
+    created_ts: '2026-08-08T00:00:00.000Z',
+    updated_ts: '2026-08-08T00:00:00.000Z',
+  };
+  const selected = {
+    id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+    repository_id: repository.id,
+    room: 'eng',
+    conversation_id: 'eng',
+    alias: 'stale-child',
+    path: '/repo/stale-child',
+    git_admin_id: '/repo/main/.git/worktrees/child',
+    primary: false,
+    source: 'created' as const,
+    lifecycle: 'active' as const,
+    availability: 'available' as const,
+    locked: false,
+    head: '0123456789abcdef0123456789abcdef01234567',
+    branch: 'feature/child',
+    registered_ts: repository.created_ts,
+    updated_ts: repository.updated_ts,
+  };
+  return {
+    repository,
+    selected,
+    fresh: { ...selected, alias: 'fresh-child', path: '/repo/fresh-child' },
+    list: { repository, registered: [selected], discovered: [] },
+  };
+};
+
+// harn:assume structured-management-help-and-docs-are-complete ref=management-help-regression
+describe('Phase 5 management help', () => {
+  it('documents every accepted family without selected credentials or private fields', () => {
+    const program = createProgram({
+      env: {
+        CODOR_MEMBER_TOKEN: 'help-member-secret',
+        CODOR_TOKEN: 'help-operator-secret',
+      },
+    });
+    const captureHelp = (command: ReturnType<typeof createProgram>): string => {
+      let rendered = '';
+      command.configureOutput({ writeOut: (value) => { rendered += value; } });
+      command.outputHelp();
+      return rendered;
+    };
+    const rootHelp = captureHelp(program);
+    for (const family of ['channel', 'agent', 'agent-preset', 'default-roster', 'worktree']) {
+      expect(rootHelp).toContain(`codor ${family} --help`);
+    }
+    expect(rootHelp).toContain('flat commands remain compatible');
+    expect(rootHelp).toContain('--token <token>');
+
+    const families = {
+      channel: {
+        commands: ['list', 'create', 'show', 'rename', 'archive'],
+        text: ['Archive is soft retention only', 'no hard-delete or restore command'],
+      },
+      agent: {
+        commands: ['list', 'add', 'configure', 'rename', 'pause', 'revive', 'remove'],
+        text: ['Agent add selects exactly one public adapter or preset'],
+      },
+      'agent-preset': {
+        commands: ['list', 'create', 'update', 'delete'],
+        text: ['individual reusable preset CRUD', 'separate from default-roster'],
+      },
+      'default-roster': {
+        commands: ['show', 'set'],
+        text: ['replaces the entire ordered roster', 'separate from individual presets'],
+      },
+      worktree: {
+        commands: ['list', 'add', 'remove'],
+        text: ['Worktree add requires --create or --adopt', 'Remove unregisters by default', '--filesystem'],
+      },
+    } as const;
+    for (const [family, expected] of Object.entries(families)) {
+      const command = program.commands.find((candidate) => candidate.name() === family);
+      expect(command, family).toBeDefined();
+      expect(command!.commands.map((child) => child.name())).toEqual(expected.commands);
+      const help = captureHelp(command!);
+      for (const phrase of expected.text) expect(help).toContain(phrase);
+    }
+
+    const rendered = rootHelp + Object.keys(families)
+      .map((family) => captureHelp(program.commands.find((candidate) => candidate.name() === family)!))
+      .join('\n');
+    for (const secret of ['help-member-secret', 'help-operator-secret', 'acp_launch', 'session_ref', 'Bearer ']) {
+      expect(rendered).not.toContain(secret);
+    }
+    const repoRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    const readme = readFileSync(join(repoRoot, 'README.md'), 'utf8');
+    const packedScript = readFileSync(join(repoRoot, 'scripts', 'packed-install-test.sh'), 'utf8');
+    const documented = `${rendered}\n${readme}\n${packedScript}`;
+    expect(documented).not.toContain('codor channel list --channel');
+    expect(documented).toContain('codor channel list --json');
+    expect(documented).toContain('codor channel show desk --json');
+    const rawGitSetup = packedScript.match(
+      /export PHASE5_PRIMARY=[\s\S]*?node --input-type=module <<'NODE'\n([\s\S]*?)\nNODE/,
+    )?.[1] ?? '';
+    expect(rawGitSetup).toContain("git(primary, ['init', '-q', '-b', 'main'])");
+    expect(rawGitSetup).not.toContain('worktree add');
+    expect(rawGitSetup).not.toContain('phase5-child');
+    expect(packedScript).toContain('PHASE5_CHILD_JSON=');
+    expect(packedScript).toContain('worktree add --channel phase5-root --create');
+  });
+});
+// harn:end structured-management-help-and-docs-are-complete

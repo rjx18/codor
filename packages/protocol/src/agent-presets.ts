@@ -14,6 +14,8 @@ export const DEFAULT_ROSTER_ID = 'default' as const;
 export const AGENT_PRESET_MAX_LABEL_LENGTH = 80;
 export const AGENT_PRESET_MAX_DISPLAY_NAME_LENGTH = 120;
 export const AGENT_PRESET_MAX_HARNESS_LENGTH = 64;
+/** Public selectors also carry the `acp:` prefix for named ACP providers. */
+export const AGENT_PRESET_MAX_PUBLIC_ADAPTER_LENGTH = AGENT_PRESET_MAX_HARNESS_LENGTH + 'acp:'.length;
 export const AGENT_PRESET_MAX_MODEL_LENGTH = 256;
 export const DEFAULT_ROSTER_MAX_PRESETS = 100;
 
@@ -96,6 +98,31 @@ export const AgentPresetCreateInputSchema = AgentPresetInputSchema;
 export const AgentPresetUpdateInputSchema = AgentPresetInputSchema;
 export type AgentPresetCreateInput = AgentPresetInput;
 export type AgentPresetUpdateInput = AgentPresetInput;
+
+// harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-safe-schema
+/**
+ * The launch-free projection used by the structured CLI.  Browser REST keeps
+ * the full editing record for its existing contract; the CLI receives only
+ * this public selector and bounded configuration projection.
+ */
+export const AgentPresetPublicSchema = z.object({
+  id: presetIdSchema,
+  schema_version: z.literal(AGENT_PRESET_SCHEMA_VERSION),
+  created_ts: TimestampSchema,
+  updated_ts: TimestampSchema,
+  label: boundedText(AGENT_PRESET_MAX_LABEL_LENGTH),
+  handle: AssignableHandleSchema,
+  display_name: boundedText(AGENT_PRESET_MAX_DISPLAY_NAME_LENGTH).optional(),
+  adapter: boundedText(AGENT_PRESET_MAX_PUBLIC_ADAPTER_LENGTH),
+  model: z.string().trim().min(1).max(AGENT_PRESET_MAX_MODEL_LENGTH)
+    .regex(AGENT_PRESET_MODEL_ID_REGEX, 'model id has an invalid format')
+    .optional(),
+  thinking: ThinkingLevelSchema.optional(),
+  policy: PolicySchema.optional(),
+  custom_acp: z.literal(true).optional(),
+}).strict();
+export type AgentPresetPublic = z.infer<typeof AgentPresetPublicSchema>;
+// harn:end structured-preset-and-roster-cli-is-safe-and-ordered
 // harn:end individual-agent-presets-are-bounded-catalog-validated-configurations
 
 // harn:assume default-roster-is-one-versioned-ordered-preset-reference-group ref=default-roster-schema

@@ -1,0 +1,252 @@
+id: cli-management-phase5-review-fix-evidence
+title: Correct Phase 5 management examples and packed recovery evidence
+notes: >-
+  This is a bounded review fix for Phase 5 on the independently reviewed clean
+  commit 6b199812962d2867063b6b239d7530e34ad1eac7. The Phase 5 plan is applied,
+  its commit boundary is exact, and the accepted Phase 1-4 runtime remains
+  unchanged. Independent review found two evidence defects in the new
+  help/documentation and packed integration surfaces; this plan corrects those
+  defects without reopening or extending the product.
+
+
+  First, root help, channel-family help, and README advertise `codor channel
+  list --channel desk`, but the accepted `channel list` grammar has only `--all`
+  and `--json`. The installed CLI reproducibly rejects the advertised example
+  with invocation exit 2, empty stdout, and one `unknown option '--channel'`
+  stderr line. Replace every invalid example with accepted syntax, keep `channel
+  list` unscoped, and use `channel show desk` wherever an example needs a
+  specific channel. Strengthen the end-of-file Phase 5 help regression so root
+  help, family help, and README cannot reintroduce the invalid option and retain
+  exact safe examples; do not add an option or change any command registration,
+  ordering, alias, parser route, exit, output, or connection behavior.
+
+
+  Second, the packed recovery setup creates `/proof/phase5-child` and local
+  branch `phase5-child` with raw Git before invoking the installed CLI with
+  `worktree add --create` for those same resources. The accepted WorktreeManager
+  correctly refuses an existing target or local branch, so this setup cannot
+  prove that the installed CLI created the secondary worktree described by the
+  assumption. Initialize and commit only the disposable primary repository with
+  argument-array Git in the raw setup. The installed explicit loopback URL/token
+  `worktree add --create --default-roster` command must be the sole creator of
+  the child checkout and branch. Assert immediately afterward that the returned
+  public projection, canonical child checkout, registered worktree, branch, and
+  roster snapshot exist, and retain the recovery assertions after restart.
+
+
+  Make the restart evidence genuinely graceful: fail if the first daemon does
+  not exit successfully after SIGTERM, rather than ignoring its status, before
+  starting the same installed daemon with the same data, socket, origin,
+  adapter, and repository. After restart, assert both named root agents
+  (`phase5-helper` and `explicit-worker`) and the named child snapshot
+  (`phase5-helper`) in addition to their canonical cwd values. Strengthen the
+  shared Phase 5 redaction assertion to reject the proof bearer and explicit
+  private JSON field names for ACP launch/executable/argv, native session/host,
+  Git administrative/common path identity, and room/sealed keys without
+  false-positive substring matches; apply it to installed root help as well as
+  every new success/history projection. Keep stdout JSON-pure and failures on
+  one-line stderr.
+
+
+  The packed script clones the selected committed ref before building the
+  artifact, so running it directly from an uncommitted target branch can
+  exercise the parent script and artifact rather than this fix. Before the
+  target commit, validate the exact staged source in an isolated temporary
+  clone/branch under an exact mktemp root and run this worktree's updated script
+  with `CODOR_PACKED_SOURCE` and `CODOR_PACKED_REF` selecting that temporary
+  committed source. After the one target commit, rerun the normal packed script
+  against the resulting `feat/cli-management` commit and require it to pass.
+  This temporary validation history is outside the managed branch and must be
+  removed with only its exact temporary root.
+
+
+  Preserve every accepted flat and structured command, local socket default,
+  explicit loopback URL/token path, credential locality, owner/admin/member
+  authorization, confirmation, exit code, stderr, JSON projection, archive-only
+  retention, preset/roster semantics, worktree lifecycle, qualified routing,
+  offline runtime, pinned images, browser/API checks, Windows shims, and package
+  contents. Do not change protocol, switchboard, management
+  clients/renderers/classifier, database, Git manager, setup/install code,
+  Windows scripts, web code, dependencies, versions, changelog, or publishing.
+  Produce exactly one review-fix implementation commit containing only this
+  applied plan and the four declared files.
+assumptions:
+  create: []
+  retire: []
+  reviewed:
+    - id: structured-management-help-and-docs-are-complete
+      outcome: unchanged
+      reason: Correct invalid examples and make the existing documentation regression
+        prove the accepted grammar without changing that grammar.
+    - id: packed-management-workflow-recovers-after-restart
+      outcome: unchanged
+      reason: Repair the disposable setup and assertions so the packed gate actually
+        proves the already-stated installed create and graceful recovery
+        contract.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: The same clean clone, pack, install, offline runtime, browser/API, and
+        teardown gate remains; only its Phase 5 evidence becomes valid and
+        stricter.
+    - id: structured-channel-cli-preserves-flat-listing
+      outcome: unchanged
+      reason: Channel list remains global and its accepted options, output, ordering,
+        aliases, and legacy channels command are unchanged.
+    - id: structured-worktree-cli-uses-accepted-lifecycle
+      outcome: unchanged
+      reason: The installed proof now uses the accepted create path from an actually
+        absent target and branch; no lifecycle implementation changes.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: The repaired packed setup proves the existing explicit snapshot behavior
+        without changing roster expansion or persistence.
+    - id: management-output-is-json-pure-and-safe
+      outcome: unchanged
+      reason: Strengthen installed assertions around the existing bounded public
+        projections without changing renderers or output fields.
+    - id: cli-help-never-renders-selected-bearer
+      outcome: unchanged
+      reason: Help remains static and safe; installed root help is added to the
+        redaction evidence.
+    - id: public-package-readme-renders-on-npm
+      outcome: unchanged
+      reason: The packaged README remains present and now contains only valid accepted
+        CLI examples.
+anchors:
+  structured-management-help-and-docs-are-complete:
+    management-help-metadata:
+      action: change
+      reason: Replace invalid channel-list examples with exact accepted syntax while
+        leaving command construction untouched.
+    management-help-regression:
+      action: change
+      reason: Pin root help, channel help, and README against the invalid option and
+        assert the corrected safe examples.
+    readme-management-examples:
+      action: change
+      reason: Correct the channel examples without changing the documented
+        compatibility, connection, confirmation, or family contracts.
+    packed-management-help-regression:
+      action: change
+      reason: Check installed root help as well as family help and packaged README for
+        valid examples and private-field redaction.
+    changelog-management-upgrade-notes:
+      action: keep
+      reason: The accepted operator-visible changelog entry is already accurate and
+        remains untouched.
+  packed-management-workflow-recovers-after-restart:
+    packed-management-recovery-workflow:
+      action: change
+      reason: Let the installed CLI alone create the child, require graceful stop, pin
+        named recovered agents, and close the redaction evidence gaps.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Retain the single packed gate and every prior assertion while repairing
+        its nested Phase 5 setup and recovery proof.
+  structured-channel-cli-preserves-flat-listing:
+    structured-channel-command-surface:
+      action: keep
+      reason: Do not add --channel or otherwise change channel command registration.
+    structured-channel-cli-regression:
+      action: keep
+      reason: Existing channel behavior and compatibility coverage remains unchanged.
+    structured-channel-packed-smoke:
+      action: keep
+      reason: Existing installed channel create/rename/archive/list coverage remains
+        unchanged.
+  structured-worktree-cli-uses-accepted-lifecycle:
+    worktree-command-surface:
+      action: keep
+      reason: Worktree list/add/remove syntax and behavior remain unchanged.
+    worktree-cli-regression:
+      action: keep
+      reason: Existing real-Git, authorization, credential, selector, and confirmation
+        coverage remains unchanged.
+    worktree-packed-smoke:
+      action: keep
+      reason: Existing Git-less installed refusal coverage remains intact before the
+        corrected Phase 5 workflow.
+  worktree-child-default-roster-is-an-explicit-snapshot:
+    child-default-roster-daemon:
+      action: keep
+      reason: Snapshot implementation and authorization remain untouched.
+  management-output-is-json-pure-and-safe:
+    management-safe-output:
+      action: keep
+      reason: No management projection or renderer changes.
+  cli-help-never-renders-selected-bearer:
+    redacted-token-option-default:
+      action: keep
+      reason: Token selection and redacted option metadata remain untouched.
+    token-help-redaction-regression:
+      action: keep
+      reason: Historical root-help regression remains unchanged.
+  public-package-readme-renders-on-npm:
+    readme-registry-logo:
+      action: keep
+      reason: Public package branding and absolute asset URLs remain unchanged.
+    artifact-readme-regression:
+      action: keep
+      reason: Existing artifact staging coverage remains unchanged; the packed gate
+        validates corrected content.
+files:
+  - README.md
+  - packages/cli/src/program.ts
+  - packages/cli/src/index.spec.ts
+  - scripts/packed-install-test.sh
+verification: >-
+  Work test-first. Extend the physical-end Phase 5 help regression to read root
+  help, channel-family help, README, and the packed script; assert the invalid
+  `channel list --channel` example is absent, corrected accepted channel
+  examples are present, the raw Git setup does not create the child or branch,
+  and the installed CLI create command remains. Run `pnpm --filter @codor/cli
+  exec node ../../scripts/test-env.mjs vitest run src/index.spec.ts -t "Phase 5
+  management help"` against the unmodified sources and observe the new
+  assertions fail; then make only the bounded production/docs/script corrections
+  and rerun green. Keep the test block at physical EOF and preserve all
+  historical markers. Run the built CLI reproduction for the corrected
+  documented channel commands and require zero invocation errors.
+
+
+  Run `bash -n scripts/packed-install-test.sh`, the focused
+  Windows/local-transport regressions (`pnpm --filter @codor/cli exec node
+  ../../scripts/test-env.mjs vitest run src/install-win32.spec.ts
+  src/setup-win32.spec.ts src/runtime-install.spec.ts
+  src/connection-pipe.spec.ts`), `pnpm --filter @codor/cli test`, `pnpm --filter
+  '@codor/cli...' build`, `pnpm build`, and root `pnpm test` in an isolated
+  CODOR environment. The existing Node engine and bundle-size warnings are
+  acceptable; failures are not.
+
+
+  Before the target commit, create one isolated temporary validation clone and
+  branch under an exact mktemp root, apply the exact staged four-file source
+  diff, commit that throwaway branch, and run this worktree's updated
+  `scripts/packed-install-test.sh` with `CODOR_PACKED_SOURCE` and
+  `CODOR_PACKED_REF` pointing at that exact temporary branch. This must build,
+  pack, and install the corrected source, initialize only the primary repository
+  outside the installed CLI, prove the installed CLI creates the child/branch
+  once, require a successful graceful stop, recover named root/child agents and
+  canonical paths, pass strengthened redaction assertions, preserve every
+  browser/API/teardown assertion, and run with runtime networking disabled.
+  Remove only the exact temporary root. After the normal Harn-hook target
+  commit, rerun `scripts/packed-install-test.sh` against the committed
+  `feat/cli-management` tip and require the same result.
+
+
+  Capture a normalized inventory of all real worktrees before any Git-backed
+  gate and compare it after each such gate and at completion; all disposable
+  repositories/checkouts must stay under mktemp or `/proof`, and no real
+  checkout, branch, HEAD, or dirty state may change.
+
+
+  Run `harn find --plan cli-management-phase5-review-fix-evidence`, `harn plan
+  check cli-management-phase5-review-fix-evidence`, and `harn check
+  cli-management-phase5-review-fix-evidence`; resolve every issue without
+  changing the locked plan. Stage only this plan and the four declared files,
+  run `git diff --cached --check`, `harn find --staged`, and `harn check
+  --staged`, and let the normal Harn commit hook apply the plan without bypass.
+  Create exactly one review-fix commit above
+  6b199812962d2867063b6b239d7530e34ad1eac7 and leave a clean worktree.
+applied:
+  applied_at: 2026-08-08T14:16:48.124Z

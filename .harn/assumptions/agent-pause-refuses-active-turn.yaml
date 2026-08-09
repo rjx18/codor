@@ -1,0 +1,17 @@
+id: agent-pause-refuses-active-turn
+hash: a-8f14e9d1284f
+title: Agent pause never relabels an active or uncertain runtime
+state: active
+statement: Pausing an agent may place only an idle, queued, or unreachable
+  member into the paused queue-hold state; it must refuse running,
+  awaiting-input, otherwise in-flight, dead, already-paused, custody-uncertain,
+  and removed members before writing state, while the paired structured revive
+  action unpauses paused members, revives dead members through their canonical
+  session path, and refuses every other state, because a pause is not an
+  interrupt and must never make active or uncertain runtime custody look safely
+  dormant.
+depends_on:
+  - one-inflight-turn-per-member
+  - custody-uncertain-never-double-writes
+  - copilot-vscode-revive-requires-exact-live-cache
+created_by: cli-management-phase2-agent-lifecycle

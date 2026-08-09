@@ -12,6 +12,18 @@ export type { DetectedSession } from './detect.js';
 export { parseMirrorHook } from './mirror.js';
 export { createProgram, runCli } from './program.js';
 export type { CliContext } from './program.js';
+export {
+  ManagementError,
+  MANAGEMENT_EXIT_CODES,
+  cliExitCode,
+  classifyManagementError,
+  confirmArchive,
+  formatCliError,
+  redactDiagnostic,
+  renderChannel,
+  renderChannelList,
+} from './management.js';
+export type { ChannelProjection, ManagementExitCode, ConfirmationOptions } from './management.js';
 export { runSetup } from './setup.js';
 export type { SetupOptions, SetupOverrides } from './setup.js';
 export { renderTerminalQr } from './terminal-qr.js';
@@ -25,9 +37,10 @@ export function packageName(): string {
 // harn:assume source-cli-installers-remain-idempotent-fallback ref=per-user-cli-install-script
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const { runCli } = await import('./program.js');
+  const { cliExitCode, formatCliError } = await import('./management.js');
   await runCli().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
+    process.stderr.write(`${formatCliError(error)}\n`);
+    process.exitCode = cliExitCode(error);
   });
 }
 // harn:end source-cli-installers-remain-idempotent-fallback
