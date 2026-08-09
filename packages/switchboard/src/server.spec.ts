@@ -2035,6 +2035,44 @@ describe('REST', () => {
       }
     });
 
+    // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-rest-regression
+    it('omits ask and approval rows without reducing the twenty-unit REST page', async () => {
+      const owner = daemon.ownerOf('eng');
+      const visible: number[] = [];
+      const interactions: number[] = [];
+      for (let index = 0; index < 20; index += 1) {
+        if (index === 5 || index === 10) {
+          const kind = index === 5 ? 'ask' as const : 'approval' as const;
+          interactions.push(daemon.store.postMessage('eng', {
+            author: owner.id,
+            kind,
+            body: `${kind} outside immutable history`,
+            ask: {
+              interaction_id: `rest-history-${kind}`,
+              kind,
+              prompt: `${kind} prompt`,
+              options: [{ label: 'Allow' }, { label: 'Deny' }],
+            },
+          }).id);
+        }
+        visible.push(daemon.store.postMessage('eng', {
+          author: owner.id, kind: 'chat', body: `visible history ${String(index)}`,
+        }).id);
+      }
+
+      const response = await fetch(`${base}/api/rooms/eng/transcript-history`, {
+        headers: { authorization: `Bearer ${TOKEN}` },
+      });
+      expect(response.status).toBe(200);
+      const page = await response.json() as TranscriptHistoryPage;
+      expect(page.units).toHaveLength(20);
+      expect(page.units.map((unit) => unit.kind === 'message' ? unit.message_id : -1))
+        .toEqual(visible);
+      expect(page.messages.map((message) => message.id)).toEqual(visible);
+      expect(page.messages.some((message) => interactions.includes(message.id))).toBe(false);
+    });
+    // harn:end actionable-interactions-remain-support-owned-outside-history
+
     // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-rest-regression
     it('returns every mixed-history unit once when an oldest id sorts into the newest page', async () => {
       const owner = daemon.ownerOf('eng');

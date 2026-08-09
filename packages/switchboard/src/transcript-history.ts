@@ -331,6 +331,13 @@ export function buildTranscriptHistoryPage(opts: {
     const next: Entry[] = [];
     for (const message of messages.values()) {
       if (message.run_parent_id !== undefined || (message.kind === 'run' && message.run !== undefined)) continue;
+      // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-unitizer
+      // Pending/resolved interaction state is recipient-scoped RoomSupport, not
+      // immutable transcript history. Counting the durable card row here would
+      // either resurrect an answered card or spend a visible-unit slot on state
+      // the page cannot truthfully project.
+      if (message.kind === 'ask' || message.kind === 'approval') continue;
+      // harn:end actionable-interactions-remain-support-owned-outside-history
       next.push({
         sourceMessageId: message.id,
         unitOrdinal: 0,

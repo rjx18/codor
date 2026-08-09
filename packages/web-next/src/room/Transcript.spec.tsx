@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
 
 import {
+  coldMessageSuppressed,
   continuationTrailingText,
   continuationVisibleMessages,
   deliveryIndicator,
@@ -138,6 +139,23 @@ describe('continuation transcript semantics', () => {
   });
 });
 // harn:end continuation-writer-follows-journaled-output-ownership
+
+// harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-cold-suppression-regression
+describe('support-owned interaction suppression', () => {
+  it('keeps only currently actionable cold-tail cards outside history suppression', () => {
+    const ask = { ...chat(40), kind: 'ask' as const };
+    const approval = { ...chat(41), kind: 'approval' as const };
+    const cold = { 40: true as const, 41: true as const, 42: true as const };
+    const actionable = new Set([40, 41]);
+
+    expect(coldMessageSuppressed(ask, cold, actionable)).toBe(false);
+    expect(coldMessageSuppressed(approval, cold, actionable)).toBe(false);
+    expect(coldMessageSuppressed(ask, cold, new Set())).toBe(true);
+    expect(coldMessageSuppressed(chat(42), cold, actionable)).toBe(true);
+    expect(coldMessageSuppressed(chat(43), cold, actionable)).toBe(false);
+  });
+});
+// harn:end actionable-interactions-remain-support-owned-outside-history
 
 // harn:assume cross-worktree-output-stays-in-origin ref=qualified-author-rendering-regression
 describe('qualified transcript attribution', () => {

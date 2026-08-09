@@ -1,0 +1,19 @@
+id: actionable-interactions-remain-support-owned-outside-history
+hash: a-069fb65183ed
+title: Actionable interaction cards remain support-owned outside immutable history
+state: active
+statement: Ask and approval message rows must contribute zero combined
+  transcript history units and never consume the twenty-unit historical budget;
+  recipient-scoped RoomSupport.interactions exclusively determines their
+  actionability, so a pending card in the addressed cold tail remains inline, a
+  pending card outside that tail remains in the detached interaction tray, and
+  either card disappears immediately and after reload when support no longer
+  lists it, while durable answers and multi-question payloads keep their
+  established behavior.
+depends_on:
+  - historical-transcript-pages-match-output-scoped-rendering
+  - finalized-browser-history-is-combined-page-owned
+  - room-support-is-bounded-recipient-scoped-state
+  - approval-answer-is-atomic-and-chatless
+  - addressed-cold-hydration-is-strict-and-legacy-safe
+created_by: interaction-history-support-ownership

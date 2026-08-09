@@ -134,6 +134,20 @@ export function continuationVisibleMessages(
 }
 // harn:end continuation-writer-follows-journaled-output-ownership
 
+// harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-cold-suppression
+export function coldMessageSuppressed(
+  message: Message,
+  coldMessageIds: Readonly<Record<number, true>> | undefined,
+  actionableInteractionIds: ReadonlySet<number>,
+): boolean {
+  if (
+    (message.kind === 'ask' || message.kind === 'approval')
+    && actionableInteractionIds.has(message.id)
+  ) return false;
+  return coldMessageIds?.[message.id] === true;
+}
+// harn:end actionable-interactions-remain-support-owned-outside-history
+
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
@@ -176,6 +190,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const detachedInteractions = useMemo(
     () => support?.interactions.filter((message) => messages[message.id] === undefined) ?? [],
     [messages, support],
+  );
+  const actionableInteractionIds = useMemo(
+    () => new Set(support?.interactions.map((message) => message.id) ?? []),
+    [support],
   );
 
   const historicalTargets = useMemo(() => {
@@ -225,13 +243,13 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const liveVisible = useMemo(() => visible.filter((message) => {
     if (message.kind !== 'run') {
       return !historicalTargets.has(message.id)
-        && history.coldMessageIds?.[message.id] !== true;
+        && !coldMessageSuppressed(message, history.coldMessageIds, actionableInteractionIds);
     }
     const rootId = message.run_parent_id ?? message.id;
     if (historicalRoots.has(rootId) && !observedLiveRootsRef.current.has(rootId)) return false;
     const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
     return root?.run?.status === 'running' || observedLiveRootsRef.current.has(rootId);
-  }), [historicalRoots, historicalTargets, history.coldMessageIds, messages, support, visible]);
+  }), [actionableInteractionIds, historicalRoots, historicalTargets, history.coldMessageIds, messages, support, visible]);
   const preservedSettledRoots = useMemo(() => new Set(
     [...observedLiveRootsRef.current].filter((rootId) => {
       const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);

@@ -1280,6 +1280,19 @@ fake.enqueue({
 });
 daemon.postHumanMessage('askmulti', '@planner scaffold the service');
 await new Promise((resolve) => setTimeout(resolve, 400));
+// harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-browser-fixture
+// Push the still-pending multi-question card outside the addressed cold tail;
+// RoomSupport must keep it actionable in the detached tray without history
+// counting or returning the durable ask row.
+const askMultiOwner = daemon.ownerOf('askmulti');
+for (let index = 0; index < 25; index += 1) {
+  daemon.store.postMessage('askmulti', {
+    author: askMultiOwner.id,
+    kind: 'chat',
+    body: `detached interaction tail ${String(index)}`,
+  });
+}
+// harn:end actionable-interactions-remain-support-owned-outside-history
 
 // ── Live running run on @scout (items trickle, stays running) ────────────
 fake.enqueue({

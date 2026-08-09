@@ -418,10 +418,13 @@ test.describe('holds', () => {
 });
 
 test.describe('asks', () => {
+  // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-browser-regression
   test('answering an approval resolves it durably and the card leaves', async ({ page }) => {
     await openRoom(page);
     const card = page.locator('.nx-ask');
     await expect(card).toBeVisible();
+    await expect(page.getByTestId('interaction-tray').locator('.nx-ask')).toHaveCount(0);
+    await expect(card.locator('xpath=ancestor::*[@data-transcript-unit]')).toHaveCount(0);
     await card.locator('button', { hasText: 'Allow' }).click();
     await expect(card).toBeHidden();
     await expect(page.locator('.nx-prose', { hasText: 'push Allow' })).toBeVisible();
@@ -432,7 +435,9 @@ test.describe('asks', () => {
 
   test('a multi-question ask presents every question and returns one answer each', async ({ page }) => {
     await openRoom(page, '/?room=askmulti&token=next-e2e-token');
-    const card = page.locator('.nx-ask');
+    const tray = page.getByTestId('interaction-tray');
+    await expect(tray).toBeVisible();
+    const card = tray.locator('.nx-ask');
     await expect(card).toBeVisible();
     // Both questions render as their own blocks.
     await expect(card.locator('.nx-ask-question')).toHaveCount(2);
@@ -459,6 +464,7 @@ test.describe('asks', () => {
     await expect(page.locator('.nx-prose', { hasText: '"Which regions?":["us","eu"]' }).first()).toBeVisible();
     await expect(card).toBeHidden();
   });
+  // harn:end actionable-interactions-remain-support-owned-outside-history
 });
 
 test.describe('inbox', () => {

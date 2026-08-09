@@ -14,6 +14,18 @@ const chat = (id: number, second = id): Message => ({
   mentions: [], refs: [], ledger_refs: [], ts: at(second), seq: id,
 });
 
+const interaction = (id: number, kind: 'ask' | 'approval'): Message => ({
+  ...chat(id),
+  kind,
+  body: `${kind} ${String(id)}`,
+  ask: {
+    interaction_id: `${kind}-${String(id)}`,
+    kind,
+    prompt: `${kind} prompt`,
+    options: [{ label: 'Allow' }, { label: 'Deny' }],
+  },
+});
+
 const run = (
   id: number,
   status: 'running' | 'completed' | 'failed' | 'interrupted',
@@ -387,6 +399,40 @@ describe('buildTranscriptHistoryPage', () => {
     expect(page.messages).toHaveLength(20);
     expect(page.has_more).toBe(true);
   });
+
+  // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-unitizer-regression
+  it('excludes interaction rows while cursor pages retain every genuine visible unit once', () => {
+    const excluded = new Set([6, 17]);
+    const messages = Array.from({ length: 27 }, (_, offset) => {
+      const id = offset + 1;
+      if (id === 6) return interaction(id, 'ask');
+      if (id === 17) return interaction(id, 'approval');
+      return chat(id);
+    });
+    const source = new Source(messages, new Map());
+
+    const pages: ReturnType<typeof buildTranscriptHistoryPage>[] = [];
+    let cursor: string | undefined;
+    do {
+      const result = buildTranscriptHistoryPage({ room: 'eng', cursor, source });
+      pages.push(result);
+      cursor = result.page.before_cursor ?? undefined;
+    } while (cursor !== undefined);
+
+    expect(pages[0]!.page.units).toHaveLength(20);
+    expect(pages[0]!.page.units.every((unit) => unit.kind === 'message')).toBe(true);
+    expect(pages[0]!.page.messages).toHaveLength(20);
+    expect(pages[0]!.page.messages.every((message) => !excluded.has(message.id))).toBe(true);
+    const walked = [...pages].reverse().flatMap(({ page }) => page.units.map((unit) => {
+      expect(unit.kind).toBe('message');
+      return unit.kind === 'message' ? unit.message_id : -1;
+    }));
+    expect(walked).toEqual(Array.from({ length: 27 }, (_, offset) => offset + 1)
+      .filter((id) => !excluded.has(id)));
+    expect(new Set(walked)).toHaveLength(25);
+    expect(pages.at(-1)!.page).toMatchObject({ has_more: false, before_cursor: null });
+  });
+  // harn:end actionable-interactions-remain-support-owned-outside-history
 
   it('combines fallback, trailing text, and failure status into one visible settled tail', () => {
     const fallback = new Source(
