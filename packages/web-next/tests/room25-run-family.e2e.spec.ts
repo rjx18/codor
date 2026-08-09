@@ -62,6 +62,8 @@ test.describe('terminal run family', () => {
     await expect(result.getByTestId(`run-${String(family.result)}-status`)).toBeVisible();
   });
 
+  // harn:assume historical-transcript-pages-match-output-scoped-rendering ref=room25-result-prose-descendant-order
+  // harn:assume live-runs-settle-beside-paged-history-once ref=room25-terminal-family-evidence-order
   test('result-owned prose precedes the sole marker, with nothing on the root (#856 → #858)', async ({ page }) => {
     const family = await control<Family>('/seed-terminal-family', {
       shape: 'result-evidence', status: 'failed',
@@ -80,15 +82,17 @@ test.describe('terminal run family', () => {
 
     // The marker FOLLOWS the result's own output rather than preceding it.
     const order = await result.evaluate((node) => {
-      const children = [...node.querySelectorAll('.nx-run > *')];
+      const descendants = [...node.querySelectorAll('.nx-run-block, .nx-run-status')];
       return {
-        prose: children.findIndex((child) => child.classList.contains('nx-run-block')),
-        status: children.findIndex((child) => child.classList.contains('nx-run-status')),
+        prose: descendants.findIndex((child) => child.classList.contains('nx-run-block')),
+        status: descendants.findIndex((child) => child.classList.contains('nx-run-status')),
       };
     });
     expect(order.prose).toBeGreaterThanOrEqual(0);
     expect(order.status).toBeGreaterThan(order.prose);
   });
+  // harn:end live-runs-settle-beside-paged-history-once
+  // harn:end historical-transcript-pages-match-output-scoped-rendering
 
   test('a family with no lifecycle evidence never claims completed', async ({ page }) => {
     // The root is pushed outside the bounded hydration tail while its result
@@ -235,51 +239,80 @@ test.describe('live run family ownership', () => {
 });
 
 test.describe('out-of-window root with a withheld journal', () => {
+  // harn:assume finalized-browser-history-is-combined-page-owned ref=room25-finalized-history-request-boundary
+  // harn:assume transcript-history-prepends-one-deliberate-page ref=room25-cursor-paging-request
   test('the barrier holds, then the result owns the sole marker', async ({ page }) => {
-    // The COLD path is the only reachable one: warm clients always hold the
-    // root, because production re-emits it on every completion/interruption.
     const family = await control<Family>('/seed-terminal-family', {
       shape: 'result-evidence', status: 'failed', gap: 25,
     });
 
+    const historyRequests: string[] = [];
+    const finalizedJournalRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === `/api/rooms/${family.room}/transcript-history`) {
+        historyRequests.push(url.search);
+      }
+      if (new RegExp(`^/api/rooms/${family.room}/runs/\\d+$`).test(url.pathname)) {
+        finalizedJournalRequests.push(url.pathname);
+      }
+    });
+
     let holding = true;
-    await page.route(`**/api/rooms/${family.room}/runs/**`, async (route) => {
-      while (holding) await new Promise((resolve) => setTimeout(resolve, 50));
+    let initialHistoryHeld = false;
+    await page.route(`**/api/rooms/${family.room}/transcript-history*`, async (route) => {
+      if (!initialHistoryHeld) {
+        initialHistoryHeld = true;
+        while (holding) await new Promise((resolve) => setTimeout(resolve, 50));
+      }
       await route.continue();
     });
 
     await page.goto(`/?room=${family.room}&token=next-e2e-token`);
     const result = page.locator(`[data-testid="run-${String(family.result)}"]`);
+    const timeline = page.getByTestId('timeline');
 
-    // Atomic hydration barrier: nothing paints until the journal is ready, so
-    // there is no half-rendered row and — critically — no invented status.
+    // The first combined page is held: atomic hydration must not paint a
+    // partially materialized finalized family or invent its status.
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect.poll(() => initialHistoryHeld).toBe(true);
     await expect(result).toHaveCount(0);
     await expect(page.locator('.nx-run-status')).toHaveCount(0);
     await expect(page.locator('.nx-run[data-run-status="completed"]')).toHaveCount(0);
 
     holding = false;
 
-    // Released: the result appears owning the sole marker, root still out.
-    await expect(page.getByTestId('timeline')).toBeVisible();
+    // Releasing the combined page renders the result-owned evidence and its
+    // sole marker; the out-of-window root is still absent.
     await expect(result).toBeVisible({ timeout: 15_000 });
+    await expect(result).toContainText('Result stretch carrying the only prose.');
     await expect(result.getByTestId(`run-${String(family.result)}-status`))
       .toHaveText('run failed');
     await expect(page.locator('.nx-run-status')).toHaveCount(1);
     await expect(page.locator(`article[id="${String(family.root)}"]`)).toHaveCount(0);
+    await expect.poll(() => historyRequests.length).toBe(1);
+    expect(historyRequests[0]).toBe('');
+    expect(finalizedJournalRequests).toEqual([]);
 
-    // Paging the root in moves nothing and duplicates nothing. Prove real
-    // upward paging happened rather than the root having been there all along.
-    const historyPages: string[] = [];
-    page.on('response', (response) => {
-      if (/\/messages\?.*before=/.test(response.url())) historyPages.push(response.url());
-    });
+    // Paging the root in uses a cursor page, moves nothing, and duplicates
+    // neither the root nor the already-rendered result marker.
     await revealOlder(page, page.locator(`article[id="${String(family.root)}"]`));
-    expect(historyPages.length).toBeGreaterThan(0);
-    await expect(page.locator(`article[id="${String(family.root)}"]`)).toHaveCount(1);
+    await expect.poll(() => historyRequests.filter((search) => new URLSearchParams(search).has('cursor')).length)
+      .toBeGreaterThan(0);
+    await expect(timeline).toHaveAttribute('aria-busy', 'false', { timeout: 10_000 });
+    // Combined history represents this empty lifecycle root through one
+    // settled family unit; paging must not create a second root representation.
+    await expect(page.locator(
+      `[data-transcript-unit^="settled_tail:${String(family.root)}:${String(family.result)}:"]`,
+    )).toHaveCount(1);
     await expect(page.locator('.nx-run-status')).toHaveCount(1);
-    await expect(result.getByTestId(`run-${String(family.result)}-status`)).toBeVisible();
+    await expect(result).toHaveCount(1);
+    await expect(result.getByTestId(`run-${String(family.result)}-status`)).toHaveCount(1);
     await expect(page.locator(`article[id="${String(family.root)}"] .nx-run-status`)).toHaveCount(0);
+    expect(finalizedJournalRequests).toEqual([]);
   });
+  // harn:end transcript-history-prepends-one-deliberate-page
+  // harn:end finalized-browser-history-is-combined-page-owned
 });
 
 test.describe('historical one-row families', () => {

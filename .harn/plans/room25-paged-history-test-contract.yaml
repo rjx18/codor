@@ -1,0 +1,61 @@
+id: room25-paged-history-test-contract
+title: Room 25 asserts combined-history run-family rendering and paging
+notes: >
+  Contained test-only correction after the exhaustive browser gate found two
+  stale Room 25 assertions. Combined-history units may wrap rendered run
+  descendants, so result prose and its terminal marker must be checked by
+  descendant DOM order. The out-of-window root must be exercised through the
+  combined transcript-history page and opaque cursor, with no finalized
+  /runs/:id or legacy messages-before traffic. No product code or history
+  behavior changes.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: Combined-history unitization and result-owned evidence remain unchanged;
+        Room 25 now follows the wrapper structure produced by the existing
+        renderer.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized Room 25 history remains sourced only from combined pages and
+        never from a full /runs/:id request; the test now asserts that path.
+    - id: transcript-history-prepends-one-deliberate-page
+      outcome: unchanged
+      reason: Older history still loads only after a deliberate top reach through the
+        opaque cursor; the correction changes only request instrumentation.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: Terminal run-family evidence and the sole result-owned marker keep their
+        existing ownership and order; only the DOM-order assertion is made
+        wrapper-safe.
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: The test still exercises the existing immutable evidence projection
+        without changing journal ownership or payloads.
+anchors:
+  historical-transcript-pages-match-output-scoped-rendering:
+    room25-result-prose-descendant-order:
+      action: change
+      reason: Assert result prose precedes its sole status marker across all
+        descendant rendered nodes rather than assuming direct children.
+  live-runs-settle-beside-paged-history-once:
+    room25-terminal-family-evidence-order:
+      action: change
+      reason: Keep result-owned terminal evidence and marker ownership asserted while
+        making the DOM-order check robust to combined unit wrappers.
+  finalized-browser-history-is-combined-page-owned:
+    room25-finalized-history-request-boundary:
+      action: change
+      reason: Hold and release the initial combined page, assert finalized evidence
+        and zero /runs/:id requests, and preserve the marker after older paging.
+  transcript-history-prepends-one-deliberate-page:
+    room25-cursor-paging-request:
+      action: change
+      reason: Trigger older history with the shared top-reach helper and require a
+        subsequent combined-history request carrying an opaque cursor.
+files:
+  - packages/web-next/tests/room25-run-family.e2e.spec.ts
+applied:
+  applied_at: 2026-08-09T07:56:42.715Z
