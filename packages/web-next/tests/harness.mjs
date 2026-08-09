@@ -444,6 +444,20 @@ daemon.store.postMessage(reviewChildRoom, {
   kind: 'chat',
   body: 'review notes live in the child conversation',
 });
+// harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-browser-fixture
+daemon.store.postMessage('workspace', {
+  author: reviewer.id,
+  author_target: {
+    worktree_id: reviewRegistration.worktree.id,
+    conversation_id: reviewChildRoom,
+    member_id: reviewer.id,
+    alias: reviewRegistration.worktree.alias,
+    handle: reviewer.handle,
+  },
+  kind: 'chat',
+  body: 'bounded history from the review worktree',
+});
+// harn:end merged-worktree-reliability-contracts-coexist
 
 const wtopsRepo = join(dir, 'wtops-repo');
 mkdirSync(wtopsRepo, { recursive: true });

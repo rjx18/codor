@@ -1,0 +1,20 @@
+id: merged-worktree-reliability-contracts-coexist
+hash: a-5dc282b8cd0d
+title: Worktree management and bounded relay history coexist without shared-state loss
+state: active
+statement: In the merged browser and switchboard, preset, roster, routing, and
+  worktree lifecycle APIs must coexist with authenticated redacted transcript
+  pages; a worktree-qualified historical row must retain its stable author
+  identity, target, permalink, and bounded transcript-unit ownership without
+  fetching a finalized full run; and each hosted computer's desired worktree
+  observations must survive only that computer's current tunnel generation
+  without resetting, cross-writing, or reopening another computer, while direct
+  mode keeps its existing behavior.
+depends_on:
+  - agent-preset-management-is-authorized-across-rest-and-cli
+  - registered-worktree-navigation-is-promotion-gated
+  - cross-worktree-output-stays-in-origin
+  - finalized-browser-history-is-combined-page-owned
+  - hosted-app-streams-follow-tunnel-generations
+  - hosted-computer-sessions-keep-state-isolated
+created_by: multi-worktree-reliability-post-merge-reconciliation

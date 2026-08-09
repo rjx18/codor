@@ -64,6 +64,7 @@ function harness() {
   const tunnels = new Map<string, {
     set(state: TunnelState, advance?: boolean): void;
     recoveries: number;
+    readonly generation: number;
   }>();
 
   const deps: ComputerSessionDeps = {
@@ -75,6 +76,7 @@ function harness() {
       const listeners = new Set<(state: TunnelState, generation: number) => void>();
       const control = {
         recoveries: 0,
+        get generation() { return generation; },
         set(next: TunnelState, advance = false) {
           if (advance) generation += 1;
           state = next;
@@ -460,6 +462,33 @@ describe('ComputerSessionManager', () => {
     expect(h.connectors.get('B')!.room()).toBe('same-room');
     manager.dispose();
   });
+
+  // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-session-recovery-regression
+  it('keeps each warm worktree observation on its own tunnel generation', async () => {
+    const h = harness();
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    const connectorA = h.connectors.get('A')!;
+    const connectorB = h.connectors.get('B')!;
+    connectorA.setDesiredRooms(['wt-a']);
+    connectorB.setDesiredRooms(['wt-b']);
+
+    h.tunnels.get('A')!.set('disconnected', true);
+    h.tunnels.get('A')!.set('connected');
+    await Promise.resolve();
+
+    expect(h.tunnels.get('A')?.generation).toBe(2);
+    expect(h.tunnels.get('B')?.generation).toBe(1);
+    expect(h.connectors.get('A')).toBe(connectorA);
+    expect(h.connectors.get('B')).toBe(connectorB);
+    expect(h.desiredByComputer.get('A')).toEqual(['wt-a']);
+    expect(h.desiredByComputer.get('B')).toEqual(['wt-b']);
+    expect(connectorA.roomReadiness('wt-b')).toBe('unsubscribed');
+    expect(connectorB.roomReadiness('wt-a')).toBe('unsubscribed');
+    expect(h.connectorDisposals).toEqual([]);
+    manager.dispose();
+  });
+  // harn:end merged-worktree-reliability-contracts-coexist
 
   // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-managed-connector-regression
   it('remembers only the public root while a hidden child is selected, across computer switches', async () => {

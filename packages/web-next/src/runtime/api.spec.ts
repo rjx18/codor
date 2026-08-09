@@ -587,7 +587,10 @@ describe('worktree lifecycle client', () => {
 
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-api-client
 describe('combined transcript history client', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setRelayTransport(undefined);
+  });
 
   it('routes an opaque cursor with bearer authentication and validates the response', async () => {
     const fetch = vi.fn(() => Promise.resolve({
@@ -605,5 +608,45 @@ describe('combined transcript history client', () => {
       expect.objectContaining({ headers: { authorization: 'Bearer secret' } }),
     );
   });
+
+  // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-api-transport-regression
+  it('keeps worktree routing and combined history distinct on one hosted relay transport', async () => {
+    const catalog = {
+      room: 'eng',
+      targets: [{
+        worktree_id: '01ARZ3NDEKTSV4RRFFQ69G5FAA',
+        conversation_id: 'eng',
+        alias: 'main',
+        primary: true,
+        lifecycle: 'active',
+        members: [{ member_id: '01BX5ZZKBKACTAV9WEVGEMMVRY', handle: 'owner', kind: 'human' }],
+      }],
+      tombstones: [],
+    };
+    const relayFetch = vi.fn((path: string, _init?: RequestInit) => Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(path.endsWith('/routing-targets')
+        ? catalog
+        : { messages: [], journals: [], units: [], before_cursor: null, has_more: false }),
+    } as Response));
+    setRelayTransport({ origin: 'https://relay.example', fetch: relayFetch });
+
+    const options = { token: 'hosted-token', origin: 'https://relay.example' };
+    const [routing, history] = await Promise.all([
+      fetchRoutingCatalog('eng', options),
+      fetchTranscriptHistory('eng', undefined, options),
+    ]);
+    expect(routing.targets[0]?.alias).toBe('main');
+    expect(history.units).toEqual([]);
+    expect(relayFetch.mock.calls.map(([path]) => path)).toEqual([
+      '/api/rooms/eng/routing-targets',
+      '/api/rooms/eng/transcript-history',
+    ]);
+    expect(relayFetch.mock.calls.every(([, init]) =>
+      init?.headers && (init.headers as Record<string, string>).authorization === 'Bearer hosted-token'))
+      .toBe(true);
+  });
+  // harn:end merged-worktree-reliability-contracts-coexist
 });
 // harn:end finalized-browser-history-is-combined-page-owned

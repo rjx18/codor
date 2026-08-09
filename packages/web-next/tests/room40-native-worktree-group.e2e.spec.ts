@@ -32,6 +32,29 @@ async function reviewChildId(page: Page): Promise<string> {
 }
 
 test.describe('native worktree group navigation', () => {
+  // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-browser-regression
+  test('renders worktree-qualified bounded history without a finalized journal fetch', async ({ page }) => {
+    const historyRequests: string[] = [];
+    const finalizedJournalRequests: string[] = [];
+    page.on('request', (request) => {
+      const path = new URL(request.url()).pathname;
+      if (path === '/api/rooms/workspace/transcript-history') historyRequests.push(path);
+      if (/^\/api\/rooms\/workspace\/runs\/\d+$/.test(path)) finalizedJournalRequests.push(path);
+    });
+
+    await openRoom(page, `/?room=workspace&token=${TOKEN}`);
+    const row = page.locator('article', { hasText: 'bounded history from the review worktree' });
+    await expect(row).toBeVisible();
+    await expect(row.locator('.nx-turn-author')).toHaveText('~review:@reviewer');
+    await expect(row).toHaveAttribute('data-transcript-unit', /message:/);
+    const id = await row.getAttribute('id');
+    expect(id).toMatch(/^\d+$/);
+    await expect(row.locator('.nx-permalink')).toHaveText(`#${id}`);
+    await expect.poll(() => historyRequests.length).toBeGreaterThan(0);
+    expect(finalizedJournalRequests).toEqual([]);
+  });
+  // harn:end merged-worktree-reliability-contracts-coexist
+
   test('first promotion keeps main selected, switches by stable id, and survives back/reload', async ({ page }) => {
     const childId = await reviewChildId(page);
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);

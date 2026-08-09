@@ -2135,6 +2135,29 @@ describe('REST', () => {
         headers: { authorization: `Bearer ${agentToken}` },
       })).status).toBe(403);
     });
+
+    // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-server-coexistence-regression
+    it('serves management, worktree, and combined-history reads from one authorized server', async () => {
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const paths = [
+        '/api/agent-presets',
+        '/api/default-roster',
+        '/api/rooms/eng/worktrees/registered',
+        '/api/rooms/eng/transcript-history',
+      ];
+      const responses = await Promise.all(paths.map((path) => fetch(`${base}${path}`, { headers })));
+      expect(responses.map((response) => response.status)).toEqual([200, 200, 200, 200]);
+
+      const presets = await responses[0]!.json() as { presets: unknown[] };
+      const roster = await responses[1]!.json() as { roster: { preset_ids: string[] } };
+      const worktrees = await responses[2]!.json() as { registered: unknown[] };
+      const history = await responses[3]!.json() as TranscriptHistoryPage;
+      expect(presets.presets).toBeInstanceOf(Array);
+      expect(roster.roster.preset_ids).toBeInstanceOf(Array);
+      expect(worktrees.registered).toBeInstanceOf(Array);
+      expect(history.units.length).toBeLessThanOrEqual(20);
+    });
+    // harn:end merged-worktree-reliability-contracts-coexist
   });
   // harn:end historical-transcript-pages-match-output-scoped-rendering
 
