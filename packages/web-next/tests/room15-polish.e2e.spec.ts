@@ -13,16 +13,17 @@ async function openRoom(page: Page, url: string): Promise<void> {
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
 
-async function seedBulk(room: string, count: number): Promise<void> {
+async function seedBulk(room: string, count: number, newer = false): Promise<void> {
   const res = await fetch(`${CONTROL}/seed-bulk`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ room, count }),
+    body: JSON.stringify({ room, count, newer }),
   });
   if (!res.ok) throw new Error(`seed-bulk failed: ${await res.text()}`);
 }
 
 test.describe('pinned-strip hydration', () => {
+  // harn:assume paged-history-live-message-reconciliation ref=buried-pinned-target-browser
   test('a pin beyond the loaded window hydrates into the strip and pages back on click', async ({ page }) => {
     await openRoom(page, TRASH);
     // Pin a message while it is still loaded.
@@ -34,7 +35,7 @@ test.describe('pinned-strip hydration', () => {
     await expect(page.getByTestId(`pinned-${id}`)).toBeVisible();
 
     // Bury it far beyond the loaded page window, then reload.
-    await seedBulk('trash', 120);
+    await seedBulk('trash', 120, true);
     await openRoom(page, TRASH);
 
     // The message is no longer in the timeline, but the strip hydrated it from
@@ -44,6 +45,7 @@ test.describe('pinned-strip hydration', () => {
     await page.getByTestId(`pinned-${id}`).click();
     await expect(page.locator('article', { hasText: 'delete target epsilon' })).toBeVisible();
   });
+  // harn:end paged-history-live-message-reconciliation
 });
 
 test.describe('member kebab role-gate', () => {

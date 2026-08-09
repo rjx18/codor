@@ -293,3 +293,28 @@ describe('captured transcript history source', () => {
 });
 // harn:end hosted-computer-sessions-keep-state-isolated
 // harn:end finalized-browser-history-is-combined-page-owned
+
+// harn:assume paged-history-live-message-reconciliation ref=page-message-race-regression
+describe('paged history message reconciliation', () => {
+  it('does not let an older page restore a stale live mutation', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page([messageUnit(5)], [message(5)], 'older')],
+      'head',
+    );
+    const live = { ...message(5), seq: 50, pinned: true, deleted: false };
+    const withLive = { ...current, messages: { ...current.messages, 5: live } };
+    const stalePage = page(
+      [messageUnit(5)],
+      [{ ...message(5), seq: 40, pinned: false, deleted: false }],
+      null,
+      false,
+    );
+
+    const merged = mergeTranscriptPages(withLive, [stalePage], 'older');
+
+    expect(merged.messages[5]).toEqual(live);
+    expect(merged.units).toEqual(current.units);
+  });
+});
+// harn:end paged-history-live-message-reconciliation

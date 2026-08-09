@@ -1,4 +1,4 @@
-import type { Message, Room, ServerFrame } from '@codor/protocol';
+import type { Message, Room, ServerFrame, TranscriptHistoryUnit } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -139,6 +139,46 @@ describe('room-keyed client state', () => {
     expect(alpha.seq).toBe(12);
     expect(Object.keys(alpha.messages)).toEqual(['10', '12']);
   });
+
+  // harn:assume paged-history-live-message-reconciliation ref=live-history-pin-delete-regression
+  it('reconciles pin, unpin, and deletion frames into a materialized history row', () => {
+    const store = useClientStore.getState();
+    store.setActiveRoom('eng');
+    const units: TranscriptHistoryUnit[] = [{ kind: 'message', message_id: 5 }];
+    store.updateTranscriptHistory('eng', (history) => ({
+      ...history,
+      initialized: true,
+      messages: { 5: message('eng', 5) },
+      units,
+    }));
+
+    store.applyFrame(frame({
+      type: 'message',
+      seq: 6,
+      message: { ...message('eng', 5), seq: 6, pinned: true },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'eng').transcriptHistory.messages[5])
+      .toMatchObject({ seq: 6, pinned: true });
+    expect(roomSlice(useClientStore.getState(), 'eng').transcriptHistory.units).toEqual(units);
+
+    store.applyFrame(frame({
+      type: 'message',
+      seq: 7,
+      message: { ...message('eng', 5), seq: 7, pinned: false },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'eng').transcriptHistory.messages[5])
+      .toMatchObject({ seq: 7, pinned: false });
+
+    store.applyFrame(frame({
+      type: 'message',
+      seq: 8,
+      message: { ...message('eng', 5), seq: 8, deleted: true, pinned: false },
+    }));
+    const history = roomSlice(useClientStore.getState(), 'eng').transcriptHistory;
+    expect(history.messages[5]).toMatchObject({ seq: 8, deleted: true, pinned: false });
+    expect(history.units).toEqual(units);
+  });
+  // harn:end paged-history-live-message-reconciliation
 
   it('drops background evidence and clears a live buffer on demotion', () => {
     const store = useClientStore.getState();

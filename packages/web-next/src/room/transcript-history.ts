@@ -59,16 +59,19 @@ const mergeJournals = (
   }]));
 };
 
+// harn:assume paged-history-live-message-reconciliation ref=page-message-sequence-merge
 const mergeMessages = (
   current: Record<number, Message>,
   pages: readonly TranscriptHistoryPage[],
 ): Record<number, Message> => {
   const messages = { ...current };
-  for (const page of pages) {
-    for (const message of page.messages) messages[message.id] = message;
+  for (const page of pages) for (const message of page.messages) {
+    const previous = messages[message.id];
+    if (previous === undefined || message.seq > previous.seq) messages[message.id] = message;
   }
   return messages;
 };
+// harn:end paged-history-live-message-reconciliation
 
 const uniqueUnits = (units: readonly TranscriptHistoryUnit[]): TranscriptHistoryUnit[] => {
   const seen = new Set<string>();

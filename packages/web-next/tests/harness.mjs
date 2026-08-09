@@ -1748,21 +1748,26 @@ createServer((req, res) => {
       }
       if (url.pathname === '/seed-bulk') {
         // A long back-catalog for virtualization/paging proofs: N backdated
-        // owner messages inserted straight into the store.
+        // owner messages inserted straight into the store. Room 15 can request
+        // current-time rows so its pinned target is genuinely outside the
+        // newest bounded page, rather than merely having older ids.
         const body = raw === '' ? {} : JSON.parse(raw);
         const count = Math.min(2000, Number(body.count ?? 300));
         const roomId = body.room ?? 'eng';
         const author = daemon.ownerOf(roomId).id;
-        const base = Date.now() - (count + 60) * 60_000;
+        const newer = body.newer === true;
+        const base = newer ? Date.now() : Date.now() - (count + 60) * 60_000;
         for (let i = 0; i < count; i++) {
           const message = daemon.store.postMessage(roomId, {
             author,
             kind: 'chat',
             body: `archive note #${i + 1}: nothing urgent, just history`,
           });
-          daemon.store.db
-            .prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
-            .run(new Date(base + i * 60_000).toISOString(), roomId, message.id);
+          if (!newer) {
+            daemon.store.db
+              .prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+              .run(new Date(base + i * 60_000).toISOString(), roomId, message.id);
+          }
         }
       }
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(payload));

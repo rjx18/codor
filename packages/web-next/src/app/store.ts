@@ -363,20 +363,34 @@ export function createClientStore(): ClientStore {
             memberHistory: observeMember(current.memberHistory, frame.member),
           };
           break;
+        // harn:assume paged-history-live-message-reconciliation ref=live-history-message-map
         case 'message': {
           const messages = state.activeRoom === roomId
             ? { ...current.messages, [frame.message.id]: frame.message }
             : rollingTail(current.messages, frame.message);
+          const historical = current.transcriptHistory.messages[frame.message.id];
+          const transcriptHistory = historical !== undefined
+            && frame.message.seq > historical.seq
+            ? {
+                ...current.transcriptHistory,
+                messages: {
+                  ...current.transcriptHistory.messages,
+                  [frame.message.id]: frame.message,
+                },
+              }
+            : current.transcriptHistory;
           next = {
             ...current,
             seq: bump,
             messages,
+            transcriptHistory,
             ...(state.activeRoom !== roomId && {
               historyCursor: Object.values(messages).sort((a, b) => a.id - b.id)[0]?.id,
             }),
           };
           break;
         }
+        // harn:end paged-history-live-message-reconciliation
         case 'inbox':
           next = {
             ...current,

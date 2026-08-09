@@ -12,6 +12,7 @@ async function openRoom(page: Page): Promise<void> {
 
 // Each test pins then unpins, leaving the shared room exactly as it was found.
 test.describe('message pinning', () => {
+  // harn:assume paged-history-live-message-reconciliation ref=paged-history-pin-unpin-browser
   test('an owner pins a message into the strip, jumps by permalink, then unpins', async ({ page }) => {
     await openRoom(page);
     await expect(page.getByTestId('pinned-strip')).toHaveCount(0); // nothing pinned yet
@@ -40,6 +41,7 @@ test.describe('message pinning', () => {
     await expect(page.getByTestId('msg-1-pinned')).toHaveCount(0);
     await expect(page.getByTestId('pinned-strip')).toHaveCount(0);
   });
+  // harn:end paged-history-live-message-reconciliation
 
   test('the pinned state stays axe-clean', async ({ page }) => {
     await openRoom(page);

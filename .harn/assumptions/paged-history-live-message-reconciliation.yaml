@@ -1,0 +1,18 @@
+id: paged-history-live-message-reconciliation
+hash: a-345cd3c0af5b
+title: Paged history reconciles live message mutations by sequence
+state: active
+statement: >
+  After a combined history page materializes a message id, a later live message
+  frame for that id may replace only that message record in the
+  transcript-history map when its protocol message.seq is newer, so pin, unpin,
+  and deletion state reaches the already-rendered historical row without adding,
+  removing, or reordering page-owned units; every page or live message merge
+  uses the same sequence rule, and stale records never overwrite newer state.
+  Combined pages remain the sole source of finalized-history membership, order,
+  and indexed evidence.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+  - historical-transcript-pages-match-output-scoped-rendering
+  - hosted-computer-sessions-keep-state-isolated
+created_by: room12-paged-history-reconciliation-v2

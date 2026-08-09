@@ -1,0 +1,113 @@
+id: room12-paged-history-reconciliation-v2
+title: Reconcile live mutations with paged transcript history by message sequence
+notes: >
+  Contained review correction after the combined-worktree Phase 3 browser gate.
+  A live pin, unpin, or deletion for a message already materialized by a
+  combined history page must update that row's message record without changing
+  the page-owned units or their order. A late page response must not replace a
+  newer live record. The Room 15 fixture must also use genuinely newer bulk
+  messages so its pinned-target walk proves the intended bounded-page behavior.
+  No protocol, server history membership, transport, or release behavior
+  changes.
+assumptions:
+  retire: []
+  create:
+    - id: paged-history-live-message-reconciliation
+      title: Paged history reconciles live message mutations by sequence
+      statement: >
+        After a combined history page materializes a message id, a later live
+        message frame for that id may replace only that message record in the
+        transcript-history map when its protocol message.seq is newer, so pin,
+        unpin, and deletion state reaches the already-rendered historical row
+        without adding, removing, or reordering page-owned units; every page or
+        live message merge uses the same sequence rule, and stale records never
+        overwrite newer state. Combined pages remain the sole source of
+        finalized-history membership, order, and indexed evidence.
+      reason: >
+        Room 12 showed that the pinned strip could update while a paged
+        historical row still rendered its old snapshot, and a delayed page can
+        race the live mutation that fixed that row.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - historical-transcript-pages-match-output-scoped-rendering
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Combined page units, complete context, indexed evidence, bounded
+        cursors, per-room store ownership, and zero finalized run fetches remain
+        unchanged; only already-materialized message metadata is reconciled.
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: >
+        Server page size, output-scoped unitization, evidence projection, and
+        finalized ordering are unchanged; the browser map now preserves newer
+        mutable records when pages arrive late.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: >
+        Cursor floors and complete established ordering remain server-owned; no
+        client merge adds a unit or changes a cursor.
+    - id: transcript-history-prepends-one-deliberate-page
+      outcome: unchanged
+      reason: >
+        Deliberate top reach still loads one bounded page and preserves the
+        existing viewport behavior; only message-record reconciliation changes.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: >
+        Pinned target walks still use combined pages until a materialized unit;
+        the test now proves the target is genuinely outside the initial window.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Sequence merges are scoped to each injected client store and cannot
+        share same-room message records across hosted computers.
+anchors:
+  paged-history-live-message-reconciliation:
+    live-history-message-map:
+      action: change
+      reason: >
+        Reconcile newer live message frames into an already-materialized
+        transcript-history map without changing its page-owned units.
+    page-message-sequence-merge:
+      action: change
+      reason: >
+        Merge page and live message records by Message.seq so an older page
+        response cannot restore stale pin or deletion state.
+    live-history-pin-delete-regression:
+      action: change
+      reason: >
+        Prove pin, unpin, and deletion updates reach a materialized historical
+        row while its units and order remain unchanged.
+    page-message-race-regression:
+      action: change
+      reason: |
+        Prove a stale page record cannot overwrite a newer live record.
+    paged-history-pin-unpin-browser:
+      action: change
+      reason: >
+        Keep the focused browser journey proving pin and unpin on a row reached
+        through deliberate older-page loading.
+    buried-pinned-target-browser:
+      action: change
+      reason: >
+        Make Room 15 seed more than twenty genuinely newer messages before
+        proving the combined-page walk recovers the pinned target.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-materializer:
+      action: change
+      reason: >
+        Keep the combined-page materializer as the sole history membership and
+        order source while making its message map sequence-aware.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room12-pin.e2e.spec.ts
+  - packages/web-next/tests/room15-polish.e2e.spec.ts
+applied:
+  applied_at: 2026-08-09T06:16:58.844Z
