@@ -5,8 +5,8 @@ notes: >
   protocol. TunnelClient exposes readiness for its current generation, rejects
   stale waiters, publishes state through independent subscribers, and keeps one
   handshake attempt plus one retry timer per recovery generation. connect and
-  recover are idempotent; foreground recovery may accelerate a pending retry
-  but never creates a parallel handshake. Preserve signed KK authentication,
+  recover are idempotent; foreground recovery may accelerate a pending retry but
+  never creates a parallel handshake. Preserve signed KK authentication,
   keepalive, and canonical/alias failover.
 
   A managed RoomConnector gates every app-stream attempt on its own tunnel's
@@ -31,8 +31,8 @@ assumptions:
       title: Browser tunnel readiness belongs to the current recovery generation
       statement: >
         TunnelClient must advance a monotonic generation when an established
-        tunnel is lost or deliberately restarted, make whenReady settle only
-        for the current generation's successful authenticated handshake, retire
+        tunnel is lost or deliberately restarted, make whenReady settle only for
+        the current generation's successful authenticated handshake, retire
         stale waiters and callbacks, notify every independent subscriber, and
         allow at most one handshake attempt and one retry timer for that
         generation, so connect, backoff, and foreground recovery converge
@@ -117,7 +117,8 @@ anchors:
   browser-tunnel-readiness-follows-current-generation:
     current-tunnel-generation:
       action: change
-      reason: Replace first-connect truth with current-generation waiters and stale rejection.
+      reason: Replace first-connect truth with current-generation waiters and stale
+        rejection.
     tunnel-state-subscribers:
       action: change
       reason: Publish each generation transition to independent listeners.
@@ -133,16 +134,20 @@ anchors:
       reason: Gate app creation and retry on the owning connected tunnel generation.
     generation-gated-connector-regression:
       action: change
-      reason: Prove both race orders, exact app-open counts, parks, and direct behavior.
+      reason: Prove both race orders, exact app-open counts, parks, and direct
+        behavior.
     generation-aware-computer-session:
       action: change
-      reason: Validate bootstrap generation and give each connector its own tunnel gate.
+      reason: Validate bootstrap generation and give each connector its own tunnel
+        gate.
     generation-aware-session-regression:
       action: change
-      reason: Prove independent entries and stale bootstrap work cannot mount connectors.
+      reason: Prove independent entries and stale bootstrap work cannot mount
+        connectors.
     coordinated-recovery-browser-regression:
       action: change
-      reason: Prove foreground and host-return recovery without reload or duplicate handshakes.
+      reason: Prove foreground and host-return recovery without reload or duplicate
+        handshakes.
     independent-computer-recovery-regression:
       action: change
       reason: Prove one computer recovers without reopening or closing another.
@@ -159,12 +164,16 @@ anchors:
   hosted-app-keeps-all-paired-computers-live:
     computer-session-lifecycle:
       action: change
-      reason: Subscribe each entry independently and keep recovery alive until disposal.
+      reason: Subscribe each entry independently and keep recovery alive until
+        disposal.
   hosted-computer-sessions-keep-state-isolated:
     per-computer-session-state:
       action: change
-      reason: Thread each entry's own tunnel generation into its connector and bootstrap.
+      reason: Thread each entry's own tunnel generation into its connector and
+        bootstrap.
   hosted-offline-recovery-offers-other-computers:
     multi-computer-recovery-regression:
       action: change
       reason: Extend the warm-computer journey with independent coordinated recovery.
+applied:
+  applied_at: 2026-08-09T02:31:57.719Z

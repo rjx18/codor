@@ -58,16 +58,37 @@ function harness() {
   const connectorDisposals: string[] = [];
   const switches: string[] = [];
   const connectorOptions = new Map<string, ConnectorOptions>();
+  const tunnels = new Map<string, {
+    set(state: TunnelState, advance?: boolean): void;
+    recoveries: number;
+  }>();
 
   const deps: ComputerSessionDeps = {
     load: async () => ({ materials, activeId }),
     makeTunnel: (loaded) => {
       const id = loaded.computer.id;
+      let state: TunnelState = 'connected';
+      let generation = 1;
+      const listeners = new Set<(state: TunnelState, generation: number) => void>();
+      const control = {
+        recoveries: 0,
+        set(next: TunnelState, advance = false) {
+          if (advance) generation += 1;
+          state = next;
+          for (const listener of listeners) listener(state, generation);
+        },
+      };
+      tunnels.set(id, control);
       const tunnel = {
-        state: 'connected' as TunnelState,
-        onStateChange: undefined as ((state: TunnelState) => void) | undefined,
+        get state() { return state; },
+        get generation() { return generation; },
         connect: () => { tunnelStarts.push(id); },
-        whenReady: async () => undefined,
+        recover: () => { control.recoveries += 1; },
+        whenReady: async () => generation,
+        subscribe: (listener: (state: TunnelState, current: number) => void) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
         fetch: async () => new Response(),
         socketFactory: () => ({}) as WebSocket,
         dispose: () => { tunnelDisposals.push(id); },
@@ -132,10 +153,40 @@ function harness() {
     connectorDisposals,
     switches,
     connectorOptions,
+    tunnels,
   };
 }
 
 describe('ComputerSessionManager', () => {
+  // harn:assume hosted-app-streams-follow-tunnel-generations ref=generation-aware-session-regression
+  it('rejects stale bootstrap work and mounts only the current tunnel generation', async () => {
+    const h = harness();
+    const authenticate = h.deps.authenticate;
+    let releaseFirstA!: () => void;
+    let aAttempts = 0;
+    h.deps.sleep = async () => undefined;
+    h.deps.authenticate = async (loaded, tunnel) => {
+      if (loaded.computer.id === 'A' && ++aAttempts === 1) {
+        await new Promise<void>((resolve) => { releaseFirstA = resolve; });
+      }
+      return authenticate(loaded, tunnel);
+    };
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
+
+    h.tunnels.get('A')?.set('disconnected', true);
+    h.tunnels.get('A')?.set('connected');
+    releaseFirstA();
+    for (let tick = 0; tick < 12; tick += 1) await Promise.resolve();
+
+    expect(aAttempts).toBe(2);
+    expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
+    expect(h.connectorOptions.get('A')?.tunnel?.generation).toBe(2);
+    manager.dispose();
+  });
+  // harn:end hosted-app-streams-follow-tunnel-generations
+
   it('keeps two isolated warm stacks and activates one without another handshake or disposal', async () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);

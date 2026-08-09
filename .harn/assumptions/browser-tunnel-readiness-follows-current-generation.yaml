@@ -1,0 +1,16 @@
+id: browser-tunnel-readiness-follows-current-generation
+hash: a-68cb30ed9dea
+title: Browser tunnel readiness belongs to the current recovery generation
+state: active
+statement: >
+  TunnelClient must advance a monotonic generation when an established tunnel is
+  lost or deliberately restarted, make whenReady settle only for the current
+  generation's successful authenticated handshake, retire stale waiters and
+  callbacks, notify every independent subscriber, and allow at most one
+  handshake attempt and one retry timer for that generation, so connect,
+  backoff, and foreground recovery converge without parallel sessions or
+  permanently reusing first-connect truth.
+depends_on:
+  - tunnel-session-handshake-kk
+  - tunnel-keepalive
+created_by: transcript-history-reliability-p3-relay-recovery

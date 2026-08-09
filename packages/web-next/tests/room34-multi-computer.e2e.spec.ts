@@ -109,7 +109,12 @@ test.describe('multi-computer pairing', () => {
     await page.addInitScript((url) => {
       (window as unknown as { __CODOR_RELAY_URL?: string }).__CODOR_RELAY_URL = url;
       const NativeWebSocket = window.WebSocket;
-      (window as unknown as { __relaySessionDials?: Record<string, number> }).__relaySessionDials = {};
+      const runtime = window as unknown as {
+        __relaySessionDials?: Record<string, number>;
+        __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+      };
+      runtime.__relaySessionDials = {};
+      runtime.__codorRelayAppOpens = [];
       window.WebSocket = class extends NativeWebSocket {
         constructor(target: string | URL, protocols?: string | string[]) {
           super(target, protocols);
@@ -175,6 +180,15 @@ test.describe('multi-computer pairing', () => {
       ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
     }));
     expect(Object.values(initialDials)).toEqual([1, 1]); // two concurrent tunnel handshakes
+    const aSession = await computerSessionId(page, 'codor-host-a');
+    const bSession = await computerSessionId(page, 'codor-host-b');
+    const initialAppOpens = await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens]);
+    expect(initialAppOpens.filter((entry) => entry.session === aSession)).toHaveLength(1);
+    expect(initialAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
 
     // Both hosts deliberately use `eng`; each generation still owns exactly its
     // own same-named key, never a shared global credential.
@@ -217,8 +231,8 @@ test.describe('multi-computer pairing', () => {
 
     // Active A fails; recovery offers already-warm B. Choosing it neither reloads
     // nor starts another B relay handshake, and A's retry loop continues.
-    const bSession = await computerSessionId(page, 'codor-host-b');
     const bDialsBeforeRecovery = Object.entries(initialDials).find(([url]) => url.includes(bSession))?.[1];
+    // harn:assume hosted-app-streams-follow-tunnel-generations ref=independent-computer-recovery-regression
     await control('/relay-down-a-only');
     await expect(page.getByTestId('recovery')).toBeVisible({ timeout: 20_000 });
     await page.getByRole('button', { name: /codor-host-b, Connected/ }).click();
@@ -233,6 +247,14 @@ test.describe('multi-computer pairing', () => {
     await control('/relay-up');
     await page.getByTestId('computer-current').click();
     await expect(menuItem(page, 'codor-host-a').locator('[data-testid^="computer-connection-"]')).toHaveText('Connected', { timeout: 30_000 });
+    const recoveredAppOpens = await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens]);
+    expect(recoveredAppOpens.filter((entry) => entry.session === aSession)).toHaveLength(2);
+    expect(recoveredAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
+    // harn:end hosted-app-streams-follow-tunnel-generations
 
     // Forget computer B → it disappears, A stays active.
     await menuItem(page, 'codor-host-b').getByRole('button', { name: 'Forget' }).click();

@@ -35,6 +35,7 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
 }
 
 export type TunnelState = 'connecting' | 'connected' | 'disconnected';
+export type TunnelStateListener = (state: TunnelState, generation: number) => void;
 
 export interface TunnelRecord {
   relay_url: string;
@@ -134,6 +135,14 @@ export class TunnelClient {
   private keepalive?: Keepalive;
   private stateValue: TunnelState = 'disconnected';
   private retryMs = 500;
+  private retryTimer?: ReturnType<typeof setTimeout>;
+  private generationValue = 0;
+  private readonly readiness = new Set<{
+    generation: number;
+    resolve: (generation: number) => void;
+    reject: (error: Error) => void;
+  }>();
+  private readonly stateListeners = new Set<TunnelStateListener>();
   /** P7 dial alternation: flipped after an attempt that died before the KK
    *  handshake completed, so a blocked pair member yields to the other on the
    *  next retry; a live session keeps its winner across reconnects. */
@@ -149,11 +158,6 @@ export class TunnelClient {
   private readonly clientStatic: TunnelKeypair;
   private readonly hostStaticPub: Uint8Array;
   private readonly sessionIdBytes: Uint8Array;
-  private readonly firstConnect: Promise<void>;
-  private firstConnectResolve!: () => void;
-
-  onStateChange?: (state: TunnelState) => void;
-
   constructor(
     private readonly record: TunnelRecord,
     opts: { keepaliveMs?: number; handshakeMs?: number; socketFactory?: (url: string) => WebSocket } = {},
@@ -164,22 +168,60 @@ export class TunnelClient {
     this.keepaliveMs = opts.keepaliveMs;
     this.handshakeMs = opts.handshakeMs ?? 10_000;
     this.makeSocket = opts.socketFactory ?? ((url) => new WebSocket(url));
-    this.firstConnect = new Promise<void>((resolve) => {
-      this.firstConnectResolve = resolve;
-    });
   }
 
   get state(): TunnelState {
     return this.stateValue;
   }
 
-  /** Resolves when the session first reaches 'connected' — auth/bootstrap waits on this. */
-  whenReady(): Promise<void> {
-    return this.firstConnect;
+  get generation(): number {
+    return this.generationValue;
   }
 
+  // harn:assume browser-tunnel-readiness-follows-current-generation ref=current-tunnel-generation
+  /** Resolve only for the generation current when readiness is requested. */
+  whenReady(): Promise<number> {
+    if (this.generationValue === 0) this.connect();
+    const generation = this.generationValue;
+    if (this.stateValue === 'connected' && this.mux) return Promise.resolve(generation);
+    return new Promise<number>((resolve, reject) => {
+      this.readiness.add({ generation, resolve, reject });
+    });
+  }
+
+  // harn:assume browser-tunnel-readiness-follows-current-generation ref=tunnel-state-subscribers
+  subscribe(listener: TunnelStateListener): () => void {
+    this.stateListeners.add(listener);
+    return () => this.stateListeners.delete(listener);
+  }
+  // harn:end browser-tunnel-readiness-follows-current-generation
+
+  // harn:assume browser-tunnel-readiness-follows-current-generation ref=idempotent-tunnel-recovery
   connect(): void {
-    if (this.disposed || this.mux) return;
+    if (this.disposed || this.mux || this.ws || this.retryTimer !== undefined) return;
+    if (this.generationValue === 0) this.advanceGeneration();
+    this.startAttempt(this.generationValue);
+  }
+
+  /** Accelerate a pending recovery, or deliberately replace a connected tunnel. */
+  recover(): void {
+    if (this.disposed) return;
+    if (this.mux) {
+      this.advanceGeneration();
+      this.retireCurrentTransport(new Error('tunnel generation replaced'));
+      this.setState('disconnected');
+      this.startAttempt(this.generationValue);
+      return;
+    }
+    if (this.ws) return; // one handshake is already in flight
+    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    if (this.generationValue === 0) this.advanceGeneration();
+    this.startAttempt(this.generationValue);
+  }
+
+  private startAttempt(generation: number): void {
+    if (this.disposed || generation !== this.generationValue || this.ws || this.mux) return;
     this.setState('connecting');
     const candidates = relayDialCandidates(this.record.dial_url ?? this.record.relay_url);
     const target = candidates[this.dialFlip && candidates.length > 1 ? 1 : 0]!;
@@ -202,6 +244,7 @@ export class TunnelClient {
     }, this.handshakeMs);
     ws.onopen = () => ws.send(initiator.start());
     ws.onmessage = (event) => {
+      if (generation !== this.generationValue || this.ws !== ws) return;
       // Any inbound frame — mux data, presence, or the codor-pong — proves the
       // session link is still alive, so the keepalive should not declare it dead.
       this.keepalive?.noteActivity();
@@ -233,7 +276,7 @@ export class TunnelClient {
         clearTimeout(handshakeTimer);
         this.retryMs = 500;
         this.setState('connected');
-        this.firstConnectResolve();
+        this.resolveReady(generation);
         // Probe the idle session so a silently half-open link (the relay/NAT
         // dropping state over idle hours) is surfaced and reconnected rather than
         // stranding the app on a dead socket. SessionRelay auto-answers the ping.
@@ -269,16 +312,17 @@ export class TunnelClient {
       } catch {
         // already gone
       }
-      this.onDisconnect(ws, handshakeDone);
+      this.onDisconnect(ws, handshakeDone, generation);
     };
     ws.onclose = fail;
     ws.onerror = fail;
   }
 
-  private onDisconnect(ws: WebSocket, handshakeCompleted: boolean): void {
+  private onDisconnect(ws: WebSocket, handshakeCompleted: boolean, generation: number): void {
     // Ignore a drop from a socket we have already replaced — only the current
     // session's failure drives the reconnect.
-    if (this.disposed || this.ws !== ws) return;
+    if (this.disposed || this.ws !== ws || generation !== this.generationValue) return;
+    this.ws = undefined;
     // An attempt that never completed the handshake may have hit a blocked pair
     // member — alternate for the next retry (P7). A live session that dropped
     // keeps its winner.
@@ -295,22 +339,68 @@ export class TunnelClient {
     // meant to escape. Rejecting lets the caller's retry/backoff advance.
     for (const reject of [...this.pendingHttp]) reject(new Error('tunnel session lost'));
     this.pendingHttp.clear();
+    if (handshakeCompleted) this.advanceGeneration();
+    this.setState('disconnected');
     // Surface a close on every live app-WS socket so the connector's OWN
     // reconnect re-opens a stream on the NEXT session — never silently
     // re-attach to a session the connector believes is still live.
     for (const socket of [...this.liveSockets]) socket.terminate();
     this.liveSockets.clear();
-    this.setState('disconnected');
     const delay = this.retryMs;
     this.retryMs = Math.min(this.retryMs * 2, 10_000);
-    setTimeout(() => this.connect(), delay);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      this.connect();
+    }, delay);
   }
 
   private setState(state: TunnelState): void {
     if (this.stateValue === state) return;
     this.stateValue = state;
-    this.onStateChange?.(state);
+    for (const listener of this.stateListeners) listener(state, this.generationValue);
   }
+
+  private advanceGeneration(): void {
+    this.generationValue += 1;
+    for (const waiter of [...this.readiness]) {
+      if (waiter.generation >= this.generationValue) continue;
+      this.readiness.delete(waiter);
+      waiter.reject(new Error('stale tunnel generation'));
+    }
+  }
+
+  private resolveReady(generation: number): void {
+    if (generation !== this.generationValue) return;
+    for (const waiter of [...this.readiness]) {
+      if (waiter.generation !== generation) continue;
+      this.readiness.delete(waiter);
+      waiter.resolve(generation);
+    }
+  }
+
+  private retireCurrentTransport(error: Error): void {
+    const ws = this.ws;
+    this.ws = undefined;
+    if (ws) {
+      ws.onopen = ws.onmessage = ws.onclose = ws.onerror = null;
+    }
+    this.keepalive?.stop();
+    this.keepalive = undefined;
+    for (const reject of [...this.pendingHttp]) reject(error);
+    this.pendingHttp.clear();
+    for (const socket of [...this.liveSockets]) socket.terminate();
+    this.liveSockets.clear();
+    this.mux?.close(error.message);
+    this.mux = undefined;
+    this.channel = undefined;
+    try {
+      ws?.close();
+    } catch {
+      // already gone
+    }
+  }
+  // harn:end browser-tunnel-readiness-follows-current-generation
+  // harn:end browser-tunnel-readiness-follows-current-generation
 
   /** WebSocket factory for the connector: the ?token= query rides the app-WS OPEN. */
   socketFactory = (url: string): WebSocket => {
@@ -321,6 +411,12 @@ export class TunnelClient {
       // an optimistic open edge for this no-op stream.
       return new TunnelSocket(new NullStream() as unknown as MuxStream, false) as unknown as WebSocket;
     }
+    const diagnostics = typeof window === 'undefined'
+      ? undefined
+      : (window as unknown as {
+        __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+      }).__codorRelayAppOpens;
+    diagnostics?.push({ session: this.record.session_id, generation: this.generationValue });
     const socket = new TunnelSocket(this.mux.openStream(StreamKind.APP_WS, { token: utf8(token) }));
     socket.onDetach = () => this.liveSockets.delete(socket);
     this.liveSockets.add(socket);
@@ -368,21 +464,17 @@ export class TunnelClient {
   };
 
   dispose(): void {
+    if (this.disposed) return;
     this.disposed = true;
     // onDisconnect is guarded out once disposed, so run the same teardown here:
     // reject in-flight fetches and terminate live app sockets rather than
     // stranding them, then stop the keepalive and drop the mux + ws.
-    this.keepalive?.stop();
-    this.keepalive = undefined;
-    for (const reject of [...this.pendingHttp]) reject(new Error('tunnel disposed'));
-    this.pendingHttp.clear();
-    for (const socket of [...this.liveSockets]) socket.terminate();
-    this.liveSockets.clear();
-    this.mux?.close('disposed');
-    this.mux = undefined;
-    this.channel = undefined;
-    this.ws?.close();
-    this.ws = undefined;
+    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+    this.retireCurrentTransport(new Error('tunnel disposed'));
+    for (const waiter of [...this.readiness]) waiter.reject(new Error('tunnel disposed'));
+    this.readiness.clear();
+    this.stateListeners.clear();
   }
 }
 

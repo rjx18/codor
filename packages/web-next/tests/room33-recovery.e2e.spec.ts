@@ -27,7 +27,12 @@ async function pairLive(page: Page): Promise<string> {
   await control('/relay-up'); // self-heal: a prior test may have left the relay down
   const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
   await page.addInitScript((url) => {
-    (window as unknown as { __CODOR_RELAY_URL?: string }).__CODOR_RELAY_URL = url;
+    const runtime = window as unknown as {
+      __CODOR_RELAY_URL?: string;
+      __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+    };
+    runtime.__CODOR_RELAY_URL = url;
+    runtime.__codorRelayAppOpens = [];
   }, relayUrl);
   await page.goto(`${SPA_ORIGIN}/`);
   await expect(page.getByTestId('landing-page')).toBeVisible();
@@ -42,6 +47,9 @@ async function pairLive(page: Page): Promise<string> {
 
 const noReload = (page: Page): Promise<boolean> =>
   page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload === true);
+
+const appOpens = (page: Page): Promise<number> => page.evaluate(() =>
+  (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length);
 
 /** Shorten the recovery timings AFTER the session is live (grace < extended, never
  *  inverted), so the short grace never pre-empts the initial connect. */
@@ -69,6 +77,19 @@ test.describe('recovery journey', () => {
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
     expect(await noReload(page)).toBe(true);
   });
+
+  // harn:assume hosted-app-streams-follow-tunnel-generations ref=coordinated-recovery-browser-regression
+  test('foreground recovery replaces the tunnel and opens one app stream without reload', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    const before = await appOpens(page);
+
+    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
+    await expect.poll(() => appOpens(page), { timeout: 30_000 }).toBe(before + 1);
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    expect(await noReload(page)).toBe(true);
+  });
+  // harn:end hosted-app-streams-follow-tunnel-generations
 
   test('a sustained outage escalates to the re-pair state (down-clock persists), and re-pair returns to code entry', async ({ page }) => {
     test.setTimeout(120_000);

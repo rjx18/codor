@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createConnector } from './connector.js';
 import { createClientStore, useClientStore } from './store.js';
+import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 
 /**
  * A socket that stays OPEN unless something retires it — the shape a frozen tab
@@ -37,6 +38,69 @@ class FakeSocket {
       .map((raw) => JSON.parse(raw) as { type?: string; room?: string; since_seq?: number })
       .filter((frame) => frame.type === 'subscribe')
       .map((frame) => ({ room: frame.room ?? '', since_seq: frame.since_seq ?? -1 }));
+  }
+}
+
+class FakeTunnel {
+  state: TunnelState;
+  generation = 1;
+  recoveries = 0;
+  private readonly listeners = new Set<TunnelStateListener>();
+  private readonly waiters = new Set<{
+    generation: number;
+    resolve: (generation: number) => void;
+    reject: (error: Error) => void;
+  }>();
+
+  constructor(state: TunnelState) {
+    this.state = state;
+  }
+
+  subscribe(listener: TunnelStateListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  whenReady(): Promise<number> {
+    if (this.state === 'connected') return Promise.resolve(this.generation);
+    return new Promise((resolve, reject) => {
+      this.waiters.add({ generation: this.generation, resolve, reject });
+    });
+  }
+
+  recover(): void {
+    this.recoveries += 1;
+    if (this.state === 'connected') this.advance();
+    this.state = 'connecting';
+    this.emit();
+  }
+
+  drop(): void {
+    this.advance();
+    this.state = 'disconnected';
+    this.emit();
+  }
+
+  ready(): void {
+    this.state = 'connected';
+    this.emit();
+    for (const waiter of [...this.waiters]) {
+      if (waiter.generation !== this.generation) continue;
+      this.waiters.delete(waiter);
+      waiter.resolve(this.generation);
+    }
+  }
+
+  private advance(): void {
+    this.generation += 1;
+    for (const waiter of [...this.waiters]) {
+      this.waiters.delete(waiter);
+      waiter.reject(new Error('stale tunnel generation'));
+    }
+  }
+
+  private emit(): void {
+    for (const listener of this.listeners) listener(this.state, this.generation);
   }
 }
 
@@ -303,6 +367,83 @@ describe('connector resume', () => {
     connector.dispose();
   });
 });
+
+// harn:assume hosted-app-streams-follow-tunnel-generations ref=generation-gated-connector-regression
+describe('tunnel-generation-gated connector recovery', () => {
+  it('suppresses app retries while down and opens once when the tunnel becomes ready', async () => {
+    const tunnel = new FakeTunnel('disconnected');
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    expect(FakeSocket.instances).toHaveLength(0);
+
+    connector.reconnect();
+    connector.reconnect();
+    expect(FakeSocket.instances).toHaveLength(0);
+    tunnel.ready();
+    await flush();
+    expect(FakeSocket.instances).toHaveLength(1);
+    connector.dispose();
+  });
+
+  it('cancels an app backoff when tunnel loss wins, then opens once after handshake', async () => {
+    vi.useFakeTimers();
+    const tunnel = new FakeTunnel('connected');
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    expect(FakeSocket.instances).toHaveLength(1);
+    latest().drop(1006); // app retry starts first while the tunnel still looks live
+    tunnel.drop(); // tunnel loss must cancel that doomed app backoff
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    tunnel.ready();
+    await flush();
+    expect(FakeSocket.instances).toHaveLength(2);
+    connector.dispose();
+  });
+
+  it('foreground recovery waits for the next tunnel generation and coalesces signals', async () => {
+    const tunnel = new FakeTunnel('connected');
+    const onResume = vi.fn();
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel, onResume,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    fireVisible();
+    window.dispatchEvent(new Event('online'));
+    fireVisible();
+    await flush();
+    expect(tunnel.recoveries).toBe(1);
+    expect(FakeSocket.instances).toHaveLength(1);
+    tunnel.ready();
+    await flush();
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(onResume).toHaveBeenCalledTimes(1);
+    connector.dispose();
+  });
+
+  it('does not reopen an authentication park on a later tunnel generation', async () => {
+    const tunnel = new FakeTunnel('connected');
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    latest().drop(4403);
+    expect(connector.state()).toBe('parked-auth');
+    tunnel.drop();
+    tunnel.ready();
+    await flush();
+    expect(FakeSocket.instances).toHaveLength(1);
+    connector.dispose();
+  });
+});
+// harn:end hosted-app-streams-follow-tunnel-generations
 
 describe('connector disposal', () => {
   it('releases listeners and timers, closes once, and ignores later lifecycle', async () => {
