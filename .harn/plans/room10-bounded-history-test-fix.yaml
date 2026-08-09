@@ -1,0 +1,47 @@
+id: room10-bounded-history-test-fix
+title: Room 10 waits on composer readiness instead of the oldest bounded-history row
+notes: Contained test-only correction after the Phase 3 exhaustive browser gate
+  found Room 10's mobile transparency test waiting for msg-1. Initial transcript
+  hydration intentionally exposes only a bounded current tail, so the test must
+  wait for the populated composer mention draft it actually needs. No product
+  code, transparency assertion, or history behavior changes.
+assumptions:
+  retire: []
+  create:
+    - id: browser-bounded-history-does-not-guarantee-oldest-id
+      title: Bounded browser history does not guarantee the oldest message id
+      statement: A browser room's initial bounded transcript hydration may materialize
+        only the current tail, so browser regressions must wait for an
+        observable current hydration or composer-ready signal and must not
+        require the oldest message id to be present on first load.
+      reason: Room 10's mobile transparency check needs a ready composer, while msg-1
+        can be outside the intentional initial twenty-unit history window.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+  reviewed:
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: The browser still hydrates finalized history from the bounded combined
+        page; this correction changes only the readiness sentinel used by one
+        visual regression.
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: The page's twenty-unit bound and output-scoped rendering remain
+        unchanged; the test no longer assumes the oldest id is in the initial
+        page.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: Cursor traversal still covers the complete established order; Room 10
+        only needs an observable current composer-ready signal before its
+        styling scan.
+anchors:
+  browser-bounded-history-does-not-guarantee-oldest-id:
+    room10-mobile-hydration-signal:
+      action: change
+      reason: Document the bounded-tail constraint and replace the unstable msg-1 wait
+        with the populated composer mention draft used as the current readiness
+        signal.
+files:
+  - packages/web-next/tests/room10-batch-a.e2e.spec.ts
+applied:
+  applied_at: 2026-08-09T05:54:33.656Z

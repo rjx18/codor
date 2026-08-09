@@ -1,0 +1,11 @@
+id: browser-bounded-history-does-not-guarantee-oldest-id
+hash: a-ea9393d5d136
+title: Bounded browser history does not guarantee the oldest message id
+state: active
+statement: A browser room's initial bounded transcript hydration may materialize
+  only the current tail, so browser regressions must wait for an observable
+  current hydration or composer-ready signal and must not require the oldest
+  message id to be present on first load.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+created_by: room10-bounded-history-test-fix

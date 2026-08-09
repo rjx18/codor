@@ -42,15 +42,19 @@ test.describe('composer transparency — desktop', () => {
 
 test.describe('composer transparency — mobile', () => {
   test.use({ viewport: { width: 390, height: 844 } });
+  // harn:assume browser-bounded-history-does-not-guarantee-oldest-id ref=room10-mobile-hydration-signal
   test('input surfaces stay transparent in light and dark on the canvas bar', async ({ page }) => {
     // The connection pill lives in the rail, which the mobile room surface hides.
     await page.goto(ROOM);
     await expect(page.getByTestId('timeline')).toBeVisible();
-    await expect(page.getByTestId('msg-1')).toBeVisible();
+    // Bounded history hydrates a current tail, not necessarily the oldest msg-1;
+    // the populated mention draft is the current composer-ready signal.
+    await expect(page.getByTestId('composer-input')).toHaveValue(/@\w+ /);
     await composerSurfacesTransparent(page);
     await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
     await composerSurfacesTransparent(page);
   });
+  // harn:end browser-bounded-history-does-not-guarantee-oldest-id
 });
 
 // ── Item 3: prose is real sanitized markdown, styled by nx- tokens. ────────
