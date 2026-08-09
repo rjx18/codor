@@ -1,0 +1,19 @@
+id: github-ci-pages-deploys-and-relay-worker-isolated
+hash: a-f567fd2e3da3
+title: Verified main deploys Pages and conditionally deploys the relay Worker
+state: active
+statement: >
+  Every branch push and pull request must retain the clean frozen install,
+  recursive build, serialized workspace tests, complete Playwright suite, and
+  release/license audits. Only a verified push to refs/heads/main may enter the
+  serialized production job with the existing Cloudflare secrets; that job must
+  always run the guarded pnpm deploy:app Pages path, while the blind relay
+  Worker deploy runs only for a true output from the full-range decision and
+  deploys when comparison is unavailable. Pull requests and non-main branches
+  must never receive production secrets or deploy.
+depends_on:
+  - workspace-gates-cover-all-buildable-projects
+  - codor-app-deploy-bakes-and-verifies-relay-dial-pair
+  - relay-worker-stays-blind
+  - relay-worker-deploy-decision-is-full-range-and-fail-open
+created_by: transcript-history-reliability-p4-deployment-isolation

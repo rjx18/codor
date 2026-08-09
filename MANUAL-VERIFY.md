@@ -390,15 +390,18 @@ build makes `relayUrlConfigured()` return undefined, so the hosted landing page 
 its nonexistent self-hosted `/api/pairing/exchange` path and every otherwise-valid short code fails.
 <!-- harn:end codor-app-deploy-bakes-and-verifies-relay-dial-pair -->
 
-<!-- harn:assume github-ci-gates-changes-before-main-cloudflare-deploy ref=github-actions-cloudflare-runbook -->
+<!-- harn:assume github-ci-pages-deploys-and-relay-worker-isolated ref=github-actions-cloudflare-runbook -->
 ### GitHub CI and production deployment
 
 `.github/workflows/ci.yml` verifies every branch push and pull request from a frozen install with
 the complete recursive build, serialized workspace tests, Playwright suite, and release/license
 audits. A deployment job exists only for a verified push to `main`; pull requests and feature
 branches never enter a job that receives production credentials. Production deployments are
-serialized, deploy `relay-worker/wrangler.jsonc`, and then call the guarded `pnpm deploy:app` path
-described above.
+serialized and always call the guarded `pnpm deploy:app` Pages path described above. Before the
+Worker step, the deployment job compares the complete pushed range with
+`node scripts/relay-deploy-decision.mjs`, logs both revisions and its human-readable reason, and
+deploys `relay-worker/wrangler.jsonc` only when that decision selects it. A missing or unavailable
+comparison base fails open to a Worker deployment.
 
 Create a custom Cloudflare API token with only these permissions:
 
@@ -410,7 +413,7 @@ Scope Account resources to **Include / Specific account / the Codor account**, a
 to **Include / Specific zone / codor.app**. Do not add Account Settings, Billing, DNS, API Tokens,
 or all-account/all-zone access. Store the token and that account's ID as GitHub repository or
 `production` environment secrets named `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
-<!-- harn:end github-ci-gates-changes-before-main-cloudflare-deploy -->
+<!-- harn:end github-ci-pages-deploys-and-relay-worker-isolated -->
 
 **Canonical hostname — a correction learned in deployment.** A *page load* to
 `https://relay.codor.app` uses Encrypted Client Hello, so its SNI is hidden and `/healthz` loads even
