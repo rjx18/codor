@@ -1,10 +1,17 @@
 import type { Message, TranscriptHistoryPage, TranscriptHistoryUnit } from '@codor/protocol';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('@runtime/api.js', () => ({ fetchTranscriptHistory: api.fetch }));
 
-import { createClientStore, roomSlice, type TranscriptHistoryState } from '../app/store.js';
+import {
+  createClientStore,
+  mirrorClientStore,
+  resetClientStoreForTest,
+  roomSlice,
+  type TranscriptHistoryState,
+  useClientStore,
+} from '../app/store.js';
 import {
   ensureTranscriptHistory,
   mergeTranscriptPages,
@@ -68,6 +75,7 @@ const emptyHistory = (): TranscriptHistoryState => ({
 });
 
 beforeEach(() => api.fetch.mockReset());
+afterEach(resetClientStoreForTest);
 
 // harn:assume transcript-history-prepends-one-deliberate-page ref=deliberate-history-top-reach-regression
 describe('combined transcript page merging', () => {
@@ -224,3 +232,64 @@ describe('combined transcript head recovery', () => {
   });
 });
 // harn:end missed-terminal-history-refreshes-through-combined-head
+
+// harn:assume finalized-browser-history-is-combined-page-owned ref=captured-history-source-regression
+// harn:assume hosted-computer-sessions-keep-state-isolated ref=captured-history-source-regression
+describe('captured transcript history source', () => {
+  it('keeps an unresolved mirrored request on A after switching to same-room B', async () => {
+    const a = createClientStore();
+    const b = createClientStore();
+    a.getState().setActiveRoom('same');
+    b.getState().setActiveRoom('same');
+    let releaseA!: (value: TranscriptHistoryPage) => void;
+    api.fetch.mockImplementation((_room, _cursor, options) => {
+      if (options?.token === 'token-a') {
+        return new Promise<TranscriptHistoryPage>((resolve) => { releaseA = resolve; });
+      }
+      return Promise.resolve(page([messageUnit(2)], [message(2)], null, false));
+    });
+
+    mirrorClientStore(a);
+    const pendingA = refreshTranscriptHistoryHead(useClientStore, 'same', () => 'token-a');
+    mirrorClientStore(b);
+    const pendingB = refreshTranscriptHistoryHead(useClientStore, 'same', () => 'token-b');
+    await pendingB;
+    releaseA(page([messageUnit(1)], [message(1)], null, false));
+    await pendingA;
+
+    expect(roomSlice(a.getState(), 'same').transcriptHistory.units.map(transcriptUnitKey))
+      .toEqual(['message:1']);
+    expect(roomSlice(b.getState(), 'same').transcriptHistory.units.map(transcriptUnitKey))
+      .toEqual(['message:2']);
+    expect(api.fetch.mock.calls.map((call) => call[2]?.token))
+      .toEqual(['token-a', 'token-b']);
+  });
+
+  // harn:assume transcript-targets-walk-combined-pages ref=captured-history-target-regression
+  it('keeps a target walk on its admitted source after the mirror switches', async () => {
+    const a = createClientStore();
+    const b = createClientStore();
+    a.getState().setActiveRoom('same');
+    b.getState().setActiveRoom('same');
+    let releaseHead!: (value: TranscriptHistoryPage) => void;
+    api.fetch
+      .mockImplementationOnce(() => new Promise<TranscriptHistoryPage>((resolve) => { releaseHead = resolve; }))
+      .mockResolvedValueOnce(page([messageUnit(5)], [message(5)], null, false));
+
+    mirrorClientStore(a);
+    const pending = revealTranscriptTarget(useClientStore, 'same', 5, () => 'token-a');
+    mirrorClientStore(b);
+    releaseHead(page([messageUnit(9)], [message(5), message(9)], 'older'));
+
+    expect(await pending).toBe(true);
+    expect(roomSlice(a.getState(), 'same').transcriptHistory.units.map(transcriptUnitKey))
+      .toEqual(['message:5', 'message:9']);
+    expect(roomSlice(b.getState(), 'same').transcriptHistory.units).toEqual([]);
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+    expect(api.fetch.mock.calls.map((call) => call[2]?.token))
+      .toEqual(['token-a', 'token-a']);
+  });
+  // harn:end transcript-targets-walk-combined-pages
+});
+// harn:end hosted-computer-sessions-keep-state-isolated
+// harn:end finalized-browser-history-is-combined-page-owned

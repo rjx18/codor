@@ -8,7 +8,7 @@ import type {
 import { fetchTranscriptHistory } from '@runtime/api.js';
 
 import type { ClientState, ClientStore, TranscriptHistoryState } from '../app/store.js';
-import { roomSlice } from '../app/store.js';
+import { roomSlice, sourceClientStore } from '../app/store.js';
 
 type RequestKind = 'head' | `cursor:${string}`;
 
@@ -146,7 +146,7 @@ const runRequest = (
 };
 
 // harn:assume transcript-history-prepends-one-deliberate-page ref=deliberate-history-page-controller
-export async function loadOlderTranscriptHistory(
+async function loadOlderTranscriptHistoryFrom(
   store: ClientStore,
   room: string,
   token: () => string,
@@ -170,6 +170,14 @@ export async function loadOlderTranscriptHistory(
     }
   });
 }
+
+export function loadOlderTranscriptHistory(
+  store: ClientStore,
+  room: string,
+  token: () => string,
+): Promise<boolean> {
+  return loadOlderTranscriptHistoryFrom(sourceClientStore(store), room, token);
+}
 // harn:end transcript-history-prepends-one-deliberate-page
 
 const pageOverlaps = (page: TranscriptHistoryPage, keys: ReadonlySet<string>): boolean =>
@@ -177,7 +185,7 @@ const pageOverlaps = (page: TranscriptHistoryPage, keys: ReadonlySet<string>): b
 
 // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-head-refresh
 // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-gap-bridge
-export function refreshTranscriptHistoryHead(
+function refreshTranscriptHistoryHeadFrom(
   store: ClientStore,
   room: string,
   token: () => string,
@@ -206,10 +214,18 @@ export function refreshTranscriptHistoryHead(
     }
   });
 }
+
+export function refreshTranscriptHistoryHead(
+  store: ClientStore,
+  room: string,
+  token: () => string,
+): Promise<boolean> {
+  return refreshTranscriptHistoryHeadFrom(sourceClientStore(store), room, token);
+}
 // harn:end missed-terminal-history-refreshes-through-combined-head
 // harn:end missed-terminal-history-refreshes-through-combined-head
 
-export function ensureTranscriptHistory(
+function ensureTranscriptHistoryFrom(
   store: ClientStore,
   room: string,
   token: () => string,
@@ -224,7 +240,15 @@ export function ensureTranscriptHistory(
       ? { ...current, coldMessageIds }
       : current);
   }
-  return refreshTranscriptHistoryHead(store, room, token);
+  return refreshTranscriptHistoryHeadFrom(store, room, token);
+}
+
+export function ensureTranscriptHistory(
+  store: ClientStore,
+  room: string,
+  token: () => string,
+): Promise<boolean> {
+  return ensureTranscriptHistoryFrom(sourceClientStore(store), room, token);
 }
 
 export function targetMaterialized(history: TranscriptHistoryState, id: number): boolean {
@@ -238,8 +262,9 @@ export function targetMaterialized(history: TranscriptHistoryState, id: number):
 }
 
 export function finalizedTranscriptRoots(store: ClientStore, room: string): Set<number> {
-  const slice = roomSlice(store.getState(), room);
-  const roots = new Set(historyOf(store, room).units.flatMap(
+  const source = sourceClientStore(store);
+  const slice = roomSlice(source.getState(), room);
+  const roots = new Set(historyOf(source, room).units.flatMap(
     (unit) => unit.kind === 'message' ? [] : [unit.root_message_id],
   ));
   for (const message of Object.values(slice.messages)) {
@@ -259,11 +284,12 @@ export async function revealTranscriptTarget(
   id: number,
   token: () => string,
 ): Promise<boolean> {
-  if (!await ensureTranscriptHistory(store, room, token)) return false;
-  while (!targetMaterialized(historyOf(store, room), id)) {
-    const history = historyOf(store, room);
+  const source = sourceClientStore(store);
+  if (!await ensureTranscriptHistoryFrom(source, room, token)) return false;
+  while (!targetMaterialized(historyOf(source, room), id)) {
+    const history = historyOf(source, room);
     if (!history.hasMore || history.beforeCursor === null || history.beforeCursor === undefined) return false;
-    if (!await loadOlderTranscriptHistory(store, room, token)) return false;
+    if (!await loadOlderTranscriptHistoryFrom(source, room, token)) return false;
   }
   return true;
 }

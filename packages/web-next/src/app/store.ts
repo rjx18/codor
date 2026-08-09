@@ -210,11 +210,13 @@ function rollingTail(messages: Record<number, Message>, next: Message): Record<n
 
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
 
+const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHistory'], ClientStore>();
+
 /** Build one fully-isolated client store. Hosted computer sessions each own one;
  *  the exported singleton below remains the unchanged direct/self-hosted path. */
 export function createClientStore(): ClientStore {
   const staging = new Map<string, HydrationStaging>();
-  return create<ClientState>((set, get) => ({
+  const store = create<ClientState>((set, get) => ({
   connected: false,
   authRefused: false,
   activeRoom: '',
@@ -471,6 +473,8 @@ export function createClientStore(): ClientStore {
     set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false });
   },
   }));
+  clientStoreByHistoryAction.set(store.getState().updateTranscriptHistory, store);
+  return store;
 }
 
 export const useClientStore = createClientStore();
@@ -488,6 +492,15 @@ export function mirrorClientStore(store: ClientStore): void {
   publish(store.getState());
   stopMirroring = store.subscribe(publish);
 }
+
+// harn:assume finalized-browser-history-is-combined-page-owned ref=captured-history-source-store
+/** Resolve the store that owns the current state methods. Managed room UI calls
+ * through the mirror singleton, while direct and already-isolated callers are
+ * their own source. Callers must capture this result before awaiting. */
+export function sourceClientStore(store: ClientStore): ClientStore {
+  return clientStoreByHistoryAction.get(store.getState().updateTranscriptHistory) ?? store;
+}
+// harn:end finalized-browser-history-is-combined-page-owned
 
 export const roomSlice = (state: ClientState, room: string): RoomSlice =>
   state.rooms[room] ?? EMPTY_ROOM;
@@ -517,5 +530,9 @@ export const effectiveDefaultRecipient = (slice: RoomSlice): Member | undefined 
   });
 
 export function resetClientStoreForTest(): void {
+  stopMirroring?.();
+  stopMirroring = undefined;
+  mirroredStore = undefined;
+  useClientStore.setState(useClientStore.getInitialState(), true);
   useClientStore.getState().reset();
 }

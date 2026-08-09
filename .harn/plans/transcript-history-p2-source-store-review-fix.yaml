@@ -1,8 +1,8 @@
 id: transcript-history-p2-source-store-review-fix
 title: Transcript history phase 2 review fix - capture source store across awaits
 notes: >
-  Contained Phase 2 review correction against accepted implementation 64f8a11.
-  A managed UI invokes transcript-history operations through the legacy mirror
+  Contained Phase 2 review correction against accepted implementation 64f8a11. A
+  managed UI invokes transcript-history operations through the legacy mirror
   singleton, whose visible state can switch from computer A to computer B while
   an A request is awaiting the network. Resolve the actual source ClientStore
   exactly once when every public history operation starts, then use that
@@ -78,3 +78,5 @@ anchors:
     captured-history-target-regression:
       action: change
       reason: Prove target walking cannot continue against the newly mirrored store.
+applied:
+  applied_at: 2026-08-09T02:13:49.399Z
