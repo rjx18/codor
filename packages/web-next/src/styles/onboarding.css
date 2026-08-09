@@ -71,6 +71,10 @@
 
 .nx-first-error { margin: 0; }
 
+.nx-onboarding .nx-roster-choice,
+.nx-onboarding .nx-roster-selected-note { width: 100%; }
+.nx-onboarding .nx-roster-choice-card { min-height: 58px; }
+
 .nx-onboarding-actions {
   display: flex;
   align-items: center;
@@ -96,4 +100,5 @@
   .nx-onboarding-actions { align-items: stretch; flex-direction: column; }
   .nx-onboarding-actions .nx-btn { width: 100%; }
   .nx-onboarding-actions > span { justify-content: center; text-align: center; }
+  .nx-onboarding .nx-roster-choice-error { align-items: stretch; flex-direction: column; }
 }

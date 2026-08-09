@@ -1,0 +1,337 @@
+id: agent-presets-p4-settings-create-ui
+title: Phase 4 - manage presets and the default roster in Settings and select
+  the roster in Create Channel
+notes: >-
+  This is only Phase 4 of .codor/PHASED-PLAN.md, based on clean commit
+  e3eaca8532925f4342b8e1d6b3c8767a720f4bdf after Phase 3 and its tests-only
+  review-fix passed independent review. It adds browser UI over the already
+  implemented Phase 1 management REST contract and Phase 3 channel-create
+  request. It does not change protocol schemas, Store/daemon/server behavior,
+  authorization ranks, adapter discovery, Add agent, member/runtime lifecycle,
+  routing, credentials, relay records, account/cloud synchronization, CLI, or
+  Phase 5 integration hardening.
+
+  Settings gains two visibly separate management cards for principals whose
+  current room role is owner or admin. The individual-preset card must load and
+  render the local preset list with readable label, handle, display name, and
+  harness/provider identity; provide real Add, Edit, and confirmed Delete
+  actions; and use the existing AgentIdentityControls and AgentControls for
+  harness, model, thinking, policy, named ACP, and custom ACP launch rather than
+  introducing a second catalog or option vocabulary. The structured editor owns
+  preset label, assignable handle, and optional display name, maps native, named
+  ACP, and custom ACP records losslessly to and from AgentConfig, omits blank
+  optional values, and sends one strict create or full-replacement update
+  through the existing relayFetch-backed runtime helper. Catalog drift must not
+  make a saved preset impossible to repair: preserve its non-catalog fields,
+  explain the unavailable selection, and require an available replacement or a
+  successful refresh before save. Server validation remains authoritative.
+
+  Preset list/read/create/update/delete loading, stale 404, referenced-delete
+  409, catalog validation, malformed response, network failure, and delayed
+  response states must remain actionable without losing the current draft,
+  closing the editor, duplicating a mutation, or allowing an obsolete response
+  to overwrite a newer edit/close/refresh. Successful writes reconcile from the
+  returned record. A failed referenced delete must leave the preset and roster
+  visibly intact. Lower-role and agent principals must gain no management
+  controls or speculative preset/roster requests; the server's existing
+  manage_agents gate remains the final authority. Settings continues to reuse
+  its mounted connector and the caller's current bearer, including hosted mode.
+
+  The separate Default roster card edits only the singleton group's ordered
+  preset_ids. It loads the current group and preset list, shows the exact saved
+  order with readable member summaries, permits keyboard-operable add, remove,
+  move-up, and move-down operations without duplicate ids, and saves one atomic
+  full replacement through replaceDefaultRoster. Empty is a valid deliberate
+  roster. A dirty draft is separate from the persisted response, remains
+  editable and retryable after a 404/409/network/server failure, and is replaced
+  by the authoritative returned order only on success or an explicit reload.
+  Individual preset edits may update displayed summaries but never copy values
+  into the group; group edits never create, update, or delete individual
+  presets. Missing/stale references must be rendered as an actionable
+  inconsistency and never silently dropped.
+
+  Both the normal CreateChannelDialog and paired first-channel NoChannels form
+  gain the same one Default roster choice. On each fresh surface, an authorized
+  read of the singleton and individual list builds an ordered, human-readable
+  summary; an empty group remains a selectable agentless roster, while a load
+  failure or inconsistent summary offers retry and leaves the legacy Starting
+  agent path fully usable. Selecting the group hides the entire Starting agent
+  section, pauses any catalog reconciliation of that hidden draft, ignores its
+  validity for submit, and sends default_roster true with no starting_agent.
+  Deselecting the group reveals the exact untouched name, None/hidden harness,
+  model, thinking, policy, named/custom ACP launch, and other Starting agent
+  state. A create failure keeps the dialog/form, group selection, summary, and
+  hidden draft available for correction or retry; pending allows only one
+  request. Success continues to trust the existing authoritative room result,
+  key handling, close/navigation behavior, and server-side fresh roster
+  expansion.
+
+  Use structured modal primitives and the established soft-editorial styles.
+  Opening a preset editor focuses its first logical input, Create Channel keeps
+  its channel-name focus, focus is trapped/restored, errors are announced, and
+  every new action is keyboard operable with a visible focus state. At 390px the
+  Settings list/editor, roster ordering controls, normal Create Channel choice,
+  and first-channel choice must have no horizontal overflow; all new touch
+  targets are at least 44 by 44 CSS pixels; dialog content scrolls without
+  hiding its actions; and representative light/dark, pending/error, and selected
+  states are axe-clean and reduced-motion safe. Browser evidence must exercise
+  actual direct and active-hosted UI paths through the existing runtime helpers,
+  without using a direct /api escape from the hosted SPA.
+assumptions:
+  create:
+    - id: settings-manages-individual-agent-presets-through-canonical-controls
+      title: Settings performs real individual-preset CRUD through canonical agent
+        controls
+      statement: Authorized owner and admin Settings surfaces must list, create,
+        full-replacement edit, and deliberately delete local individual agent
+        presets through the existing transport-neutral management API, while a
+        structured editor maps label, handle, optional display name, native or
+        named/custom ACP harness, model, supported thinking, and canonical
+        policy through the shared AgentIdentityControls and AgentControls with
+        current catalog feedback; pending, stale, reference-conflict,
+        validation, and transport failures preserve a retryable current draft
+        and never issue a duplicate mutation or expose controls to lower roles,
+        because reusable configuration needs one functional UI without becoming
+        a second adapter vocabulary or bypassing server authorization.
+      reason: Phase 1 supplied the strict local CRUD contract, but it is not an
+        operator feature until Settings can manage every supported configuration
+        safely in both direct and hosted modes.
+      depends_on:
+        - individual-agent-presets-are-bounded-catalog-validated-configurations
+        - individual-agent-presets-are-versioned-local-state
+        - default-roster-references-block-preset-deletion
+        - agent-preset-management-is-authorized-and-transport-neutral
+        - agent-controls-shared-by-both-dialogs
+        - agent-selection-shows-detected-acp-and-advanced-custom
+        - settings-navigation-reuses-live-session
+        - roles-gate-human-acts-not-agents
+    - id: settings-manages-one-separate-ordered-default-roster
+      title: Settings edits one ordered roster of individual-preset references
+      statement: Authorized Settings must render the singleton default roster as a
+        separate ordered reference editor over the current individual-preset
+        list, allow duplicate-free add, remove, move-up, move-down, empty,
+        reload, and one atomic save, preserve a dirty retryable draft on
+        conflicts or transport failure, and reconcile only from an explicit
+        reload or the authoritative returned order; it must never copy preset
+        fields into the group, silently remove a missing reference, or mutate an
+        individual preset as a side effect, because the default roster is one
+        ordered group choice rather than another preset or a denormalized team
+        snapshot.
+      reason: The roadmap makes roster membership/order a distinct Settings concept,
+        so its UI must preserve the Phase 1 reference and atomic-order contract.
+      depends_on:
+        - settings-manages-individual-agent-presets-through-canonical-controls
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - default-roster-references-block-preset-deletion
+        - agent-preset-management-is-authorized-and-transport-neutral
+    - id: create-channel-roster-choice-preserves-starting-agent-draft
+      title: Create Channel selects one default roster without mutating Starting agent
+      statement: Normal and paired first-channel creation must show the current
+        default roster as one readable ordered group choice, keep legacy
+        Starting agent usable while roster data loads or fails, and when
+        selected hide but not reconcile or mutate the complete Starting agent
+        draft, ignore that hidden draft's validity, and send only default_roster
+        true; deselection must restore the exact draft and a failed create must
+        preserve both the choice and draft for retry in direct and hosted modes,
+        because choosing a reusable team is exclusive with but must never
+        destroy the operator's separately prepared single-agent alternative.
+      reason: Phase 3 supplied the exclusive server contract; Phase 4 must expose it
+        as one group option without collapsing the distinct Starting agent
+        concept or creating topology-specific behavior.
+      depends_on:
+        - settings-manages-one-separate-ordered-default-roster
+        - default-roster-channel-selection-is-exclusive-and-preflighted
+        - default-roster-channel-members-are-detached-ordered-snapshots
+        - agent-preset-management-is-authorized-and-transport-neutral
+        - web-room-rail-creates-owner-room
+        - paired-empty-state-creates-first-channel
+        - agent-controls-shared-by-both-dialogs
+        - agent-selection-shows-detected-acp-and-advanced-custom
+  reviewed:
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: Settings edits only the strict reusable Phase 1 fields and uses the
+        existing protocol/daemon validators; cwd, purpose, credentials,
+        sessions, runtime, usage, membership, and unknown fields remain absent.
+    - id: individual-agent-presets-are-versioned-local-state
+      outcome: unchanged
+      reason: The browser consumes stable ids and server timestamps through REST; it
+        adds no client persistence, name-based identity, room changelog, or
+        synchronized copy.
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      outcome: unchanged
+      reason: The editor replaces only the singleton's duplicate-free ordered ids and
+        accepts empty; it does not add groups, labels, copied configs, or an
+        alternate order store.
+    - id: default-roster-references-block-preset-deletion
+      outcome: unchanged
+      reason: A referenced-delete 409 is displayed and leaves both UI records intact;
+        the browser never cascades or predicts a server-side deletion.
+    - id: agent-preset-management-is-authorized-and-transport-neutral
+      outcome: unchanged
+      reason: Every Settings and Create Channel read/mutation uses the existing
+        bearer-aware relayFetch runtime helpers; no WebSocket act, CLI, relay
+        record, account state, or alternate authorization path is added.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: UI visibility mirrors existing owner/admin manage_agents capability
+        without changing server role ranks, and lower principals issue no eager
+        management reads.
+    - id: agent-controls-shared-by-both-dialogs
+      outcome: unchanged
+      reason: The preset editor imports the existing AgentIdentityControls and
+        AgentControls, extending their consumers without duplicating model,
+        thinking, policy, or harness choices.
+    - id: agent-selection-shows-detected-acp-and-advanced-custom
+      outcome: unchanged
+      reason: Named providers remain safe selector ids and custom ACP remains the
+        deliberate Advanced structured launch; the editor maps persisted records
+        into those established controls without exposing private named commands.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Browser feedback remains advisory and the existing daemon validator is
+        authoritative for every saved configuration and later concrete spawn.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: New cards receive the existing token and mounted room context; Settings
+        navigation and connector ownership do not change.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: The normal dialog still uses createRoom and the authoritative returned
+        room; the roster is one additive mutually exclusive request choice.
+    - id: paired-empty-state-creates-first-channel
+      outcome: unchanged
+      reason: First-channel owner identity, folder/name behavior, room key, failure
+        placement, and navigation remain; the same group choice is added without
+        weakening the legacy optional Starting agent.
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: The browser sends the existing literal true exclusively and never
+        expands or validates roster members itself; the daemon rereads and
+        preflights current state on submit.
+    - id: default-roster-channel-members-are-detached-ordered-snapshots
+      outcome: unchanged
+      reason: The UI displays current source summaries only; channel creation still
+        copies concrete ordered values and stores no preset/roster reference.
+    - id: initial-roster-runtime-failures-are-member-local-and-actionable
+      outcome: unchanged
+      reason: Phase 4 adds no activation or lifecycle UI; existing channel/member
+        visibility handles post-create runtime failures.
+    - id: individual-agent-preset-selection-snapshots-one-ordinary-spawn
+      outcome: unchanged
+      reason: Add agent is excluded and continues to perform a fresh addressed read
+        into one detached ordinary spawn draft.
+    - id: controls-fit-the-surface-they-sit-on
+      outcome: unchanged
+      reason: New shared controls and roster rows receive explicit 390px rendered
+        geometry coverage in each narrower Settings/dialog/onboarding surface.
+    - id: web-room-targets-meet-minimum-hit-size
+      outcome: unchanged
+      reason: Every new edit/delete/reorder/retry/choice action is included in the
+        rendered 44px phone sweep rather than relying on nominal CSS alone.
+    - id: modal-dialogs-layer-above-room-chrome
+      outcome: unchanged
+      reason: Preset create/edit/delete confirmation uses the shared body-level Modal
+        portal, focus trap, Escape handling, and return-focus behavior.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: New UI consumes semantic theme tokens and must remain axe-clean with
+        visible focus and readable error/status roles in representative light
+        and dark states.
+    - id: web-motion-is-purposeful-and-reduced-motion-safe-v5
+      outcome: unchanged
+      reason: No new animation system is introduced; any state transition uses the
+        existing tokens and becomes immediate under reduced motion.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Hosted UI uses the active session's bearer and relay tunnel only;
+        cross-computer isolation remains Phase 5 evidence and no global browser
+        cache is added.
+anchors:
+  settings-manages-individual-agent-presets-through-canonical-controls:
+    settings-agent-preset-editor-mapping:
+      action: change
+      reason: Add pure lossless native, named ACP, and custom ACP conversion between
+        durable preset fields and the existing AgentConfig controls, including
+        optional-value omission and catalog-drift repair feedback.
+    settings-agent-preset-management-surface:
+      action: change
+      reason: Add owner/admin list, structured create/edit modal, deliberate delete,
+        pending/error/retry/race handling, and authoritative response
+        reconciliation to Settings.
+    settings-agent-preset-management-regression:
+      action: change
+      reason: Prove functional CRUD and field mapping, lower-role absence, stale and
+        reference-conflict recovery, focus/keyboard/axe behavior, direct/hosted
+        transport, and phone geometry.
+  settings-manages-one-separate-ordered-default-roster:
+    settings-default-roster-management-surface:
+      action: change
+      reason: Add the distinct ordered reference editor with add/remove/reorder,
+        empty, dirty/reload, one atomic save, and recoverable conflict behavior.
+    settings-default-roster-management-regression:
+      action: change
+      reason: Prove exact persisted/reloaded order, separation from CRUD, empty and
+        missing/conflict handling, keyboard controls, accessibility, and narrow
+        layout.
+  create-channel-roster-choice-preserves-starting-agent-draft:
+    default-roster-create-choice:
+      action: change
+      reason: Add one reusable loading/error/retry/summary group choice that never
+        expands presets or blocks legacy Starting agent on read failure.
+    default-roster-channel-dialog-selection:
+      action: change
+      reason: Hide without mutating the normal dialog's complete Starting agent draft
+        and submit only default_roster true while selected.
+    default-roster-first-channel-selection:
+      action: change
+      reason: Give paired empty-state creation the same exclusive group choice, exact
+        draft preservation, request mapping, failure retry, and authoritative
+        success behavior.
+    default-roster-create-ui-regression:
+      action: change
+      reason: Prove ordered/empty summaries, load recovery, exact native/named/custom
+        draft restoration, exclusive request bodies, pending/failure retry,
+        normal and first-channel paths, direct/hosted parity, focus/axe, and
+        390px geometry.
+files:
+  - packages/web-next/src/room/agent-spec.ts
+  - packages/web-next/src/room/agent-spec.spec.ts
+  - packages/web-next/src/room/DefaultRosterChoice.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/surfaces/AgentPresetSettings.tsx
+  - packages/web-next/src/surfaces/SettingsPage.tsx
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/styles/onboarding.css
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+verification: Run pnpm --filter @codor/web-next test; pnpm --filter
+  @codor/protocol test; pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts src/store.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; pnpm --filter @codor/protocol build; pnpm --filter
+  @codor/switchboard build; pnpm --filter @codor/web-next build; and pnpm
+  --filter @codor/web-next exec playwright test
+  tests/room38-agent-preset-settings.e2e.spec.ts
+  tests/room37-agent-presets.e2e.spec.ts tests/room10-dialogs.e2e.spec.ts
+  tests/room6-settings.e2e.spec.ts tests/room29-onboarding.e2e.spec.ts with
+  isolated harness ports after the required workspace build. The focused new
+  browser evidence must cover native/named/custom create and full-replacement
+  edit mapping; list/reload and confirmed delete; referenced-delete 409 and
+  stale/network/delayed response recovery without duplicate mutations; exact
+  roster add/remove/order/empty persistence and CRUD separation; owner/admin
+  management visibility with lower-role absence/no requests; normal and paired
+  first-channel roster summaries; empty and failed roster reads without blocking
+  Starting agent; exact Starting agent draft restoration after selection,
+  catalog refresh, and failed create; request exclusivity; successful ordered
+  creation; one active-hosted Settings/create journey with no direct /api
+  escape; keyboard/focus restoration; representative light/dark axe scans; and
+  390px no-overflow, scroll/action visibility, and measured 44px targets. Rerun
+  harn find --plan agent-presets-p4-settings-create-ui, harn plan check
+  agent-presets-p4-settings-create-ui, harn check
+  agent-presets-p4-settings-create-ui, and the staged Harn check/apply gate
+  before exactly one implementation commit. Do not change protocol, Store,
+  daemon, server, authorization, runtime API source, Add agent, fixtures,
+  relay/cloud state, CLI, existing member behavior, or Phase 5 integration
+  coverage.
+applied:
+  applied_at: 2026-08-06T11:19:58.684Z

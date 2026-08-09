@@ -1,0 +1,25 @@
+id: settings-manages-individual-agent-presets-through-canonical-controls
+hash: a-f0832e332b39
+title: Settings performs real individual-preset CRUD through canonical agent controls
+state: active
+statement: Authorized owner and admin Settings surfaces must list, create,
+  full-replacement edit, and deliberately delete local individual agent presets
+  through the existing transport-neutral management API, while a structured
+  editor maps label, handle, optional display name, native or named/custom ACP
+  harness, model, supported thinking, and canonical policy through the shared
+  AgentIdentityControls and AgentControls with current catalog feedback;
+  pending, stale, reference-conflict, validation, and transport failures
+  preserve a retryable current draft and never issue a duplicate mutation or
+  expose controls to lower roles, because reusable configuration needs one
+  functional UI without becoming a second adapter vocabulary or bypassing server
+  authorization.
+depends_on:
+  - individual-agent-presets-are-bounded-catalog-validated-configurations
+  - individual-agent-presets-are-versioned-local-state
+  - default-roster-references-block-preset-deletion
+  - agent-preset-management-is-authorized-and-transport-neutral
+  - agent-controls-shared-by-both-dialogs
+  - agent-selection-shows-detected-acp-and-advanced-custom
+  - settings-navigation-reuses-live-session
+  - roles-gate-human-acts-not-agents
+created_by: agent-presets-p4-settings-create-ui

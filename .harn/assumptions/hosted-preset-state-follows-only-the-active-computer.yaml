@@ -1,0 +1,23 @@
+id: hosted-preset-state-follows-only-the-active-computer
+hash: a-c00e93c893cb
+title: Hosted preset and roster state follows only the active computer
+state: active
+statement: In a hosted tab with several live paired computers, every preset
+  list/detail/mutation, default-roster read/replacement, Add-agent selection,
+  and roster-channel creation must traverse only the active computer's bearer,
+  tunnel, adapter catalog, and local switchboard database, so switching
+  computers reveals that host's independent configuration and created members
+  without copying, merging, caching, or leaking another host's presets or
+  roster; a switchboard-served direct tab must retain the same native behavior
+  with no computer switcher or relay dependency, because presets and the one
+  default roster are machine-local configuration rather than hosted account or
+  relay state.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-app-keeps-all-paired-computers-live
+  - agent-preset-management-is-authorized-and-transport-neutral
+  - individual-agent-preset-selection-snapshots-one-ordinary-spawn
+  - settings-manages-individual-agent-presets-through-canonical-controls
+  - settings-manages-one-separate-ordered-default-roster
+  - create-channel-roster-choice-preserves-starting-agent-draft
+created_by: agent-presets-p5-integration-hardening

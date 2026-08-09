@@ -502,7 +502,8 @@ describe('room config', () => {
     // harn:end channel-starting-agent-handle-persisted
   });
 
-  it('accepts additive create requests with an optional id and starting agent', () => {
+  // harn:assume default-roster-channel-selection-is-exclusive-and-preflighted ref=default-roster-create-request-regression
+  it('accepts the additive default-roster selector without changing legacy requests', () => {
     const base = {
       name: 'Demo',
       owner: { handle: 'richard', display_name: 'Richard' },
@@ -584,7 +585,19 @@ describe('room config', () => {
         acp_launch: { executable: 'kimi', argv: [] },
       },
     }).success).toBe(false);
+
+    expect(CreateRoomRequestSchema.parse({ ...base, default_roster: true }).default_roster)
+      .toBe(true);
+    expect(CreateRoomRequestSchema.safeParse({ ...base, default_roster: false }).success)
+      .toBe(false);
+    expect(CreateRoomRequestSchema.safeParse({
+      ...base,
+      default_roster: true,
+      starting_agent: { harness: 'claude-code', handle: 'codor' },
+    }).success).toBe(false);
+    expect(CreateRoomRequestSchema.parse(base).starting_agent).toBeUndefined();
   });
+  // harn:end default-roster-channel-selection-is-exclusive-and-preflighted
 
   it('rooms default their whole config', () => {
     const room = RoomSchema.parse({ id: 'r', name: 'R', created_ts: TS });
@@ -738,6 +751,26 @@ describe('spawn control vocabularies', () => {
   });
   // harn:end harness-declares-supported-thinking-levels
 });
+
+// harn:assume individual-agent-preset-selection-snapshots-one-ordinary-spawn ref=agent-preset-spawn-display-name-regression
+describe('preset display names on ordinary spawn acts', () => {
+  it('accepts a bounded optional display name and keeps omission compatible', () => {
+    expect(ActSchema.parse({
+      act: 'spawn', harness: 'fake', handle: 'scout', cwd: '/work',
+      display_name: 'Review Scout',
+    })).toMatchObject({ display_name: 'Review Scout' });
+    expect(ActSchema.parse({
+      act: 'spawn', harness: 'fake', handle: 'scout', cwd: '/work',
+    })).not.toHaveProperty('display_name');
+  });
+
+  it.each(['', ' '.repeat(4), 'x'.repeat(121)])('rejects an invalid display name %j', (display_name) => {
+    expect(ActSchema.safeParse({
+      act: 'spawn', harness: 'fake', handle: 'scout', cwd: '/work', display_name,
+    }).success).toBe(false);
+  });
+});
+// harn:end individual-agent-preset-selection-snapshots-one-ordinary-spawn
 
 // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-protocol-regression
 describe('named ACP provider identity and one-of selection', () => {

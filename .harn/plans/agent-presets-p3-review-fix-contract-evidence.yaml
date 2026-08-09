@@ -1,0 +1,176 @@
+id: agent-presets-p3-review-fix-contract-evidence
+title: Phase 3 review fix - prove the complete roster-create contract at its
+  real boundaries
+notes: >-
+  This is a tests-only bounded review-fix for the applied Phase 3 commit
+  28b7a472a059d6f34237b529dc5e4dc7ed92f7cb. Independent source review found no
+  production correction to authorize yet: complete roster expansion is
+  mutation-free, Store seeding is atomic, successful activations receive
+  separate sessions and credentials, runtime failure is member-local, and the
+  legacy request path remains intact. The required Phase 3 evidence is not
+  complete, however. The committed regressions do not exercise the actual
+  create-room REST route or its principal/key/response boundaries; do not prove
+  duplicate, reserved/malformed, stale-reference, or current-catalog roster
+  rejection; do not exercise the effective default-recipient chain in a room
+  created from a roster; do not inspect issued credential isolation; and test
+  createRoom only through native fetch rather than both native and active relay
+  transport.
+
+  Extend the focused switchboard regression through existing public Store,
+  daemon, server-injection, and credential-authentication seams. A complete
+  preflight table must cover two distinct presets with one duplicate handle, a
+  persisted reserved or otherwise schema-malformed preset, a persisted roster
+  reference whose preset is missing, and a preset whose named ACP/current
+  catalog availability drifted after it was stored. Each case must fail before
+  adapter.spawn, room/member/message persistence, and room-key creation, while a
+  following valid create still succeeds. Test corruption may be installed only
+  in isolated throwaway SQLite fixtures with foreign keys restored before the
+  Store/daemon under test opens; it must not add a production repair path or
+  relax Phase 1 reference integrity.
+
+  Exercise POST /api/rooms with default_roster true against the real Fastify
+  boundary. Operator-owner and paired-browser-owner requests must succeed;
+  anonymous, admin, member, observer, and an issued agent principal must retain
+  their existing manage_rooms denial. The browser success must receive its room
+  key, legacy omission and one Starting agent must remain accepted, a rejected
+  preflight must create neither room nor sealed key, and every response and
+  error must exclude resolved/custom ACP executable, argv, credentials, and
+  session internals. This test is about room creation authorization, not Phase 1
+  manage_agents CRUD authorization.
+
+  Prove runtime isolation using the sessions already returned by the fake
+  adapters: activation order follows roster order, successful sessions are
+  different objects, raw member tokens are present only in their corresponding
+  Session.env, tokens are pairwise distinct and authenticate back to exactly the
+  matching room/member, and a failed activation yields no usable token while
+  later members still activate. Do not expose or persist raw tokens for the
+  test. Prove routing in roster-created rooms through ordinary daemon
+  posting/delivery state: a fresh multi-agent roster stays commentary, a sole
+  live roster member is the fallback, and an established latest finalized active
+  agent retains precedence. The roster group must not acquire a hidden
+  starting_agent_handle to make these assertions pass.
+
+  Extend the ignored web runtime API regression without changing runtime source.
+  The same default_roster true request body and bearer handling must travel
+  through native fetch and an active relay transport, and the existing legacy
+  request remains byte-compatible. Production protocol, Store, daemon, server,
+  authorization, routing, runtime helpers, UI, Playwright fixtures, presets, and
+  roster state must not change. If any required regression fails against commit
+  28b7a472, stop and tag Sol with the exact failure; do not modify production
+  code under this plan.
+assumptions:
+  reviewed:
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: The implemented all-or-nothing preflight contract remains unchanged;
+        focused regressions now cover every required persisted and
+        current-catalog invalidation before any room, spawn, message, or key
+        mutation.
+    - id: default-roster-channel-members-are-detached-ordered-snapshots
+      outcome: unchanged
+      reason: Snapshot fields, Store transaction shape, roster order, and the absence
+        of source references or a hidden starting handle remain unchanged; tests
+        add routing and boundary evidence only.
+    - id: initial-roster-runtime-failures-are-member-local-and-actionable
+      outcome: unchanged
+      reason: The member-local activation lifecycle remains unchanged; tests now prove
+        ordered continuation plus isolated session and credential identities.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: The one REST/daemon creation path and legacy requests remain unchanged;
+        the focused HTTP regression exercises the actual route.
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: No routing rule changes; integration coverage proves the existing chain
+        against rooms whose agents came from the separate roster group.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: Credential generation, hashing, environment delivery, and authentication
+        remain unchanged; tests prove pairwise member binding without logging or
+        persisting raw tokens.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: manage_rooms remains owner-only; the create-room principal matrix gains
+        direct evidence without changing role capabilities.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: A real issued agent credential remains forbidden from the global
+        create-room operation.
+    - id: browser-created-channel-delivers-its-room-key
+      outcome: unchanged
+      reason: Browser key issuance remains after successful daemon creation only;
+        roster success and preflight failure now exercise that boundary.
+anchors:
+  default-roster-channel-selection-is-exclusive-and-preflighted:
+    default-roster-expansion-regression:
+      action: change
+      reason: Add duplicate, malformed/reserved, stale-reference, and live-catalog
+        rejection cases with explicit no-spawn/no-room/no-message proof.
+    default-roster-create-rest-regression:
+      action: change
+      reason: Add the missing real POST /api/rooms success, rejection, legacy,
+        safe-projection, and no-mutation regression.
+  default-roster-channel-members-are-detached-ordered-snapshots:
+    default-roster-snapshot-regression:
+      action: change
+      reason: Retain detached ordered snapshots while adding real route-level and
+        default-recipient evidence.
+    default-roster-default-recipient-regression:
+      action: change
+      reason: Prove multi-agent commentary, sole-live fallback, and latest-finalized
+        precedence without inventing a roster starting handle.
+  initial-roster-runtime-failures-are-member-local-and-actionable:
+    initial-agent-runtime-failure-regression:
+      action: change
+      reason: Extend the partial-failure case with spawn order, later continuation,
+        failed-token absence, and successful session/token isolation.
+    initial-agent-runtime-isolation-regression:
+      action: change
+      reason: Prove distinct successful Session objects and exact credential-to-member
+        authentication for one roster expansion.
+  channel-creation-derived-and-seeded:
+    default-roster-create-rest-regression:
+      action: change
+      reason: Anchor the new real HTTP regression to the unchanged canonical room
+        creation path and legacy compatibility.
+  default-recipient-fallback-chain:
+    default-roster-default-recipient-regression:
+      action: change
+      reason: Add integration evidence without touching the shared routing algorithm.
+  agent-member-credentials-stay-secret:
+    initial-agent-credential-isolation-regression:
+      action: change
+      reason: Prove each successful roster member receives one distinct private token
+        bound to exactly that active member and failed members expose none.
+  roles-gate-human-acts-not-agents:
+    default-roster-create-role-regression:
+      action: change
+      reason: Prove owner-equivalent operator/browser admission and lower human-role
+        denial at POST /api/rooms.
+  agent-network-authority-is-narrow:
+    default-roster-create-agent-denial-regression:
+      action: change
+      reason: Prove an issued agent token cannot create a roster room.
+  browser-created-channel-delivers-its-room-key:
+    default-roster-browser-key-regression:
+      action: change
+      reason: Prove a successful browser roster create receives its key and rejected
+        preflight creates no room/key.
+files:
+  - packages/switchboard/src/agent-presets.spec.ts
+  - packages/web-next/src/runtime/api.spec.ts
+verification: Run pnpm --filter @codor/switchboard exec vitest run
+  src/agent-presets.spec.ts; pnpm --filter @codor/protocol test; pnpm --filter
+  @codor/switchboard exec vitest run src/store.spec.ts src/daemon.spec.ts
+  src/server.spec.ts; pnpm --filter @codor/web-next exec vitest run
+  src/runtime/api.spec.ts; pnpm --filter @codor/protocol build; pnpm --filter
+  @codor/switchboard build; pnpm --filter @codor/web-next build; harn find
+  --plan agent-presets-p3-review-fix-contract-evidence; harn plan check
+  agent-presets-p3-review-fix-contract-evidence; harn check
+  agent-presets-p3-review-fix-contract-evidence; and the staged Harn check/apply
+  gate before exactly one tests-only commit. Do not run Playwright and do not
+  change protocol, Store, daemon, server, authorization, routing, runtime API
+  source, UI, fixtures outside these focused specs, preset/roster CRUD, CLI,
+  relay records, cloud/account state, or Phase 4/5 behavior.
+applied:
+  applied_at: 2026-08-06T10:24:24.686Z

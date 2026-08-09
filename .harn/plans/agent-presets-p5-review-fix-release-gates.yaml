@@ -1,0 +1,107 @@
+id: agent-presets-p5-review-fix-release-gates
+title: Phase 5 review fix - make ACP cancellation deterministic and prove
+  active-host roster summaries
+notes: >-
+  This is a tests-only review-fix based on clean Phase 5 commit
+  4a8c5ed9b8760880b5bbde852686f6d042a170f8. Independent review verified its
+  exact parent and three-file implementation allowlist, applied Harn log and two
+  generated assumptions, switchboard preset regression 17/17, room39 browser
+  regression 2/2, restored dependency links, and a complete successful root pnpm
+  build when all generated @codor workspace links were held on this worktree.
+  The Phase 5 implementation and product source are otherwise correct. Close
+  only the two test-evidence defects below; do not reopen the feature or change
+  production code.
+
+  The required exact root `pnpm test` command fails repeatedly only in
+  packages/adapters/acp/src/adapter.spec.ts at `uses ACP cancellation and
+  reports an interrupted terminal result`. That regression calls
+  iterator.next(), sleeps a fixed 50 ms, and invokes interrupt. Under parallel
+  workspace load, the child may not yet have completed initialization and sent
+  `session/prompt`; the adapter therefore has no retained active runtime and the
+  interrupt is legitimately a no-op, leaving the fake provider's wait turn open
+  until Vitest's 5-second timeout. The same ACP file is 6/6 in isolation, and no
+  Phase 5 or adapter source changed, so this is a test synchronization defect,
+  not evidence for a production timeout or cancellation change.
+
+  Make that regression wait for observable provider readiness instead of wall
+  clock luck. Reuse the fake ACP agent's existing `--log` option in a fresh
+  throwaway directory and wait with a bounded asynchronous poll until its log
+  records `session/prompt`; only then call adapter.interrupt and retain the
+  existing interrupted-terminal assertion. Give the individual process-backed
+  test reasonable bounded timeout headroom only in combination with this exact
+  readiness condition; do not merely raise the timeout, add arbitrary sleep,
+  weaken the terminal assertion, expose provider details, alter the shared fake
+  agent, or change adapter runtime behavior. The isolated ACP file and exact
+  parallel root test must both pass.
+
+  The new room39 hosted journey proves that computer B's edited/reordered roster
+  creates B members and no A members, but `openRosterChannel` clicks the choice
+  without ever inspecting its rendered summary. A stale cross-computer Create
+  Channel summary could therefore pass while the active B server still expands
+  the correct current roster. Add explicit assertions before submission that the
+  choice displays the expected ordered `@handle` summary for the active host and
+  none of the inactive host's handles. Cover the direct computer-A journey and
+  the hosted computer-B journey after B's edit/reorder, preserving the existing
+  settings, Add-agent, same-document switching, no-direct-api, created-member,
+  and safe-store assertions. Do not add fixture state, direct API shortcuts,
+  timing sleeps, product test ids, or UI/runtime changes.
+
+  Only packages/adapters/acp/src/adapter.spec.ts and the existing room39
+  Playwright spec may change. If readiness-based synchronization or summary
+  assertions expose a production failure, stop and tag Sol with the exact
+  failure; this plan does not authorize a production fix.
+assumptions:
+  reviewed:
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: ACP cancellation behavior and normalization remain unchanged; the
+        process-backed regression now waits for the provider's real prompt
+        boundary before exercising interrupt under parallel load.
+    - id: hosted-preset-state-follows-only-the-active-computer
+      outcome: unchanged
+      reason: Existing active-host requests and created members remain correct; the
+        browser evidence now also proves the rendered ordered Create Channel
+        summary is scoped to the same active switchboard.
+    - id: create-channel-roster-choice-preserves-starting-agent-draft
+      outcome: unchanged
+      reason: The test reads the existing summary before selecting/submitting and does
+        not change choice state, request shape, or Starting-agent preservation.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: The existing warm session switch remains unchanged; summary text gains
+        an explicit active-computer negative assertion only.
+anchors:
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-regression:
+      action: change
+      reason: Replace the fixed 50 ms cancellation race with a bounded wait for the
+        existing fake provider's session/prompt log and retain the interrupted
+        result.
+  hosted-preset-state-follows-only-the-active-computer:
+    hosted-preset-active-computer-regression:
+      action: change
+      reason: Assert the direct A and hosted reordered B Create Channel summaries in
+        exact order and exclude inactive-host handles before submission.
+files:
+  - packages/adapters/acp/src/adapter.spec.ts
+  - packages/web-next/tests/room39-agent-preset-hardening.e2e.spec.ts
+verification: Run pnpm --filter @codor/adapter-acp exec vitest run
+  src/adapter.spec.ts at least twice; pnpm --filter @codor/web-next exec
+  playwright test tests/room39-agent-preset-hardening.e2e.spec.ts with a fresh
+  isolated harness and non-overlapping API/API-B/control/SPA ports; pnpm test;
+  and pnpm build from the workspace root. The exact root test and build must
+  resolve this worktree's built workspace packages and pass; temporarily pinning
+  generated dependency links for the command duration is permitted, but every
+  original target must be restored before staging. Run git diff --check; harn
+  find --plan agent-presets-p5-review-fix-release-gates; harn plan check
+  agent-presets-p5-review-fix-release-gates; harn check
+  agent-presets-p5-review-fix-release-gates; and the explicit plan-id staged
+  Harn check/apply gate before exactly one tests-only commit. Because the web
+  file is ignored by Harn's repository-wide classifier, if the shared no-id hook
+  misclassifies the already-applied mixed test plan after the explicit plan-id
+  staged gate passed, bypass only that incompatible hook invocation. Do not
+  modify .harnignore, the ACP fake agent, production adapter/web code, harness,
+  protocol, Store, daemon, server, authorization, relay/cloud/account state,
+  CLI, package scripts, or any file outside this plan.
+applied:
+  applied_at: 2026-08-06T13:22:04.246Z
