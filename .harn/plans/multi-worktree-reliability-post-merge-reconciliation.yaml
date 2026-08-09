@@ -1,0 +1,646 @@
+id: multi-worktree-reliability-post-merge-reconciliation
+title: Reconcile worktree management with bounded history and generation recovery
+notes: >-
+  This is an honest post-merge reconciliation of the accepted management stack
+  and transcript/relay reliability stack. The real merge commit 2b8d5c4 has
+  first parent e7fa093 and exact reliability second parent 52e0c0a; both feature
+  histories and their applied Harn plans predate this plan. This plan therefore
+  does not claim to have governed or authored either feature. A semantic audit
+  of all fourteen files changed by both lines found the contracts additive:
+  management, preset, roster, worktree, and transcript routes coexist;
+  worktree-qualified attribution survives bounded historical rendering;
+  desired per-computer worktree observations remain store-local while tunnel
+  generations recover; finalized history remains combined-page owned; and the
+  shared harness serves both fixture families. Add executable cross-stack
+  regressions at those seams. Make no source change unless a regression exposes
+  a concrete integration defect, and then keep the correction inside the named
+  seam. Phase 3 exhaustive verification, deployment, release, and cleanup remain
+  outside this plan.
+assumptions:
+  create:
+    - id: merged-worktree-reliability-contracts-coexist
+      title: Worktree management and bounded relay history coexist without shared-state loss
+      statement: >-
+        In the merged browser and switchboard, preset, roster, routing, and
+        worktree lifecycle APIs must coexist with authenticated redacted
+        transcript pages; a worktree-qualified historical row must retain its
+        stable author identity, target, permalink, and bounded transcript-unit
+        ownership without fetching a finalized full run; and each hosted
+        computer's desired worktree observations must survive only that
+        computer's current tunnel generation without resetting, cross-writing,
+        or reopening another computer, while direct mode keeps its existing
+        behavior.
+      reason: >-
+        The accepted stacks independently own overlapping server, store,
+        transcript, connector, session, API, and harness seams; only executable
+        combined regressions can prove the semantic merge retained both sides.
+      depends_on:
+        - agent-preset-management-is-authorized-across-rest-and-cli
+        - registered-worktree-navigation-is-promotion-gated
+        - cross-worktree-output-stays-in-origin
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    -
+      id: a-permission-change-is-never-silent
+      outcome: unchanged
+      reason: >-
+        The post-merge audit found this existing contract and its anchors in the
+        fourteen overlap files semantically unchanged; reconciliation adds only
+        explicit cross-stack regression coverage.
+    - id: account-usage-limits-are-probed-periodically-and-honestly-refreshable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: acp-launch-is-structured-authorized-and-bounded
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: actionable-inbox-clears-on-read-or-reply
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: active-turn-steering-is-ordered-and-durable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: adapter-refresh-is-authorized-and-incremental
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: adoption-explicit-or-sessionend
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-add-selects-public-adapter-or-detached-preset
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-authority-follows-one-active-invocation
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-chains-uninterrupted-by-default
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-management-correlates-safe-member-results
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-member-credentials-stay-secret
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-network-authority-is-narrow
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-pause-refuses-active-turn
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-preset-management-is-authorized-across-rest-and-cli
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-selection-shows-detected-acp-and-advanced-custom
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: agent-usage-limits-reported-not-guessed
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: answered-approval-tools-can-register-live-waits
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: approval-answer-is-atomic-and-chatless
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: approval-deliveries-project-resolution-separately
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: attach-lease-actions-room-bound
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: attachments-are-capped-files-served-inert
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: attempt-start-evidence-persisted
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: authenticated-browser-session-reveals-bounded-hostname
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: awaiting-reply-marker-is-delivery-context
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: batched-human-resets-hop-count
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: brakes-rechecked-at-turn-start
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: bridge-enable-admin-or-owner
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: bridge-runtime-persists-delivery-progress
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: browser-created-channel-delivers-its-room-key
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: canonical-spawn-controls-enforced
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: channel-accent-projects-accessibly-across-themes
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: channel-archive-is-durable-soft-state
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: channel-creation-derived-and-seeded
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: channel-starting-agent-handle-persisted
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: child-conversation-state-is-room-isolated
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: child-files-voice-and-keys-are-isolated
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: child-members-own-isolated-runtime
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: cli-member-recovery-is-actionable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: collaboration-briefing-is-capability-aware
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: collaboration-lifecycle-interruption-is-nonterminal
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: collaboration-round-release-is-one-barrier
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: compact-one-line-tool-rows-v2
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: compaction-reinjects-codor-briefing
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: compaction-timeline-items-are-durable-run-evidence
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: copilot-vscode-boot-admission-fails-closed-without-live-cache
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: copilot-vscode-revive-requires-exact-live-cache
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: cross-worktree-output-stays-in-origin
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: cross-worktree-runtime-stays-target-local
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: current-context-window-truth-outlives-restarts
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: default-roster-channel-members-are-detached-ordered-snapshots
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: deleted-messages-purge-rows-and-files
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: descriptor-safe-durable-inert-snapshots-of-successful-output
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: durable-agent-runtime-configuration
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: durable-room-summaries-stream-and-fallback
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: extension-lifecycle-from-hooks
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: extensions-retire-with-parent-run
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: failed-finalization-reconciles-at-runtime
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: finalized-turn-routes-aggregate-from-terminal-output
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: graph-derived-from-vault-links-readonly-v5
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: group-participant-terminality-commits-with-the-turn
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: grouped-deliveries-have-an-isolated-batch-class
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: grouped-deliveries-retain-agent-briefings
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: hosted-generated-computer-label-follows-authenticated-hostname
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: human-room-read-cursors-are-durable-and-monotonic
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: individual-agent-preset-selection-snapshots-one-ordinary-spawn-v2
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: individual-agent-presets-are-bounded-catalog-validated-configurations
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: inflight-member-state-survives-new-delivery
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: initial-roster-runtime-failures-are-member-local-and-actionable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: interaction-ack-preserves-finalized-member-state
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: interaction-recorrelation-keys-on-semantic-identity-with-detail
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: invalid-qualified-targets-never-fallback
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: last-agent-usage-is-transient-and-seeded
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: lifecycle-retries-only-live-collaboration-work
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: list-rooms-reply-carries-per-room-seq
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: live-agent-waits-are-transient
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: live-delivery-consumption-is-idempotent
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: local-directory-listing-home-contained
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: manual-compaction-is-an-operator-act
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: manual-compaction-leases-out-turn-admission
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: member-config-is-changed-not-respawned
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: member-context-reset-is-authorized-atomic-and-lazy
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: member-context-window-meter-derived-from-last-usage
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: member-session-masks-operator-token
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: member-status-is-bounded-and-identity-safe
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: mirror-one-message-per-native-turn
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: mirrored-deliveries-queue
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: model-catalogs-reach-a-browser-that-arrives-early
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: named-acp-provider-catalog-is-path-detected-and-command-private
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: named-acp-provider-selection-resolves-to-private-structured-launch
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: normalized-run-evidence-dialogs
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: open-collaboration-groups-reconcile-without-resurrection
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: operator-interrupt-not-failure
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: owner-and-system-members-seeded
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: pairing-code-enrollment-surfaces
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: pairing-code-exchange-uniform-and-rate-limited
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: pins-are-durable-owner-admin-markers
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: push-only-for-human-targeted-events
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: qualified-completion-lists-registered-targets-only
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: redeliver-interrupts-stranded-run
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: remote-deliveries-queue-when-unreachable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: rename-preserves-mention-resolution
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: resolved-run-cost-estimates-are-finalization-snapshots
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: retried-runs-revive-and-redeliver
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: room-git-inspection-read-only-from-known-cwds
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: room-home-single-authority
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: room-support-is-bounded-recipient-scoped-state
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: run-failure-evidence-is-surfaced
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: run-item-raw-journal-only
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: same-round-terminal-peers-end-live-waits
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: server-token-required
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: spawn-default-cwd-is-absolute-or-empty
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: stall-flags-never-kills
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: starting-agent-name-derives-one-valid-identity-v6
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: structured-preset-and-roster-cli-is-safe-and-ordered
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: tailnet-auto-pairing-explicit-trust
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: transcript-diffs-use-immutable-run-evidence
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: turn-start-requires-owned-custody
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: turns-reuse-one-root-and-append-output-messages
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: unix-socket-parent-private-before-listen
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: unpair-purges-all-browser-state
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: unpaired-browser-always-has-enrollment-path
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: voice-message-metadata-is-bounded-and-additive
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: voice-provider-catalog-is-named-and-safe
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: voice-provider-selection-is-operator-config
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: voice-transcribe-endpoint-is-authorized-and-bounded
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: vscode-copilot-recoverable-native-failure-preserves-context
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: windows-named-pipe-shares-local-websocket-protocol
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: working-directories-validated-before-spawn
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-alias-and-child-metadata-follow-stable-identity
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-creation-registers-only-a-new-secondary
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-lifecycle-preserves-existing-state-by-default
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-management-is-human-admin-only
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+    - id: worktree-removal-refuses-live-child-runtime
+      outcome: unchanged
+      reason: Existing truth is unchanged by the semantic merge; only cross-stack regression coverage is added.
+files:
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+anchors:
+  merged-worktree-reliability-contracts-coexist:
+    cross-stack-server-coexistence-regression:
+      action: change
+      reason: >-
+        Exercise preset, roster, worktree catalog, and transcript-history reads
+        through one authorized server without one route absorbing another.
+    cross-stack-session-recovery-regression:
+      action: change
+      reason: >-
+        Prove a current-generation recovery retains only the addressed
+        computer's desired worktree observations and leaves its peer untouched.
+    cross-stack-api-transport-regression:
+      action: change
+      reason: >-
+        Exercise worktree routing and combined history through the same active
+        hosted relay transport, token, and room without request collision.
+    cross-stack-browser-fixture:
+      action: change
+      reason: >-
+        Seed one worktree-qualified historical message in the existing native
+        worktree group fixture without changing either feature's ownership.
+    cross-stack-browser-regression:
+      action: change
+      reason: >-
+        Prove the mounted worktree UI renders the seeded combined-page row with
+        its qualified author, stable target, permalink, and bounded unit while
+        making no finalized full-journal request.
