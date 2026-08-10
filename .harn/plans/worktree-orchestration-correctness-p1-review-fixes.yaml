@@ -103,6 +103,22 @@ assumptions:
     - id: worktree-lifecycle-ui-is-explicit-and-recoverable
       outcome: unchanged
       reason: The later UI lifecycle contract is unaffected; this phase changes no UI.
+    - id: worktree-cli-removal-requires-previewed-consent
+      outcome: unchanged
+      reason: Exact-branch precedence changes only selector expectations inside the
+        enclosing removal regression; preview, confirmation, and consent stay unchanged.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: The agent-principal integration crosses the existing lifecycle suite while
+        direct rooms and root conversations remain unchanged.
+    - id: qualified-completion-lists-registered-targets-only
+      outcome: unchanged
+      reason: Catalog expectations follow the new full-branch shorthand without changing
+        which registered targets or members are exposed.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Qualified target IDs remain durable; only their derived branch shorthand is
+        updated in the enclosing store regression.
 anchors:
   deterministic-branch-conversations-own-worktree-identity:
     deterministic-worktree-conversation-protocol:
@@ -185,6 +201,33 @@ anchors:
     worktree-remove-rest:
       action: change
       reason: Ensure unregister uses destructive human authorization while preserving removal behavior.
+  worktree-cli-removal-requires-previewed-consent:
+    worktree-removal-confirmation-regression:
+      action: change
+      reason: Add exact-branch precedence inside the existing selector regression only.
+  registered-worktree-identities-are-durable:
+    worktree-protocol-regression:
+      action: change
+      reason: Update protocol fixtures to the full-branch selector while stable record IDs remain unchanged.
+  main-and-direct-conversations-stay-compatible:
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Extend the existing lifecycle fixture with repository-scoped agent orchestration.
+  qualified-completion-lists-registered-targets-only:
+    qualified-target-catalog-regression:
+      action: change
+      reason: Update catalog assertions to the deterministic full-branch shorthand.
+  registered-worktrees-materialize-stable-conversations:
+    worktree-conversation-store-regression:
+      action: change
+      reason: Update store lifecycle expectations to readable branch-owned identities.
+    worktree-conversation-git-regression:
+      action: change
+      reason: Update real Git lifecycle expectations to readable branch-owned identities.
+  qualified-member-target-identity-is-durable:
+    qualified-routing-store-regression:
+      action: change
+      reason: Update qualified target fixtures to the full-branch shorthand without changing durable IDs.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
