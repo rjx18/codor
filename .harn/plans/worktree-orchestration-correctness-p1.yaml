@@ -412,6 +412,39 @@ assumptions:
     - id: worktree-cli-removal-requires-previewed-consent
       outcome: unchanged
       reason: Removal stays destructive, human-only, previewed, and confirmed.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: Local waits keep their transient registration and exact matching; a
+        transferred post only observes the explicit reply delivered back to its
+        source member.
+    - id: structured-agent-cli-preserves-flat-lifecycle-and-presets
+      outcome: unchanged
+      reason: Existing lifecycle and preset behavior remains; --worktree only selects
+        the actual child room before the same correlated operation.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: Eligible same-room collaboration grouping remains unchanged after the
+        destination is selected.
+    - id: brakes-rechecked-at-turn-start
+      outcome: unchanged
+      reason: Target-local admission continues to recheck all existing brakes.
+    - id: model-catalogs-reach-a-browser-that-arrives-early
+      outcome: unchanged
+      reason: The server regression crosses the enclosing fixture only; adapter
+        discovery readiness is unchanged.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Removal remains human-only, freshly previewed, clean-only, and branch
+        preserving; only branch selection replaces alias selection.
+    - id: only-an-admissible-delivery-becomes-delivering
+      outcome: unchanged
+      reason: The child availability guard runs before the existing atomic admission.
+    - id: turn-start-transactional
+      outcome: unchanged
+      reason: Explicit held-run restoration joins the existing atomic start boundary.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: Alias removal does not change the opt-in default-roster snapshot.
 anchors:
   cross-worktree-output-stays-in-origin:
     cross-worktree-turn-orchestration-regression:
@@ -598,6 +631,15 @@ anchors:
       action: remove
       reason: Re-anchor stable checkout validation to the successor.
   target-worktree-owns-qualified-conversation:
+    cross-worktree-runtime-regression:
+      action: change
+      reason: Re-anchor the former split-runtime test to a wholly target-owned turn.
+    cross-worktree-turn-orchestration-regression:
+      action: change
+      reason: Replace origin transcript assertions with target transcript ownership.
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Update the installed workflow proof to target-owned conversation state.
     qualified-destination-selection:
       action: change
       reason: Resolve one destination before committing the message and use only that
@@ -616,6 +658,9 @@ anchors:
       reason: Prove equal handles, cwd/session isolation, refs/interactions, interim
         and final output, retries, and restart remain target-local.
   deterministic-branch-conversations-own-worktree-identity:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Make the integration fixture select and assert the exact branch identity.
     deterministic-worktree-conversation-protocol:
       action: change
       reason: Make create/adopt alias-free and document branch-owned conversation
@@ -642,6 +687,9 @@ anchors:
       reason: Prove full row/file preservation, conflict failure, idempotent restart,
         and unchanged checkout/branch inventory.
   qualified-destination-refusals-are-atomic:
+    cross-origin-turn-scheduler-regression:
+      action: change
+      reason: Replace cross-origin scheduling with atomic multi-destination refusal.
     qualified-destination-refusal:
       action: change
       reason: Reject unsafe or multi-destination sets before message allocation and
@@ -695,6 +743,9 @@ anchors:
       reason: Prove boot/status/hydration hide held runs from activity, release reuses
         the root once, and failed release stays inactive.
   qualified-member-target-identity-is-durable:
+    qualified-routing-store-regression:
+      action: change
+      reason: Preserve stable qualified ids while assertions move to the owning room.
     qualified-routing-resolution:
       action: change
       reason: Preserve stable target resolution while exposing the selected
@@ -704,6 +755,9 @@ anchors:
       reason: Extend stable-id coverage to target-owned storage and branch-derived
         selectors.
   registered-worktree-identities-are-durable:
+    worktree-protocol-regression:
+      action: change
+      reason: Preserve stable repository/worktree records while request input drops aliases.
     worktree-store-schema:
       action: change
       reason: Add the narrow deterministic-conversation repair bookkeeping without
@@ -716,6 +770,9 @@ anchors:
       action: change
       reason: Prove qualified writes and repaired rows stay entirely in one child.
   delivery-attempt-wal-reconcile:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Preserve the installed restart/WAL proof under target-owned messages.
     boot-reconcile:
       action: change
       reason: Mark ambiguous held runs inactive while preserving the WAL decision.
@@ -733,6 +790,89 @@ anchors:
     management-error-classification:
       action: change
       reason: Classify branch/worktree/handle conflicts without raw SQLite text.
+  cli-waits-consume-only-matching-deliveries:
+    post-wait-command:
+      action: change
+      reason: Correlate the accepted target-owned post while consuming only an exact
+        direct reply delivered back to the source member.
+  structured-agent-cli-preserves-flat-lifecycle-and-presets:
+    structured-agent-command-surface:
+      action: change
+      reason: Add optional branch selection without changing lifecycle or preset acts.
+  worktree-cli-removal-requires-previewed-consent:
+    worktree-removal-command-confirmation:
+      action: change
+      reason: Resolve by branch/shorthand before the unchanged preview and confirmation.
+    worktree-removal-confirmation-regression:
+      action: change
+      reason: Update selectors while preserving fresh-preview consent and refusal tests.
+  structured-management-help-and-docs-are-complete:
+    management-help-metadata:
+      action: change
+      reason: Replace alias examples with branch-based commands.
+  eligible-multi-agent-routing-starts-one-group:
+    multi-agent-group-ingress:
+      action: change
+      reason: Destination selection now precedes the unchanged local grouping plan.
+  brakes-rechecked-at-turn-start:
+    turn-start-brake-recheck:
+      action: change
+      reason: Add child registration availability to the existing turn-start brakes.
+  worktree-lifecycle-preserves-existing-state-by-default:
+    worktree-lifecycle-daemon-boundary:
+      action: change
+      reason: Remove alias input while keeping child creation roster-neutral by default.
+    worktree-root-neutral-regression:
+      action: change
+      reason: Update branch identity expectations without changing root state.
+    worktree-root-neutral-registration:
+      action: change
+      reason: Register branch-derived metadata while preserving root neutrality.
+  main-and-direct-conversations-stay-compatible:
+    conversation-main-compatibility-regression:
+      action: change
+      reason: Add deterministic child assertions while preserving main/direct behavior.
+  child-members-own-isolated-runtime:
+    conversation-agent-authorization-regression:
+      action: change
+      reason: Exercise child-local management without changing runtime ownership.
+  model-catalogs-reach-a-browser-that-arrives-early:
+    adapter-discovery-pending-rest:
+      action: change
+      reason: Update only the enclosing server fixture expectations.
+  qualified-completion-lists-registered-targets-only:
+    qualified-target-catalog-regression:
+      action: change
+      reason: Assert branch-derived selectors in the same path-free catalog.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-rest:
+      action: change
+      reason: Accept branch/path without alias while preserving literal Git creation.
+    worktree-create-regression:
+      action: change
+      reason: Update manager creation expectations to derived selectors.
+    phase5-git-fixture-safety-regression:
+      action: change
+      reason: Update the packed fixture command without changing Git safety.
+    worktree-create-contract:
+      action: change
+      reason: Remove alias input while preserving new-secondary-only creation.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-rest:
+      action: change
+      reason: Resolve the selected branch before the unchanged removal transaction.
+  only-an-admissible-delivery-becomes-delivering:
+    turn-admission-guard:
+      action: change
+      reason: Refuse unavailable child work before the existing delivery transition.
+  turn-start-transactional:
+    atomic-turn-start:
+      action: change
+      reason: Restore an explicitly released held run within atomic admission.
+  worktree-child-default-roster-is-an-explicit-snapshot:
+    child-default-roster-manager:
+      action: change
+      reason: Thread alias-free creation through the unchanged opt-in roster snapshot.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
