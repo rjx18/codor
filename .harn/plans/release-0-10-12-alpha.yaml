@@ -1,0 +1,95 @@
+id: release-0-10-12-alpha
+title: Publish the accepted updater and relay improvements as alpha 0.10.12
+notes: >
+  Advance the accepted local main tree from 0.10.11 to the unique 0.10.12
+  release identity for an alpha-only publication. Change no runtime behavior,
+  package composition, install behavior, workflow policy, or release
+  permissions. Push the release commit only to the curated alpha branch; after
+  alpha CI passes, push the signed v0.10.12 tag so the existing release workflow
+  publishes npm dist-tag alpha and a GitHub prerelease without moving latest.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: installed-or-published-release-artifacts-are-version-immutable
+      outcome: unchanged
+      reason: >
+        Published 0.10.11 bytes remain immutable, so this accepted alpha
+        receives the unused 0.10.12 identity.
+    - id: release-candidate-requires-publishable-install-tarball
+      outcome: unchanged
+      reason: >
+        The existing exact-candidate and packed-install proofs remain
+        authoritative before publication.
+    - id: github-tags-publish-one-immutable-alpha-or-stable-release
+      outcome: unchanged
+      reason: >
+        The existing alpha-contained signed-tag workflow remains the only
+        publisher and uses npm OIDC provenance with dist-tag alpha.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: >
+        Only the common version advances; artifact discovery and bundled runtime
+        composition are unchanged.
+    - id: public-npx-install-is-primary-install
+      outcome: unchanged
+      reason: >
+        The operator can bootstrap this test build through the public npm alpha
+        dist-tag after publication.
+    - id: vscode-copilot-bridge-is-manual-local-and-credential-private
+      outcome: unchanged
+      reason: >
+        The companion VSIX remains manual and credential-private; only its
+        release identity advances.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: >
+        ACP behavior is unchanged; clientInfo reports the common 0.10.12 release
+        identity.
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: >
+        Existing recursive build/test coverage remains mandatory in alpha CI and
+        the tag release gate.
+anchors:
+  installed-or-published-release-artifacts-are-version-immutable:
+    replaceable-preinstall-release-audit:
+      action: change
+      reason: Advance the exact immutable candidate version to 0.10.12.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Advance only the ACP initialize clientInfo version to 0.10.12.
+files:
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/copilot/vscode-extension/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - scripts/release-audit.mjs
+  - website/package.json
+verification: >
+  Verify every tracked non-legacy package manifest is exactly 0.10.12 and the
+  explicit legacy manifests remain exempt. Run recursive build, release and
+  license audits, artifact build and inspection, Harn checks, and diff checks.
+  Push the version commit to origin/alpha, require alpha CI green, create and
+  push signed tag v0.10.12, require the release workflow green, then verify npm
+  alpha, GitHub prerelease assets and checksums, and public npx alpha metadata.
+  Do not update npm latest or push this commit to main as part of the alpha
+  test.
+applied:
+  applied_at: 2026-08-10T13:14:27.868Z

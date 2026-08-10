@@ -2,7 +2,7 @@
   "name": "codor-copilot-bridge",
   "displayName": "Codor Copilot Bridge",
   "description": "Connect Codor to the native GitHub Copilot agent already authenticated in VS Code.",
-  "version": "0.10.11",
+  "version": "0.10.12",
   "publisher": "codor",
   "license": "MIT",
   "engines": {
