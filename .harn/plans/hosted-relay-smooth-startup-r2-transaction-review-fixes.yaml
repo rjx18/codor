@@ -1,15 +1,16 @@
 id: hosted-relay-smooth-startup-r2-transaction-review-fixes
-title: Make official updates cooperatively bounded and restore exact Windows and launcher state
+title: Make official updates cooperatively bounded and restore exact Windows and
+  launcher state
 notes: >
   Contained R2 review correction only. A parent process must never hard-kill the
   private candidate after runtime or service mutation; the acquired candidate
   owns a cooperative deadline inside the existing rollback transaction, and
   rollback itself retains a bounded recovery allowance. On Windows, quiesce an
-  existing scheduled task before any durable-runtime swap in official update
-  and normal setup/reinstall, restart the untouched task when pre-commit work
-  fails, and snapshot/restore the registered task's exact existence and XML as
-  well as local service files. A failed update must also restore any POSIX
-  launcher or macOS profile bytes changed before verification.
+  existing scheduled task before any durable-runtime swap in official update and
+  normal setup/reinstall, restart the untouched task when pre-commit work fails,
+  and snapshot/restore the registered task's exact existence and XML as well as
+  local service files. A failed update must also restore any POSIX launcher or
+  macOS profile bytes changed before verification.
 
   Extend the packed local-TGZ proof through the real public npx update command,
   exact candidate acquisition, private application, service generation, and
@@ -33,12 +34,13 @@ assumptions:
         POSIX launcher or macOS profile behind.
   create:
     - id: official-codor-update-is-cooperatively-bounded-and-platform-truthful
-      title: Codor update is officially acquired and bounded inside its mutation transaction
+      title: Codor update is officially acquired and bounded inside its mutation
+        transaction
       statement: >
         When the selected data root contains a durable Codor runtime, `codor
-        update` may be invoked by its POSIX launcher, a source-linked CLI, or the
-        official npx candidate without mutating the invoking checkout. It must
-        resolve @richhardry/codor latest and acquire that exact stable
+        update` may be invoked by its POSIX launcher, a source-linked CLI, or
+        the official npx candidate without mutating the invoking checkout. It
+        must resolve @richhardry/codor latest and acquire that exact stable
         non-prerelease version only through https://registry.npmjs.org, never
         downgrade, invoke npm without a shell, and bound lookup and acquisition
         before mutation. Candidate application carries a deadline into the
@@ -59,17 +61,18 @@ assumptions:
         - setup-resolves-complete-invoking-runtime
         - public-package-bundles-complete-codor-runtime
     - id: windows-runtime-swap-requires-task-quiescence
-      title: Windows quiesces and exactly restores its registered service before runtime swaps
+      title: Windows quiesces and exactly restores its registered service before
+        runtime swaps
       statement: >
         Before setup, reinstall, or official update moves a durable Windows
-        runtime, Codor must query and snapshot whether the private scheduled task
-        exists and its exact exported XML, then stop it before the first swap.
-        If acquisition, staging, or swap fails before a candidate service is
-        committed, the untouched prior task is restarted. If later convergence
-        fails, rollback restores the prior registered task definition exactly;
-        a previously absent task remains absent and is never synthesized from a
-        missing local XML file. Native files in use must never be moved while
-        the task is running.
+        runtime, Codor must query and snapshot whether the private scheduled
+        task exists and its exact exported XML, then stop it before the first
+        swap. If acquisition, staging, or swap fails before a candidate service
+        is committed, the untouched prior task is restarted. If later
+        convergence fails, rollback restores the prior registered task
+        definition exactly; a previously absent task remains absent and is never
+        synthesized from a missing local XML file. Native files in use must
+        never be moved while the task is running.
       reason: >
         Windows can lock native dependencies, and local task XML is not proof of
         the separately registered Task Scheduler state.
@@ -77,19 +80,20 @@ assumptions:
         - windows-setup-installs-private-task-service
         - setup-installs-durable-per-user-runtime-atomically
     - id: runtime-update-restores-every-mutated-runtime-service-and-launcher-surface
-      title: Update commits only after every selected runtime and service surface is verified
+      title: Update commits only after every selected runtime and service surface is
+        verified
       statement: >
-        The acquired candidate must carry the exact public data root into private
-        application and retain the prior runtime, exact platform service files,
-        registered Windows task state, POSIX launcher, and macOS profile bytes
-        and existence until owner-authenticated candidate version and generation
-        pass. Any staging, swap, restart, readiness, identity, or cooperative
-        timeout failure restores every changed surface exactly before bounded
-        prior-service recovery, leaves all other data and the default data root
-        untouched, and reports incomplete recovery honestly. A prior
-        identity-capable daemon may be version-verified; a legacy daemon without
-        the identity endpoint may be accepted only as generically healthy and
-        explicitly unverified.
+        The acquired candidate must carry the exact public data root into
+        private application and retain the prior runtime, exact platform service
+        files, registered Windows task state, POSIX launcher, and macOS profile
+        bytes and existence until owner-authenticated candidate version and
+        generation pass. Any staging, swap, restart, readiness, identity, or
+        cooperative timeout failure restores every changed surface exactly
+        before bounded prior-service recovery, leaves all other data and the
+        default data root untouched, and reports incomplete recovery honestly. A
+        prior identity-capable daemon may be version-verified; a legacy daemon
+        without the identity endpoint may be accepted only as generically
+        healthy and explicitly unverified.
       reason: >
         Runtime, service registration, launchers, and shell profile mutations
         form one operator-visible transaction.
@@ -107,8 +111,8 @@ assumptions:
         previous durable runtime, exercise official-registry lookup/acquisition,
         the acquired package's private updater, runtime swap, rendered service
         generation, and authenticated readiness, and prove the selected version
-        commits without touching a real host. Help-only dispatch is not an update
-        proof.
+        commits without touching a real host. Help-only dispatch is not an
+        update proof.
       reason: >
         The one-time bootstrap contract is credible only when the packed public
         entrypoint crosses the complete candidate handoff.
@@ -128,13 +132,16 @@ assumptions:
       reason: The packaged runtime and private updater closure remain complete.
     - id: setup-installs-durable-per-user-runtime-atomically
       outcome: unchanged
-      reason: Existing staged copy and atomic move mechanics remain the runtime primitive.
+      reason: Existing staged copy and atomic move mechanics remain the runtime
+        primitive.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
-      reason: Private per-user service paths, permissions, token, and environment remain unchanged.
+      reason: Private per-user service paths, permissions, token, and environment
+        remain unchanged.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
-      reason: The least-privilege private scheduled task contract remains; only swap ordering and exact restoration are corrected.
+      reason: The least-privilege private scheduled task contract remains; only swap
+        ordering and exact restoration are corrected.
     - id: service-runtime-status-is-owner-authenticated
       outcome: unchanged
       reason: Owner-only no-store runtime status remains the positive identity proof.
@@ -143,16 +150,20 @@ assumptions:
       reason: Selected version and generation must still pass before reuse.
     - id: setup-readiness-wait-is-wall-clock-bounded
       outcome: unchanged
-      reason: Normal setup retains its sixty-second budget; candidate application may pass a smaller remaining transaction budget.
+      reason: Normal setup retains its sixty-second budget; candidate application may
+        pass a smaller remaining transaction budget.
     - id: setup-verifies-codor-before-creating-pairing-code
       outcome: unchanged
-      reason: Generic Codor readiness remains mandatory before identity proof and pairing.
+      reason: Generic Codor readiness remains mandatory before identity proof and
+        pairing.
     - id: setup-installs-user-launcher-shim
       outcome: unchanged
-      reason: POSIX keeps the deterministic durable launcher; rollback now restores its prior state.
+      reason: POSIX keeps the deterministic durable launcher; rollback now restores
+        its prior state.
     - id: setup-macos-ensures-local-bin-on-path
       outcome: unchanged
-      reason: The idempotent marked zprofile block remains, with exact rollback on failed update.
+      reason: The idempotent marked zprofile block remains, with exact rollback on
+        failed update.
     - id: setup-unattended-mutation-requires-explicit-intent
       outcome: unchanged
       reason: Update remains explicit and setup consent remains unchanged.
@@ -164,24 +175,30 @@ assumptions:
       reason: Destination NODE_PATH derivation and service emission remain unchanged.
     - id: public-npx-install-is-primary-install
       outcome: unchanged
-      reason: npx remains the primary install and the truthful official update bootstrap.
+      reason: npx remains the primary install and the truthful official update
+        bootstrap.
     - id: packed-release-proof-runs-install-runtime
       outcome: unchanged
-      reason: Existing packed install/runtime checks remain and gain a real update journey.
+      reason: Existing packed install/runtime checks remain and gain a real update
+        journey.
     - id: packed-local-tgz-npx-proof-runs-fresh-default-audit
       outcome: unchanged
-      reason: Fresh audited npx behavior remains while the packed command now performs a transaction.
+      reason: Fresh audited npx behavior remains while the packed command now performs
+        a transaction.
     - id: fresh-clone-install-proven-by-script
       outcome: unchanged
-      reason: Source Git rebuild guidance remains separate from official packaged update.
+      reason: Source Git rebuild guidance remains separate from official packaged
+        update.
     - id: source-cli-installers-remain-idempotent-fallback
       outcome: unchanged
-      reason: Source installers remain contributor fallbacks and are never mutated by update.
+      reason: Source installers remain contributor fallbacks and are never mutated by
+        update.
 anchors:
   official-codor-update-is-bounded-cross-platform-and-durable-rooted:
     stable-update-command:
       action: remove
-      reason: Re-anchor cooperative private deadline propagation and truthful platform guidance.
+      reason: Re-anchor cooperative private deadline propagation and truthful platform
+        guidance.
     stable-update-acquisition:
       action: remove
       reason: Replace parent hard-kill semantics with a transaction-owned deadline.
@@ -191,31 +208,38 @@ anchors:
   runtime-update-transacts-runtime-service-and-selected-data-root:
     private-update-application:
       action: remove
-      reason: Re-anchor complete runtime, service registration, launcher, and profile rollback.
+      reason: Re-anchor complete runtime, service registration, launcher, and profile
+        rollback.
     update-rollback-regression:
       action: remove
-      reason: Replace file-only rollback coverage with complete operator-visible state restoration.
+      reason: Replace file-only rollback coverage with complete operator-visible state
+        restoration.
     durable-runtime-transaction:
       action: remove
-      reason: Re-anchor the unchanged atomic primitive under the complete successor transaction.
+      reason: Re-anchor the unchanged atomic primitive under the complete successor
+        transaction.
     durable-runtime-transaction-regression:
       action: remove
-      reason: Re-anchor retained-backup coverage under the complete successor transaction.
+      reason: Re-anchor retained-backup coverage under the complete successor
+        transaction.
   official-codor-update-is-cooperatively-bounded-and-platform-truthful:
     stable-update-command:
       action: change
       reason: Carry the cooperative deadline through the hidden candidate command.
     stable-update-acquisition:
       action: change
-      reason: Keep official bounded acquisition but let the candidate transaction finish rollback.
+      reason: Keep official bounded acquisition but let the candidate transaction
+        finish rollback.
     stable-update-regression:
       action: change
-      reason: Cover cooperative timeout after mutation and truthful platform update entrypoints.
+      reason: Cover cooperative timeout after mutation and truthful platform update
+        entrypoints.
   windows-runtime-swap-requires-task-quiescence:
     windows-runtime-quiescence:
       action: change
       file: packages/cli/src/setup.ts
-      reason: Snapshot and stop the registered task before runtime mutation and restore it exactly.
+      reason: Snapshot and stop the registered task before runtime mutation and
+        restore it exactly.
     windows-runtime-quiescence-regression:
       action: change
       file: packages/cli/src/setup-win32.spec.ts
@@ -223,10 +247,12 @@ anchors:
   runtime-update-restores-every-mutated-runtime-service-and-launcher-surface:
     private-update-application:
       action: change
-      reason: Apply the deadline inside the transaction and restore every changed surface.
+      reason: Apply the deadline inside the transaction and restore every changed
+        surface.
     update-rollback-regression:
       action: change
-      reason: Cover timeout-after-swap, launcher/profile restoration, and exact task state.
+      reason: Cover timeout-after-swap, launcher/profile restoration, and exact task
+        state.
     durable-runtime-transaction:
       action: change
       reason: Keep atomic retained-backup mechanics tied to the complete transaction.
@@ -237,11 +263,13 @@ anchors:
     packed-update-transaction-proof:
       action: change
       file: scripts/packed-install-test.sh
-      reason: Exercise the real public npx command through exact candidate service convergence.
+      reason: Exercise the real public npx command through exact candidate service
+        convergence.
   setup-installs-durable-per-user-runtime-atomically:
     setup-install-runtime-wiring:
       action: change
-      reason: Quiesce and safely restart the Windows task around normal install/reinstall swaps.
+      reason: Quiesce and safely restart the Windows task around normal
+        install/reinstall swaps.
   setup-preserves-private-platform-service:
     setup-platform-service-runtime:
       action: change
@@ -255,21 +283,25 @@ anchors:
       reason: Preserve the same task while stopping it before runtime moves.
     windows-setup-regression:
       action: change
-      reason: Extend Windows ordering and restoration coverage without changing task privileges.
+      reason: Extend Windows ordering and restoration coverage without changing task
+        privileges.
   setup-proves-selected-runtime-before-reuse:
     setup-runtime-convergence:
       action: change
-      reason: Apply remaining transaction budget during update while preserving selected identity reuse.
+      reason: Apply remaining transaction budget during update while preserving
+        selected identity reuse.
     setup-runtime-convergence-regression:
       action: change
       reason: Keep identity coverage green under the corrected Windows ordering.
   setup-readiness-wait-is-wall-clock-bounded:
     readiness-probe-budget:
       action: change
-      reason: Accept a smaller candidate transaction budget while retaining normal setup's exact sixty seconds.
+      reason: Accept a smaller candidate transaction budget while retaining normal
+        setup's exact sixty seconds.
     readiness-wall-clock-deadline:
       action: change
-      reason: Bound candidate readiness by the remaining cooperative transaction deadline.
+      reason: Bound candidate readiness by the remaining cooperative transaction
+        deadline.
     readiness-timeout-diagnostic:
       action: change
       reason: Report the effective bounded readiness budget truthfully.
@@ -279,28 +311,33 @@ anchors:
   setup-verifies-codor-before-creating-pairing-code:
     setup-readiness-and-pairing:
       action: change
-      reason: Compose the smaller candidate transaction budget through the existing readiness gate without changing pairing behavior.
+      reason: Compose the smaller candidate transaction budget through the existing
+        readiness gate without changing pairing behavior.
     setup-readiness-and-pairing-regression:
       action: change
-      reason: Preserve normal readiness and pairing regressions under the optional reduced budget.
+      reason: Preserve normal readiness and pairing regressions under the optional
+        reduced budget.
   setup-installs-user-launcher-shim:
     launcher-install-runtime:
       action: keep
-      reason: Launcher implementation remains deterministic and unchanged; update snapshots its output path.
+      reason: Launcher implementation remains deterministic and unchanged; update
+        snapshots its output path.
     launcher-shim-install:
       action: keep
       reason: Launcher rendering remains unchanged.
   setup-macos-ensures-local-bin-on-path:
     macos-path-setup:
       action: keep
-      reason: Profile mutation semantics remain unchanged; update restores prior bytes on failure.
+      reason: Profile mutation semantics remain unchanged; update restores prior bytes
+        on failure.
     macos-path-regression:
       action: change
       reason: Prove failed update restores launcher and zprofile exactly.
   platform-services-propagate-destination-pnpm-node-path:
     node-path-windows-emission:
       action: change
-      reason: Windows service fixture gains task-state controls while preserving emitted NODE_PATH.
+      reason: Windows service fixture gains task-state controls while preserving
+        emitted NODE_PATH.
     node-path-windows-regression:
       action: change
       reason: Preserve Windows NODE_PATH assertions through task quiescence fixtures.
@@ -315,7 +352,8 @@ anchors:
   public-npx-install-is-primary-install:
     readme-primary-install:
       action: change
-      reason: Qualify plain post-bootstrap update as POSIX-only and keep Windows on npx.
+      reason: Qualify plain post-bootstrap update as POSIX-only and keep Windows on
+        npx.
     setup-quickstart:
       action: change
       reason: Document the exact platform-specific official update commands.
@@ -364,12 +402,14 @@ verification: >
   mutation with exact rollback; Windows move refusal while the task runs;
   pre-swap failure restarting an untouched task; exact registered-task XML
   restoration and prior-absence preservation; failed source-linked POSIX
-  launcher and macOS profile restoration; normal setup/reinstall ordering; and
-  a packed local-TGZ previous-runtime journey through the public npx command,
-  official acquisition, private candidate application, selected generation,
-  and authenticated readiness. Run focused updater, runtime installer, setup,
-  platform, launcher, and status tests; complete CLI and switchboard suites; full
-  serialized workspace tests; recursive build; packed/npx proof; Harn check,
-  staged check, apply; git diff --check; and clean-tree checks. Do not touch
-  R1/R3, update a real host, delegate, monitor, push, merge, deploy, publish,
-  release, or begin another phase.
+  launcher and macOS profile restoration; normal setup/reinstall ordering; and a
+  packed local-TGZ previous-runtime journey through the public npx command,
+  official acquisition, private candidate application, selected generation, and
+  authenticated readiness. Run focused updater, runtime installer, setup,
+  platform, launcher, and status tests; complete CLI and switchboard suites;
+  full serialized workspace tests; recursive build; packed/npx proof; Harn
+  check, staged check, apply; git diff --check; and clean-tree checks. Do not
+  touch R1/R3, update a real host, delegate, monitor, push, merge, deploy,
+  publish, release, or begin another phase.
+applied:
+  applied_at: 2026-08-10T10:06:40.070Z

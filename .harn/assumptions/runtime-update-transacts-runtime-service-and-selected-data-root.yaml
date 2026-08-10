@@ -2,7 +2,7 @@ id: runtime-update-transacts-runtime-service-and-selected-data-root
 hash: a-178183b428fc
 title: Update commits the selected data root only after runtime and service
   identity are ready
-state: active
+state: retired
 statement: >
   The acquired candidate must carry the exact public `--data-dir` into its
   private application, use that root for durable runtime detection, staging,
@@ -22,3 +22,4 @@ depends_on:
   - setup-preserves-private-platform-service
   - service-runtime-status-is-owner-authenticated
 created_by: hosted-relay-smooth-startup-r2-review-fixes
+retired_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

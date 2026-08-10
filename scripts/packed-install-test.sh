@@ -35,12 +35,12 @@ if find "$CLONE_ROOT" -type d \( -name node_modules -o -name dist -o -name artif
   exit 1
 fi
 
-docker run --rm \
+docker run --rm -i \
   --user "$(id -u):$(id -g)" \
   --env HOME=/proof/build-home \
   --mount "type=bind,src=$CLONE_ROOT,dst=/source" \
   --mount "type=bind,src=$PROOF_ROOT,dst=/proof" \
-  "$IMAGE" bash -lc '
+  "$IMAGE" bash -s <<'PACKED_NETWORK'
     set -Eeuo pipefail
     corepack enable --install-directory /proof/corepack-bin
     export PATH=/proof/corepack-bin:$PATH
@@ -77,10 +77,104 @@ docker run --rm \
     grep -Fq "[dry-run] wait for Codor pairing status" <<<"$PACKAGED_DRY_RUN"
     PACKAGED_WARM_DRY_RUN="$(npx --yes --package="$TARBALL" codor install --dry-run)"
     [[ "$PACKAGED_WARM_DRY_RUN" == "$PACKAGED_DRY_RUN" ]]
-    # The first updater release must itself dispatch through the documented
-    # one-time packaged bootstrap; older installed launchers cannot contain it.
-    PACKAGED_UPDATE_HELP="$(npx --yes --package="$TARBALL" codor update --help)"
-    grep -Fq "Update the durable Codor runtime" <<<"$PACKAGED_UPDATE_HELP"
+    # harn:assume packed-update-bootstrap-crosses-real-candidate-transaction ref=packed-update-transaction-proof
+    # Prove the first updater release through the real public npx command, not
+    # only --help. A controlled npm shim preserves production argv and registry
+    # validation while installing this exact local candidate TGZ; fake user
+    # services expose the authenticated generation endpoint without touching the
+    # host running this container.
+    UPDATE_HOME=/proof/update-home
+    UPDATE_DATA=/proof/update-data
+    UPDATE_BIN=/proof/update-bin
+    UPDATE_NPM_LOG=/proof/update-npm.log
+    mkdir -p "$UPDATE_HOME/.config/codor" "$UPDATE_DATA" "$UPDATE_BIN"
+    printf "operator-token\n" >"$UPDATE_HOME/.config/codor/token"
+    chmod 600 "$UPDATE_HOME/.config/codor/token"
+    cp -a /proof/install "$UPDATE_DATA/runtime"
+    CANDIDATE_VERSION="$(node -p "require('/proof/install/node_modules/@richhardry/codor/package.json').version")"
+    PREVIOUS_VERSION="$(node -e "const [a,b,c]=process.argv[1].split('.').map(Number); console.log([a,b,Math.max(0,c-1)].join('.'))" "$CANDIDATE_VERSION")"
+    node -e "const fs=require('fs'); const p=process.argv[1]; const v=JSON.parse(fs.readFileSync(p)); v.version=process.argv[2]; fs.writeFileSync(p, JSON.stringify(v))" \
+      "$UPDATE_DATA/runtime/node_modules/@richhardry/codor/package.json" "$PREVIOUS_VERSION"
+    cat >"$UPDATE_BIN/npm" <<'UPDATE_NPM'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >>"$UPDATE_NPM_LOG"
+case "${1:-}" in
+  view)
+    case "$*" in
+      *"@richhardry/codor@latest version --json"*"--registry https://registry.npmjs.org/"*"--@richhardry:registry=https://registry.npmjs.org/"*) ;;
+      *) printf 'unexpected official lookup argv: %s\n' "$*" >&2; exit 2 ;;
+    esac
+    printf '"%s"\n' "$CANDIDATE_VERSION"
+    ;;
+  install)
+    prefix=''
+    previous=''
+    for argument in "$@"; do
+      if [ "$previous" = '--prefix' ]; then prefix="$argument"; fi
+      previous="$argument"
+    done
+    test -n "$prefix"
+    case "$*" in
+      *"--registry https://registry.npmjs.org/"*"--@richhardry:registry=https://registry.npmjs.org/"*"@richhardry/codor@$CANDIDATE_VERSION"*) ;;
+      *) printf 'unexpected official acquisition argv: %s\n' "$*" >&2; exit 2 ;;
+    esac
+    exec "$REAL_NPM" install --prefix "$prefix" --ignore-scripts --no-audit --no-fund --no-package-lock --no-save "$PROOF_UPDATE_TARBALL"
+    ;;
+  *) printf 'unexpected npm command: %s\n' "$*" >&2; exit 2 ;;
+esac
+UPDATE_NPM
+    cat >"$UPDATE_BIN/systemctl" <<'UPDATE_SYSTEMCTL'
+#!/bin/sh
+set -eu
+if [ "${2:-}" = 'restart' ]; then
+  if [ -f "$UPDATE_DATA/service.pid" ]; then
+    kill "$(cat "$UPDATE_DATA/service.pid")" 2>/dev/null || true
+  fi
+  version="$(sed -n 's/^CODOR_RUNTIME_VERSION=//p' "$UPDATE_HOME/.config/codor/env")"
+  generation="$(sed -n 's/^CODOR_SERVICE_GENERATION=//p' "$UPDATE_HOME/.config/codor/env")"
+  nohup "$REAL_NODE" "$UPDATE_BIN/runtime-server.mjs" "$version" "$generation" >"$UPDATE_DATA/service.log" 2>&1 &
+  printf '%s\n' "$!" >"$UPDATE_DATA/service.pid"
+  sleep 0.1
+  if ! kill -0 "$!" 2>/dev/null; then
+    cat "$UPDATE_DATA/service.log" >&2
+    exit 1
+  fi
+fi
+UPDATE_SYSTEMCTL
+    cat >"$UPDATE_BIN/loginctl" <<'UPDATE_LOGINCTL'
+#!/bin/sh
+printf 'yes\n'
+UPDATE_LOGINCTL
+    cat >"$UPDATE_BIN/runtime-server.mjs" <<'UPDATE_SERVER'
+import { createServer } from 'node:http';
+const [version, generation] = process.argv.slice(2);
+createServer((request, response) => {
+  response.setHeader('content-type', 'application/json');
+  if (request.url === '/api/pairing/status') {
+    response.end(JSON.stringify({ trusted_enrollment: false }));
+    return;
+  }
+  if (request.url === '/api/runtime/status' && request.headers.authorization === 'Bearer operator-token') {
+    response.end(JSON.stringify({ version, generation }));
+    return;
+  }
+  response.statusCode = 404;
+  response.end('{}');
+}).listen(8137, '127.0.0.1');
+UPDATE_SERVER
+    chmod 755 "$UPDATE_BIN/npm" "$UPDATE_BIN/systemctl" "$UPDATE_BIN/loginctl"
+    export CANDIDATE_VERSION PROOF_UPDATE_TARBALL="$TARBALL" REAL_NPM="$(command -v npm)" REAL_NODE="$(command -v node)"
+    export UPDATE_BIN UPDATE_DATA UPDATE_HOME UPDATE_NPM_LOG
+    PACKAGED_UPDATE="$(HOME="$UPDATE_HOME" PATH="$UPDATE_BIN:$PATH" npx --yes --package="$TARBALL" codor --data-dir "$UPDATE_DATA" update)"
+    grep -Fq "Codor updated from $PREVIOUS_VERSION to $CANDIDATE_VERSION" <<<"$PACKAGED_UPDATE"
+    test "$(node -p "require('$UPDATE_DATA/runtime/node_modules/@richhardry/codor/package.json').version")" = "$CANDIDATE_VERSION"
+    test ! -e "$UPDATE_DATA/runtime.backup"
+    grep -Fq "view @richhardry/codor@latest version --json" "$UPDATE_NPM_LOG"
+    grep -Fq "install --prefix" "$UPDATE_NPM_LOG"
+    kill "$(cat "$UPDATE_DATA/service.pid")"
+    wait "$(cat "$UPDATE_DATA/service.pid")" 2>/dev/null || true
+    # harn:end packed-update-bootstrap-crosses-real-candidate-transaction
     # harn:end packed-local-tgz-npx-proof-runs-fresh-default-audit
     # Durability: the install copies a durable runtime, and the rendered service
     # ExecStart references that ~/.codor/runtime copy, never the ephemeral npx
@@ -104,7 +198,7 @@ docker run --rm \
       printf "packed install guard leaked a stack\n" >&2
       exit 1
     fi
-  '
+PACKED_NETWORK
 
 docker run --rm --network none \
   --mount "type=bind,src=$PROOF_ROOT,dst=/proof" \

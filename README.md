@@ -70,6 +70,22 @@ address in your Windows browser.
 <!-- harn:end wsl-setup-keeps-private-windows-loopback -->
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
+
+To install the first updater release, or to update on native Windows, run:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After that first bootstrap, Linux and macOS can use the durable launcher directly:
+
+```sh
+codor update
+```
+
+Native Windows setup does not install a persistent command launcher yet, so continue using the
+exact npx command there. Updates preserve Codor data and verify the selected service generation;
+no manual restart is required.
 <!-- harn:end public-npx-install-is-primary-install -->
 
 <details>

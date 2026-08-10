@@ -43,6 +43,17 @@ QR, URL, eight-character code, and expiry. Use `npx @richhardry/codor install --
 side-effect-free preview. Unattended mutation requires both `--yes` and
 `--access localhost|tailscale`; installation never guesses remote exposure from detection alone.
 `npx @richhardry/codor setup` remains available as a backward-compatible alias.
+
+Bootstrap the official updater, or update native Windows, with:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After the first bootstrap, Linux and macOS may use `codor update`. Native Windows setup does not
+install a persistent launcher yet, so use the exact npx command for each update. Either path
+replaces and verifies the private user service without a manual restart and preserves the data
+directory. Source checkouts continue to update through Git and a rebuild.
 <!-- harn:end public-npx-install-is-primary-install -->
 
 <!-- harn:assume pnpm-install-docs-disclose-build-approval-boundaries ref=selfhost-pnpm-dlx-disclosure -->

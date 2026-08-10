@@ -177,7 +177,7 @@ export function installDurableRuntime(options: {
   };
 }
 
-// harn:assume runtime-update-transacts-runtime-service-and-selected-data-root ref=durable-runtime-transaction
+// harn:assume runtime-update-restores-every-mutated-runtime-service-and-launcher-surface ref=durable-runtime-transaction
 /** Commit a retained runtime swap after the selected service generation has
  * proved healthy. Safe to call repeatedly. */
 export function finalizeDurableRuntimeInstall(
@@ -196,5 +196,5 @@ export function rollbackDurableRuntimeInstall(
   if (io.exists(result.location)) io.remove(result.location);
   if (io.exists(result.transaction.backup)) io.move(result.transaction.backup, result.location);
 }
-// harn:end runtime-update-transacts-runtime-service-and-selected-data-root
+// harn:end runtime-update-restores-every-mutated-runtime-service-and-launcher-surface
 // harn:end setup-installs-durable-per-user-runtime-atomically

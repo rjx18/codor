@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import type { InstallIo } from './runtime-install.js';
+import { defaultInstallIo, type InstallIo } from './runtime-install.js';
 import type { RuntimePaths } from './runtime-paths.js';
 import { runCli } from './program.js';
 import { runCandidateUpdate, runOfficialUpdate, type UpdateCommandResult } from './update.js';
@@ -36,7 +36,7 @@ function missing(): InstallIo {
 
 const ok = (stdout = ''): UpdateCommandResult => ({ status: 0, stdout, stderr: '' });
 
-// harn:assume official-codor-update-is-bounded-cross-platform-and-durable-rooted ref=stable-update-regression
+// harn:assume official-codor-update-is-cooperatively-bounded-and-platform-truthful ref=stable-update-regression
 describe('runOfficialUpdate', () => {
   it('is a true no-op when the durable runtime is already latest', async () => {
     const run = vi.fn(() => ok('"0.10.11"'));
@@ -83,10 +83,11 @@ describe('runOfficialUpdate', () => {
     expect(calls).toEqual([
       ['npm', ['view', '@richhardry/codor@latest', 'version', '--json', '--registry', 'https://registry.npmjs.org/', '--@richhardry:registry=https://registry.npmjs.org/']],
       ['npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--no-save', '--registry', 'https://registry.npmjs.org/', '--@richhardry:registry=https://registry.npmjs.org/', '@richhardry/codor@0.10.12']],
-      ['/usr/bin/node', [candidate, '--data-dir', DATA, '__apply-update', '--expected-version', '0.10.12']],
+      ['/usr/bin/node', [candidate, '--data-dir', DATA, '__apply-update', '--expected-version', '0.10.12', '--timeout-ms', '300000']],
     ]);
     expect(removeTemp).toHaveBeenCalledWith(prefix);
     expect(out).toHaveBeenCalledWith('candidate applied');
+    expect(run.mock.calls[2]?.[2]).not.toHaveProperty('timeoutMs');
   });
 
   it('allows a source-linked launcher to update an existing durable installation', async () => {
@@ -136,12 +137,11 @@ describe('runOfficialUpdate', () => {
   it.each([
     { phase: 'lookup', timeout: '11', timeouts: { lookupMs: 11 } },
     { phase: 'acquisition', timeout: '22', timeouts: { acquisitionMs: 22 } },
-    { phase: 'candidate', timeout: '33', timeouts: { candidateMs: 33 } },
   ])('bounds $phase execution with an actionable timeout', async ({ phase, timeout, timeouts }) => {
     const prefix = '/tmp/codor-timeout-candidate';
     const candidate = join(prefix, 'node_modules/@richhardry/codor/bin/codor.mjs');
     const run = vi.fn((command: string, args: string[]) => {
-      const current = args[0] === 'view' ? 'lookup' : command === '/usr/bin/node' ? 'candidate' : 'acquisition';
+      const current = args[0] === 'view' ? 'lookup' : 'acquisition';
       if (current === phase) return { status: 1, stdout: '', stderr: '', timedOut: true };
       return args[0] === 'view' ? ok('"0.10.12"') : ok();
     });
@@ -172,9 +172,9 @@ describe('runOfficialUpdate', () => {
     expect(removeTemp).toHaveBeenCalledWith('/tmp/failed');
   });
 });
-// harn:end official-codor-update-is-bounded-cross-platform-and-durable-rooted
+// harn:end official-codor-update-is-cooperatively-bounded-and-platform-truthful
 
-// harn:assume runtime-update-transacts-runtime-service-and-selected-data-root ref=update-rollback-regression
+// harn:assume runtime-update-restores-every-mutated-runtime-service-and-launcher-surface ref=update-rollback-regression
 it('hands candidate application to the acquired package implementation', async () => {
   const applyCandidate = vi.fn(async () => undefined);
   await runCandidateUpdate({
@@ -189,11 +189,12 @@ it('threads the public data root through the private CLI handoff', async () => {
   const applyCandidate = vi.fn(async () => undefined);
   await runCli([
     'node', 'codor', '--data-dir', '/selected/codor-data',
-    '__apply-update', '--expected-version', '0.10.12',
+    '__apply-update', '--expected-version', '0.10.12', '--timeout-ms', '1234',
   ], { env: {}, update: { applyCandidate } });
   expect(applyCandidate).toHaveBeenCalledWith(expect.objectContaining({
     dataDir: '/selected/codor-data',
     expectedVersion: '0.10.12',
+    timeoutMs: 1234,
   }));
 });
 
@@ -374,6 +375,52 @@ it('rolls back and reconverges the previous runtime when the candidate restart f
   }
 });
 
+it('cooperatively times out after service mutation and completes rollback before returning', async () => {
+  const fixture = updateFixture();
+  let now = 0;
+  let restarts = 0;
+  try {
+    await expect(runCandidateUpdate({
+      dataDir: fixture.dataDir,
+      expectedVersion: '0.10.12',
+      timeoutMs: 50,
+      env: { HOME: fixture.home, USER: 'tester', PATH: '/usr/bin' },
+      out: vi.fn(),
+      overrides: {
+        now: () => now,
+        setup: {
+          runtime: fixture.candidate,
+          home: fixture.home,
+          nodePath: '/usr/bin/node',
+          platform: 'linux',
+          generation: () => 'candidate-generation',
+          exec: (command, args) => {
+            const rendered = [command, ...args].join(' ');
+            fixture.commands.push(rendered);
+            if (rendered === 'systemctl --user restart codor.service') {
+              restarts += 1;
+              if (restarts === 1) now = 51;
+            }
+            return command === 'loginctl' ? 'yes' : '';
+          },
+          which: () => undefined,
+          probe: async () => true,
+          runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
+          sleep: async () => undefined,
+        },
+      },
+    })).rejects.toThrow(/timed out after 50 ms.*Codor 0\.10\.11 was restored and version-verified/);
+
+    expect(restarts).toBe(2);
+    expect(JSON.parse(readFileSync(join(fixture.dataDir, 'runtime/node_modules/@richhardry/codor/package.json'), 'utf8')))
+      .toMatchObject({ version: '0.10.11' });
+    expect(readFileSync(fixture.envPath, 'utf8')).toBe('EXACT=prior-env\n');
+    expect(readFileSync(fixture.unitPath, 'utf8')).toBe('[Service]\nExecStart=/exact/prior\n');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 it('reports a restored legacy daemon as healthy but identity-unverified', async () => {
   const fixture = updateFixture();
   try {
@@ -442,8 +489,147 @@ it.each([
     })).rejects.toThrow(/Codor 0\.10\.11 was restored and version-verified/);
     expect(readFileSync(existingPath)).toEqual(prior);
     if (absent !== undefined) expect(existsSync(join(fixture.home, absent))).toBe(false);
+    if (platform === 'darwin') {
+      expect(existsSync(join(fixture.home, '.local/bin/codor'))).toBe(false);
+      expect(existsSync(join(fixture.home, '.zprofile'))).toBe(false);
+    }
   } finally {
     fixture.cleanup();
   }
 });
-// harn:end runtime-update-transacts-runtime-service-and-selected-data-root
+
+// harn:assume windows-runtime-swap-requires-task-quiescence ref=windows-runtime-quiescence-regression
+it('stops Windows tasks before every runtime move and restores the exact registered definition', async () => {
+  const fixture = updateFixture();
+  const priorTaskXml = '<Task><RegistrationInfo><Description>exact prior task</Description></RegistrationInfo></Task>';
+  let taskRunning = true;
+  const installIo: InstallIo = {
+    ...defaultInstallIo,
+    move: (from, to) => {
+      if (taskRunning) throw new Error('native runtime is locked by the running task');
+      defaultInstallIo.move(from, to);
+    },
+  };
+  try {
+    await expect(runCandidateUpdate({
+      dataDir: fixture.dataDir,
+      expectedVersion: '0.10.12',
+      env: { HOME: fixture.home, USER: 'tester', USERNAME: 'tester', PATH: 'C:\\Windows\\System32' },
+      out: vi.fn(),
+      overrides: { setup: {
+        runtime: fixture.candidate,
+        home: fixture.home,
+        nodePath: 'C:\\Program Files\\nodejs\\node.exe',
+        platform: 'win32',
+        installIo,
+        generation: () => 'candidate-generation',
+        exec: (command, args) => {
+          const rendered = [command, ...args].join(' ');
+          fixture.commands.push(rendered);
+          if (command === 'schtasks' && args[0] === '/Query') return priorTaskXml;
+          if (command === 'schtasks' && args[0] === '/End') taskRunning = false;
+          if (command === 'schtasks' && args[0] === '/Run') taskRunning = true;
+          return '';
+        },
+        which: () => undefined,
+        probe: async () => true,
+        runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
+        sleep: async () => undefined,
+      } },
+    })).rejects.toThrow(/Codor 0\.10\.11 was restored and version-verified/);
+
+    expect(fixture.commands[0]).toBe('schtasks /Query /TN Codor Switchboard /XML');
+    expect(fixture.commands[1]).toBe('schtasks /End /TN Codor Switchboard');
+    expect(fixture.commands).toContain('schtasks /Create /TN Codor Switchboard /XML '
+      + join(fixture.home, '.config/codor/.codor-task-rollback.xml') + ' /F');
+    expect(taskRunning).toBe(true);
+    expect(JSON.parse(readFileSync(join(fixture.dataDir, 'runtime/node_modules/@richhardry/codor/package.json'), 'utf8')))
+      .toMatchObject({ version: '0.10.11' });
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+it('restarts the untouched Windows task when staging fails before the runtime swap', async () => {
+  const fixture = updateFixture();
+  let taskRunning = true;
+  const installIo: InstallIo = {
+    ...defaultInstallIo,
+    copyTree: () => { throw new Error('candidate staging failed'); },
+  };
+  try {
+    await expect(runCandidateUpdate({
+      dataDir: fixture.dataDir,
+      expectedVersion: '0.10.12',
+      env: { HOME: fixture.home, USER: 'tester', USERNAME: 'tester', PATH: 'C:\\Windows\\System32' },
+      out: vi.fn(),
+      overrides: { setup: {
+        runtime: fixture.candidate,
+        home: fixture.home,
+        nodePath: 'C:\\Program Files\\nodejs\\node.exe',
+        platform: 'win32',
+        installIo,
+        generation: () => 'candidate-generation',
+        exec: (command, args) => {
+          fixture.commands.push([command, ...args].join(' '));
+          if (command === 'schtasks' && args[0] === '/Query') return '<Task><Description>prior</Description></Task>';
+          if (command === 'schtasks' && args[0] === '/End') taskRunning = false;
+          if (command === 'schtasks' && args[0] === '/Run') taskRunning = true;
+          return '';
+        },
+        which: () => undefined,
+        probe: async () => true,
+        runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
+        sleep: async () => undefined,
+      } },
+    })).rejects.toThrow(/candidate staging failed.*Codor 0\.10\.11 was restored and version-verified/);
+
+    expect(fixture.commands).toEqual([
+      'schtasks /Query /TN Codor Switchboard /XML',
+      'schtasks /End /TN Codor Switchboard',
+      'schtasks /End /TN Codor Switchboard',
+      'schtasks /Run /TN Codor Switchboard',
+    ]);
+    expect(taskRunning).toBe(true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+it('leaves a previously absent registered Windows task absent after rollback', async () => {
+  const fixture = updateFixture();
+  try {
+    await expect(runCandidateUpdate({
+      dataDir: fixture.dataDir,
+      expectedVersion: '0.10.12',
+      env: { HOME: fixture.home, USER: 'tester', USERNAME: 'tester', PATH: 'C:\\Windows\\System32' },
+      out: vi.fn(),
+      overrides: { setup: {
+        runtime: fixture.candidate,
+        home: fixture.home,
+        nodePath: 'C:\\Program Files\\nodejs\\node.exe',
+        platform: 'win32',
+        generation: () => 'candidate-generation',
+        exec: (command, args) => {
+          const rendered = [command, ...args].join(' ');
+          fixture.commands.push(rendered);
+          if (command === 'schtasks' && args[0] === '/Query') throw new Error('task not found');
+          return '';
+        },
+        which: () => undefined,
+        probe: async () => true,
+        runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
+        sleep: async () => undefined,
+      } },
+    })).rejects.toThrow(/Codor 0\.10\.11 was restored and version-verified/);
+
+    expect(fixture.commands).toContain('schtasks /Delete /TN Codor Switchboard /F');
+    const creates = fixture.commands.filter((command) => command.startsWith('schtasks /Create'));
+    expect(creates).toHaveLength(1);
+    expect(fixture.commands.at(-1)).not.toBe('schtasks /Run /TN Codor Switchboard');
+  } finally {
+    fixture.cleanup();
+  }
+});
+// harn:end windows-runtime-swap-requires-task-quiescence
+// harn:end runtime-update-restores-every-mutated-runtime-service-and-launcher-surface

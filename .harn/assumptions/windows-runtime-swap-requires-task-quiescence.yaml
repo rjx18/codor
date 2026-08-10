@@ -1,0 +1,18 @@
+id: windows-runtime-swap-requires-task-quiescence
+hash: a-41a2f8a3995b
+title: Windows quiesces and exactly restores its registered service before
+  runtime swaps
+state: active
+statement: >
+  Before setup, reinstall, or official update moves a durable Windows runtime,
+  Codor must query and snapshot whether the private scheduled task exists and
+  its exact exported XML, then stop it before the first swap. If acquisition,
+  staging, or swap fails before a candidate service is committed, the untouched
+  prior task is restarted. If later convergence fails, rollback restores the
+  prior registered task definition exactly; a previously absent task remains
+  absent and is never synthesized from a missing local XML file. Native files in
+  use must never be moved while the task is running.
+depends_on:
+  - windows-setup-installs-private-task-service
+  - setup-installs-durable-per-user-runtime-atomically
+created_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

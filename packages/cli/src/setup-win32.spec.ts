@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { defaultInstallIo, type InstallIo } from './runtime-install.js';
 import { runSetup } from './setup.js';
 
 const winOptions = (root: string, commands: string[], output: string[]) => {
@@ -128,6 +129,65 @@ describe('codor setup on Windows', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // harn:assume windows-runtime-swap-requires-task-quiescence ref=windows-runtime-quiescence-regression
+  it('quiesces the existing task before a normal packaged install swaps the runtime', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codor-win32-quiesce-'));
+    const commands: string[] = [];
+    const output: string[] = [];
+    let taskRunning = true;
+    try {
+      const overrides = winOptions(root, commands, output);
+      const wrapper = join(root, '_npx', 'candidate', 'node_modules', '@richhardry', 'codor');
+      const cli = join(wrapper, 'node_modules', '@codor', 'cli');
+      mkdirSync(join(cli, 'dist'), { recursive: true });
+      mkdirSync(join(cli, 'runtime', 'web'), { recursive: true });
+      mkdirSync(join(cli, 'packaging', 'systemd'), { recursive: true });
+      writeFileSync(join(wrapper, 'package.json'), JSON.stringify({ version: 'test-version' }));
+      writeFileSync(join(cli, 'package.json'), JSON.stringify({ version: 'test-version' }));
+      writeFileSync(join(cli, 'dist', 'index.js'), '');
+      writeFileSync(join(cli, 'runtime', 'web', 'index.html'), '');
+      writeFileSync(join(cli, 'packaging', 'systemd', 'codor.service'), 'ExecStart=/old\n');
+      const installIo: InstallIo = {
+        ...defaultInstallIo,
+        move: (from, to) => {
+          if (taskRunning) throw new Error('runtime move attempted while task was running');
+          defaultInstallIo.move(from, to);
+        },
+      };
+      overrides.runtime = {
+        layout: 'installed-package',
+        root: cli,
+        cliEntrypoint: join(cli, 'dist', 'index.js'),
+        staticRoot: join(cli, 'runtime', 'web'),
+        serviceTemplate: join(cli, 'packaging', 'systemd', 'codor.service'),
+      };
+      overrides.installIo = installIo;
+      overrides.exec = (command, args) => {
+        commands.push([command, ...args].join(' '));
+        if (command === 'schtasks' && args[0] === '/Query') return '<Task />';
+        if (command === 'schtasks' && args[0] === '/End') taskRunning = false;
+        if (command === 'schtasks' && args[0] === '/Run') taskRunning = true;
+        return '';
+      };
+
+      await runSetup({
+        access: 'localhost',
+        dryRun: false,
+        env: { USERNAME: 'test-user', PATH: 'C:\\Windows\\System32' },
+        out: (line) => output.push(line),
+        overrides,
+        yes: true,
+      });
+
+      expect(commands[0]).toBe('schtasks /Query /TN Codor Switchboard /XML');
+      expect(commands[1]).toBe('schtasks /End /TN Codor Switchboard');
+      expect(taskRunning).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  // harn:end windows-runtime-swap-requires-task-quiescence
 
   it('names every supported platform when rejecting another one', async () => {
     await expect(runSetup({

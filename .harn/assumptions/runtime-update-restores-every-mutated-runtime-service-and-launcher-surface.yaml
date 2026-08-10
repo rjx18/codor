@@ -1,0 +1,23 @@
+id: runtime-update-restores-every-mutated-runtime-service-and-launcher-surface
+hash: a-6d5186985582
+title: Update commits only after every selected runtime and service surface is
+  verified
+state: active
+statement: >
+  The acquired candidate must carry the exact public data root into private
+  application and retain the prior runtime, exact platform service files,
+  registered Windows task state, POSIX launcher, and macOS profile bytes and
+  existence until owner-authenticated candidate version and generation pass. Any
+  staging, swap, restart, readiness, identity, or cooperative timeout failure
+  restores every changed surface exactly before bounded prior-service recovery,
+  leaves all other data and the default data root untouched, and reports
+  incomplete recovery honestly. A prior identity-capable daemon may be
+  version-verified; a legacy daemon without the identity endpoint may be
+  accepted only as generically healthy and explicitly unverified.
+depends_on:
+  - official-codor-update-is-cooperatively-bounded-and-platform-truthful
+  - windows-runtime-swap-requires-task-quiescence
+  - setup-installs-durable-per-user-runtime-atomically
+  - setup-preserves-private-platform-service
+  - service-runtime-status-is-owner-authenticated
+created_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

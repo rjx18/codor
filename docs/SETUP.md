@@ -28,10 +28,17 @@ that first update once through the official package:
 npx --yes --package=@richhardry/codor@latest codor update
 ```
 
-After that, update to the current official stable release with:
+After that, Linux and macOS update to the current official stable release with:
 
 ```sh
 codor update
+```
+
+Native Windows setup does not install a persistent `codor` launcher yet. Use the same official
+npx command for every Windows update:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
 ```
 
 The command is a no-op when the durable runtime is already current. Otherwise it acquires one

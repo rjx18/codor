@@ -31,6 +31,7 @@ export interface UpdateOverrides {
   nodePath?: string;
   platform?: NodeJS.Platform;
   timeouts?: Partial<typeof DEFAULT_TIMEOUTS>;
+  now?(): number;
   exists?(path: string): boolean;
   makeTemp?(): string;
   removeTemp?(path: string): void;
@@ -39,6 +40,7 @@ export interface UpdateOverrides {
   applyCandidate?(options: {
     dataDir: string;
     expectedVersion: string;
+    timeoutMs: number;
     env: NodeJS.ProcessEnv;
     out(line: string): void;
     setup?: SetupOverrides;
@@ -147,7 +149,7 @@ function boundedRun(
   return result;
 }
 
-// harn:assume official-codor-update-is-bounded-cross-platform-and-durable-rooted ref=stable-update-acquisition
+// harn:assume official-codor-update-is-cooperatively-bounded-and-platform-truthful ref=stable-update-acquisition
 export async function runOfficialUpdate(options: UpdateOptions): Promise<void> {
   const overrides = options.overrides ?? {};
   const runtime = overrides.runtime ?? resolveRuntimePaths();
@@ -212,23 +214,37 @@ export async function runOfficialUpdate(options: UpdateOptions): Promise<void> {
     if (!exists(candidate)) {
       throw new Error(`the acquired Codor ${version} package is missing its private updater entrypoint`);
     }
-    const applied = boundedRun(run, `Codor ${version} could not be applied`, nodePath, [
-      candidate,
-      '--data-dir', options.dataDir,
-      '__apply-update',
-      '--expected-version', version,
-    ], timeouts.candidateMs, options.env);
+    // Candidate application owns the runtime/service transaction. Do not put a
+    // parent spawn timeout around it: killing this child after the swap would
+    // bypass its catch/rollback path. The deadline is carried into that
+    // transaction, which is allowed to finish bounded recovery before exiting.
+    let applied: UpdateCommandResult;
+    try {
+      applied = run(nodePath, [
+        candidate,
+        '--data-dir', options.dataDir,
+        '__apply-update',
+        '--expected-version', version,
+        '--timeout-ms', String(timeouts.candidateMs),
+      ], { env: options.env });
+    } catch (error) {
+      throw new Error(`Codor ${version} could not be applied: ${String(error)}`);
+    }
+    if (applied.status !== 0 || applied.timedOut) {
+      throw commandFailure(`Codor ${version} could not be applied`, applied, timeouts.candidateMs);
+    }
     for (const line of applied.stdout.trim().split(/\r?\n/).filter(Boolean)) options.out(line);
   } finally {
     (overrides.removeTemp ?? ((path: string) => rmSync(path, { recursive: true, force: true })))(prefix);
   }
 }
-// harn:end official-codor-update-is-bounded-cross-platform-and-durable-rooted
+// harn:end official-codor-update-is-cooperatively-bounded-and-platform-truthful
 
-// harn:assume runtime-update-transacts-runtime-service-and-selected-data-root ref=private-update-application
+// harn:assume runtime-update-restores-every-mutated-runtime-service-and-launcher-surface ref=private-update-application
 export async function runCandidateUpdate(options: {
   dataDir: string;
   expectedVersion: string;
+  timeoutMs?: number;
   env: NodeJS.ProcessEnv;
   out(line: string): void;
   overrides?: UpdateOverrides;
@@ -238,6 +254,7 @@ export async function runCandidateUpdate(options: {
     await apply({
       dataDir: options.dataDir,
       expectedVersion: options.expectedVersion,
+      timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUTS.candidateMs,
       env: options.env,
       out: options.out,
       setup: options.overrides?.setup,
@@ -250,7 +267,11 @@ export async function runCandidateUpdate(options: {
     env: options.env,
     out: options.out,
     overrides: options.overrides?.setup,
-    updateOnly: { expectedVersion: options.expectedVersion },
+    updateOnly: {
+      expectedVersion: options.expectedVersion,
+      timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUTS.candidateMs,
+      now: options.overrides?.now,
+    },
   });
 }
-// harn:end runtime-update-transacts-runtime-service-and-selected-data-root
+// harn:end runtime-update-restores-every-mutated-runtime-service-and-launcher-surface

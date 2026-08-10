@@ -2,7 +2,7 @@ id: official-codor-update-is-bounded-cross-platform-and-durable-rooted
 hash: a-b3d2ebc5bc8e
 title: Codor update selects one bounded official candidate for an existing
   durable runtime
-state: active
+state: retired
 statement: >
   When the selected data root contains a durable Codor runtime, `codor update`
   may be invoked by its launcher, a source-linked CLI, or the official npx
@@ -24,3 +24,4 @@ depends_on:
   - setup-resolves-complete-invoking-runtime
   - public-package-bundles-complete-codor-runtime
 created_by: hosted-relay-smooth-startup-r2-review-fixes
+retired_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

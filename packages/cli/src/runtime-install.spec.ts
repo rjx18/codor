@@ -208,7 +208,7 @@ describe('installDurableRuntime', () => {
     expect(moves).toContainEqual([`${LOCATION}.staging`, LOCATION]);
   });
 
-  // harn:assume runtime-update-transacts-runtime-service-and-selected-data-root ref=durable-runtime-transaction-regression
+// harn:assume runtime-update-restores-every-mutated-runtime-service-and-launcher-surface ref=durable-runtime-transaction-regression
   it('retains the prior runtime until a successful update is finalized', () => {
     const { io, present, removed } = fakeIo({ existing: '0.9.0' });
     const result = installDurableRuntime({
@@ -244,7 +244,7 @@ describe('installDurableRuntime', () => {
     expect(moves.at(-1)).toEqual([`${LOCATION}.backup`, LOCATION]);
     expect(detectInstalledRuntime(DATA, io)?.version).toBe('0.9.0');
   });
-  // harn:end runtime-update-transacts-runtime-service-and-selected-data-root
+// harn:end runtime-update-restores-every-mutated-runtime-service-and-launcher-surface
 
   it('leaves the previous runtime intact when the copy fails', () => {
     const { io, present, moves } = fakeIo({ existing: '0.9.0', failCopy: true });

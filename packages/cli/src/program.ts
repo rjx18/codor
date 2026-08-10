@@ -1059,7 +1059,7 @@ defaultRosterManagement
   // harn:end public-install-is-the-primary-command-with-setup-alias
   // harn:end setup-unattended-mutation-requires-explicit-intent
 
-  // harn:assume official-codor-update-is-bounded-cross-platform-and-durable-rooted ref=stable-update-command
+  // harn:assume official-codor-update-is-cooperatively-bounded-and-platform-truthful ref=stable-update-command
   program
     .command('update')
     .description('Update the durable Codor runtime to the current official stable release')
@@ -1075,16 +1075,22 @@ defaultRosterManagement
   program
     .command('__apply-update', { hidden: true })
     .requiredOption('--expected-version <version>')
-    .action(async (options: { expectedVersion: string }) => {
+    .requiredOption('--timeout-ms <milliseconds>')
+    .action(async (options: { expectedVersion: string; timeoutMs: string }) => {
+      const timeoutMs = Number(options.timeoutMs);
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new Error('private update timeout must be a positive integer number of milliseconds');
+      }
       await runCandidateUpdate({
         dataDir: program.opts<GlobalOptions>().dataDir,
         expectedVersion: options.expectedVersion,
+        timeoutMs,
         env,
         out,
         overrides: context.update,
       });
     });
-  // harn:end official-codor-update-is-bounded-cross-platform-and-durable-rooted
+  // harn:end official-codor-update-is-cooperatively-bounded-and-platform-truthful
 
   program
     .command('spawn')
