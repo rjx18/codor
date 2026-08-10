@@ -144,6 +144,9 @@ assumptions:
     - id: setup-readiness-wait-is-wall-clock-bounded
       outcome: unchanged
       reason: Normal setup retains its sixty-second budget; candidate application may pass a smaller remaining transaction budget.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: Generic Codor readiness remains mandatory before identity proof and pairing.
     - id: setup-installs-user-launcher-shim
       outcome: unchanged
       reason: POSIX keeps the deterministic durable launcher; rollback now restores its prior state.
@@ -273,6 +276,13 @@ anchors:
     readiness-wall-clock-regression:
       action: change
       reason: Prove normal and reduced budgets without altering probe semantics.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing:
+      action: change
+      reason: Compose the smaller candidate transaction budget through the existing readiness gate without changing pairing behavior.
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: Preserve normal readiness and pairing regressions under the optional reduced budget.
   setup-installs-user-launcher-shim:
     launcher-install-runtime:
       action: keep
