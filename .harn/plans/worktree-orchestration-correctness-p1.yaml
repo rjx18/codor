@@ -891,6 +891,11 @@ anchors:
     child-default-roster-manager:
       action: change
       reason: Thread alias-free creation through the unchanged opt-in roster snapshot.
+  packed-management-workflow-persists-target-owned-worktree-turn:
+    packed-target-owned-management-workflow:
+      action: change
+      reason: Prove the installed branch-selected child owns the instruction, run,
+        evidence, and result across restart while main remains uncontaminated.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
