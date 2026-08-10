@@ -1,0 +1,61 @@
+id: hosted-relay-smooth-startup-r1-review-fixes
+title: Retire stale hosted cache and block offline media mutations
+notes: >
+  Contained R1 review correction only. Once an authenticated managed room-list
+  response proves that a computer has no rooms, retire its cached connector and
+  delete only that computer's last-good snapshot before publishing the
+  authoritative No Channels state. Guard attachment upload and voice
+  transcription at their HTTP action boundaries whenever the mounted room lacks
+  current readiness, so paste, drop, hidden file selection, and an already-open
+  dictation session cannot mutate while offline and draft text is preserved.
+  Preserve direct mode, live hosted mutation, media validation/authentication,
+  cache isolation, reactive late readiness, and every accepted R1/R2 behavior.
+  Do not start R3 or touch a real host.
+assumptions:
+  reviewed:
+    - id: hosted-last-good-room-cache-is-bounded-read-only-projection
+      outcome: unchanged
+      reason: >
+        Authenticated empty room truth is the current evidence that retires a
+        stale optional projection; cache isolation and bounded contents remain
+        unchanged.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        The existing read-only reconnect contract already forbids every HTTP
+        mutation; this correction enforces it below visible DOM controls.
+    - id: hosted-managed-bootstrap-reacts-to-late-readiness
+      outcome: unchanged
+      reason: >
+        Reactive startup still consumes manager-owned truth, including the
+        authoritative authenticated empty-room result.
+anchors:
+  hosted-last-good-room-cache-is-bounded-read-only-projection:
+    hosted-last-good-room-lifecycle:
+      action: change
+      reason: Retire and delete a stale cached connector before publishing
+        authenticated empty-room truth.
+    hosted-last-good-room-regression:
+      action: change
+      reason: Prove empty authenticated truth wins over both loaded and racing cached
+        state.
+  readable-reconnecting-room-never-admits-mutation:
+    offline-composer-http-boundary:
+      action: change
+      reason: Gate attachment upload and voice transcription on current room readiness
+        at the action boundary.
+    offline-composer-http-regression:
+      action: change
+      reason: Prove paste, drop, file selection, and voice cannot issue HTTP while the
+        draft remains intact.
+files:
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+verification: >
+  Clean-lock after the required draft-plan checkpoint on e1149495. Run focused manager/composer and browser
+  regressions, all web units, production build, Rooms 33 through 36, Harn
+  diff/staged/apply checks, and git diff --check. Commit once and verify a clean
+  worktree. Do not begin R3, update a real host, push, merge, deploy, or
+  publish.
