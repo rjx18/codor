@@ -4837,7 +4837,7 @@ describe('collaboration recovery and unavailable participants', () => {
 
     expect(() => daemon.postHumanMessage(
       'eng',
-      '@boot-group-alpha ~boot-group-target:@boot-group-remote group up',
+      '@boot-group-alpha ~feature-boot-group-target:@boot-group-remote group up',
     )).toThrow('one message cannot target multiple worktree conversations');
     expect(daemon.store.listMessages('eng')).toEqual([]);
     expect(daemon.store.listMessages(worktree.conversation_id)).toEqual([]);
@@ -8133,9 +8133,9 @@ describe('qualified target orchestration', () => {
       },
       { kind: 'complete', final_text: 'second target answer' },
     );
-    const first = daemon.postHumanMessage('eng', '~target-a:@same-target first request');
+    const first = daemon.postHumanMessage('eng', '~feature-target-a:@same-target first request');
     await daemon.settle();
-    const second = daemon.postHumanMessage(originRoom, '~target-a:@same-target second request');
+    const second = daemon.postHumanMessage(originRoom, '~feature-target-a:@same-target second request');
     await daemon.settle();
 
     expect(first.room).toBe(targetRoom);
@@ -8147,8 +8147,8 @@ describe('qualified target orchestration', () => {
     const targetMessages = daemon.store.listMessages(targetRoom);
     expect(targetMessages.filter((message) => message.kind === 'chat').map((message) => message.body))
       .toEqual(expect.arrayContaining([
-        '~target-a:@same-target first request',
-        '~target-a:@same-target second request',
+        '~feature-target-a:@same-target first request',
+        '~feature-target-a:@same-target second request',
       ]));
     const targetRuns = targetMessages.filter((message) => message.kind === 'run');
     expect(targetRuns).toHaveLength(2);
@@ -8175,10 +8175,10 @@ describe('qualified target orchestration', () => {
     const before = daemon.store.listMessages('eng').length;
 
     expect(() => daemon.postHumanMessage(
-      'eng', '@mixed-local ~mixed-first:@mixed-first-agent compare scopes',
+      'eng', '@mixed-local ~feature-mixed-first:@mixed-first-agent compare scopes',
     )).toThrow('one message cannot target multiple worktree conversations');
     expect(() => daemon.postHumanMessage(
-      'eng', '~mixed-first:@mixed-first-agent ~mixed-second:@mixed-second-agent compare scopes',
+      'eng', '~feature-mixed-first:@mixed-first-agent ~feature-mixed-second:@mixed-second-agent compare scopes',
     )).toThrow('one message cannot target multiple worktree conversations');
     expect(daemon.store.listMessages('eng')).toHaveLength(before);
     expect(daemon.store.listMessages(first.conversation_id)).toEqual([]);
@@ -8666,7 +8666,7 @@ describe('worktree child default roster', () => {
 // harn:end worktree-child-default-roster-is-an-explicit-snapshot
 
 // harn:assume qualified-member-target-identity-is-durable ref=phase5-qualified-integration-regression
-// harn:assume deterministic-branch-conversations-own-worktree-identity ref=phase5-qualified-integration-regression
+// harn:assume readable-branch-conversations-own-worktree-identity ref=phase5-qualified-integration-regression
 // harn:assume child-members-own-isolated-runtime ref=phase5-qualified-integration-regression
 // harn:assume cross-worktree-runtime-stays-target-local ref=phase5-qualified-integration-regression
 // harn:assume target-worktree-owns-qualified-conversation ref=phase5-qualified-integration-regression
@@ -8681,7 +8681,7 @@ describe('Phase 5 qualified integration hardening', () => {
       harness: 'fake', handle: 'stable-target', cwd: testCwd('stable-target'),
     });
     daemon.pauseMember(child, target.id);
-    const accepted = daemon.postHumanMessage('eng', '~stable-scope:@stable-target accepted before move');
+    const accepted = daemon.postHumanMessage('eng', '~feature-stable-scope:@stable-target accepted before move');
     const delivery = daemon.store.listDeliveries(child, { recipient: target.id })
       .find((candidate) => candidate.message_id === accepted.id)!;
     expect(delivery.target).toBeUndefined();
@@ -8730,7 +8730,7 @@ describe('Phase 5 qualified integration hardening', () => {
     );
 
     daemon.postHumanMessage('eng', '@equal-handle main concurrent request');
-    daemon.postHumanMessage('eng', '~equal-child:@equal-handle child concurrent request');
+    daemon.postHumanMessage('eng', '~feature-equal-child:@equal-handle child concurrent request');
     await until(() => fake.deliveries.length === 2 ? true : undefined);
 
     expect(daemon.store.getMember('eng', main.id)?.state).toBe('running');
@@ -8764,7 +8764,7 @@ describe('Phase 5 qualified integration hardening', () => {
 // harn:end target-worktree-owns-qualified-conversation
 // harn:end cross-worktree-runtime-stays-target-local
 // harn:end child-members-own-isolated-runtime
-// harn:end deterministic-branch-conversations-own-worktree-identity
+// harn:end readable-branch-conversations-own-worktree-identity
 // harn:end qualified-member-target-identity-is-durable
 
 // harn:assume qualified-execution-requires-usable-checkout ref=qualified-target-usability-daemon-regression
@@ -8943,7 +8943,7 @@ describe('worktree removal refuses live child runtime before Git', () => {
     const remove = vi.spyOn(daemon.worktrees, 'remove').mockImplementation(async () => {
       throw new Error('Git removal reached');
     });
-    daemon.postHumanMessage('eng', '~removal-child:@inflight-child keep running');
+    daemon.postHumanMessage('eng', '~feature-removal-child:@inflight-child keep running');
     await until(() => fake.deliveries.length === 1 &&
       daemon.store.getMember(worktree.conversation_id, target.id)?.state === 'running'
       ? true : undefined);

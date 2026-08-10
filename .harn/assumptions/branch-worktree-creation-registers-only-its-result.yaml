@@ -1,0 +1,18 @@
+id: branch-worktree-creation-registers-only-its-result
+hash: a-eca50a94e016
+title: Worktree creation derives identity from the new full branch
+state: active
+statement: >
+  Creating a worktree must require a valid new local branch and a missing
+  absolute target with an existing safe parent, derive its shorthand and
+  readable child conversation only from the complete branch, verify repository
+  and registry constraints before mutation, create from the freshly resolved
+  primary HEAD without force, and register only the exact secondary rediscovered
+  after Git succeeds. Existing paths, branches, primary targets, conflicting
+  derived identities, and cross-repository identities are refused.
+depends_on:
+  - repository-primary-identity-is-git-derived
+  - registered-worktree-identities-are-durable
+  - readable-branch-conversations-own-worktree-identity
+  - worktree-git-execution-is-argument-safe
+created_by: worktree-orchestration-correctness-p1-review-fixes

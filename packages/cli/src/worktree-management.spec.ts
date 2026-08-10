@@ -205,6 +205,10 @@ describe('worktree removal consent and selectors', () => {
     ], 'alpha')).toThrowError(
       expect.objectContaining({ exitCode: MANAGEMENT_EXIT_CODES.conflict }),
     );
+    expect(resolveWorktreeSelector([
+      { ...registered[1]!, branch: 'feat/foo', alias: 'feat-foo' },
+      { ...registered[2]!, branch: 'fix/foo', alias: 'feat/foo' },
+    ], 'feat/foo')).toMatchObject({ branch: 'feat/foo' });
   });
 
   it('prompts once with escaped data and requires --yes outside a TTY', async () => {

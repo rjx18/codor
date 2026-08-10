@@ -88,11 +88,11 @@ describe('Git repository identity and read-only discovery', () => {
     const beforeSeq = store.currentSeq('eng');
     const adopted = await manager.adopt('eng', repositoryPath, { path: secondaryPath });
     expect(adopted.worktree).toMatchObject({
-      alias: 'one',
+      alias: 'review-one',
       source: 'adopted',
       lifecycle: 'active',
     });
-    expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
+    expect(adopted.worktree.conversation_id).toMatch(/^eng-review-one-[a-f0-9]{8}$/);
     expect((await manager.list('eng', repositoryPath)).discovered.find((candidate) =>
       candidate.path === secondaryPath)).toMatchObject({
       registered_id: adopted.worktree.id,
@@ -204,7 +204,7 @@ describe('explicit adoption and tombstones', () => {
 // harn:end worktree-discovery-never-registers-candidates
 
 // harn:assume worktree-git-execution-is-argument-safe ref=worktree-git-runner-regression
-// harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-regression
+// harn:assume branch-worktree-creation-registers-only-its-result ref=branch-worktree-create-regression
 describe('safe creation and conservative removal', () => {
   it('passes spaces and option-looking labels as argv values and registers only the result', async () => {
     const target = join(fixtureRoot, 'created target with spaces');
@@ -213,7 +213,7 @@ describe('safe creation and conservative removal', () => {
       branch: 'feature/created-one',
       path: target,
     });
-    expect(created.worktree).toMatchObject({ alias: 'created-one', branch: 'feature/created-one' });
+    expect(created.worktree).toMatchObject({ alias: 'feature-created-one', branch: 'feature/created-one' });
     expect(store.listRegisteredWorktrees('eng').filter((item) => item.id === created.worktree.id))
       .toHaveLength(1);
     expect(store.listRegisteredWorktrees('eng').filter((item) => item.path === target)).toHaveLength(1);
@@ -492,7 +492,7 @@ describe('safe creation and conservative removal', () => {
     expect(branchExists(repositoryPath, 'feature/unregistered-target')).toBe(true);
   });
 });
-// harn:end worktree-creation-registers-only-a-new-secondary
+// harn:end branch-worktree-creation-registers-only-its-result
 // harn:end worktree-git-execution-is-argument-safe
 
 // harn:assume worktree-lifecycle-preserves-existing-state-by-default ref=worktree-roster-neutrality-regression
@@ -592,7 +592,7 @@ function adoptedId(current: Store, alias: string): string {
 // harn:assume worktree-removal-is-clean-and-branch-preserving ref=phase5-git-fixture-safety-regression
 // harn:assume worktree-git-execution-is-argument-safe ref=phase5-git-fixture-safety-regression
 // harn:assume worktree-discovery-never-registers-candidates ref=phase5-git-fixture-safety-regression
-// harn:assume worktree-creation-registers-only-a-new-secondary ref=phase5-git-fixture-safety-regression
+// harn:assume branch-worktree-creation-registers-only-its-result ref=phase5-git-fixture-safety-regression
 describe('Phase 5 disposable Git fixture safety', () => {
   it('keeps an unselected checkout and every branch intact across the full lifecycle', async () => {
     const unselectedPath = join(fixtureRoot, 'unselected secondary with spaces');
@@ -642,7 +642,7 @@ describe('Phase 5 disposable Git fixture safety', () => {
       path: join(fixtureRoot, 'selected created secondary'),
     });
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'adopted', 'created']);
+      .toEqual(['main', 'feature-adopted', 'feature-created']);
 
     // Unregister is database-only and does not touch the adopted checkout.
     expect(traced.unregister('eng', adopted.worktree.id).lifecycle).toBe('unregistered');
@@ -675,7 +675,7 @@ describe('Phase 5 disposable Git fixture safety', () => {
     expect(calls.every(({ args }) => args.every((arg) => !/[;&|<>]/.test(arg)))).toBe(true);
   });
 });
-// harn:end worktree-creation-registers-only-a-new-secondary
+// harn:end branch-worktree-creation-registers-only-its-result
 // harn:end worktree-discovery-never-registers-candidates
 // harn:end worktree-git-execution-is-argument-safe
 // harn:end worktree-removal-is-clean-and-branch-preserving

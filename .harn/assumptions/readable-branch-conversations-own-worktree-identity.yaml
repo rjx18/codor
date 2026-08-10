@@ -1,0 +1,18 @@
+id: readable-branch-conversations-own-worktree-identity
+hash: a-5450281731b2
+title: Registered branches own readable deterministic child conversations
+state: active
+statement: >
+  The root conversation remains main; each explicitly registered secondary gets
+  one stable RoomId formed from a readable slug of the root channel plus the
+  full Git branch, with a short deterministic digest only when lossy
+  normalization, truncation, or collision safety requires it, and its room name
+  is the exact Git branch. The bounded shorthand derives from the full branch
+  and cannot be edited independently; exact-branch selection takes precedence
+  over shorthand. Discovery creates no room, re-adoption restores the same
+  identity, and direct/non-Git channels are unchanged.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - worktree-discovery-never-registers-candidates
+  - main-and-direct-conversations-stay-compatible
+created_by: worktree-orchestration-correctness-p1-review-fixes

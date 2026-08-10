@@ -38,8 +38,7 @@ export type WorktreeAvailability = z.infer<typeof WorktreeAvailabilitySchema>;
 
 /** A routing shorthand is derived from the branch. It is not a second name. */
 export function worktreeSelectorFromBranch(branch: string): string {
-  const leaf = branch.trim().split('/').filter(Boolean).at(-1) ?? '';
-  const normalized = leaf.toLowerCase()
+  const normalized = branch.trim().toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^[^a-z0-9]+/, '')
@@ -174,7 +173,7 @@ export const RepositoryRecordSchema = z.object({
 });
 export type RepositoryRecord = z.infer<typeof RepositoryRecordSchema>;
 
-// harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-protocol
+// harn:assume readable-branch-conversations-own-worktree-identity ref=readable-worktree-conversation-protocol
 export const RegisteredWorktreeSchema = z.object({
   id: WorktreeIdSchema,
   repository_id: RepositoryIdSchema,
@@ -198,7 +197,7 @@ export const RegisteredWorktreeSchema = z.object({
   removed_ts: TimestampSchema.optional(),
 });
 export type RegisteredWorktree = z.infer<typeof RegisteredWorktreeSchema>;
-// harn:end deterministic-branch-conversations-own-worktree-identity
+// harn:end readable-branch-conversations-own-worktree-identity
 
 export const WorktreeDiscoveryCandidateSchema = z.object({
   path: WorktreePathSchema,
@@ -233,7 +232,7 @@ export type WorktreeRegisteredResponse = z.infer<typeof WorktreeRegisteredRespon
 export const WorktreeAdoptRequestSchema = z.object({
   path: WorktreePathSchema,
   /** Ignored compatibility input until the Phase 2 UI stops sending it. */
-  alias: WorktreeAliasSchema.optional(),
+  alias: z.unknown().optional(),
 }).transform(({ alias: _alias, ...request }) => request);
 export type WorktreeAdoptRequest = z.input<typeof WorktreeAdoptRequestSchema>;
 
@@ -241,7 +240,7 @@ export const WorktreeCreateRequestSchema = z.object({
   branch: WorktreeBranchSchema,
   path: WorktreePathSchema,
   /** Ignored compatibility input until the Phase 2 UI stops sending it. */
-  alias: WorktreeAliasSchema.optional(),
+  alias: z.unknown().optional(),
   // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-protocol
   /** Literal-only opt-in: the accepted ordered default roster seeds exactly the
    * brand-new child. Omission creates an agent-empty child exactly as before. */
@@ -272,9 +271,9 @@ export const WorktreeDiscoveryResponseSchema = WorktreeListResponseSchema;
 export type WorktreeDiscoveryResponse = WorktreeListResponse;
 // harn:end worktree-discovery-never-registers-candidates
 
-// harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-contract
+// harn:assume branch-worktree-creation-registers-only-its-result ref=branch-worktree-create-contract
 export const WorktreeCreateResponseSchema = WorktreeLifecycleResponseSchema;
-// harn:end worktree-creation-registers-only-a-new-secondary
+// harn:end branch-worktree-creation-registers-only-its-result
 
 // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-contract
 export const WorktreeUnregisterResponseSchema = WorktreeLifecycleResponseSchema;

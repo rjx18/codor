@@ -413,7 +413,7 @@ export class WorktreeManager {
   }
   // harn:end registered-worktree-identities-are-durable
 
-  // harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-contract
+  // harn:assume branch-worktree-creation-registers-only-its-result ref=branch-worktree-create-contract
   async adopt(
     room: string,
     cwd: string,
@@ -536,7 +536,7 @@ export class WorktreeManager {
       seeded: result.seeded,
     };
   }
-  // harn:end worktree-creation-registers-only-a-new-secondary
+  // harn:end branch-worktree-creation-registers-only-its-result
 
   // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-contract
   unregister(room: string, worktreeId: string): RegisteredWorktree {

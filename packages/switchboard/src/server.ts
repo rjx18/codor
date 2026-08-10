@@ -1352,12 +1352,12 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end registered-worktree-identities-are-durable
 
-  // harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-rest
+  // harn:assume branch-worktree-creation-registers-only-its-result ref=branch-worktree-create-rest
   const createWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const principal = authed(req, reply);
     if (!principal) return;
     const { room } = req.params as { room: string };
-    if (!authorizeWorktreeDestructive(principal, room, reply)) return;
+    if (!authorizeWorktreeMutation(principal, room, reply)) return;
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const input = WorktreeCreateRequestSchema.parse({
@@ -1377,7 +1377,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   };
   app.post('/api/rooms/:room/worktrees', createWorktreeRoute);
   app.post('/api/rooms/:room/worktrees/create', createWorktreeRoute);
-  // harn:end worktree-creation-registers-only-a-new-secondary
+  // harn:end branch-worktree-creation-registers-only-its-result
 
   // harn:assume worktree-removal-is-clean-and-branch-preserving ref=worktree-remove-rest
   const worktreeIdFromParams = (req: FastifyRequest): string => {
@@ -1389,7 +1389,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const principal = authed(req, reply);
     if (!principal) return;
     const { room } = req.params as { room: string };
-    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    if (!authorizeWorktreeDestructive(principal, room, reply)) return;
     try {
       const worktree = daemon.unregisterWorktree(room, worktreeIdFromParams(req));
       const repository = daemon.store.getRepository(room);

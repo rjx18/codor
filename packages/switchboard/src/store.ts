@@ -604,10 +604,23 @@ function migrateRoomReadCursors(db: Database.Database): void {
 }
 // harn:end human-room-read-cursors-are-durable-and-monotonic
 
-// harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-store
+// harn:assume readable-branch-conversations-own-worktree-identity ref=readable-worktree-conversation-store
 export function deterministicWorktreeConversationId(root: string, branch: string): string {
-  const digest = createHash('sha256').update(root).update('\0').update(branch).digest('hex').slice(0, 32);
-  return RoomIdSchema.parse(`wt-${digest}`);
+  const branchSlug = branch.trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (branchSlug === '') throw new Error('worktree branch does not produce a readable conversation id');
+
+  const readable = `${root}-${branchSlug}`;
+  const lossless = branch === branchSlug;
+  if (lossless && readable.length <= 63) return RoomIdSchema.parse(readable);
+
+  const digest = createHash('sha256').update(root).update('\0').update(branch).digest('hex').slice(0, 8);
+  const rootPart = root.slice(0, 20).replace(/-+$/g, '') || 'room';
+  const branchBudget = 63 - rootPart.length - digest.length - 2;
+  const branchPart = branchSlug.slice(0, Math.max(1, branchBudget)).replace(/-+$/g, '') || 'branch';
+  return RoomIdSchema.parse(`${rootPart}-${branchPart}-${digest}`);
 }
 
 /**
@@ -698,7 +711,7 @@ function migrateWorktreeConversations(db: Database.Database): void {
   });
   migrate();
 }
-// harn:end deterministic-branch-conversations-own-worktree-identity
+// harn:end readable-branch-conversations-own-worktree-identity
 
 // harn:assume existing-worktree-records-repair-locally-once ref=local-worktree-record-repair
 function repairWorktreeConversationIds(
@@ -743,6 +756,10 @@ function repairWorktreeConversationIds(
         for (const table of ['members', 'messages', 'deliveries', 'collaboration_groups', 'pending_interactions', 'meters', 'mirrored_turns', 'attach_leases'] as const) {
           db.prepare(`UPDATE ${table} SET room = ? WHERE room = ?`).run(repair.target, repair.conversation_id);
         }
+        db.prepare('UPDATE messages SET author_conversation_id = ? WHERE author_conversation_id = ?')
+          .run(repair.target, repair.conversation_id);
+        db.prepare('UPDATE deliveries SET target_conversation_id = ? WHERE target_conversation_id = ?')
+          .run(repair.target, repair.conversation_id);
         db.prepare('UPDATE changes SET room_id = ? WHERE room_id = ?').run(repair.target, repair.conversation_id);
         db.prepare('UPDATE room_read_cursors SET room = ? WHERE room = ?').run(repair.target, repair.conversation_id);
         db.prepare('UPDATE worktrees SET conversation_id = ?, alias = ?, updated_ts = ? WHERE id = ?')
@@ -1912,7 +1929,7 @@ export class Store {
     }
   }
 
-  // harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-store
+  // harn:assume readable-branch-conversations-own-worktree-identity ref=readable-worktree-conversation-store
   /** Idempotent open-time reconciliation for children materialized before the
    * canonical projection existed (root config copied verbatim, root cwd, or a
    * leaked starting agent handle). One ordinary child room change is appended
@@ -1947,7 +1964,7 @@ export class Store {
       }
     })();
   }
-  // harn:end deterministic-branch-conversations-own-worktree-identity
+  // harn:end readable-branch-conversations-own-worktree-identity
 
   close(): void {
     this.db.close();
@@ -2094,7 +2111,7 @@ export class Store {
   }
   // harn:end main-and-direct-conversations-stay-compatible
 
-  // harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-store
+  // harn:assume readable-branch-conversations-own-worktree-identity ref=readable-worktree-conversation-store
   /** One detached snapshot member insertion shared by channel creation and
    * child registration: the private runtime columns travel with the row and no
    * preset or roster reference is ever persisted. */
@@ -2166,7 +2183,7 @@ export class Store {
     }
     return { name, config };
   }
-  // harn:end deterministic-branch-conversations-own-worktree-identity
+  // harn:end readable-branch-conversations-own-worktree-identity
 
   private ensureChildConversation(
     root: string,

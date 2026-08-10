@@ -760,8 +760,8 @@ describe('native worktree REST authorization and lifecycle', () => {
     const adopted = await agentMutation.json() as {
       worktree: { id: string; alias: string; conversation_id: string };
     };
-    expect(adopted.worktree.alias).toBe('rest');
-    expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
+    expect(adopted.worktree.alias).toBe('review-rest');
+    expect(adopted.worktree.conversation_id).toMatch(/^eng-review-rest-[0-9a-f]{8}$/);
     expect(agentMutation.headers.get('content-type')).toContain('application/json');
     const childRoom = adopted.worktree.conversation_id;
     const childSync = await fetch(`${base}/api/rooms/${childRoom}/sync?since_seq=0`, {
@@ -877,7 +877,7 @@ describe('native worktree REST authorization and lifecycle', () => {
       discovered?: unknown;
     };
     expect(projection.repository).not.toBeNull();
-    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'projection']);
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'feature-projection']);
     expect(projection.registered.every((worktree) => worktree.lifecycle === 'active')).toBe(true);
     expect(projection.registered.some((worktree) => worktree.id === adopted.worktree.id)).toBe(true);
     expect(projection).not.toHaveProperty('discovered');
@@ -903,7 +903,7 @@ describe('native worktree REST authorization and lifecycle', () => {
       const absent = await jsonRequest(token, url, { method: 'POST', body: JSON.stringify({ alias: 'nope' }) });
       expect(absent.status).toBe(404);
     }
-    expect(daemon.store.getWorktree('eng', adopted.worktree.id)?.alias).toBe('alias-route');
+    expect(daemon.store.getWorktree('eng', adopted.worktree.id)?.alias).toBe('feature-alias-route');
     expect(daemon.store.getRoom(adopted.worktree.conversation_id)?.name).toBe('feature/alias-route');
   });
 
@@ -1024,6 +1024,108 @@ describe('native worktree REST authorization and lifecycle', () => {
 // harn:end main-and-direct-conversations-stay-compatible
 // harn:end agent-network-authority-is-narrow
 // harn:end worktree-management-is-human-admin-only
+
+// harn:assume agent-orchestration-is-repository-scoped ref=repository-scoped-agent-regression
+// harn:assume branch-worktree-creation-registers-only-its-result ref=branch-worktree-create-regression
+describe('repository-scoped agent worktree orchestration', () => {
+  it('creates one child, idempotently adds its worker, and refuses unsafe mutations', async () => {
+    const fixture = join(dir, 'agent orchestration fixture');
+    const primary = join(fixture, 'primary');
+    const childPath = join(fixture, 'agent child');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'agent orchestration fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const principal = spawnAgentWithToken('worktree-orchestrator');
+    const jsonRequest = (path: string, init: RequestInit = {}) => fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        authorization: `Bearer ${principal.token}`,
+        'content-type': 'application/json',
+        ...init.headers,
+      },
+    });
+
+    const created = await jsonRequest('/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ branch: 'feat/agent-created', path: childPath }),
+    });
+    expect(created.status).toBe(201);
+    const child = (await created.json() as {
+      worktree: { id: string; conversation_id: string; branch: string; alias: string };
+    }).worktree;
+    expect(child).toMatchObject({ branch: 'feat/agent-created', alias: 'feat-agent-created' });
+    expect(child.conversation_id).toMatch(/^eng-feat-agent-created-[0-9a-f]{8}$/);
+
+    const manager = await connectAs(principal.token);
+    const workerCwd = childPath;
+    manager.ws.send(JSON.stringify({
+      type: 'add_agent', room: child.conversation_id, ref: 'created-worker-first',
+      adapter: 'fake', handle: 'worker', cwd: workerCwd,
+    }));
+    const first = await manager.next((frame) => frame.type === 'member' && frame.ref === 'created-worker-first');
+    manager.ws.send(JSON.stringify({
+      type: 'add_agent', room: child.conversation_id, ref: 'created-worker-second',
+      adapter: 'fake', handle: 'worker', cwd: workerCwd,
+    }));
+    const second = await manager.next((frame) => frame.type === 'member' && frame.ref === 'created-worker-second');
+    expect(first.type === 'member' && second.type === 'member' ? second.member.id : undefined)
+      .toBe(first.type === 'member' ? first.member.id : undefined);
+    expect(daemon.store.listMembers(child.conversation_id).filter((entry) => entry.handle === 'worker'))
+      .toHaveLength(1);
+
+    const before = JSON.stringify({
+      rooms: daemon.store.listRooms(),
+      worktrees: daemon.store.listWorktrees('eng', { includeTombstones: true }),
+      childMembers: daemon.store.listMembers(child.conversation_id, { includeRemoved: true }),
+    });
+    const defaultRoster = await jsonRequest('/api/rooms/eng/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        branch: 'feat/forbidden-roster', path: join(fixture, 'forbidden roster'), default_roster: true,
+      }),
+    });
+    expect(defaultRoster.status).toBe(403);
+    expect(existsSync(join(fixture, 'forbidden roster'))).toBe(false);
+
+    daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' } });
+    const crossRepository = await jsonRequest('/api/rooms/other/worktrees/create', {
+      method: 'POST',
+      body: JSON.stringify({ branch: 'feat/cross-repo', path: join(fixture, 'cross repo') }),
+    });
+    expect(crossRepository.status).toBe(403);
+    expect(existsSync(join(fixture, 'cross repo'))).toBe(false);
+
+    const unregister = await jsonRequest(`/api/rooms/eng/worktrees/${child.id}/unregister`, {
+      method: 'POST', body: '{}',
+    });
+    expect(unregister.status).toBe(403);
+    const remove = await jsonRequest(`/api/rooms/eng/worktrees/${child.id}/remove`, {
+      method: 'POST', body: '{}',
+    });
+    expect(remove.status).toBe(403);
+    expect(existsSync(childPath)).toBe(true);
+
+    manager.ws.send(JSON.stringify({
+      type: 'add_agent', room: 'eng', ref: 'created-root-refused',
+      adapter: 'fake', handle: 'root-worker', cwd: primary,
+    }));
+    expect(await manager.next((frame) => frame.type === 'error' && frame.ref === 'created-root-refused'))
+      .toMatchObject({ type: 'error', ref: 'created-root-refused' });
+    manager.ws.close();
+    expect(JSON.stringify({
+      rooms: daemon.store.listRooms().filter((room) => room.id !== 'other'),
+      worktrees: daemon.store.listWorktrees('eng', { includeTombstones: true }),
+      childMembers: daemon.store.listMembers(child.conversation_id, { includeRemoved: true }),
+    })).toBe(before);
+  });
+});
+// harn:end branch-worktree-creation-registers-only-its-result
+// harn:end agent-orchestration-is-repository-scoped
 
 // harn:assume child-conversation-state-is-room-isolated ref=conversation-server-isolation-regression
 // harn:assume child-members-own-isolated-runtime ref=conversation-agent-authorization-regression
@@ -2864,8 +2966,8 @@ describe('Phase 3 REST boundaries', () => {
       tombstones: unknown[];
     };
     expect(catalog.room).toBe('eng');
-    expect(catalog.targets.map((target) => target.alias)).toContain('catalog-child');
-    expect(catalog.targets.find((target) => target.alias === 'catalog-child')?.members)
+    expect(catalog.targets.map((target) => target.alias)).toContain('feature-catalog-child');
+    expect(catalog.targets.find((target) => target.alias === 'feature-catalog-child')?.members)
       .toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'catalog-agent' })]));
     expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
 

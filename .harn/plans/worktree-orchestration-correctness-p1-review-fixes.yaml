@@ -20,25 +20,25 @@ notes: >
   fails closed on destination conflicts, and becomes a no-op after reopen. Add
   an agent-principal integration for the complete allowed/denied matrix and a
   focused packed installed-CLI proof that bypasses the unrelated updater
-  bootstrap fixture. No UI, relay, deployment, release, compatibility
-  framework, or other feature work belongs here.
+  bootstrap fixture. No UI, relay, deployment, release, compatibility framework,
+  or other feature work belongs here.
 assumptions:
   retire:
     - id: deterministic-branch-conversations-own-worktree-identity
-      reason: The original truth required deterministic branch ownership but did
-        not require the durable RoomId itself to remain readable.
+      reason: The original truth required deterministic branch ownership but did not
+        require the durable RoomId itself to remain readable.
     - id: worktree-creation-registers-only-a-new-secondary
-      reason: The old contract still described a separately supplied alias even
-        though branch-derived identity is now the only accepted model.
+      reason: The old contract still described a separately supplied alias even though
+        branch-derived identity is now the only accepted model.
   create:
     - id: readable-branch-conversations-own-worktree-identity
       title: Registered branches own readable deterministic child conversations
       statement: >
-        The root conversation remains main; each explicitly registered
-        secondary gets one stable RoomId formed from a readable slug of the root
-        channel plus the full Git branch, with a short deterministic digest only
-        when lossy normalization, truncation, or collision safety requires it,
-        and its room name is the exact Git branch. The bounded shorthand derives
+        The root conversation remains main; each explicitly registered secondary
+        gets one stable RoomId formed from a readable slug of the root channel
+        plus the full Git branch, with a short deterministic digest only when
+        lossy normalization, truncation, or collision safety requires it, and
+        its room name is the exact Git branch. The bounded shorthand derives
         from the full branch and cannot be edited independently; exact-branch
         selection takes precedence over shorthand. Discovery creates no room,
         re-adoption restores the same identity, and direct/non-Git channels are
@@ -70,8 +70,8 @@ assumptions:
   reviewed:
     - id: agent-orchestration-is-repository-scoped
       outcome: unchanged
-      reason: The approved matrix already states the required allowed and denied
-        acts; this correction makes its routes and regressions match that truth.
+      reason: The approved matrix already states the required allowed and denied acts;
+        this correction makes its routes and regressions match that truth.
     - id: existing-worktree-records-repair-locally-once
       outcome: unchanged
       reason: The repair contract is correct and needs complete regression proof
@@ -86,8 +86,8 @@ assumptions:
         focused proof that does not depend on the unrelated updater fixture.
     - id: worktree-removal-is-clean-and-branch-preserving
       outcome: unchanged
-      reason: Unregister and filesystem removal remain operator-only and retain
-        all existing confirmation and branch-preservation behavior.
+      reason: Unregister and filesystem removal remain operator-only and retain all
+        existing confirmation and branch-preservation behavior.
     - id: registered-worktree-identities-are-durable
       outcome: unchanged
       reason: Repository and worktree record IDs remain stable even though the
@@ -106,23 +106,25 @@ assumptions:
     - id: worktree-cli-removal-requires-previewed-consent
       outcome: unchanged
       reason: Exact-branch precedence changes only selector expectations inside the
-        enclosing removal regression; preview, confirmation, and consent stay unchanged.
+        enclosing removal regression; preview, confirmation, and consent stay
+        unchanged.
     - id: main-and-direct-conversations-stay-compatible
       outcome: unchanged
-      reason: The agent-principal integration crosses the existing lifecycle suite while
-        direct rooms and root conversations remain unchanged.
+      reason: The agent-principal integration crosses the existing lifecycle suite
+        while direct rooms and root conversations remain unchanged.
     - id: qualified-completion-lists-registered-targets-only
       outcome: unchanged
-      reason: Catalog expectations follow the new full-branch shorthand without changing
-        which registered targets or members are exposed.
+      reason: Catalog expectations follow the new full-branch shorthand without
+        changing which registered targets or members are exposed.
     - id: qualified-member-target-identity-is-durable
       outcome: unchanged
-      reason: Qualified target IDs remain durable; only their derived branch shorthand is
-        updated in the enclosing store regression.
+      reason: Qualified target IDs remain durable; only their derived branch shorthand
+        is updated in the enclosing store regression.
     - id: qualified-destination-refusals-are-atomic
       outcome: unchanged
-      reason: Mixed-destination refusal and atomicity remain unchanged; only the fixture's
-        obsolete leaf selector is replaced by its full-branch shorthand.
+      reason: Mixed-destination refusal and atomicity remain unchanged; only the
+        fixture's obsolete leaf selector is replaced by its full-branch
+        shorthand.
     - id: delivery-attempt-wal-reconcile
       outcome: unchanged
       reason: Delivery-attempt recovery and reconciliation remain unchanged; only the
@@ -145,23 +147,28 @@ anchors:
       reason: Re-anchor identity regressions to the readable successor.
     deterministic-worktree-conversation-store:
       action: remove
-      reason: Re-anchor the deterministic ID and store lifecycle to the readable successor.
+      reason: Re-anchor the deterministic ID and store lifecycle to the readable
+        successor.
     phase5-qualified-integration-regression:
       action: remove
-      reason: Re-anchor qualified integration identity assertions to the readable successor.
+      reason: Re-anchor qualified integration identity assertions to the readable
+        successor.
   readable-branch-conversations-own-worktree-identity:
     readable-worktree-conversation-protocol:
       action: change
       reason: Derive shorthand from the full branch and document readable identity.
     readable-worktree-conversation-store:
       action: change
-      reason: Generate stable readable root-plus-full-branch RoomIds with bounded digests.
+      reason: Generate stable readable root-plus-full-branch RoomIds with bounded
+        digests.
     readable-worktree-conversation-regression:
       action: change
-      reason: Prove readable IDs, full-branch selector distinction, bounds, and stable reopen.
+      reason: Prove readable IDs, full-branch selector distinction, bounds, and stable
+        reopen.
     phase5-qualified-integration-regression:
       action: change
-      reason: Keep the qualified integration fixture aligned with readable child identity.
+      reason: Keep the qualified integration fixture aligned with readable child
+        identity.
   worktree-creation-registers-only-a-new-secondary:
     worktree-create-contract:
       action: remove
@@ -178,10 +185,12 @@ anchors:
   branch-worktree-creation-registers-only-its-result:
     branch-worktree-create-contract:
       action: change
-      reason: Keep Git mutation safe while deriving all child identity from the full branch.
+      reason: Keep Git mutation safe while deriving all child identity from the full
+        branch.
     branch-worktree-create-rest:
       action: change
-      reason: Permit scoped agent creation but keep roster and destructive paths denied.
+      reason: Permit scoped agent creation but keep roster and destructive paths
+        denied.
     branch-worktree-create-regression:
       action: change
       reason: Prove full-branch selector safety and the agent-principal create path.
@@ -191,21 +200,25 @@ anchors:
   agent-orchestration-is-repository-scoped:
     repository-scoped-agent-authorization:
       action: change
-      reason: Route create/adopt through scoped mutation and unregister/remove through destructive authorization.
+      reason: Route create/adopt through scoped mutation and unregister/remove through
+        destructive authorization.
     repository-scoped-agent-regression:
       action: change
-      reason: Prove create plus idempotent child add and every prohibited mutation before side effects.
+      reason: Prove create plus idempotent child add and every prohibited mutation
+        before side effects.
   existing-worktree-records-repair-locally-once:
     local-worktree-record-repair:
       action: change
       reason: Repair legacy opaque children to readable deterministic IDs atomically.
     local-worktree-record-repair-regression:
       action: change
-      reason: Exercise every room-keyed table, known directory, conflict rollback, and restart no-op.
+      reason: Exercise every room-keyed table, known directory, conflict rollback, and
+        restart no-op.
   structured-worktree-cli-targets-branches-and-child-rooms:
     branch-worktree-management-client:
       action: change
-      reason: Resolve an exact branch before shorthand and retain ambiguity diagnostics.
+      reason: Resolve an exact branch before shorthand and retain ambiguity
+        diagnostics.
     branch-worktree-cli-regression:
       action: change
       reason: Prove full-branch selectors and installed child-agent targeting.
@@ -216,7 +229,8 @@ anchors:
   worktree-removal-is-clean-and-branch-preserving:
     worktree-remove-rest:
       action: change
-      reason: Ensure unregister uses destructive human authorization while preserving removal behavior.
+      reason: Ensure unregister uses destructive human authorization while preserving
+        removal behavior.
   worktree-cli-removal-requires-previewed-consent:
     worktree-removal-confirmation-regression:
       action: change
@@ -224,11 +238,13 @@ anchors:
   registered-worktree-identities-are-durable:
     worktree-protocol-regression:
       action: change
-      reason: Update protocol fixtures to the full-branch selector while stable record IDs remain unchanged.
+      reason: Update protocol fixtures to the full-branch selector while stable record
+        IDs remain unchanged.
   main-and-direct-conversations-stay-compatible:
     conversation-main-compatibility-regression:
       action: change
-      reason: Extend the existing lifecycle fixture with repository-scoped agent orchestration.
+      reason: Extend the existing lifecycle fixture with repository-scoped agent
+        orchestration.
   qualified-completion-lists-registered-targets-only:
     qualified-target-catalog-regression:
       action: change
@@ -239,27 +255,33 @@ anchors:
       reason: Update store lifecycle expectations to readable branch-owned identities.
     worktree-conversation-git-regression:
       action: change
-      reason: Update real Git lifecycle expectations to readable branch-owned identities.
+      reason: Update real Git lifecycle expectations to readable branch-owned
+        identities.
   qualified-member-target-identity-is-durable:
     qualified-routing-store-regression:
       action: change
-      reason: Update qualified target fixtures to the full-branch shorthand without changing durable IDs.
+      reason: Update qualified target fixtures to the full-branch shorthand without
+        changing durable IDs.
   qualified-destination-refusals-are-atomic:
     cross-origin-turn-scheduler-regression:
       action: change
-      reason: Replace obsolete leaf selectors in the existing atomic-refusal fixture only.
+      reason: Replace obsolete leaf selectors in the existing atomic-refusal fixture
+        only.
   delivery-attempt-wal-reconcile:
     phase5-qualified-integration-regression:
       action: change
-      reason: Replace the obsolete leaf selector while preserving WAL recovery behavior.
+      reason: Replace the obsolete leaf selector while preserving WAL recovery
+        behavior.
   child-members-own-isolated-runtime:
     worktree-runtime-removal-regression:
       action: change
-      reason: Replace the obsolete leaf selector while preserving child runtime teardown.
+      reason: Replace the obsolete leaf selector while preserving child runtime
+        teardown.
   qualified-cli-wait-follows-target-owned-conversation:
     qualified-target-post-wait-regression:
       action: change
-      reason: Replace the obsolete leaf selector while preserving correlated wait behavior.
+      reason: Replace the obsolete leaf selector while preserving correlated wait
+        behavior.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
@@ -274,3 +296,5 @@ files:
   - packages/cli/src/worktree-management.spec.ts
   - packages/cli/src/index.spec.ts
   - scripts/packed-worktree-proof.sh
+applied:
+  applied_at: 2026-08-10T17:23:45.196Z

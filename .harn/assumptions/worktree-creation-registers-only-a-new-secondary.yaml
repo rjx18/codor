@@ -1,7 +1,7 @@
 id: worktree-creation-registers-only-a-new-secondary
 hash: a-1b0ed26fe122
 title: Worktree creation is collision-safe and registers only its result
-state: active
+state: retired
 statement: Creating a worktree must require a normalized non-main alias, a valid
   new local branch name, and a missing absolute target with an existing safe
   parent, verify repository and registry constraints before mutation, create
@@ -13,3 +13,4 @@ depends_on:
   - registered-worktree-identities-are-durable
   - worktree-git-execution-is-argument-safe
 created_by: native-worktrees-phase1-registry
+retired_by: worktree-orchestration-correctness-p1-review-fixes

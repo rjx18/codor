@@ -1,12 +1,12 @@
 import { CHANNEL_ACCENTS, deriveRoomColor } from '@codor/protocol';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { Store, type WorktreeObservation } from './store.js';
+import { deterministicWorktreeConversationId, Store, type WorktreeObservation } from './store.js';
 import { estimateCostUsd } from './pricing.js';
 
 let dir: string;
@@ -70,8 +70,8 @@ describe('registered worktree store lifecycle', () => {
       'child-label',
       'adopted',
     );
-    expect(first.worktree.alias).toBe('child');
-    expect(first.worktree.conversation_id).toMatch(/^wt-[a-z0-9-]+$/);
+    expect(first.worktree.alias).toBe('feature-child');
+    expect(first.worktree.conversation_id).toMatch(/^eng-feature-child-[a-f0-9]{8}$/);
     expect(first.worktree.conversation_id).not.toBe('eng');
     expect(store.listRegisteredWorktrees('eng').find((item) => item.primary)?.conversation_id)
       .toBe('eng');
@@ -308,8 +308,8 @@ describe('qualified routing store projection', () => {
     });
     const first = store.routingCatalog('eng');
     expect(first.room).toBe('eng');
-    expect(first.targets.map((target) => target.alias)).toEqual(['main', 'child']);
-    const target = first.targets.find((candidate) => candidate.alias === 'child')!;
+    expect(first.targets.map((target) => target.alias)).toEqual(['main', 'feature-child']);
+    const target = first.targets.find((candidate) => candidate.alias === 'feature-child')!;
     expect(target.members).toEqual(expect.arrayContaining([
       expect.objectContaining({ member_id: childAgent.id, handle: 'coder', kind: 'agent' }),
     ]));
@@ -319,13 +319,13 @@ describe('qualified routing store projection', () => {
       ...secondary, path: join(dir, 'moved-child'),
     });
     expect(refreshed.id).toBe(registered.worktree.id);
-    expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === 'child')?.worktree_id)
+    expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === 'feature-child')?.worktree_id)
       .toBe(registered.worktree.id);
 
     const tombstone = store.unregisterWorktree('eng', registered.worktree.id);
     expect(store.routingCatalog('eng').targets.map((candidate) => candidate.alias)).toEqual(['main']);
     expect(store.routingCatalog('eng').tombstones).toEqual([
-      expect.objectContaining({ alias: 'child', lifecycle: 'unregistered' }),
+      expect.objectContaining({ alias: 'feature-child', lifecycle: 'unregistered' }),
     ]);
     expect(tombstone.conversation_id).toBe(child);
   });
@@ -350,7 +350,7 @@ describe('qualified routing store projection', () => {
     });
     const target = {
       worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
-      alias: 'child', handle: 'old-coder',
+      alias: 'feature-child', handle: 'old-coder',
     } as const;
     const message = store.postMessage('eng', {
       author: store.getMemberByHandle('eng', 'richard')!.id,
@@ -360,7 +360,7 @@ describe('qualified routing store projection', () => {
 
     store.updateMember(child, childAgent.id, { removed_ts: '2026-08-06T00:10:00.000Z', state: 'dead' });
     const projected = store.routingCatalog('eng');
-    expect(projected.targets.find((item) => item.alias === 'child')).toMatchObject({
+    expect(projected.targets.find((item) => item.alias === 'feature-child')).toMatchObject({
       removed_members: [{ member_id: childAgent.id, handle: 'old-coder', kind: 'agent' }],
     });
     expect(projected.targets.find((item) => item.alias === 'child')?.members)
@@ -395,7 +395,7 @@ describe('qualified routing store projection', () => {
         state: 'dead',
       });
     }
-    const projected = store.routingCatalog('eng').targets.find((target) => target.alias === 'child')!;
+    const projected = store.routingCatalog('eng').targets.find((target) => target.alias === 'feature-child')!;
     const expected = removed.map((member) => member.id).sort().slice(0, 256);
     expect(projected.removed_members).toHaveLength(256);
     expect(projected.removed_members?.map((member) => member.member_id)).toEqual(expected);
@@ -3858,6 +3858,172 @@ const repoObs = () => ({
   primary_git_admin_id: join(dir, 'repo', '.git'),
 });
 
+// harn:assume readable-branch-conversations-own-worktree-identity ref=readable-worktree-conversation-regression
+describe('readable worktree conversation identity', () => {
+  it('keeps root and full branch readable, stable, bounded, and collision-safe', () => {
+    const scheduled = deterministicWorktreeConversationId('codor-main', 'feat/scheduled-messages');
+    expect(scheduled).toMatch(/^codor-main-feat-scheduled-messages-[0-9a-f]{8}$/);
+    expect(deterministicWorktreeConversationId('codor-main', 'feature')).toBe('codor-main-feature');
+    expect(deterministicWorktreeConversationId('codor-main', 'feat/foo'))
+      .not.toBe(deterministicWorktreeConversationId('codor-main', 'feat-foo'));
+    expect(deterministicWorktreeConversationId('codor-main', 'feat/foo')).toBe(
+      deterministicWorktreeConversationId('codor-main', 'feat/foo'),
+    );
+    const long = deterministicWorktreeConversationId('a'.repeat(63), `feature/${'b'.repeat(255)}`);
+    expect(long.length).toBeLessThanOrEqual(63);
+    expect(long).toMatch(/^a+-feature-b+-[0-9a-f]{8}$/);
+  });
+});
+// harn:end readable-branch-conversations-own-worktree-identity
+
+// harn:assume existing-worktree-records-repair-locally-once ref=local-worktree-record-repair-regression
+describe('one-time local worktree conversation repair', () => {
+  const roomTables = [
+    'members', 'messages', 'deliveries', 'collaboration_groups', 'pending_interactions',
+    'meters', 'mirrored_turns', 'attach_leases',
+  ] as const;
+
+  const rewriteAsLegacy = (databasePath: string, current: string, legacy: string): void => {
+    const raw = new Database(databasePath);
+    raw.pragma('foreign_keys = OFF');
+    raw.transaction(() => {
+      for (const table of roomTables) raw.prepare(`UPDATE ${table} SET room = ? WHERE room = ?`).run(legacy, current);
+      raw.prepare('UPDATE messages SET author_conversation_id = ? WHERE author_conversation_id = ?')
+        .run(legacy, current);
+      raw.prepare('UPDATE deliveries SET target_conversation_id = ? WHERE target_conversation_id = ?')
+        .run(legacy, current);
+      raw.prepare('UPDATE changes SET room_id = ? WHERE room_id = ?').run(legacy, current);
+      raw.prepare('UPDATE room_read_cursors SET room = ? WHERE room = ?').run(legacy, current);
+      raw.prepare('UPDATE worktrees SET conversation_id = ?, alias = ? WHERE conversation_id = ?')
+        .run(legacy, 'legacy-child', current);
+      raw.prepare('UPDATE rooms SET id = ? WHERE id = ?').run(legacy, current);
+    })();
+    raw.close();
+  };
+
+  it('moves every room-keyed row and known directory once without changing Git identity', () => {
+    openRoom(store);
+    const registered = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('repair'), 'ignored', 'created',
+    );
+    const current = registered.worktree.conversation_id;
+    const legacy = 'wt-legacy-repair-child';
+    const agent = store.addMember(current, {
+      kind: 'agent', handle: 'repair-agent', display_name: 'Repair Agent', state: 'idle',
+    });
+    const target = {
+      worktree_id: registered.worktree.id,
+      conversation_id: current,
+      member_id: agent.id,
+      alias: registered.worktree.alias,
+      handle: agent.handle,
+    } as const;
+    const message = store.postMessage(current, {
+      author: agent.id, author_target: target, kind: 'chat', body: 'repair me',
+    });
+    store.createDelivery(current, { message_id: message.id, recipient: agent.id, target });
+    store.close();
+
+    const databasePath = join(dir, 'test.sqlite');
+    const seeded = new Database(databasePath);
+    seeded.prepare(
+      `INSERT INTO collaboration_groups (id, room, root_message_id, state, created_ts)
+       VALUES ('repair-group', ?, ?, 'open', '2026-08-11T00:00:00.000Z')`,
+    ).run(current, message.id);
+    seeded.prepare(
+      `INSERT INTO pending_interactions
+       (id, room, member_id, message_id, native_id, kind, targets, state)
+       VALUES ('repair-interaction', ?, ?, ?, 'native-repair', 'ask', '[]', 'pending')`,
+    ).run(current, agent.id, message.id);
+    seeded.prepare(
+      `INSERT INTO meters (room, day, turns, cost_usd, estimated_cost_usd, input_tokens, output_tokens)
+       VALUES (?, '2026-08-11', 1, 0, 0, 2, 3)`,
+    ).run(current);
+    seeded.prepare(
+      `INSERT INTO mirrored_turns (room, member_id, native_turn_id, message_id)
+       VALUES (?, ?, 'native-turn', ?)`,
+    ).run(current, agent.id, message.id);
+    seeded.prepare(
+      `INSERT INTO attach_leases (id, room, member_id, cli_pid, heartbeat_ts)
+       VALUES ('repair-lease', ?, ?, 123, 1)`,
+    ).run(current, agent.id);
+    seeded.close();
+
+    rewriteAsLegacy(databasePath, current, legacy);
+    const roomDataRoots = ['blobs', 'attachments', 'artifacts', 'artifact-errors']
+      .map((name) => join(dir, name));
+    for (const root of roomDataRoots) {
+      const legacyDir = join(root, legacy);
+      mkdirSync(legacyDir, { recursive: true });
+      writeFileSync(join(legacyDir, 'evidence.txt'), root);
+    }
+
+    store = new Store(databasePath, { roomDataRoots });
+    const repaired = store.getWorktree('eng', registered.worktree.id)!;
+    expect(repaired).toMatchObject({
+      conversation_id: current,
+      path: registered.worktree.path,
+      branch: registered.worktree.branch,
+    });
+    const verified = new Database(databasePath, { readonly: true });
+    for (const table of roomTables) {
+      expect((verified.prepare(`SELECT count(*) AS count FROM ${table} WHERE room = ?`).get(current) as { count: number }).count)
+        .toBeGreaterThan(0);
+      expect((verified.prepare(`SELECT count(*) AS count FROM ${table} WHERE room = ?`).get(legacy) as { count: number }).count)
+        .toBe(0);
+    }
+    expect((verified.prepare('SELECT count(*) AS count FROM changes WHERE room_id = ?').get(legacy) as { count: number }).count).toBe(0);
+    expect((verified.prepare('SELECT count(*) AS count FROM room_read_cursors WHERE room = ?').get(legacy) as { count: number }).count).toBe(0);
+    expect((verified.prepare('SELECT count(*) AS count FROM messages WHERE author_conversation_id = ?').get(current) as { count: number }).count).toBe(1);
+    expect((verified.prepare('SELECT count(*) AS count FROM deliveries WHERE target_conversation_id = ?').get(current) as { count: number }).count).toBe(1);
+    verified.close();
+    for (const root of roomDataRoots) {
+      expect(existsSync(join(root, legacy))).toBe(false);
+      expect(readFileSync(join(root, current, 'evidence.txt'), 'utf8')).toBe(root);
+    }
+
+    const beforeSecondOpen = JSON.stringify({
+      worktree: repaired,
+      room: store.getRoom(current),
+      messages: store.listMessages(current),
+    });
+    store.close();
+    store = new Store(databasePath, { roomDataRoots });
+    expect(JSON.stringify({
+      worktree: store.getWorktree('eng', registered.worktree.id),
+      room: store.getRoom(current),
+      messages: store.listMessages(current),
+    })).toBe(beforeSecondOpen);
+  });
+
+  it('fails closed when a readable database or directory destination already exists', () => {
+    openRoom(store);
+    const registered = store.registerWorktree(
+      'eng', repoObs(), mainObs(), childObs('conflict'), 'ignored', 'created',
+    );
+    const current = registered.worktree.conversation_id;
+    const legacy = 'wt-legacy-conflict-child';
+    store.close();
+    rewriteAsLegacy(join(dir, 'test.sqlite'), current, legacy);
+    const root = join(dir, 'blobs');
+    mkdirSync(join(root, legacy), { recursive: true });
+    mkdirSync(join(root, current), { recursive: true });
+    writeFileSync(join(root, legacy, 'legacy.txt'), 'legacy');
+    writeFileSync(join(root, current, 'destination.txt'), 'destination');
+
+    expect(() => new Store(join(dir, 'test.sqlite'), { roomDataRoots: [root] }))
+      .toThrow(/destination already exists|conversation already exists/);
+    expect(readFileSync(join(root, legacy, 'legacy.txt'), 'utf8')).toBe('legacy');
+    expect(readFileSync(join(root, current, 'destination.txt'), 'utf8')).toBe('destination');
+    const raw = new Database(join(dir, 'test.sqlite'), { readonly: true });
+    expect((raw.prepare('SELECT conversation_id FROM worktrees WHERE id = ?').get(registered.worktree.id) as { conversation_id: string }).conversation_id)
+      .toBe(legacy);
+    expect(raw.prepare('SELECT id FROM rooms WHERE id = ?').get(legacy)).toBeDefined();
+    raw.close();
+  });
+});
+// harn:end existing-worktree-records-repair-locally-once
+
 // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-regression
 // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-regression
 describe('worktree child metadata follows stable identity', () => {
@@ -3934,30 +4100,30 @@ describe('worktree child metadata follows stable identity', () => {
     store.registerWorktree('eng', repoObs(), mainObs(), childObs('bravo'), 'bravo', 'created');
     store.registerWorktree('eng', repoObs(), mainObs(), childObs('alpha'), 'alpha', 'created');
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'alpha', 'bravo']);
-    const alpha = store.listRegisteredWorktrees('eng').find((worktree) => worktree.alias === 'alpha')!;
+      .toEqual(['main', 'feature-alpha', 'feature-bravo']);
+    const alpha = store.listRegisteredWorktrees('eng').find((worktree) => worktree.alias === 'feature-alpha')!;
     store.unregisterWorktree('eng', alpha.id, '2026-08-06T00:04:00.000Z');
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'bravo']);
+      .toEqual(['main', 'feature-bravo']);
     store.close();
     store = new Store(join(dir, 'test.sqlite'));
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'bravo']);
+      .toEqual(['main', 'feature-bravo']);
     const withTombstones = store.listWorktrees('eng', { includeTombstones: true });
-    expect(withTombstones.map((worktree) => worktree.alias)).toEqual(['main', 'alpha', 'bravo']);
-    expect(withTombstones.find((worktree) => worktree.alias === 'alpha'))
+    expect(withTombstones.map((worktree) => worktree.alias)).toEqual(['main', 'feature-alpha', 'feature-bravo']);
+    expect(withTombstones.find((worktree) => worktree.alias === 'feature-alpha'))
       .toMatchObject({ id: alpha.id, lifecycle: 'unregistered' });
   });
 
   it('derives immutable routing identity from the branch', () => {
     openRoom(store);
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
-    expect(worktree.alias).toBe('child');
+    expect(worktree.alias).toBe('feature-child');
     expect(store.getRoom(worktree.conversation_id)?.name).toBe('feature/child');
     store.close();
     store = new Store(join(dir, 'test.sqlite'));
     expect(store.getWorktree('eng', worktree.id)).toMatchObject({
-      alias: 'child', branch: 'feature/child', conversation_id: worktree.conversation_id,
+      alias: 'feature-child', branch: 'feature/child', conversation_id: worktree.conversation_id,
     });
   });
 

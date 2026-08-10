@@ -358,8 +358,10 @@ export function resolveWorktreeSelector(
   registered: readonly WorktreeProjection[],
   selector: string,
 ): WorktreeProjection {
-  const matches = registered.filter((worktree) =>
-    worktree.branch === selector || worktree.alias === selector);
+  const exact = registered.filter((worktree) => worktree.branch === selector);
+  const matches = exact.length > 0
+    ? exact
+    : registered.filter((worktree) => worktree.alias === selector);
   if (matches.length === 0) {
     throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such worktree ${escapeWorktreeHumanCell(selector)}`);
   }
