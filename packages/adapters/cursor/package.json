@@ -1,6 +1,6 @@
 {
   "name": "@codor/adapter-cursor",
-  "version": "0.10.10",
+  "version": "0.10.11",
   "license": "MIT",
   "private": true,
   "type": "module",
