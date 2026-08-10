@@ -1,0 +1,14 @@
+id: worktree-rail-uses-branch-only-compact-status
+hash: a-51e95c357ece
+title: Worktree rows show exact branches and compact accessible status
+state: active
+statement: Each visible secondary row must use its exact Git branch as the sole
+  visible worktree name and represent connection and activity state with compact
+  indicators rather than visible Live/connecting/offline or working/attention
+  prose, while preserving truthful accessible labels, tooltips, unread badges,
+  Git availability, keyboard targets, and phone reachability.
+depends_on:
+  - worktree-conversation-status-is-live-and-independent
+  - native-worktree-rail-is-axe-valid
+  - registered-worktree-navigation-is-promotion-gated
+created_by: worktree-orchestration-correctness-p2-nested-ui

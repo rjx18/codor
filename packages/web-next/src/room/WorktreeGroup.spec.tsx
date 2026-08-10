@@ -159,6 +159,7 @@ describe('worktree group state and navigation', () => {
     expect(byTestId('probe')!.getAttribute('data-error')).toBe('socket down');
   });
 
+  // harn:assume worktree-child-conversations-stay-nested-and-isolated ref=worktree-nested-row-unit-regression
   it('renders only active children, selects by stable id, and gates controls by role', async () => {
     const selected: (string | undefined)[] = [];
     const group = {
@@ -183,6 +184,10 @@ describe('worktree group state and navigation', () => {
     expect(byTestId('worktree-group')).not.toBeNull();
     expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('aria-current')).toBe('page');
     expect(byTestId(`worktree-link-${BRAVO.id}`)?.getAttribute('aria-current')).toBeNull();
+    expect(byTestId(`worktree-branch-${ALPHA.id}`)?.textContent).toBe(ALPHA.branch);
+    expect(byTestId(`worktree-branch-${ALPHA.id}`)?.textContent).not.toBe(ALPHA.alias);
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connected');
     // Copied/new-tab hrefs carry BOTH the public root and the stable child id.
     expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('href'))
       .toBe(`/?room=eng&worktree=${encodeURIComponent(ALPHA.id)}`);
@@ -196,7 +201,9 @@ describe('worktree group state and navigation', () => {
     await click(byTestId(`worktree-link-${BRAVO.id}`));
     expect(selected).toEqual([BRAVO.id]);
   });
+  // harn:end worktree-child-conversations-stay-nested-and-isolated
 
+  // harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-unit-regression
   it('shows connection independently of working, availability, and unread', async () => {
     const missing = { ...BRAVO, availability: 'missing' as const };
     const group = {
@@ -233,15 +240,22 @@ describe('worktree group state and navigation', () => {
         onOpenDialog={() => undefined}
       />,
     );
-    // Activity and connection are separate labels: one never masks the other.
-    expect(byTestId(`worktree-status-${ALPHA.id}`)?.textContent).toContain('working…');
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('offline');
+    // Activity and connection are separate accessible indicators: one never
+    // masks the other or spends a narrow row on status prose.
+    expect(byTestId(`worktree-status-${ALPHA.id}`)?.textContent).toBe('');
+    expect(byTestId(`worktree-status-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Working');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Unavailable');
     expect(byTestId(`worktree-unread-${ALPHA.id}`)?.textContent).toBe('3');
-    expect(byTestId(`worktree-status-${BRAVO.id}`)?.textContent).toContain('checkout unavailable');
-    expect(byTestId(`worktree-connection-${BRAVO.id}`)?.textContent).toBe('connecting…');
+    expect(byTestId(`worktree-status-${BRAVO.id}`)?.textContent).toBe('');
+    expect(byTestId(`worktree-status-${BRAVO.id}`)?.getAttribute('aria-label')).toBe('Checkout unavailable');
+    expect(byTestId(`worktree-connection-${BRAVO.id}`)?.textContent).toBe('');
+    expect(byTestId(`worktree-connection-${BRAVO.id}`)?.getAttribute('aria-label')).toBe('Connecting');
+    expect(byTestId('worktree-group')?.textContent).not.toContain('Live');
     expect(byTestId('worktree-create-open')).not.toBeNull();
     expect(byTestId('worktree-find-open')).not.toBeNull();
   });
+  // harn:end worktree-rail-uses-branch-only-compact-status
 
   it('re-renders a row when current-generation live evidence lands in the store', async () => {
     const group = {
@@ -265,17 +279,17 @@ describe('worktree group state and navigation', () => {
         onOpenDialog={() => undefined}
       />,
     );
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('connecting…');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connecting');
     await act(async () => {
       useClientStore.getState().markRoomLive(ALPHA.conversation_id);
       await Promise.resolve();
     });
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('live');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connected');
     await act(async () => {
       useClientStore.getState().markRoomsConnecting([ALPHA.conversation_id]);
       await Promise.resolve();
     });
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('connecting…');
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connecting');
   });
 });
 // harn:end registered-worktree-navigation-is-promotion-gated

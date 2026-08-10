@@ -3798,3 +3798,47 @@
 }
 /* harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
    harn:end registered-worktree-navigation-is-promotion-gated */
+
+/* harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-style */
+/* The row keeps full status truth in its accessible name and tooltip while its
+   visible rail footprint stays a small marker. */
+.nx-wt-activity {
+  display: inline-flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: 18px;
+}
+
+.nx-wt-activity-dot,
+.nx-wt-conn-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-full);
+  background: var(--c-faded);
+}
+
+.nx-wt-activity.is-error .nx-wt-activity-dot { background: var(--c-error-text); }
+
+.nx-wt-conn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  min-height: 18px;
+}
+
+.nx-wt-conn.is-connected .nx-wt-conn-dot { background: var(--c-live-text); }
+
+.nx-wt-conn.is-connecting .nx-wt-conn-dot {
+  background: var(--c-warn-text);
+  animation: nx-dot 1.2s var(--m-ease) infinite;
+}
+
+.nx-wt-conn.is-offline .nx-wt-conn-dot { background: var(--c-error-text); }
+
+.nx-wt-conn.is-unsubscribed .nx-wt-conn-dot { background: var(--c-faded); }
+/* harn:end worktree-rail-uses-branch-only-compact-status */

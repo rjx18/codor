@@ -1,0 +1,186 @@
+id: worktree-orchestration-correctness-p2-nested-ui
+title: Worktree orchestration Phase 2 - nested branch-only rail
+notes: Implement only the branch-only nested worktree rail correction on top of
+  323c4ae037308de0a1fa2464188f6ff13e9a0241. The public channel rail must keep
+  child conversation ids out of its top-level summaries even when the socket has
+  hydrated or retained child slices. Every active secondary is rendered only
+  under its public root, and selecting one continues to use the exact child
+  conversation through the existing root-plus-worktree URL and connector
+  switching path. The visible row name is the exact Git branch; aliases remain
+  protocol/routing and deliberate lifecycle-management data, not a second row
+  label. Replace visible connection/activity words, including Live, with small
+  state indicators that retain accessible names and tooltips for connected,
+  reconnecting, unavailable, working, attention, unread, and Git availability. A
+  stale child summary or held/interrupted preview must not reappear as a
+  duplicate bottom-of-row top-level channel indicator. Preserve the existing
+  last-good registration cache, background child subscriptions, simultaneous
+  unread/activity state, lifecycle controls, phone targets, and transcript
+  isolation. Add a two-child disposable browser fixture and focused regressions
+  for cached restoration, duplicate suppression, exact branch labels, compact
+  status semantics, and child transcript isolation. Do not change protocol,
+  relay, database, lifecycle authorization, routing grammar, release, deploy, or
+  unrelated navigation.
+assumptions:
+  create:
+    - id: worktree-child-conversations-stay-nested-and-isolated
+      title: Child worktree conversations stay nested under their public root
+      statement: A browser rail must exclude every known registered secondary
+        conversation id from top-level channel summaries, including retained
+        live/support slices and cached refresh state, and render that child only
+        under its exact public root; selecting the nested row must continue to
+        address the child transcript through the stable root-plus-worktree
+        navigation without mixing root or sibling messages.
+      reason: The server already omits child rooms from human public listings, but the
+        client merges hydrated child slices back into its summary map; without a
+        client-side identity filter, refresh and offline state produce duplicate
+        channels and stale child previews.
+      depends_on:
+        - registered-worktree-navigation-is-promotion-gated
+        - child-conversation-state-is-room-isolated
+        - main-and-direct-conversations-stay-compatible
+    - id: worktree-rail-uses-branch-only-compact-status
+      title: Worktree rows show exact branches and compact accessible status
+      statement: Each visible secondary row must use its exact Git branch as the sole
+        visible worktree name and represent connection and activity state with
+        compact indicators rather than visible Live/connecting/offline or
+        working/attention prose, while preserving truthful accessible labels,
+        tooltips, unread badges, Git availability, keyboard targets, and phone
+        reachability.
+      reason: Aliases and generated conversation identifiers are routing or
+        persistence details, while status words consume the narrow rail and can
+        mislead when a retained child is offline or its prior run is held.
+      depends_on:
+        - worktree-conversation-status-is-live-and-independent
+        - native-worktree-rail-is-axe-valid
+        - registered-worktree-navigation-is-promotion-gated
+  reviewed:
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: Promotion, stable root/worktree history, main-first ordering, active
+        registration filtering, and fallback to main remain unchanged; this pass
+        only changes the rail projection and row presentation.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: The same exact-room connector readiness, recipient-scoped support,
+        unread, attention, working, and Git availability are retained and only
+        their visual representation becomes compact.
+    - id: child-conversation-state-is-room-isolated
+      outcome: unchanged
+      reason: Root and child slices, transcripts, cursors, summaries, and unread state
+        remain keyed by their existing exact conversation ids.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: Public roots, direct channels, startup, and the existing selectorless
+        route are unchanged; only child summaries reintroduced by the browser
+        cache are filtered from the rail.
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      outcome: unchanged
+      reason: Create, Find, alias management, unregister, removal preview,
+        authorization, focus, and confirmation behavior are not redesigned.
+    - id: native-worktree-rail-is-axe-valid
+      outcome: unchanged
+      reason: The valid ul/li ownership, accessible group label, hit targets, and
+        theme-safe rail semantics remain intact while status indicators gain
+        explicit accessible names.
+anchors:
+  worktree-child-conversations-stay-nested-and-isolated:
+    worktree-summary-filter:
+      action: change
+      reason: Filter known registered child conversation ids from both cold and
+        socket-merged room summaries before ChannelRail renders top-level rows.
+    worktree-summary-filter-regression:
+      action: change
+      reason: Prove root summaries survive while a retained child summary is excluded
+        from the top-level projection.
+    worktree-nested-row-navigation:
+      action: change
+      reason: Keep nested links bound to the public root and stable worktree id, and
+        prove root/child transcript selection remains isolated.
+    worktree-nested-row-unit-regression:
+      action: change
+      reason: Cover two child rows, exact branch labels, no alias/Live text, and
+        independent status/unread evidence in the component suite.
+    worktree-nested-row-browser-regression:
+      action: change
+      reason: Cover two children, refresh/cached restoration, no duplicate room links,
+        branch-only labels, and root/sibling transcript separation.
+  worktree-rail-uses-branch-only-compact-status:
+    worktree-branch-status-row:
+      action: change
+      reason: Render the branch as the row name and replace visible state/activity
+        words with compact labeled indicators.
+    worktree-branch-status-unit-regression:
+      action: change
+      reason: Assert exact branch text and accessible status labels without visible
+        Live/working/connection prose.
+    worktree-branch-status-style:
+      action: change
+      reason: Give the connection and activity markers compact theme-safe dot/ spinner
+        styling without shrinking row or phone hit targets.
+    worktree-branch-status-browser-regression:
+      action: change
+      reason: Verify connected/reconnecting/unavailable indicators remain exposed
+        accessibly while their visible text stays compact.
+  registered-worktree-navigation-is-promotion-gated:
+    worktree-group-navigation:
+      action: change
+      reason: ChildRow presentation changes inside the existing stable navigation
+        projection without changing promotion or history semantics.
+    worktree-group-unit-regression:
+      action: change
+      reason: Extend existing navigation regression for branch-only nested rows.
+    worktree-group-browser-regression:
+      action: change
+      reason: Extend the existing Room 40 navigation journey for two children,
+        reload/cache restoration, and transcript isolation.
+    worktree-group-browser-fixture:
+      action: change
+      reason: Add a second child below the disposable workspace repository and expose
+        its exact branch in the existing test-only registration endpoint.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-conversation-status-model:
+      action: change
+      reason: Preserve exact-room activity/readiness derivation while rendering it as
+        independent accessible indicators.
+    worktree-status-browser-regression:
+      action: change
+      reason: Update readiness/reconnect coverage to assert labels and indicators
+        rather than visible status words.
+  native-worktree-rail-is-axe-valid:
+    worktree-rail-browser-a11y:
+      action: change
+      reason: Keep the existing Room 40 Axe and list-ownership assertions green after
+        compact marker styling changes.
+  child-conversation-state-is-room-isolated:
+    conversation-room-state-regression:
+      action: keep
+      reason: Durable root/child storage isolation is not changed by the client rail.
+  main-and-direct-conversations-stay-compatible:
+    conversation-main-compatibility-regression:
+      action: keep
+      reason: Public root and ordinary direct-room behavior remain unchanged.
+  worktree-lifecycle-ui-is-explicit-and-recoverable:
+    worktree-lifecycle-dialogs:
+      action: keep
+      reason: Lifecycle dialogs and their authorization/destructive boundaries are
+        outside this presentation-only correction.
+files:
+  - packages/web-next/src/app/summary.ts
+  - packages/web-next/src/app/summary.spec.tsx
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+verification: Before editing, run harn find for every reviewed assumption and
+  harn find --file for every declared source file. Run harn plan check and lock
+  this plan from the clean 323c4ae base. Add focused summary and WorktreeGroup
+  units, the two-child Room 40 browser regressions, the existing WorktreeGroup
+  Axe coverage, the web-next unit suite, and the web-next production build. Run
+  harn find --changed, harn check, harn apply, harn check --staged, git diff
+  --check, and verify the final worktree is clean. Stage only this plan, the
+  seven declared files, and generated assumption truth; create exactly one
+  implementation commit. Do not push, deploy, release, or alter relay/database
+  behavior.
+applied:
+  applied_at: 2026-08-10T18:00:16.167Z

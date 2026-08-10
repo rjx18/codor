@@ -89,6 +89,8 @@ export function useWorktreeGroup(root: string, token: () => string): WorktreeGro
 
 // harn:assume native-worktree-rail-is-axe-valid ref=worktree-rail-dom-semantics
 // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-conversation-status-model
+// harn:assume worktree-child-conversations-stay-nested-and-isolated ref=worktree-nested-row-navigation
+// harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-row
 /** Per-row status: CONNECTION (the connector's current-generation exact-room
  * readiness) is rendered on its own, never collapsed into ACTIVITY
  * (working/attention from the room's own recipient-scoped support and members,
@@ -108,19 +110,20 @@ function ChildRow(props: {
     .some((member) => member.kind === 'agent' && (member.state === 'running' || member.state === 'queued'));
   const gitUnavailable = props.worktree.availability !== 'available';
   const connection = props.readiness === 'connected'
-    ? 'live'
+    ? 'Connected'
     : props.readiness === 'connecting'
-      ? 'connecting…'
+      ? 'Connecting'
       : props.readiness === 'offline'
-        ? 'offline'
-        : 'not observed';
+        ? 'Unavailable'
+        : 'Not subscribed';
   const activity = working
-    ? 'working…'
+    ? 'Working'
     : attention
-      ? 'needs attention'
+      ? 'Needs attention'
       : gitUnavailable
-        ? 'checkout unavailable'
+        ? 'Checkout unavailable'
         : undefined;
+  const displayName = props.worktree.branch ?? 'Detached HEAD';
   return (
     <a
       className={`nx-row nx-wt-row ${props.selected ? 'is-active' : ''}`}
@@ -136,26 +139,32 @@ function ChildRow(props: {
       <GitBranch size={15} aria-hidden="true" className="nx-wt-row-icon" />
       <span className="nx-row-main">
         <span className="nx-row-top">
-          <span className="nx-row-name">{props.worktree.alias}</span>
-          {props.worktree.branch !== undefined && (
-            <span className="nx-wt-branch">{props.worktree.branch}</span>
-          )}
+          <span className="nx-row-name" data-testid={`worktree-branch-${props.worktree.id}`} title={displayName}>
+            {displayName}
+          </span>
         </span>
         <span className="nx-row-bottom">
           {activity !== undefined && (
             <span
-              className={`nx-row-preview ${attention ? 'is-error' : ''}`}
+              className={`nx-wt-activity ${attention ? 'is-error' : ''}`}
+              role="img"
+              aria-label={activity}
+              title={activity}
               data-testid={`worktree-status-${props.worktree.id}`}
             >
-              {working && <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>}
-              {activity}
+              {working
+                ? <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
+                : <span className="nx-wt-activity-dot" aria-hidden="true" />}
             </span>
           )}
           <span
             className={`nx-wt-conn is-${props.readiness}`}
+            role="img"
+            aria-label={connection}
+            title={connection}
             data-testid={`worktree-connection-${props.worktree.id}`}
           >
-            {connection}
+            <span className="nx-wt-conn-dot" aria-hidden="true" />
           </span>
           {unread > 0 && (
             <span className="nx-unread" data-testid={`worktree-unread-${props.worktree.id}`}>
@@ -167,6 +176,8 @@ function ChildRow(props: {
     </a>
   );
 }
+// harn:end worktree-rail-uses-branch-only-compact-status
+// harn:end worktree-child-conversations-stay-nested-and-isolated
 // harn:end worktree-conversation-status-is-live-and-independent
 
 /** The group block under a promoted root: child rows plus the explicit
@@ -232,7 +243,7 @@ export function WorktreeGroupSection(props: {
               <button
                 type="button"
                 className="nx-wt-manage"
-                aria-label={`Manage worktree ${worktree.alias}`}
+                aria-label={`Manage worktree ${worktree.branch ?? 'Detached HEAD'}`}
                 data-testid={`worktree-manage-${worktree.id}`}
                 onClick={() => props.onOpenDialog({ child: worktree })}
               >

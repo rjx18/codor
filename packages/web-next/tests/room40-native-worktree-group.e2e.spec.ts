@@ -23,13 +23,42 @@ async function openRoom(page: Page, url: string): Promise<void> {
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
 
-async function reviewChildId(page: Page): Promise<string> {
+type RegisteredChild = {
+  id: string;
+  alias: string;
+  branch: string;
+  primary: boolean;
+  conversation_id: string;
+};
+
+async function registeredWorktrees(): Promise<{
+  registered: RegisteredChild[];
+}> {
   const { registered } = await control<{
-    registered: { id: string; alias: string; primary: boolean }[];
+    registered: RegisteredChild[];
   }>('/wt-registered', { room: 'workspace' });
-  const child = registered.find((worktree) => !worktree.primary && worktree.alias === 'review');
+  return { registered };
+}
+
+async function reviewChild(page: Page): Promise<RegisteredChild> {
+  const { registered } = await registeredWorktrees();
+  const child = registered.find((worktree) => !worktree.primary && worktree.branch === 'feature/review');
   expect(child).toBeDefined();
-  return child!.id;
+  return child!;
+}
+
+async function reviewChildId(page: Page): Promise<string> {
+  return (await reviewChild(page)).id;
+}
+
+async function registeredChildren(page: Page): Promise<{
+  id: string;
+  alias: string;
+  branch: string;
+  conversation_id: string;
+}[]> {
+  const { registered } = await registeredWorktrees();
+  return registered.filter((worktree) => !worktree.primary);
 }
 
 test.describe('native worktree group navigation', () => {
@@ -46,7 +75,8 @@ test.describe('native worktree group navigation', () => {
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);
     const row = page.locator('article', { hasText: 'bounded history from the review worktree' });
     await expect(row).toBeVisible();
-    await expect(row.locator('.nx-turn-author')).toHaveText('~review:@reviewer');
+    const review = await reviewChild(page);
+    await expect(row.locator('.nx-turn-author')).toHaveText(`~${review.alias}:@reviewer`);
     await expect(row).toHaveAttribute('data-transcript-unit', /message:/);
     const id = await row.getAttribute('id');
     expect(id).toMatch(/^\d+$/);
@@ -116,6 +146,46 @@ test.describe('native worktree group navigation', () => {
     await expect(page.getByTestId('room-link-workspace')).not.toHaveAttribute('aria-current', 'page');
   });
 
+  // harn:assume worktree-child-conversations-stay-nested-and-isolated ref=worktree-nested-row-browser-regression
+  test('nests both children by exact branch and never promotes child summaries', async ({ page }) => {
+    const children = await registeredChildren(page);
+    expect(children.map((child) => child.branch)).toEqual(['feature/plan', 'feature/review']);
+    await openRoom(page, `/?room=workspace&token=${TOKEN}`);
+    await expect(page.getByTestId('worktree-group')).toBeVisible();
+
+    for (const child of children) {
+      await expect(page.getByTestId(`worktree-link-${child.id}`)).toBeVisible();
+      expect(await page.getByTestId(`worktree-branch-${child.id}`).textContent()).toBe(child.branch);
+      expect(await page.getByTestId(`worktree-branch-${child.id}`).textContent()).not.toBe(child.alias);
+      await expect(page.getByTestId(`worktree-unread-${child.id}`)).toBeVisible();
+      await expect(page.getByTestId(`worktree-connection-${child.id}`)).toHaveAttribute(
+        'aria-label',
+        /Connected|Connecting|Unavailable|Not subscribed/,
+      );
+      await expect(page.getByTestId(`room-link-${child.conversation_id}`)).toHaveCount(0);
+    }
+    await expect(page.getByTestId('worktree-group')).not.toContainText('Live');
+
+    // A reload restores the cached/registered projection without reintroducing
+    // either hidden child as a top-level channel row.
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('worktree-group')).toBeVisible();
+    for (const child of children) {
+      await expect(page.getByTestId(`room-link-${child.conversation_id}`)).toHaveCount(0);
+    }
+
+    const review = children.find((child) => child.branch === 'feature/review')!;
+    const plan = children.find((child) => child.branch === 'feature/plan')!;
+    await page.getByTestId(`worktree-link-${review.id}`).click();
+    await expect(page.getByTestId('timeline')).toContainText('review notes live in the child conversation');
+    await expect(page.getByTestId('timeline')).not.toContainText('plan notes live in the planning child conversation');
+    await page.getByTestId(`worktree-link-${plan.id}`).click();
+    await expect(page.getByTestId('timeline')).toContainText('plan notes live in the planning child conversation');
+    await expect(page.getByTestId('timeline')).not.toContainText('review notes live in the child conversation');
+  });
+  // harn:end worktree-child-conversations-stay-nested-and-isolated
+
   test('moves the public root across top-level A-to-B-to-A switching and history', async ({ page }) => {
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);
     await expect(page.getByTestId('worktree-group')).toBeVisible();
@@ -149,6 +219,7 @@ test.describe('native worktree group navigation', () => {
     await expect(page.getByTestId('worktree-group')).toHaveCount(0);
   });
 
+  // harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-browser-regression
   test('reports independent readiness, retains rows offline, and recovers on reconnect', async ({ page }) => {
     const childId = await reviewChildId(page);
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);
@@ -156,8 +227,12 @@ test.describe('native worktree group navigation', () => {
 
     // The hidden child hydrates on the multiplexed socket: connection settles
     // on its OWN sync_complete, independent of activity or unread state.
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText(/live|connecting/);
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText('live', { timeout: 15_000 });
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute(
+      'aria-label', /Connected|Connecting/,
+    );
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute(
+      'aria-label', 'Connected', { timeout: 15_000 },
+    );
 
     // Offline (operator park drives the same disconnected state): the group
     // rows remain as last-good state, the unread badge survives, and the
@@ -168,7 +243,7 @@ test.describe('native worktree group navigation', () => {
     await expect(page.getByTestId('connection')).toHaveText(/Reconnecting/, { timeout: 15_000 });
     await expect(page.getByTestId(`worktree-link-${childId}`)).toBeVisible();
     await expect(page.getByTestId(`worktree-unread-${childId}`)).toBeVisible();
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText('offline');
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute('aria-label', 'Unavailable');
 
     // Reconnect replaces the generation: the child must re-prove itself with a
     // fresh sync_complete before it reads live again.
@@ -176,8 +251,11 @@ test.describe('native worktree group navigation', () => {
       (window as unknown as { __codor: { reconnect(): void } }).__codor.reconnect();
     });
     await expect(page.getByTestId('connection')).toHaveText(/Connected/, { timeout: 20_000 });
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toContainText('live', { timeout: 20_000 });
+    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute(
+      'aria-label', 'Connected', { timeout: 20_000 },
+    );
   });
+  // harn:end worktree-rail-uses-branch-only-compact-status
 
   test('leaves normal channels unchanged and hides the entry for a known non-Git cwd', async ({ page }) => {
     await openRoom(page, `/?room=eng&token=${TOKEN}`);
@@ -240,6 +318,12 @@ test.describe('native worktree rail accessibility', () => {
     expect(shape.directTags.every((tag) => tag === 'LI')).toBe(true);
     expect(shape.nestedListItems).toBe(0);
     expect(shape.rowChildren.every((children) => children.includes('A'))).toBe(true);
+    const connectionLabels = await group.locator('[data-testid^="worktree-connection-"]').evaluateAll(
+      (elements) => elements.map((element) => element.getAttribute('aria-label')),
+    );
+    expect(connectionLabels.length).toBeGreaterThan(0);
+    expect(connectionLabels.every((label) => label !== null && label !== 'Live')).toBe(true);
+    await expect(group).not.toContainText('Live');
 
     for (const theme of ['light', 'dark']) {
       await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);

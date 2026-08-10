@@ -29,13 +29,19 @@ export function resolveRoomSummaries(
   managedColdLoaded: boolean,
   cold: RoomSummary[],
   rooms: ReturnType<typeof useClientStore.getState>['rooms'],
+  childRoomIds: ReadonlySet<string> = new Set(),
 ): RoomSummary[] {
+  // harn:assume worktree-child-conversations-stay-nested-and-isolated ref=worktree-summary-filter
   const base = managedColdLoaded ? managedCold : cold;
-  const byId = new Map(base.map((summary) => [summary.id, summary]));
+  const byId = new Map(
+    base.filter((summary) => !childRoomIds.has(summary.id)).map((summary) => [summary.id, summary]),
+  );
   for (const slice of Object.values(rooms)) {
     if (slice.support !== undefined) {
+      if (childRoomIds.has(slice.support.room)) continue;
       byId.set(slice.support.room, slice.support.summary);
     } else if (slice.room !== undefined && !byId.has(slice.room.id)) {
+      if (childRoomIds.has(slice.room.id)) continue;
       byId.set(slice.room.id, {
         id: slice.room.id,
         name: slice.room.name,
@@ -48,6 +54,7 @@ export function resolveRoomSummaries(
     }
   }
   return [...byId.values()];
+  // harn:end worktree-child-conversations-stay-nested-and-isolated
 }
 
 /**
@@ -57,9 +64,15 @@ export function resolveRoomSummaries(
  */
 export function useRoomSummaries(token: () => string): RoomSummary[] {
   const rooms = useClientStore((state) => state.rooms);
+  const worktreeGroups = useClientStore((state) => state.worktreeGroups);
   const managedCold = useClientStore((state) => state.roomSummaries);
   const managedColdLoaded = useClientStore((state) => state.roomSummariesLoaded);
   const [cold, setCold] = useState<RoomSummary[]>(primed ?? []);
+  const childRoomIds = useMemo(() => new Set(
+    Object.values(worktreeGroups).flatMap((group) => group.registered
+      .filter((worktree) => !worktree.primary)
+      .map((worktree) => worktree.conversation_id)),
+  ), [worktreeGroups]);
 
   useEffect(() => {
     // Startup already resolved the authorized set to pick a room; refetching it
@@ -91,6 +104,6 @@ export function useRoomSummaries(token: () => string): RoomSummary[] {
   }, [token]);
 
   return useMemo(() => {
-    return resolveRoomSummaries(managedCold, managedColdLoaded, cold, rooms);
-  }, [cold, managedCold, managedColdLoaded, rooms]);
+    return resolveRoomSummaries(managedCold, managedColdLoaded, cold, rooms, childRoomIds);
+  }, [childRoomIds, cold, managedCold, managedColdLoaded, rooms]);
 }

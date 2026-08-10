@@ -1,0 +1,15 @@
+id: worktree-child-conversations-stay-nested-and-isolated
+hash: a-de8ea73a0840
+title: Child worktree conversations stay nested under their public root
+state: active
+statement: A browser rail must exclude every known registered secondary
+  conversation id from top-level channel summaries, including retained
+  live/support slices and cached refresh state, and render that child only under
+  its exact public root; selecting the nested row must continue to address the
+  child transcript through the stable root-plus-worktree navigation without
+  mixing root or sibling messages.
+depends_on:
+  - registered-worktree-navigation-is-promotion-gated
+  - child-conversation-state-is-room-isolated
+  - main-and-direct-conversations-stay-compatible
+created_by: worktree-orchestration-correctness-p2-nested-ui

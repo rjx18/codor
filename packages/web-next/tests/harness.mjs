@@ -427,7 +427,7 @@ await daemon.settle();
 dirtyWorkspace();
 
 // harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-browser-fixture
-// Native worktree fixtures: 'workspace' gains one registered child so group
+// Native worktree fixtures: 'workspace' gains two registered children so group
 // navigation is promoted with independent child activity; 'wtops' is a
 // git-backed room with NO registration for the explicit Find/Create flows.
 // Both repositories live below this harness's own mkdtemp root.
@@ -443,6 +443,18 @@ daemon.store.postMessage(reviewChildRoom, {
   author: reviewer.id,
   kind: 'chat',
   body: 'review notes live in the child conversation',
+});
+
+const worktreePlanPath = join(dir, 'workspace-plan');
+execFileSync('git', ['worktree', 'add', '-b', 'feature/plan', worktreePlanPath, 'HEAD'], { cwd: workspaceRepo, env: gitEnv });
+const planRegistration = await daemon.adoptWorktree('workspace', { path: worktreePlanPath, alias: 'plan' });
+const planChildRoom = planRegistration.worktree.conversation_id;
+crypto.roomKeys.ensureRoom(planChildRoom);
+const worktreePlanner = daemon.spawnMember(planChildRoom, { harness: 'fake', handle: 'planner', cwd: worktreePlanPath });
+daemon.store.postMessage(planChildRoom, {
+  author: worktreePlanner.id,
+  kind: 'chat',
+  body: 'plan notes live in the planning child conversation',
 });
 // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-browser-fixture
 daemon.store.postMessage('workspace', {
@@ -1679,6 +1691,7 @@ createServer((req, res) => {
             .map((worktree) => ({
               id: worktree.id,
               alias: worktree.alias,
+              branch: worktree.branch,
               primary: worktree.primary,
               lifecycle: worktree.lifecycle,
               conversation_id: worktree.conversation_id,
