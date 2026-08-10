@@ -1,0 +1,269 @@
+id: worktree-orchestration-correctness-p3-relay-stability
+title: Worktree orchestration Phase 3 - relay generation and bridge lifecycle stability
+notes: >
+  Implement only the hard relay-stability correction on top of fdb1b21. The
+  switchboard's loopback WebSocket and HTTP bridges must become inactive before
+  their mux stream is ended or reset, so late open/message/close/body callbacks
+  cannot write to a retired stream and duplicate close paths are harmless. Keep
+  MuxStream's write-after-end/reset invariant strict and continue reporting
+  genuine active-bridge errors. In SessionRelay, every accepted host starts a
+  new transport generation: close the prior host and every client admitted
+  before the new host, then admit the host without re-announcing stale connIds.
+  Browsers reconnect through the existing current-generation TunnelClient and
+  open exactly one replacement app socket after a fresh Noise handshake. Prove
+  root and worktree subscriptions recover together without transcript mixing or
+  reload while retained/cached content stays readable and mutations remain
+  gated. Preserve relay blindness, authentication, privacy, connection limits,
+  monotonic connIds, keepalive, current direct/Tailscale behavior, credential,
+  revocation, upgrade and manual parks, and independent multi-computer
+  sessions. Do not redesign the wire protocol, UI, updater, deployment, or
+  release path.
+assumptions:
+  retire:
+    - id: session-relay-lifecycle
+      reason: >
+        The old lifecycle explicitly re-announced clients across host replacement,
+        which carries an encrypted client generation into a new Noise responder
+        and permits old ciphertext to be parsed as a new msg1.
+  create:
+    - id: relay-bridge-callbacks-retire-before-mux-streams
+      title: Loopback bridge callbacks retire before their mux streams
+      statement: >
+        Each switchboard loopback WebSocket or HTTP bridge must atomically become
+        inactive before connection teardown, stream end/reset, fetch abort, or
+        local close can retire its mux stream; callbacks arriving afterward must
+        perform no stream or loopback writes, duplicate cleanup must be a no-op,
+        and errors from a still-active bridge must remain observable, so late
+        asynchronous transport callbacks cannot crash the daemon without
+        weakening MuxStream lifecycle invariants.
+      reason: >
+        WebSocket and fetch callbacks can arrive after RelayLink has closed the
+        owning connection; guarding the bridge boundary is the smallest place to
+        prevent write-after-end/reset while preserving the shared mux contract.
+      depends_on:
+        - relay-link-lifecycle
+        - tunnel-stream-mux
+    - id: relay-host-generations-retire-stale-clients
+      title: Each relay host generation owns only freshly admitted clients
+      statement: >
+        SessionRelay must remain a blind SQLite-backed hibernatable rendezvous
+        with one host, at most sixteen clients, persisted monotonic u32 connIds,
+        verbatim four-byte-prefix routing, keepalive auto-response, close-handshake
+        completion, no alarm and session-id capability access; whenever a host is
+        accepted it must close any prior host and every client admitted before
+        that host, never re-announce their connIds, and accept only newly
+        connected clients for the new host generation, so every browser performs
+        a fresh Noise handshake and stale ciphertext can never be interpreted as
+        the new host's msg1.
+      reason: >
+        A connId is only relay routing state; retaining its client socket across
+        host replacement incorrectly retains the old encrypted channel even
+        though RelayLink has created a new Noise responder.
+      depends_on:
+        - relay-control-vocabulary-is-canonical
+  reviewed:
+    - id: relay-link-lifecycle
+      outcome: unchanged
+      reason: >
+        RelayLink still maintains one blind outbound host session, authenticates
+        each device with Noise KK, and bridges app WebSocket and HTTP streams to
+        loopback; only callback retirement ordering becomes explicit.
+    - id: relay-link-dials-with-alias-fallback
+      outcome: unchanged
+      reason: >
+        Canonical/alias selection, cached winner behavior, early-death escalation,
+        and reconnect backoff remain unchanged.
+    - id: tunnel-stream-mux
+      outcome: unchanged
+      reason: >
+        Shared mux framing, flow control, lifecycle, and strict rejection of writes
+        after end/reset remain unchanged; the bridge stops calling a retired
+        stream instead.
+    - id: relay-control-vocabulary-is-canonical
+      outcome: unchanged
+      reason: >
+        Host and stale-client retirement reuse the existing 4001 SUPERSEDED close
+        code; no control frame or close-code vocabulary changes.
+    - id: browser-tunnel-readiness-follows-current-generation
+      outcome: unchanged
+      reason: >
+        The existing browser generation state machine must react to stale-client
+        close, reject obsolete callbacks and waiters, and perform exactly one new
+        handshake without source changes.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        The connector must continue opening exactly one app socket on the new
+        authenticated generation and must not reopen auth, revocation, upgrade,
+        manual or disposed parks.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: >
+        Every indexed computer keeps its own recovery loop; replacing one host
+        must not retire or duplicate another computer's session.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Root, worktree, sibling and same-named rooms remain bound to their owning
+        store and computer during recovery.
+    - id: hosted-background-rooms-hydrate-metadata-until-promoted
+      outcome: unchanged
+      reason: >
+        Zero-history background subscriptions remain live and are re-established
+        on the one replacement app socket together with current rooms.
+    - id: hosted-last-good-room-cache-is-bounded-read-only-projection
+      outcome: unchanged
+      reason: >
+        The bounded last-good projection remains readable through transport
+        replacement and is neither expanded nor made authoritative.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        Retained/cached chats remain readable and mutation stays disabled until a
+        current-generation server frame restores readiness.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: >
+        A replacement WebSocket open edge alone still cannot restore send
+        admission; current server evidence remains required.
+    - id: main-and-direct-conversations-stay-compatible
+      outcome: unchanged
+      reason: >
+        Direct/Tailscale room transport and selectorless room behavior are not
+        changed by the hosted relay replacement path.
+anchors:
+  session-relay-lifecycle:
+    session-relay-behavior:
+      action: remove
+      reason: >
+        Replace the old explicit stale-client re-announcement contract with a
+        fresh-client host-generation contract.
+  relay-bridge-callbacks-retire-before-mux-streams:
+    relay-bridge-lifecycle:
+      action: change
+      reason: >
+        Add one idempotent active/finished lifecycle around app-WebSocket and HTTP
+        callbacks before performing stream or loopback operations.
+    relay-bridge-lifecycle-regression:
+      action: change
+      reason: >
+        Reproduce late frames/body reads after teardown, duplicate close paths,
+        and observable genuine active errors without changing MuxStream.
+    relay-bridge-integration-regression:
+      action: change
+      reason: >
+        Exercise a real RelayLink replacement and verify no late bridge callback
+        crashes the daemon or leaks a prior mux generation.
+  relay-host-generations-retire-stale-clients:
+    session-relay-generation-behavior:
+      action: change
+      reason: >
+        Close all pre-existing clients before admitting a replacement host and
+        stop re-announcing their connIds.
+    session-relay-generation-regression:
+      action: change
+      reason: >
+        Prove stale clients close with the old host, old frames never reach the
+        new host, new clients receive fresh connIds, and Noise handshakes remain
+        blind and valid.
+    relay-generation-integration-regression:
+      action: change
+      reason: >
+        Use the real switchboard and a generation-faithful relay fixture to
+        reproduce the former msg1-length failure and prove one fresh handshake.
+    generation-faithful-browser-relay:
+      action: change
+      reason: >
+        Make the hosted browser fixture retire stale clients whenever its host is
+        replaced, matching SessionRelay rather than preserving the broken path.
+    relay-host-replacement-browser-control:
+      action: change
+      reason: >
+        Expose one deterministic host-replacement/error diagnostic control without
+        killing or reloading the browser or daemon.
+    relay-host-replacement-browser-regression:
+      action: change
+      reason: >
+        Prove the daemon stays alive, the browser performs one fresh tunnel/Noise
+        handshake and one app reopen, and simultaneous root/worktree subscriptions
+        resume without transcript mixing.
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: >
+        Guard the existing loopback bridge boundary and preserve every other
+        RelayLink responsibility.
+  tunnel-stream-mux:
+    mux-stream-state:
+      action: keep
+      reason: >
+        Strict stream state and write-after-end/reset behavior must not change.
+  relay-control-vocabulary-is-canonical:
+    tunnel-control-mirror:
+      action: keep
+      reason: >
+        No client-side control vocabulary changes.
+    relay-control-source:
+      action: keep
+      reason: >
+        Reuse SUPERSEDED without adding a close code or control frame.
+  browser-tunnel-readiness-follows-current-generation:
+    tunnel-generation-regression:
+      action: change
+      reason: >
+        Add a stale-client close regression proving exactly one current-generation
+        replacement handshake and app socket.
+  hosted-app-streams-follow-tunnel-generations:
+    coordinated-recovery-browser-regression:
+      action: change
+      reason: >
+        Extend the real hosted recovery journey to cover host replacement and
+        simultaneous root/worktree subscription recovery without reload.
+    independent-computer-recovery-regression:
+      action: keep
+      reason: >
+        Existing independent multi-computer recovery behavior must remain green
+        without changes to its test contract.
+  main-and-direct-conversations-stay-compatible:
+    conversation-main-compatibility-regression:
+      action: keep
+      reason: >
+        Direct main-room compatibility is outside the hosted relay correction.
+    conversation-root-query:
+      action: keep
+      reason: >
+        Room persistence and query behavior are unchanged.
+    conversation-shared-human-resolution:
+      action: keep
+      reason: >
+        Shared human identity behavior is unchanged.
+files:
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/switchboard/src/relay/integration.spec.ts
+  - relay-worker/src/session-relay.ts
+  - relay-worker/test/session-relay.spec.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/tests/mock-relay.mjs
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+verification: >
+  Lock from a clean fdb1b21 baseline before source edits. Add deterministic
+  RelayLink units for late loopback WebSocket message/open/close and HTTP body
+  callbacks after teardown, duplicate close/reset paths, and an active error
+  that remains observable. Add SessionRelay Durable Object tests for host
+  replacement closing stale clients, refusing stale traffic, fresh monotonic
+  connIds, one valid Noise handshake, and the former msg1-must-be-40-bytes
+  failure shape. Extend the real switchboard integration with a
+  generation-faithful mock relay and two simultaneous app subscriptions. Add a
+  TunnelClient unit proving one replacement handshake/app socket after a
+  relay-forced stale-client close. Add the smallest Room 33 hosted browser
+  journey that replaces the live host in place, proves the harness daemon still
+  answers, sees exactly one new tunnel dial and one app reopen, and verifies
+  root/worktree rooms recover without reload or transcript mixing. Run focused
+  tunnel, RelayLink/integration, relay-worker, browser relay/connector and Room
+  33/34 suites; all protocol, switchboard and web-next units; relay-worker and
+  web-next production builds. Run harn find --changed, harn check, harn apply,
+  harn check --staged, git diff --check, and verify one clean implementation
+  commit. Do not push, merge, deploy, publish, update a host, or start another
+  phase.
