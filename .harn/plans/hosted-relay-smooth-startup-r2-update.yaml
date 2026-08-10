@@ -150,6 +150,29 @@ assumptions:
       outcome: unchanged
       reason: Install/setup unattended consent remains unchanged; `codor update`
         itself is the explicit operator mutation command.
+    - id: management-failures-have-stable-redacted-exits
+      outcome: unchanged
+      reason: The command-surface regression gains update commands, but existing
+        failure exit classes, one-line stderr, empty stdout, and credential/URL
+        redaction remain unchanged.
+    - id: setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable
+      outcome: unchanged
+      reason: The setup override seam gains update-readiness injections only;
+        Tailscale command timeouts, consent, diagnostics, and recovery remain
+        unchanged.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The launchd definition gains private runtime identity values but
+        continues to serve the same selected web-next static root.
+    - id: windows-setup-installs-private-task-service
+      outcome: unchanged
+      reason: The Windows task remains the same private least-privilege service;
+        only its resident process replacement order and private identity values
+        change.
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: Dry-run remains mutation-free and secret-free while accurately
+        previewing restart order and placeholder runtime identity values.
 files:
   - packages/cli/src/index.ts
   - packages/cli/src/program.ts
@@ -241,6 +264,10 @@ anchors:
     windows-setup-regression:
       action: change
       reason: Prove Windows replacement order and preserved protected service state.
+    windows-service-rendering:
+      action: change
+      reason: Add private runtime identity and explicit prior-task termination
+        without changing the protected task's authority or paths.
   platform-services-propagate-destination-pnpm-node-path:
     node-path-systemd-emission:
       action: change
@@ -274,6 +301,31 @@ anchors:
     readiness-timeout-diagnostic:
       action: keep
       reason: Keep the setup readiness diagnostic unchanged.
+  management-failures-have-stable-redacted-exits:
+    management-error-regression:
+      action: change
+      reason: Extend only the asserted command inventory; preserve every
+        existing exit classification, redaction, stderr, and stdout assertion.
+  setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable:
+    tailscale-exec-override-seam:
+      action: change
+      reason: Add update generation/status test seams without changing
+        Tailscale execution, timeout, consent, or diagnostics.
+  operator-launches-serve-web-next:
+    launchd-current-web-client:
+      action: change
+      reason: Add private runtime identity environment while preserving the
+        selected web-next root and launch command.
+  setup-unattended-mutation-requires-explicit-intent:
+    setup-unattended-runtime:
+      action: change
+      reason: Exempt only the private candidate application path from onboarding
+        consent checks; public install/setup behavior remains identical.
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-runtime:
+      action: change
+      reason: Preview the corrected platform restart order and placeholder
+        identity without performing mutation or rendering secrets.
 verification: >
   Clean-lock this R2-only contract after the planning checkpoint. Run focused
   CLI update, runtime installer, Linux/setup, launchd, Windows, and authenticated
