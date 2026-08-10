@@ -383,6 +383,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   const autoGrow = (): void => {
     const node = areaRef.current;
     if (!node) return;
+    const previousHeight = node.style.height;
     node.style.height = 'auto';
     const style = getComputedStyle(node);
     const line = parseFloat(style.lineHeight) || 24;
@@ -391,7 +392,21 @@ export function Composer(props: { room: string; token: () => string; connection:
     // exactly that padding — eight rows of text never fit in an "eight row" box.
     const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
     const cap = Math.round(line * MAX_ROWS + (Number.isFinite(padding) ? padding : 0));
-    node.style.height = `${Math.min(node.scrollHeight, cap)}px`;
+    const nextHeight = `${Math.min(node.scrollHeight, cap)}px`;
+    node.style.height = nextHeight;
+    // The transcript remains the sole geometry owner. This synchronous signal
+    // only tells it that its viewport changed, so a pinned reader is corrected
+    // before the browser can paint the composer-induced gap.
+    if (nextHeight !== previousHeight) {
+      const previousPixels = Number.parseFloat(previousHeight);
+      window.dispatchEvent(new CustomEvent('codor:composer-geometry', {
+        detail: {
+          delta: Number.isFinite(previousPixels)
+            ? Number.parseFloat(nextHeight) - previousPixels
+            : 0,
+        },
+      }));
+    }
   };
 
   const refreshMention = (): void => {

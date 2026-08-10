@@ -15,7 +15,6 @@ import {
   previewWorktreeRemoval,
   removeWorktree,
   unregisterWorktree,
-  updateWorktreeAlias,
 } from '@runtime/api.js';
 
 import { roomSlice, useClientStore } from '../app/store.js';
@@ -259,22 +258,21 @@ export function WorktreeGroupSection(props: {
 // harn:end native-worktree-rail-is-axe-valid
 // harn:end registered-worktree-navigation-is-promotion-gated
 
-// harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-dialogs
+// harn:assume worktree-lifecycle-ui-follows-branch-identity ref=worktree-lifecycle-dialogs
 type DialogState = 'idle' | 'busy' | { error: string };
 
 function dialogError(state: DialogState): string | undefined {
   return typeof state === 'object' ? state.error : undefined;
 }
 
-/** Create collects a normalized alias, a new local branch, a missing absolute
- * target, and the optional accepted default roster. Failure keeps the draft. */
+/** Create collects a new local branch, a missing absolute target, and the
+ * optional accepted default roster. The branch is the only user-facing name. */
 export function WorktreeCreateDialog(props: {
   root: string;
   token: () => string;
   onClose: () => void;
   onCreated: (worktree: RegisteredWorktree) => void;
 }) {
-  const [alias, setAlias] = useState('');
   const [branch, setBranch] = useState('');
   const [path, setPath] = useState('');
   const [useRoster, setUseRoster] = useState(false);
@@ -283,7 +281,6 @@ export function WorktreeCreateDialog(props: {
   const submit = (): void => {
     setState('busy');
     void createWorktree(props.root, {
-      alias,
       branch,
       path,
       ...(useRoster && { default_roster: true as const }),
@@ -304,16 +301,6 @@ export function WorktreeCreateDialog(props: {
           </p>
         </header>
         <label className="nx-field">
-          <span>Alias</span>
-          <input
-            value={alias}
-            data-testid="worktree-create-alias"
-            onChange={(event) => setAlias(event.target.value)}
-            placeholder="review"
-            autoComplete="off"
-          />
-        </label>
-        <label className="nx-field">
           <span>New branch</span>
           <input
             value={branch}
@@ -333,7 +320,7 @@ export function WorktreeCreateDialog(props: {
             autoComplete="off"
           />
         </label>
-        {/* harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-default-roster-choice-copy */}
+        {/* harn:assume worktree-lifecycle-ui-follows-branch-identity ref=worktree-default-roster-choice-copy */}
         <DefaultRosterChoice
           token={props.token}
           selected={useRoster}
@@ -342,7 +329,7 @@ export function WorktreeCreateDialog(props: {
           title="Default roster"
           note="Seed only this new worktree with the saved ordered group."
         />
-        {/* harn:end worktree-lifecycle-ui-is-explicit-and-recoverable */}
+        {/* harn:end worktree-lifecycle-ui-follows-branch-identity */}
         {dialogError(state) !== undefined && (
           <p className="nx-wt-dialog-error" role="alert" data-testid="worktree-create-error">
             {dialogError(state)}
@@ -353,7 +340,7 @@ export function WorktreeCreateDialog(props: {
           <Button
             type="button"
             data-testid="worktree-create-submit"
-            disabled={state === 'busy' || alias.trim() === '' || branch.trim() === '' || path.trim() === ''}
+            disabled={state === 'busy' || branch.trim() === '' || path.trim() === ''}
             onClick={submit}
           >
             {state === 'busy' ? 'Creating…' : 'Create worktree'}
@@ -364,8 +351,8 @@ export function WorktreeCreateDialog(props: {
   );
 }
 
-/** Find runs read-only discovery only after it opens, requires ONE selected
- * candidate plus a NONEMPTY alias, and never bulk-adopts. */
+/** Find runs read-only discovery only after it opens, requires one selected
+ * candidate, and never bulk-adopts. The discovered branch owns its name. */
 export function WorktreeFindDialog(props: {
   root: string;
   token: () => string;
@@ -375,7 +362,6 @@ export function WorktreeFindDialog(props: {
   const [candidates, setCandidates] = useState<WorktreeDiscoveryCandidate[]>();
   const [loadError, setLoadError] = useState<string>();
   const [selected, setSelected] = useState<string>();
-  const [alias, setAlias] = useState('');
   const [state, setState] = useState<DialogState>('idle');
   const generation = useRef(0);
   const tokenRef = useRef(props.token);
@@ -402,13 +388,10 @@ export function WorktreeFindDialog(props: {
   const selectedCandidate = candidates?.find((candidate) => candidate.path === selected);
 
   const adopt = (): void => {
-    // Adoption names the child deliberately: one selected candidate AND a
-    // nonempty alias, never a default derived from the branch.
-    if (selectedCandidate === undefined || alias.trim() === '') return;
+    if (selectedCandidate === undefined) return;
     setState('busy');
     void adoptWorktree(props.root, {
       path: selectedCandidate.path,
-      alias: alias.trim(),
     }, { token: props.token() }).then((result) => {
       props.onAdopted(result.worktree);
     }).catch((failure: unknown) => {
@@ -447,10 +430,7 @@ export function WorktreeFindDialog(props: {
                   className={`nx-wt-candidate ${selected === candidate.path ? 'is-selected' : ''}`}
                   aria-pressed={selected === candidate.path}
                   data-testid={`worktree-candidate-${candidate.branch ?? candidate.path}`}
-                  onClick={() => {
-                    setSelected(candidate.path);
-                    setAlias(candidate.branch ?? '');
-                  }}
+                  onClick={() => setSelected(candidate.path)}
                 >
                   <span className="nx-wt-candidate-branch">{candidate.branch ?? '(detached)'}</span>
                   <span className="nx-wt-candidate-path">{candidate.path}</span>
@@ -458,17 +438,6 @@ export function WorktreeFindDialog(props: {
               </li>
             ))}
           </ul>
-        )}
-        {selectedCandidate !== undefined && (
-          <label className="nx-field">
-            <span>Alias</span>
-            <input
-              value={alias}
-              data-testid="worktree-adopt-alias"
-              onChange={(event) => setAlias(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
         )}
         {dialogError(state) !== undefined && (
           <p className="nx-wt-dialog-error" role="alert" data-testid="worktree-adopt-error">
@@ -480,7 +449,7 @@ export function WorktreeFindDialog(props: {
           <Button
             type="button"
             data-testid="worktree-adopt-submit"
-            disabled={state === 'busy' || selectedCandidate === undefined || alias.trim() === ''}
+            disabled={state === 'busy' || selectedCandidate === undefined}
             onClick={adopt}
           >
             {state === 'busy' ? 'Adopting…' : 'Adopt selected'}
@@ -491,9 +460,8 @@ export function WorktreeFindDialog(props: {
   );
 }
 
-/** One child's deliberate acts: identity-preserving rename, DB-only
- * unregister, and preview-gated filesystem removal whose destructive step
- * repeats every check. Failure keeps the dialog and the selection. */
+/** One child's deliberate acts: DB-only unregister and preview-gated
+ * filesystem removal whose destructive step repeats every check. */
 export function WorktreeChildDialog(props: {
   root: string;
   token: () => string;
@@ -503,8 +471,6 @@ export function WorktreeChildDialog(props: {
   onRemoved: () => void;
 }) {
   const { child } = props;
-  const [alias, setAlias] = useState(child.alias);
-  const [renameState, setRenameState] = useState<DialogState>('idle');
   const [unregisterConfirm, setUnregisterConfirm] = useState(false);
   const [unregisterState, setUnregisterState] = useState<DialogState>('idle');
   const [preview, setPreview] = useState<WorktreeRemovalPreviewResponse>();
@@ -527,16 +493,6 @@ export function WorktreeChildDialog(props: {
   }, [props.root, props.token, child.id]);
 
   useEffect(() => { loadPreview(); }, [loadPreview]);
-
-  const rename = (): void => {
-    setRenameState('busy');
-    void updateWorktreeAlias(props.root, child.id, alias, { token: props.token() }).then(() => {
-      props.onChanged();
-      props.onClose();
-    }).catch((failure: unknown) => {
-      setRenameState({ error: failure instanceof Error ? failure.message : String(failure) });
-    });
-  };
 
   const unregisterSelected = (): void => {
     setUnregisterState('busy');
@@ -563,38 +519,12 @@ export function WorktreeChildDialog(props: {
   const previewReady = preview?.state === 'clean';
 
   return (
-    <Modal label={`Manage worktree ${child.alias}`} testid="worktree-child-dialog" onClose={props.onClose} structured>
+    <Modal label={`Manage worktree ${child.branch ?? 'detached'}`} testid="worktree-child-dialog" onClose={props.onClose} structured>
       <div className="nx-wt-dialog">
         <header className="nx-wt-dialog-head">
-          <h2>Worktree {child.alias}</h2>
-          <p className="nx-field-note">{child.branch ?? 'detached'} · managed by stable id, never by path.</p>
+          <h2>Worktree {child.branch ?? 'detached'}</h2>
+          <p className="nx-field-note">Managed by stable id, never by path.</p>
         </header>
-
-        <section className="nx-wt-dialog-section" aria-label="Rename worktree">
-          <h3>Rename</h3>
-          <label className="nx-field">
-            <span>Alias</span>
-            <input
-              value={alias}
-              data-testid="worktree-rename-input"
-              onChange={(event) => setAlias(event.target.value)}
-              autoComplete="off"
-            />
-          </label>
-          {dialogError(renameState) !== undefined && (
-            <p className="nx-wt-dialog-error" role="alert" data-testid="worktree-rename-error">
-              {dialogError(renameState)}
-            </p>
-          )}
-          <Button
-            type="button"
-            data-testid="worktree-rename-submit"
-            disabled={renameState === 'busy' || alias.trim() === '' || alias.trim() === child.alias}
-            onClick={rename}
-          >
-            {renameState === 'busy' ? 'Renaming…' : 'Save alias'}
-          </Button>
-        </section>
 
         <section className="nx-wt-dialog-section" aria-label="Unregister worktree">
           <h3>Unregister</h3>
@@ -685,4 +615,4 @@ export function WorktreeChildDialog(props: {
     </Modal>
   );
 }
-// harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
+// harn:end worktree-lifecycle-ui-follows-branch-identity

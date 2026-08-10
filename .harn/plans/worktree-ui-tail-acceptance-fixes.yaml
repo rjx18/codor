@@ -11,7 +11,8 @@ notes: >
 assumptions:
   retire:
     - id: worktree-lifecycle-ui-is-explicit-and-recoverable
-      reason: Its Create/Find/Rename alias UI contradicts the accepted branch-owned identity contract.
+      reason: Its Create/Find/Rename alias UI contradicts the accepted branch-owned
+        identity contract.
   create:
     - id: worktree-lifecycle-ui-follows-branch-identity
       title: Worktree lifecycle UI uses the Git branch as its only name
@@ -24,7 +25,8 @@ assumptions:
         acts. Errors preserve drafts and selection, removal keeps its fresh
         safety checks and confirmations, and every surface remains keyboard-,
         focus-, phone-, direct-, and relay-transport accessible.
-      reason: The shipped branch-owned identity must have one matching lifecycle UI with no obsolete editable display name.
+      reason: The shipped branch-owned identity must have one matching lifecycle UI
+        with no obsolete editable display name.
       depends_on:
         - readable-branch-conversations-own-worktree-identity
         - worktree-discovery-never-registers-candidates
@@ -34,30 +36,38 @@ assumptions:
   reviewed:
     - id: transcript-tail-follow-has-one-prepaint-owner
       outcome: fixed
-      reason: Composer height changes currently expose one painted frame above the tail before the observer corrects it.
+      reason: Composer height changes currently expose one painted frame above the
+        tail before the observer corrects it.
     - id: readable-branch-conversations-own-worktree-identity
       outcome: unchanged
-      reason: The server already ignores compatibility aliases and derives identity from the exact full branch.
+      reason: The server already ignores compatibility aliases and derives identity
+        from the exact full branch.
     - id: worktree-child-default-roster-is-an-explicit-snapshot
       outcome: unchanged
-      reason: Create retains the same explicit optional roster choice and child-only semantics.
+      reason: Create retains the same explicit optional roster choice and child-only
+        semantics.
     - id: child-files-voice-and-keys-are-isolated
       outcome: unchanged
-      reason: Lifecycle UI corrections do not change child key, file, voice, or room ownership.
+      reason: Lifecycle UI corrections do not change child key, file, voice, or room
+        ownership.
     - id: native-worktree-rail-is-axe-valid
       outcome: unchanged
-      reason: The rail list ownership, contrast, focus, and accessible status semantics remain unchanged.
+      reason: The rail list ownership, contrast, focus, and accessible status
+        semantics remain unchanged.
 anchors:
   worktree-lifecycle-ui-is-explicit-and-recoverable:
     worktree-lifecycle-dialogs:
       action: change
-      reason: Remove create/adopt alias fields and the child rename act while preserving unregister/removal.
+      reason: Remove create/adopt alias fields and the child rename act while
+        preserving unregister/removal.
     worktree-lifecycle-unit-regression:
       action: change
-      reason: Replace alias-oriented component expectations with branch-only lifecycle coverage.
+      reason: Replace alias-oriented component expectations with branch-only lifecycle
+        coverage.
     worktree-lifecycle-browser-regression:
       action: change
-      reason: Exercise branch-owned adoption, creation, management, roster, and removal end to end.
+      reason: Exercise branch-owned adoption, creation, management, roster, and
+        removal end to end.
   worktree-lifecycle-ui-follows-branch-identity:
     worktree-lifecycle-dialogs:
       action: change
@@ -71,10 +81,12 @@ anchors:
   transcript-tail-follow-has-one-prepaint-owner:
     transcript-prepaint-geometry:
       action: change
-      reason: Reconcile a synchronous composer geometry signal in the existing transcript owner.
+      reason: Reconcile a synchronous composer geometry signal in the existing
+        transcript owner.
     transcript-prepaint-geometry-regression:
       action: change
-      reason: Keep the frame-by-frame pinned-tail assertion as the browser acceptance gate.
+      reason: Keep the frame-by-frame pinned-tail assertion as the browser acceptance
+        gate.
 files:
   - packages/web-next/src/room/Composer.tsx
   - packages/web-next/src/room/Transcript.tsx
@@ -89,3 +101,5 @@ verification: >
   alias, no rename control remains, every row/dialog displays the exact branch,
   destructive lifecycle behavior is unchanged, and the pinned tail stays within
   two pixels through multiline composer growth and shrink.
+applied:
+  applied_at: 2026-08-10T18:59:45.690Z

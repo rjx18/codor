@@ -1,5 +1,4 @@
-// harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-browser-regression
-// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-browser-regression
+// harn:assume worktree-lifecycle-ui-follows-branch-identity ref=worktree-lifecycle-browser-regression
 // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-browser-regression
 // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-files-voice-key-regression
 import { expect, test, type Page } from '@playwright/test';
@@ -28,9 +27,9 @@ async function openRoom(page: Page, url: string): Promise<void> {
   if (await connection.count() > 0) await expect(connection).toHaveText(/Connected/);
 }
 
-async function registered(room: string): Promise<{ id: string; alias: string; primary: boolean; conversation_id: string }[]> {
+async function registered(room: string): Promise<{ id: string; alias: string; branch?: string; primary: boolean; conversation_id: string }[]> {
   const { registered: list } = await control<{
-    registered: { id: string; alias: string; primary: boolean; conversation_id: string }[];
+    registered: { id: string; alias: string; branch?: string; primary: boolean; conversation_id: string }[];
   }>('/wt-registered', { room });
   return list;
 }
@@ -46,9 +45,13 @@ async function childMembers(page: Page, conversation: string): Promise<{ handle:
   return body.members.map((entry) => entry.member);
 }
 
-async function selectFirstChild(page: Page, room: string): Promise<{ id: string; conversation_id: string }> {
+async function selectChild(
+  page: Page,
+  room: string,
+  branch: string,
+): Promise<{ id: string; conversation_id: string; branch?: string }> {
   const list = await registered(room);
-  const child = list.find((worktree) => !worktree.primary);
+  const child = list.find((worktree) => !worktree.primary && worktree.branch === branch);
   expect(child).toBeDefined();
   await page.getByTestId(`worktree-link-${child!.id}`).click();
   await expect(page.getByTestId(`worktree-link-${child!.id}`)).toHaveAttribute('aria-current', 'page');
@@ -73,18 +76,14 @@ test.describe('native worktree lifecycle UI', () => {
     const candidate = page.getByTestId(/^worktree-candidate-feature\/found/);
     await expect(candidate).toBeVisible();
     await candidate.click();
-    // Adoption requires a NONEMPTY alias: clearing the prefill disables the
-    // act until the operator names the child deliberately.
-    await page.getByTestId('worktree-adopt-alias').fill('');
-    await expect(page.getByTestId('worktree-adopt-submit')).toBeDisabled();
-    await page.getByTestId('worktree-adopt-alias').fill('Found Review');
+    await expect(page.getByTestId('worktree-adopt-alias')).toHaveCount(0);
     await expect(page.getByTestId('worktree-adopt-submit')).toBeEnabled();
     await page.getByTestId('worktree-adopt-submit').click();
 
     // Promotion follows the one selected adoption; the child is selected.
     await expect(page.getByTestId('worktree-group')).toBeVisible();
     const list = await registered('wtops');
-    const adopted = list.find((worktree) => worktree.alias === 'found-review');
+    const adopted = list.find((worktree) => worktree.branch === 'feature/found');
     expect(adopted).toBeDefined();
     expect(page.url()).toContain(`worktree=${adopted!.id}`);
   });
@@ -101,8 +100,9 @@ test.describe('native worktree lifecycle UI', () => {
     await page.getByTestId('worktree-entry-create').click();
     const createDialog = page.getByTestId('worktree-create-dialog');
     await expect(createDialog).toBeVisible();
-    await page.getByTestId('worktree-create-alias').fill(`First ${suffix}`);
-    await page.getByTestId('worktree-create-branch').fill(`feature/first-${suffix}`);
+    const branch = `feature/first-${suffix}`;
+    await expect(page.getByTestId('worktree-create-alias')).toHaveCount(0);
+    await page.getByTestId('worktree-create-branch').fill(branch);
     const target = await control<{ path: string }>('/wt-ops-target', { name: `created-first-${suffix}` });
     await page.getByTestId('worktree-create-path').fill(target.path);
     await page.getByTestId('worktree-create-submit').click();
@@ -111,7 +111,7 @@ test.describe('native worktree lifecycle UI', () => {
     // The first creation promotes the group and selects the new child.
     await expect(page.getByTestId('worktree-group')).toBeVisible();
     const list = await registered('wtops');
-    const created = list.find((worktree) => worktree.alias === `first-${suffix.toLowerCase()}`);
+    const created = list.find((worktree) => worktree.branch === branch);
     expect(created).toBeDefined();
     expect(page.url()).toContain(`worktree=${created!.id}`);
     await expect(page.getByTestId(`worktree-link-${created!.id}`)).toHaveAttribute('aria-current', 'page');
@@ -145,14 +145,14 @@ test.describe('native worktree lifecycle UI', () => {
     await page.getByTestId('worktree-create-open').click();
     const createDialog = page.getByTestId('worktree-create-dialog');
     await expect(createDialog).toBeVisible();
-    await page.getByTestId('worktree-create-alias').fill(`Empty ${suffix}`);
-    await page.getByTestId('worktree-create-branch').fill(`feature/empty-${suffix}`);
+    const branch = `feature/empty-${suffix}`;
+    await page.getByTestId('worktree-create-branch').fill(branch);
     await page.getByTestId('worktree-create-path').fill(`${await opsTarget(page, `created-empty-${suffix}`)}`);
     await page.getByTestId('worktree-create-submit').click();
     await expect(createDialog).toHaveCount(0);
 
     const list = await registered('wtops');
-    const created = list.find((worktree) => worktree.alias === `empty-${suffix.toLowerCase()}`);
+    const created = list.find((worktree) => worktree.branch === branch);
     expect(created).toBeDefined();
     // Omission: an agent-empty child.
     expect((await childMembers(page, created!.conversation_id)).filter((member) => member.kind === 'agent'))
@@ -204,16 +204,17 @@ test.describe('native worktree lifecycle UI', () => {
     });
     await page.getByTestId('worktree-create-open').click();
     await expect(page.getByTestId('worktree-create-roster-select')).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId('worktree-create-alias').fill(`Seeded ${suffix}`);
-    await page.getByTestId('worktree-create-branch').fill(`feature/seeded-${suffix}`);
+    const branch = `feature/seeded-${suffix}`;
+    await page.getByTestId('worktree-create-branch').fill(branch);
     await page.getByTestId('worktree-create-path').fill(`${await opsTarget(page, `created-seeded-${suffix}`)}`);
     await page.getByTestId('worktree-create-roster-select').click();
     await page.getByTestId('worktree-create-submit').click();
     await expect(page.getByTestId('worktree-create-dialog')).toHaveCount(0);
 
-    expect(createPayloads.at(-1)).toMatchObject({ default_roster: true });
+    expect(createPayloads.at(-1)).toEqual(expect.objectContaining({ branch, default_roster: true }));
+    expect(createPayloads.at(-1)).not.toHaveProperty('alias');
     const list = await registered('wtops');
-    const created = list.find((worktree) => worktree.alias === `seeded-${suffix.toLowerCase()}`);
+    const created = list.find((worktree) => worktree.branch === branch);
     expect(created).toBeDefined();
     const members = (await childMembers(page, created!.conversation_id))
       .filter((member) => member.kind === 'agent');
@@ -230,28 +231,25 @@ test.describe('native worktree lifecycle UI', () => {
     });
   });
 
-  test('renames a selected child without moving its URL, transcript, or members', async ({ page }) => {
+  test('manages a selected child by exact branch without an editable second name', async ({ page }) => {
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);
-    const child = await selectFirstChild(page, 'workspace');
+    const child = await selectChild(page, 'workspace', 'feature/review');
     const urlBefore = page.url();
     const membersBefore = await childMembers(page, child.conversation_id);
 
     await page.getByTestId(`worktree-manage-${child.id}`).click();
-    await page.getByTestId('worktree-rename-input').fill('Renamed Review');
-    await page.getByTestId('worktree-rename-submit').click();
+    await expect(page.getByTestId('worktree-child-dialog')).toContainText('feature/review');
+    await expect(page.getByTestId('worktree-rename-input')).toHaveCount(0);
+    await expect(page.getByTestId('worktree-unregister-open')).toBeVisible();
+    await expect(page.getByTestId('worktree-remove-open')).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(page.getByTestId('worktree-child-dialog')).toHaveCount(0);
 
-    // The row relabels; the stable selector, transcript, and members stay.
-    await expect(page.getByTestId(`worktree-link-${child.id}`)).toContainText('renamed-review');
+    // Opening management is read-only until a deliberate lifecycle act.
+    await expect(page.getByTestId(`worktree-link-${child.id}`)).toContainText('feature/review');
     expect(page.url()).toBe(urlBefore);
     await expect(page.getByTestId('timeline')).toContainText('review notes live in the child conversation');
     expect(await childMembers(page, child.conversation_id)).toEqual(membersBefore);
-
-    // Restore the seeded alias for the other specs.
-    await page.getByTestId(`worktree-manage-${child.id}`).click();
-    await page.getByTestId('worktree-rename-input').fill('review');
-    await page.getByTestId('worktree-rename-submit').click();
-    await expect(page.getByTestId('worktree-child-dialog')).toHaveCount(0);
   });
 
   test('unregisters with a fallback to main and removes cleanly with branch survival', async ({ page }) => {
@@ -266,13 +264,13 @@ test.describe('native worktree lifecycle UI', () => {
 
     // Create a child whose removal we can prove branch-preserving.
     await page.getByTestId('worktree-create-open').click();
-    await page.getByTestId('worktree-create-alias').fill(`Doomed ${suffix}`);
-    await page.getByTestId('worktree-create-branch').fill(`feature/doomed-${suffix}`);
+    const branch = `feature/doomed-${suffix}`;
+    await page.getByTestId('worktree-create-branch').fill(branch);
     await page.getByTestId('worktree-create-path').fill(`${await opsTarget(page, `created-doomed-${suffix}`)}`);
     await page.getByTestId('worktree-create-submit').click();
     await expect(page.getByTestId('worktree-create-dialog')).toHaveCount(0);
     const list = await registered('wtops');
-    const doomed = list.find((worktree) => worktree.alias === `doomed-${suffix.toLowerCase()}`);
+    const doomed = list.find((worktree) => worktree.branch === branch);
     expect(doomed).toBeDefined();
 
     await page.getByTestId(`worktree-link-${doomed!.id}`).click();
@@ -285,8 +283,8 @@ test.describe('native worktree lifecycle UI', () => {
     // Removed: the row is gone, the selector fell back to main, the branch survived.
     await expect(page.getByTestId(`worktree-link-${doomed!.id}`)).toHaveCount(0);
     expect(page.url()).not.toContain('worktree=');
-    const branch = await control<{ exists: boolean }>('/wt-branch', { room: 'wtops', branch: `feature/doomed-${suffix}` });
-    expect(branch.exists).toBe(true);
+    const branchState = await control<{ exists: boolean }>('/wt-branch', { room: 'wtops', branch });
+    expect(branchState.exists).toBe(true);
 
     // Unregister of the adopted child is a separate, non-destructive act.
     const adopted = (await registered('wtops')).find((worktree) => !worktree.primary);
@@ -302,7 +300,7 @@ test.describe('native worktree lifecycle UI', () => {
     await page.request.post(`${CONTROL}/wt-dirty`);
     try {
       await openRoom(page, `/?room=workspace&token=${TOKEN}`);
-      const child = await selectFirstChild(page, 'workspace');
+      const child = await selectChild(page, 'workspace', 'feature/review');
       await page.getByTestId(`worktree-manage-${child.id}`).click();
       await expect(page.getByTestId('worktree-preview-state')).toContainText(/dirty/, { timeout: 15_000 });
       await expect(page.getByTestId('worktree-preview-state')).toContainText('branch is always preserved');
@@ -380,5 +378,4 @@ async function opsTarget(page: Page, name: string): Promise<string> {
 }
 // harn:end child-files-voice-and-keys-are-isolated
 // harn:end worktree-child-default-roster-is-an-explicit-snapshot
-// harn:end worktree-alias-and-child-metadata-follow-stable-identity
-// harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
+// harn:end worktree-lifecycle-ui-follows-branch-identity

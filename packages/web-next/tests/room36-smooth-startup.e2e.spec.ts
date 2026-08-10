@@ -224,10 +224,10 @@ test('direct and hosted transcript geometry keeps one pre-paint tail owner', asy
   await expect(page.getByTestId('timeline')).toBeVisible();
   const timeline = page.getByTestId('timeline');
   await expect.poll(() => timeline.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(4);
-  await page.evaluate(() => {
+  const sampleTail = async (): Promise<void> => page.evaluate(() => {
     const samples: number[] = [];
     (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps = samples;
-    let remaining = 30;
+    let remaining = 20;
     const sample = (): void => {
       const node = document.querySelector<HTMLElement>('[data-testid="timeline"]');
       if (node) samples.push(node.scrollHeight - node.scrollTop - node.clientHeight);
@@ -236,14 +236,22 @@ test('direct and hosted transcript geometry keeps one pre-paint tail owner', asy
     };
     requestAnimationFrame(() => setTimeout(sample, 0));
   });
+  await sampleTail();
   await control('/live-chat', { room: 'eng', body: 'prepaint geometry live arrival', route: false });
+  await page.waitForTimeout(600);
+  const liveGaps = await page.evaluate(() => (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps);
+
+  await sampleTail();
   const input = page.getByTestId('composer-input');
   await input.fill('one\ntwo\nthree\nfour\nfive\nsix');
   await input.fill('one');
-  await page.waitForTimeout(900);
-  const gaps = await page.evaluate(() => (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps);
-  expect(gaps.length).toBeGreaterThan(10);
-  expect(Math.max(...gaps)).toBeLessThanOrEqual(2);
+  await page.waitForTimeout(600);
+  const composerGaps = await page.evaluate(() => (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps);
+  console.info('[tail-frame-gaps]', JSON.stringify({ liveGaps, composerGaps }));
+  expect(liveGaps.length).toBeGreaterThan(10);
+  expect(composerGaps.length).toBeGreaterThan(10);
+  expect(Math.max(...liveGaps)).toBeLessThanOrEqual(2);
+  expect(Math.max(...composerGaps)).toBeLessThanOrEqual(2);
 
   const directResources = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => ({
     name: entry.name,

@@ -506,7 +506,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     } else if (!pinnedRef.current) {
       setShowJump(true);
     }
-    const observer = new ResizeObserver(() => {
+    const reconcileGeometry = (): void => {
       if (historyRestoreRef.current?.merged === true) {
         cancelHistorySettle();
         restoreHistoryAnchor();
@@ -518,13 +518,34 @@ export function Transcript(props: { room: string; token: () => string; connectio
       lastScrollTopRef.current = node.scrollTop;
       setShowJump(false);
       markVisibleRowsRead();
-    });
+    };
+    const observer = new ResizeObserver(reconcileGeometry);
+    const onComposerGeometry = (event: Event): void => {
+      const delta = (event as CustomEvent<{ delta?: number }>).detail?.delta ?? 0;
+      const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
+      // Growing the focused composer can emit a browser scroll event before
+      // sibling flex geometry settles. Recover the pre-change pinned truth only
+      // when the entire new gap is explained by this exact height delta; an
+      // intentionally unpinned reader remains untouched.
+      if (delta > 0 && distance <= delta + 2) pinnedRef.current = true;
+      reconcileGeometry();
+    };
     observer.observe(column);
     observer.observe(node);
+    window.addEventListener('codor:composer-geometry', onComposerGeometry);
     return () => {
       observer.disconnect();
+      window.removeEventListener('codor:composer-geometry', onComposerGeometry);
     };
-  }, [cancelHistorySettle, lastId, markVisibleRowsRead, restoreHistoryAnchor, settleHistoryAfterQuiet]);
+  }, [
+    cancelHistorySettle,
+    entries,
+    journalVersion,
+    lastId,
+    markVisibleRowsRead,
+    restoreHistoryAnchor,
+    settleHistoryAfterQuiet,
+  ]);
   // harn:end transcript-tail-follow-has-one-prepaint-owner
 
   // A permalink jump means the reader is deliberately looking away from the tail.

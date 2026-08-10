@@ -1,7 +1,7 @@
 id: worktree-lifecycle-ui-is-explicit-and-recoverable
 hash: a-e4240d147342
 title: Worktree lifecycle UI is authorized, explicit, and recoverable
-state: active
+state: retired
 statement: Only a human admin or owner may see mutation controls; Find must
   discover on explicit open and adopt one selected candidate, Create must
   collect alias, branch, missing absolute target and optional roster, and
@@ -18,3 +18,4 @@ depends_on:
   - worktree-removal-is-clean-and-branch-preserving
   - registered-worktree-navigation-is-promotion-gated
 created_by: native-worktrees-phase4-functional-group-ui
+retired_by: worktree-ui-tail-acceptance-fixes

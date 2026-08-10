@@ -1,0 +1,20 @@
+id: worktree-lifecycle-ui-follows-branch-identity
+hash: a-c94d821461a4
+title: Worktree lifecycle UI uses the Git branch as its only name
+state: active
+statement: >
+  Only an authorized human may see lifecycle controls; Find must discover on
+  explicit open and adopt one selected branch without a second name, Create must
+  collect only the new branch, missing absolute target, and optional roster, and
+  Manage must identify the child by exact branch and offer only distinct
+  unregister and preview-gated filesystem removal acts. Errors preserve drafts
+  and selection, removal keeps its fresh safety checks and confirmations, and
+  every surface remains keyboard-, focus-, phone-, direct-, and relay-transport
+  accessible.
+depends_on:
+  - readable-branch-conversations-own-worktree-identity
+  - worktree-discovery-never-registers-candidates
+  - branch-worktree-creation-registers-only-its-result
+  - worktree-removal-is-clean-and-branch-preserving
+  - registered-worktree-navigation-is-promotion-gated
+created_by: worktree-ui-tail-acceptance-fixes

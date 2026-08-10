@@ -331,7 +331,7 @@ describe('native worktree rail accessibility structure', () => {
 });
 // harn:end native-worktree-rail-is-axe-valid
 
-// harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-lifecycle-unit-regression
+// harn:assume worktree-lifecycle-ui-follows-branch-identity ref=worktree-lifecycle-unit-regression
 describe('worktree lifecycle dialogs', () => {
   it('discovers only after Find opens and requires one selected candidate', async () => {
     expect(api.discoverWorktrees).not.toHaveBeenCalled();
@@ -362,20 +362,13 @@ describe('worktree lifecycle dialogs', () => {
     expect((byTestId('worktree-adopt-submit') as HTMLButtonElement).disabled).toBe(true);
 
     await click(byTestId('worktree-candidate-feature/free'));
-    expect((byTestId('worktree-adopt-alias') as HTMLInputElement).value).toBe('feature/free');
-    // Adoption requires a NONEMPTY alias: clearing the prefilled branch name
-    // disables the act, and a blank alias never reaches the server.
-    await type(byTestId('worktree-adopt-alias'), '   ');
-    expect((byTestId('worktree-adopt-submit') as HTMLButtonElement).disabled).toBe(true);
-    await click(byTestId('worktree-adopt-submit'));
-    expect(api.adoptWorktree).not.toHaveBeenCalled();
-    await type(byTestId('worktree-adopt-alias'), 'Free Review');
+    expect(byTestId('worktree-adopt-alias')).toBeNull();
     expect((byTestId('worktree-adopt-submit') as HTMLButtonElement).disabled).toBe(false);
     await click(byTestId('worktree-adopt-submit'));
     await flush();
     expect(api.adoptWorktree).toHaveBeenCalledWith(
       'eng',
-      { path: '/repo-free', alias: 'Free Review' },
+      { path: '/repo-free' },
       expect.anything(),
     );
     expect(adopted).toHaveLength(1);
@@ -389,7 +382,7 @@ describe('worktree lifecycle dialogs', () => {
         { path: '/repo-free', git_admin_id: '/repo/.git/worktrees/free', primary: false, availability: 'available', locked: false, branch: 'feature/free' },
       ],
     });
-    api.adoptWorktree.mockRejectedValue(new Error('worktree alias is already in use: free'));
+    api.adoptWorktree.mockRejectedValue(new Error('worktree cannot be adopted'));
     await mount(
       <WorktreeFindDialog root="eng" token={() => 'token'} onClose={() => undefined} onAdopted={() => undefined} />,
     );
@@ -397,9 +390,9 @@ describe('worktree lifecycle dialogs', () => {
     await click(byTestId('worktree-candidate-feature/free'));
     await click(byTestId('worktree-adopt-submit'));
     await flush();
-    expect(byTestId('worktree-adopt-error')?.textContent).toContain('already in use');
+    expect(byTestId('worktree-adopt-error')?.textContent).toContain('cannot be adopted');
     expect(byTestId('worktree-find-dialog')).not.toBeNull();
-    expect((byTestId('worktree-adopt-alias') as HTMLInputElement).value).toBe('feature/free');
+    expect(byTestId('worktree-candidate-feature/free')?.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('sends the literal roster opt-in only when selected and validates the draft', async () => {
@@ -408,7 +401,6 @@ describe('worktree lifecycle dialogs', () => {
       <WorktreeCreateDialog root="eng" token={() => 'token'} onClose={() => undefined} onCreated={() => undefined} />,
     );
     expect((byTestId('worktree-create-submit') as HTMLButtonElement).disabled).toBe(true);
-    await type(byTestId('worktree-create-alias'), 'Created');
     await type(byTestId('worktree-create-branch'), 'feature/created');
     await type(byTestId('worktree-create-path'), '/repo-created');
     expect((byTestId('worktree-create-submit') as HTMLButtonElement).disabled).toBe(false);
@@ -416,7 +408,7 @@ describe('worktree lifecycle dialogs', () => {
     await flush();
     expect(api.createWorktree).toHaveBeenCalledWith(
       'eng',
-      { alias: 'Created', branch: 'feature/created', path: '/repo-created' },
+      { branch: 'feature/created', path: '/repo-created' },
       expect.anything(),
     );
   });
@@ -469,11 +461,10 @@ describe('worktree lifecycle dialogs', () => {
     expect(removed).toEqual([ALPHA.id]);
   });
 
-  it('renames through the stable id and keeps the dialog on conflict', async () => {
+  it('identifies the child by exact branch and offers no second editable name', async () => {
     api.previewWorktreeRemoval.mockResolvedValue({
       repository, worktree: ALPHA, state: 'clean', branch_preserved: true,
     });
-    api.updateWorktreeAlias.mockRejectedValue(new Error('worktree alias is already in use: bravo'));
     await mount(
       <WorktreeChildDialog
         root="eng"
@@ -485,12 +476,12 @@ describe('worktree lifecycle dialogs', () => {
       />,
     );
     await flush();
-    await type(byTestId('worktree-rename-input'), 'bravo');
-    await click(byTestId('worktree-rename-submit'));
-    await flush();
-    expect(api.updateWorktreeAlias).toHaveBeenCalledWith('eng', ALPHA.id, 'bravo', expect.anything());
-    expect(byTestId('worktree-rename-error')?.textContent).toContain('already in use');
+    expect(byTestId('worktree-child-dialog')?.textContent).toContain(ALPHA.branch);
+    expect(byTestId('worktree-rename-input')).toBeNull();
+    expect(byTestId('worktree-unregister-open')).not.toBeNull();
+    expect(byTestId('worktree-remove-open')).not.toBeNull();
+    expect(api.updateWorktreeAlias).not.toHaveBeenCalled();
     expect(byTestId('worktree-child-dialog')).not.toBeNull();
   });
 });
-// harn:end worktree-lifecycle-ui-is-explicit-and-recoverable
+// harn:end worktree-lifecycle-ui-follows-branch-identity
