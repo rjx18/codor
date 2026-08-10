@@ -1,0 +1,15 @@
+id: foreground-watchdog-probes-are-refresh-neutral
+hash: a-cb27dd4fc095
+title: Periodic foreground watchdog probes do not impersonate foreground resumes
+state: active
+statement: >
+  A periodic visible list_rooms watchdog probe must remain refresh-neutral: its
+  timely reply may reconcile liveness but must not invoke onResume or trigger
+  foreground history/journal refreshes. If a real hosted foreground transition
+  arrives while that probe is in flight, the same reply invokes onResume exactly
+  once; direct connectors retain their prior replacement behavior instead of
+  using the hosted health probe.
+depends_on:
+  - hosted-foregrounding-reuses-healthy-sessions
+  - hosted-app-streams-follow-tunnel-generations
+created_by: hosted-compatibility-foregrounding-review-fix

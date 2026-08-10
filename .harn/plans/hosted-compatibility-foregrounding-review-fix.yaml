@@ -1,0 +1,90 @@
+id: hosted-compatibility-foregrounding-review-fix
+title: Keep watchdog probes refresh-neutral and preserve direct foreground recovery
+notes: >
+  Correct the hosted foregrounding seam without changing its approved recovery
+  contract. Periodic list_rooms watchdog replies are liveness/reconciliation
+  evidence only and must not refresh history or journals through onResume. A
+  real hosted foreground transition may coalesce onto an already outstanding
+  watchdog probe and consume its reply exactly once. Direct connectors retain
+  their previous foreground replacement behavior; only hosted sessions probe a
+  healthy socket before deciding whether to recover. No history, protocol,
+  release, deployment, or other connector behavior is in scope.
+assumptions:
+  create:
+    - id: foreground-watchdog-probes-are-refresh-neutral
+      title: Periodic foreground watchdog probes do not impersonate foreground resumes
+      statement: >
+        A periodic visible list_rooms watchdog probe must remain
+        refresh-neutral: its timely reply may reconcile liveness but must not
+        invoke onResume or trigger foreground history/journal refreshes. If a
+        real hosted foreground transition arrives while that probe is in flight,
+        the same reply invokes onResume exactly once; direct connectors retain
+        their prior replacement behavior instead of using the hosted health
+        probe.
+      reason: >
+        Treating every heartbeat as a foreground transition causes unbounded
+        transcript and mutable-journal refreshes, while treating a concurrent
+        wake as an unrelated second probe can duplicate recovery work.
+      depends_on:
+        - hosted-foregrounding-reuses-healthy-sessions
+        - hosted-app-streams-follow-tunnel-generations
+  reviewed:
+    - id: hosted-foregrounding-reuses-healthy-sessions
+      outcome: unchanged
+      reason: >
+        Hosted foregrounding still probes a healthy tunnel/app socket and
+        recovers one coalesced dead generation; this correction separates the
+        user-driven foreground reason from periodic watchdog traffic.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        Generation ownership, tunnel waits, parks, and replacement behavior are
+        unchanged; only the reason attached to a hosted health reply is fixed.
+    - id: browser-tunnel-readiness-follows-current-generation
+      outcome: unchanged
+      reason: |
+        Tunnel readiness and generation/waiter semantics remain unchanged.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: >
+        Current-generation server evidence still controls connected/send
+        admission; this change only controls foreground refresh ownership.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Probe intent and callbacks remain connector/session-local, preserving
+        per-computer state isolation.
+files:
+  - .harn/plans/hosted-compatibility-foregrounding-review-fix.yaml
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+anchors:
+  foreground-watchdog-probes-are-refresh-neutral:
+    watchdog-probe-state:
+      action: change
+      reason: Track whether a list_rooms probe came from a real hosted foreground
+        transition.
+    watchdog-probe-reply:
+      action: change
+      reason: Consume a coalesced foreground intent exactly once on the matching rooms
+        reply.
+    watchdog-probe-regression:
+      action: change
+      reason: Cover refresh-neutral watchdogs, direct replacement, and foreground
+        coalescing.
+  hosted-foregrounding-reuses-healthy-sessions:
+    foreground-health-probe:
+      action: change
+      reason: Preserve direct resume/replacement while using health probing only for
+        hosted foregrounds.
+    foreground-health-unit-regression:
+      action: change
+      reason: Keep the healthy hosted probe regression and add direct-mode coverage.
+verification: >
+  Check and lock from clean review-fix commit a2394d6. Run focused connector and
+  transcript-history tests, relevant Rooms 21/27/32/33, all web-next units and
+  production build, Harn check/apply/staged validation, and diff checks. Commit
+  once through the Harn hook. Do not push, merge, deploy, release, or monitor
+  another run.
+applied:
+  applied_at: 2026-08-10T04:53:37.256Z

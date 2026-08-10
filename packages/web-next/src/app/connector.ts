@@ -235,7 +235,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
    * protocol — it reuses a request whose `rooms` reply is proof the wire is
    * genuinely alive rather than merely OPEN.
    */
-  const probeNow = (mine: number): void => {
+  // harn:assume foreground-watchdog-probes-are-refresh-neutral ref=watchdog-probe-state
+  const probeNow = (mine: number, fromForeground = false): void => {
     if (mine !== generation || state !== 'connected') return;
     if (document.visibilityState !== 'visible') return;
     if (options.tunnel?.state !== undefined && options.tunnel.state !== 'connected') {
@@ -246,9 +247,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       resume();
       return;
     }
-    if (awaitingProbe) return;
+    if (awaitingProbe) {
+      // A wake that overlaps the watchdog consumes its already outstanding
+      // reply, rather than creating a second list_rooms request.
+      if (fromForeground) foregroundProbePending = true;
+      return;
+    }
     awaitingProbe = true;
-    foregroundProbePending = true;
+    foregroundProbePending = fromForeground;
     send({ type: 'list_rooms' });
     probeDeadline = setTimeout(() => {
       if (mine !== generation || !awaitingProbe) return;
@@ -266,6 +272,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const interval = (window as unknown as { __codorProbeMs?: number }).__codorProbeMs ?? PROBE_INTERVAL_MS;
     probeTimer = setInterval(() => probeNow(mine), interval);
   };
+  // harn:end foreground-watchdog-probes-are-refresh-neutral
 
   const waitForTunnel = (accelerate = false): void => {
     const tunnel = options.tunnel;
@@ -358,6 +365,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
       }
+      // harn:assume foreground-watchdog-probes-are-refresh-neutral ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
         const foregroundProbe = foregroundProbePending;
         awaitingProbe = false;
@@ -371,6 +379,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         reconcile(frame.room_seqs, priorSubscribed);
         if (foregroundProbe) options.onResume?.(currentRoom);
       }
+      // harn:end foreground-watchdog-probes-are-refresh-neutral
     };
   // harn:end relay-app-socket-readiness-requires-server-evidence
     socket.onclose = (event) => {
@@ -450,6 +459,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   // harn:assume hosted-foregrounding-reuses-healthy-sessions ref=foreground-health-probe
   const onForeground = (): void => {
     if (document.visibilityState !== 'visible') return;
+    // Direct/self-hosted connectors retain their established replacement path;
+    // only a tunnel-backed session can safely probe and reuse a healthy socket.
+    if (!options.tunnel) {
+      resume();
+      return;
+    }
     if (
       state !== 'connected'
       || socket?.readyState !== WebSocket.OPEN
@@ -458,7 +473,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       resume();
       return;
     }
-    probeNow(generation);
+    probeNow(generation, true);
   };
   // harn:end hosted-foregrounding-reuses-healthy-sessions
   const onVisibility = onForeground;

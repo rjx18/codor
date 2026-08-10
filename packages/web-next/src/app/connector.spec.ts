@@ -159,7 +159,12 @@ describe('connector resume', () => {
 
   // harn:assume hosted-foregrounding-reuses-healthy-sessions ref=foreground-health-unit-regression
   it('probes an apparently-open healthy socket without replacing it', async () => {
-    const connector = build();
+    const tunnel = new FakeTunnel('connected');
+    const onResume = vi.fn();
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel, onResume,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
     const first = latest();
     first.accept();
     expect(useClientStore.getState().connected).toBe(false);
@@ -175,6 +180,7 @@ describe('connector resume', () => {
     expect(first.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
     first.deliver({ type: 'rooms', rooms: [] });
     expect(useClientStore.getState().connected).toBe(true);
+    expect(onResume).toHaveBeenCalledTimes(1);
     connector.dispose();
   });
 
@@ -194,10 +200,85 @@ describe('connector resume', () => {
     expect(FakeSocket.instances).toHaveLength(2);
     connector.dispose();
   });
-  // harn:end hosted-foregrounding-reuses-healthy-sessions
+// harn:end hosted-foregrounding-reuses-healthy-sessions
 // harn:end relay-app-socket-readiness-requires-server-evidence
 
-  it('coalesces several signals describing one transition into ONE replacement', async () => {
+// harn:assume foreground-watchdog-probes-are-refresh-neutral ref=watchdog-probe-regression
+describe('foreground probe intent', () => {
+  it('keeps periodic watchdog replies refresh-neutral', async () => {
+    vi.useFakeTimers();
+    fireVisible();
+    const tunnel = new FakeTunnel('connected');
+    const onResume = vi.fn();
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel, onResume,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [] });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+    socket.deliver({ type: 'rooms', rooms: [] });
+    expect(onResume).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    socket.deliver({ type: 'rooms', rooms: [] });
+    expect(onResume).not.toHaveBeenCalled();
+    expect(FakeSocket.instances).toHaveLength(1);
+    connector.dispose();
+  });
+
+  it('retains direct-mode foreground replacement instead of probing', async () => {
+    const onResume = vi.fn();
+    const connector = createConnector({
+      room: 'eng', token: 'token', onResume,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const first = latest();
+    first.accept();
+    first.deliver({ type: 'rooms', rooms: [] });
+
+    fireVisible();
+    await flush();
+
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(first.closed).toBe(1);
+    expect(onResume).toHaveBeenCalledTimes(1);
+    connector.dispose();
+  });
+
+  it('coalesces a foreground wake onto an in-flight watchdog exactly once', async () => {
+    vi.useFakeTimers();
+    fireVisible();
+    const tunnel = new FakeTunnel('connected');
+    const onResume = vi.fn();
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel, onResume,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [] });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+    fireVisible();
+    await flush();
+    expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+
+    socket.deliver({ type: 'rooms', rooms: [] });
+    expect(onResume).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    socket.deliver({ type: 'rooms', rooms: [] });
+    expect(onResume).toHaveBeenCalledTimes(1);
+    connector.dispose();
+  });
+});
+// harn:end foreground-watchdog-probes-are-refresh-neutral
+
+it('coalesces several signals describing one transition into ONE replacement', async () => {
     const connector = build();
     latest().accept();
     latest().drop(1006);
