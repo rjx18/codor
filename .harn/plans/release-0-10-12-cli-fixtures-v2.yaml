@@ -1,0 +1,51 @@
+id: release-0-10-12-cli-fixtures-v2
+title: Align setup regressions with alpha runtime identity 0.10.12
+notes: >
+  Advance only the setup dry-run and platform runtime-status expectations that
+  represent the current package identity. Keep updater transition fixtures on
+  their deliberate older/newer versions and change no CLI behavior. The broad
+  channel archive regression shares the same legacy test file and is reviewed
+  unchanged.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: >
+        The dry-run remains non-mutating and redacted; its expected runtime
+        identity advances to the alpha package version.
+    - id: platform-services-propagate-destination-pnpm-node-path
+      outcome: unchanged
+      reason: >
+        Systemd and launchd NODE_PATH behavior is unchanged; their selected
+        runtime-status fixtures advance to the alpha package version.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: >
+        Archive confirmation behavior is untouched; its broad regression anchor
+        shares index.spec.ts with the release fixture updates.
+anchors:
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-regression:
+      action: change
+      reason: Advance only the expected CODOR_RUNTIME_VERSION line.
+  platform-services-propagate-destination-pnpm-node-path:
+    node-path-systemd-regression:
+      action: change
+      reason: Align selected Linux runtime status and environment expectations.
+    node-path-launchd-regression:
+      action: change
+      reason: Align selected macOS runtime status with the release identity.
+  channel-archive-requires-explicit-confirmation:
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Account for the shared monolithic test span; archive assertions stay
+        unchanged.
+files:
+  - packages/cli/src/index.spec.ts
+verification: >
+  Run the complete CLI test suite, recursive build, release and license audits,
+  Harn checks, and diff checks. Rerun alpha branch CI before tagging.
+applied:
+  applied_at: 2026-08-10T13:25:10.346Z
