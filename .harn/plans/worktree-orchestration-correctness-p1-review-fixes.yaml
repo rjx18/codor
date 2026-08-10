@@ -119,6 +119,18 @@ assumptions:
       outcome: unchanged
       reason: Qualified target IDs remain durable; only their derived branch shorthand is
         updated in the enclosing store regression.
+    - id: qualified-destination-refusals-are-atomic
+      outcome: unchanged
+      reason: Mixed-destination refusal and atomicity remain unchanged; only the fixture's
+        obsolete leaf selector is replaced by its full-branch shorthand.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Delivery-attempt recovery and reconciliation remain unchanged; only the
+        qualified integration fixture uses the full-branch shorthand.
+    - id: child-members-own-isolated-runtime
+      outcome: unchanged
+      reason: Child runtime ownership and teardown remain unchanged; only the removal
+        regression's selector follows the full-branch shorthand contract.
 anchors:
   deterministic-branch-conversations-own-worktree-identity:
     deterministic-worktree-conversation-protocol:
@@ -228,6 +240,18 @@ anchors:
     qualified-routing-store-regression:
       action: change
       reason: Update qualified target fixtures to the full-branch shorthand without changing durable IDs.
+  qualified-destination-refusals-are-atomic:
+    cross-origin-turn-scheduler-regression:
+      action: change
+      reason: Replace obsolete leaf selectors in the existing atomic-refusal fixture only.
+  delivery-attempt-wal-reconcile:
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Replace the obsolete leaf selector while preserving WAL recovery behavior.
+  child-members-own-isolated-runtime:
+    worktree-runtime-removal-regression:
+      action: change
+      reason: Replace the obsolete leaf selector while preserving child runtime teardown.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
