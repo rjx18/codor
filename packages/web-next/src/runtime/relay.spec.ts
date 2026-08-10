@@ -120,6 +120,33 @@ describe('TunnelClient resilience', () => {
     expect(client.state).toBe('connected');
     client.dispose();
   });
+
+  it('a relay-forced stale-client close starts one fresh handshake and one replacement app socket', async () => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    const appSockets: WebSocket[] = [];
+    client.subscribe((state) => {
+      if (state === 'connected') appSockets.push(client.socketFactory('wss://relay.test/ws?token=t'));
+    });
+
+    client.connect();
+    completeHandshake(dialed[0]!);
+    await Promise.resolve();
+    expect(appSockets).toHaveLength(1);
+
+    dialed[0]!.onclose?.({ code: 4001, reason: 'host-replaced' });
+    client.recover();
+    client.recover();
+    expect(dialed).toHaveLength(2);
+    completeHandshake(dialed[1]!);
+    await Promise.resolve();
+
+    expect(appSockets).toHaveLength(2);
+    expect(appSockets[0]!.readyState).toBe(3);
+    expect(appSockets[1]!.readyState).toBe(1);
+    expect(client.generation).toBe(2);
+    client.dispose();
+  });
   // harn:end browser-tunnel-readiness-follows-current-generation
 
   it('never reports an app socket open before the tunnel session exists', async () => {

@@ -100,8 +100,13 @@ function handleSession(sid, role, ws, sessions) {
     sessions.set(sid, s);
   }
   if (role === 'host') {
+    // harn:assume relay-host-generations-retire-stale-clients ref=generation-faithful-browser-relay
+    // Each host owns a fresh Noise generation. Retire clients from the prior
+    // generation instead of re-announcing opaque connIds to a new responder.
+    for (const client of s.clients.values()) client.close(4001, 'host-replaced');
+    s.clients.clear();
+    s.host?.close(4001, 'superseded');
     s.host = ws;
-    for (const conn of s.clients.keys()) ws.send(JSON.stringify({ type: 'client-connected', conn }));
     ws.on('message', (data, isBinary) => {
       if (!isBinary && data.toString() === 'codor-ping') {
         ws.send('codor-pong'); // answer the host link's keepalive probe
@@ -128,7 +133,7 @@ function handleSession(sid, role, ws, sessions) {
         ws.send('codor-pong'); // answer the browser client's keepalive probe
         return;
       }
-      if (!isBinary) return;
+      if (!isBinary || s.clients.get(conn) !== ws) return;
       const framed = Buffer.allocUnsafe(4 + data.length);
       framed.writeUInt32BE(conn, 0);
       data.copy(framed, 4);
@@ -139,4 +144,5 @@ function handleSession(sid, role, ws, sessions) {
       s.host?.send(JSON.stringify({ type: 'client-disconnected', conn }));
     });
   }
+  // harn:end relay-host-generations-retire-stale-clients
 }

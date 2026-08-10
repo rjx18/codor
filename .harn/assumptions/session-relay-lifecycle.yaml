@@ -1,7 +1,7 @@
 id: session-relay-lifecycle
 hash: a-4b350b1ca67f
 title: The SessionRelay Durable Object multiplexes host and clients blindly
-state: active
+state: retired
 statement: relay-worker/src/session-relay.ts must implement the SessionRelay
   Durable Object per PLAN §4.1 - a SQLite-backed, hibernatable rendezvous that
   keeps one host (a new host supersedes the old, closed 4001) and up to 16
@@ -21,3 +21,4 @@ statement: relay-worker/src/session-relay.ts must implement the SessionRelay
 depends_on:
   - relay-control-vocabulary-is-canonical
 created_by: relay-p4-session-relay
+retired_by: worktree-orchestration-correctness-p3-relay-stability

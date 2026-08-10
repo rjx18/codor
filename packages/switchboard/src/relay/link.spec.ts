@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { SessionInitiator, generateTunnelKeypair } from '@codor/tunnel';
+import { SessionInitiator, StreamKind, StreamMux, generateTunnelKeypair } from '@codor/tunnel';
 
 import { RelayLink, type RelaySocket } from './link.js';
 import { DEFAULT_RELAY_ALIAS, RelayStore } from './store.js';
@@ -48,6 +48,73 @@ function enabledStore() {
   const store = new RelayStore(dir);
   store.enable('ws://relay.test');
   return store;
+}
+
+function controlledLoopback() {
+  const handlers: {
+    message?: (data: Uint8Array, binary: boolean) => void;
+    open?: () => void;
+    close?: (code?: number, reason?: string) => void;
+    error?: (error: unknown) => void;
+  } = {};
+  let closeCount = 0;
+  const sent: Array<Uint8Array | string> = [];
+  const socket: RelaySocket = {
+    send: (data) => sent.push(data),
+    close: () => { closeCount += 1; },
+    onMessage: (cb) => { handlers.message = cb; },
+    onOpen: (cb) => { handlers.open = cb; },
+    onClose: (cb) => { handlers.close = cb; },
+    onError: (cb) => { handlers.error = cb; },
+  };
+  return {
+    socket,
+    sent,
+    closeCount: () => closeCount,
+    open: () => handlers.open?.(),
+    message: (data: Uint8Array) => handlers.message?.(data, true),
+    close: (code?: number) => handlers.close?.(code, ''),
+    error: (error: unknown) => handlers.error?.(error),
+  };
+}
+
+function connectedMux(options: {
+  fetchLoopback?: (input: string, init?: RequestInit) => Promise<Response>;
+  onError?: (error: unknown) => void;
+} = {}) {
+  const store = enabledStore();
+  const clientStatic = generateTunnelKeypair();
+  store.addDevice({ device_id: 'dev-bridge', client_static_pub: b64(clientStatic.publicKey) });
+  const relay = fakeSocket();
+  const loopback = controlledLoopback();
+  const link = new RelayLink({
+    store,
+    loopbackPort: 1,
+    isDeviceActive: () => true,
+    dialSession: () => relay.socket,
+    dialLoopback: () => loopback.socket,
+    ...(options.fetchLoopback && { fetchLoopback: options.fetchLoopback }),
+    ...(options.onError && { onError: options.onError }),
+  });
+  link.start();
+  relay.open();
+  const connId = 17;
+  const initiator = new SessionInitiator({
+    clientStatic,
+    hostStaticPub: store.hostStatic.publicKey,
+    sessionId: store.sessionIdBytes,
+  });
+  relay.deliver(prefixConn(connId, initiator.start()));
+  const msg2 = relay.sent.shift()!.subarray(4);
+  relay.deliver(prefixConn(connId, initiator.receiveMsg2(msg2)));
+  const channel = initiator.channel();
+  const mux = new StreamMux({
+    role: 'client',
+    flushBytes: 1,
+    onPacket: (packet) => relay.deliver(prefixConn(connId, channel.seal(packet))),
+    onStream: () => {},
+  });
+  return { link, loopback, mux, relay };
 }
 
 describe('RelayLink backoff', () => {
@@ -109,6 +176,58 @@ describe('RelayLink handshake admission', () => {
     expect(relay.sent).toHaveLength(0);
   });
 });
+
+// harn:assume relay-bridge-callbacks-retire-before-mux-streams ref=relay-bridge-lifecycle-regression
+describe('RelayLink loopback bridge lifecycle', () => {
+  it('ignores late WebSocket callbacks after teardown and closes only once', () => {
+    const errors: unknown[] = [];
+    const { link, loopback, mux, relay } = connectedMux({ onError: (error) => errors.push(error) });
+    mux.openStream(StreamKind.APP_WS, { token: new TextEncoder().encode('token') });
+    loopback.open();
+
+    link.stop();
+    expect(loopback.closeCount()).toBe(1);
+    expect(() => loopback.message(new TextEncoder().encode('late'))).not.toThrow();
+    expect(() => loopback.open()).not.toThrow();
+    expect(() => loopback.close(1000)).not.toThrow();
+    expect(() => loopback.close(4401)).not.toThrow();
+    expect(() => loopback.error(new Error('late loopback error'))).not.toThrow();
+    expect(() => relay.deliver(prefixConn(17, new Uint8Array([7])))).not.toThrow();
+    link.stop();
+    expect(loopback.closeCount()).toBe(1);
+    expect(errors).toEqual([]);
+  });
+
+  it('reports a genuine active loopback error and retires duplicate callbacks', () => {
+    const errors: unknown[] = [];
+    const { link, loopback, mux } = connectedMux({ onError: (error) => errors.push(error) });
+    mux.openStream(StreamKind.APP_WS, { token: new TextEncoder().encode('token') });
+    const failure = new Error('active loopback failed');
+    loopback.error(failure);
+    loopback.error(new Error('duplicate'));
+    loopback.close(1011);
+    expect(errors).toEqual([failure]);
+    expect(loopback.closeCount()).toBe(1);
+    link.stop();
+  });
+
+  it('does not write a late HTTP response body into a stream retired by teardown', async () => {
+    const errors: unknown[] = [];
+    let resolveFetch!: (response: Response) => void;
+    const fetchLoopback = () => new Promise<Response>((resolve) => { resolveFetch = resolve; });
+    const { link, mux } = connectedMux({ fetchLoopback, onError: (error) => errors.push(error) });
+    const stream = mux.openStream(StreamKind.HTTP);
+    stream.sendHead({ method: 'GET', target: '/api/rooms', headers: {} });
+    stream.end();
+    link.stop();
+
+    resolveFetch(new Response(new Uint8Array([1, 2, 3]), { status: 200 }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errors).toEqual([]);
+  });
+});
+// harn:end relay-bridge-callbacks-retire-before-mux-streams
 
 describe('RelayLink keepalive (§4.1 half-open detection)', () => {
   // A socket whose graceful close() never fires a close event — exactly the

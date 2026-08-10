@@ -1,0 +1,16 @@
+id: relay-bridge-callbacks-retire-before-mux-streams
+hash: a-99a9161dbe6a
+title: Loopback bridge callbacks retire before their mux streams
+state: active
+statement: >
+  Each switchboard loopback WebSocket or HTTP bridge must atomically become
+  inactive before connection teardown, stream end/reset, fetch abort, or local
+  close can retire its mux stream; callbacks arriving afterward must perform no
+  stream or loopback writes, duplicate cleanup must be a no-op, and errors from
+  a still-active bridge must remain observable, so late asynchronous transport
+  callbacks cannot crash the daemon without weakening MuxStream lifecycle
+  invariants.
+depends_on:
+  - relay-link-lifecycle
+  - tunnel-stream-mux
+created_by: worktree-orchestration-correctness-p3-relay-stability

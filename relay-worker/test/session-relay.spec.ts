@@ -126,14 +126,18 @@ describe('SessionRelay routing', () => {
 });
 
 describe('SessionRelay presence', () => {
-  it('reports host presence to a joining client and both transitions', async () => {
+  // harn:assume relay-host-generations-retire-stale-clients ref=session-relay-generation-regression
+  it('retires a client that predates the host and reports presence to a fresh client', async () => {
     const s = sid('d');
-    const client = await connect(s, 'client');
-    expect(await client.nextJson()).toEqual({ type: 'host-disconnected' }); // no host yet
+    const stale = await connect(s, 'client');
+    expect(await stale.nextJson()).toEqual({ type: 'host-disconnected' }); // no host yet
 
     const host = await connect(s, 'host');
+    expect(await stale.nextClose()).toEqual({ code: 4001, reason: 'host-replaced' });
+
+    const client = await connect(s, 'client');
+    expect(await host.nextJson()).toEqual({ type: 'client-connected', conn: 2 });
     expect(await client.nextJson()).toEqual({ type: 'host-connected' });
-    expect(await host.nextJson()).toEqual({ type: 'client-connected', conn: 1 }); // re-announced
 
     host.close();
     expect(await client.nextJson()).toEqual({ type: 'host-disconnected' });
@@ -156,27 +160,29 @@ describe('SessionRelay presence', () => {
     expect(await first.nextClose()).toEqual({ code: 4001, reason: 'superseded' });
   });
 
-  it('routes to the new host after a supersede, not the closing old one', async () => {
+  it('retires stale clients on supersede and routes only a fresh client to the new host', async () => {
     const s = sid('4');
     const hostA = await connect(s, 'host');
-    const client = await connect(s, 'client');
+    const staleClient = await connect(s, 'client');
     expect((await hostA.nextJson()).conn).toBe(1); // client-connected on A
-    await client.nextJson(); // host-connected
+    await staleClient.nextJson(); // host-connected
 
     const hostB = await connect(s, 'host'); // supersedes A
-    expect((await hostA.nextClose()).code).toBe(4001);
-    expect(await hostB.nextJson()).toEqual({ type: 'client-connected', conn: 1 }); // re-announced to B
-    await client.nextJson(); // host-connected (B)
+    expect(await hostA.nextClose()).toEqual({ code: 4001, reason: 'superseded' });
+    expect(await staleClient.nextClose()).toEqual({ code: 4001, reason: 'host-replaced' });
 
-    client.send(new Uint8Array([7])); // must reach B, not the closing A
+    const client = await connect(s, 'client');
+    expect(await hostB.nextJson()).toEqual({ type: 'client-connected', conn: 2 });
+    expect(await client.nextJson()).toEqual({ type: 'host-connected' });
+    client.send(new Uint8Array([7]));
     const framed = await hostB.nextBinary();
-    expect(readU32(framed)).toBe(1);
+    expect(readU32(framed)).toBe(2);
     expect([...framed.slice(4)]).toEqual([7]);
 
-    // A client disconnect during/after the supersede notifies the new host, not A.
     client.close();
-    expect(await hostB.nextJson()).toEqual({ type: 'client-disconnected', conn: 1 });
+    expect(await hostB.nextJson()).toEqual({ type: 'client-disconnected', conn: 2 });
   });
+  // harn:end relay-host-generations-retire-stale-clients
 });
 
 describe('SessionRelay limits & keepalive', () => {

@@ -417,10 +417,17 @@ describe('relay pairing end-to-end (pairing-host ↔ real claimant ↔ PairingSe
 // §4.1/§4.3/§4.4 session: RelayLink ↔ mock session relay ↔ real switchboard
 // ---------------------------------------------------------------------------
 /** Faithful §4.1 mock session relay: 4-byte connId prefix add/strip + presence. */
-function startMockRelay(): Promise<{ port: number; close: () => Promise<void> }> {
+// harn:assume relay-host-generations-retire-stale-clients ref=relay-generation-integration-regression
+function startMockRelay(): Promise<{
+  port: number;
+  stats: () => { hosts: number; clients: number };
+  close: () => Promise<void>;
+}> {
   const http = createServer();
   const wss = new WebSocketServer({ server: http });
   const sessions = new Map<string, { host?: WebSocket; clients: Map<number, WebSocket>; next: number }>();
+  let hostConnections = 0;
+  let clientConnections = 0;
   wss.on('connection', (ws, req) => {
     const url = new URL(req.url ?? '', 'http://x');
     const match = url.pathname.match(/^\/v1\/session\/([^/]+)\/ws$/);
@@ -432,19 +439,26 @@ function startMockRelay(): Promise<{ port: number; close: () => Promise<void> }>
       sessions.set(sid, session);
     }
     if (url.searchParams.get('role') === 'host') {
+      hostConnections += 1;
+      for (const client of session.clients.values()) client.close(4001, 'host-replaced');
+      session.clients.clear();
+      session.host?.close(4001, 'superseded');
       session.host = ws;
-      for (const conn of session.clients.keys()) ws.send(JSON.stringify({ type: 'client-connected', conn }));
       ws.on('message', (data: Buffer, isBinary: boolean) => {
         if (!isBinary || data.length < 4) return;
         session!.clients.get(data.readUInt32BE(0))?.send(data.subarray(4), { binary: true });
       });
+      ws.on('close', () => {
+        if (session!.host === ws) session!.host = undefined;
+      });
     } else {
+      clientConnections += 1;
       const conn = session.next++;
       session.clients.set(conn, ws);
       session.host?.send(JSON.stringify({ type: 'client-connected', conn }));
       ws.send(JSON.stringify({ type: session.host ? 'host-connected' : 'host-disconnected' }));
       ws.on('message', (data: Buffer, isBinary: boolean) => {
-        if (!isBinary) return;
+        if (!isBinary || session!.clients.get(conn) !== ws) return;
         const framed = Buffer.allocUnsafe(4 + data.length);
         framed.writeUInt32BE(conn, 0);
         data.copy(framed, 4);
@@ -461,6 +475,7 @@ function startMockRelay(): Promise<{ port: number; close: () => Promise<void> }>
       const port = (http.address() as { port: number }).port;
       resolve({
         port,
+        stats: () => ({ hosts: hostConnections, clients: clientConnections }),
         close: () =>
           new Promise<void>((r) => {
             for (const client of wss.clients) client.terminate();
@@ -479,8 +494,9 @@ interface Harness {
   crypto: CryptoVault;
   store: RelayStore;
   link: RelayLink;
-  relay: { port: number; close: () => Promise<void> };
+  relay: { port: number; stats: () => { hosts: number; clients: number }; close: () => Promise<void> };
   browser: { id: ReturnType<CryptoVault['keys']['publicIdentity']>; clientStatic: TunnelKeypair };
+  relayErrors: unknown[];
   stopRevocation: () => void;
 }
 
@@ -504,6 +520,7 @@ async function bootstrap(): Promise<Harness> {
   const relay = await startMockRelay();
   const store = new RelayStore(join(dir, 'host'));
   store.enable(`ws://127.0.0.1:${relay.port}`);
+  const relayErrors: unknown[] = [];
 
   // Seed a paired browser: enrolled in the switchboard AND the relay store.
   const browserVault = new CryptoVault(join(dir, 'browser'));
@@ -517,6 +534,7 @@ async function bootstrap(): Promise<Harness> {
     store,
     loopbackPort: server.port,
     isDeviceActive: (deviceId) => crypto.keys.getPeer(deviceId) !== undefined,
+    onError: (error) => relayErrors.push(error),
   });
   const stopRevocation = crypto.keys.onPeerRevoked((deviceId) => {
     link.dropDevice(deviceId);
@@ -525,7 +543,7 @@ async function bootstrap(): Promise<Harness> {
   link.start();
   await delay(50); // let the host session socket connect to the mock relay
 
-  return { server, daemon, crypto, store, link, relay, browser: { id: browserId, clientStatic }, stopRevocation };
+  return { server, daemon, crypto, store, link, relay, browser: { id: browserId, clientStatic }, relayErrors, stopRevocation };
 }
 
 /** A browser-side session client: connects, KK-handshakes, and drives the client mux. */
@@ -535,6 +553,7 @@ class SessionClient {
   private mux?: StreamMux;
   private channel = false;
   ready: Promise<void>;
+  closed: Promise<{ code: number; reason: string }>;
   refused = false;
 
   constructor(relayPort: number, store: RelayStore, clientStatic: TunnelKeypair) {
@@ -546,7 +565,9 @@ class SessionClient {
       sessionId: store.sessionIdBytes,
     });
     let resolveReady!: () => void;
+    let resolveClosed!: (value: { code: number; reason: string }) => void;
     this.ready = new Promise((r) => (resolveReady = r));
+    this.closed = new Promise((r) => (resolveClosed = r));
     this.ws.on('open', () => this.ws.send(this.initiator.start()));
     this.ws.on('message', (data: Buffer, isBinary: boolean) => {
       if (!isBinary) return;
@@ -569,6 +590,7 @@ class SessionClient {
       const channel = (this as { channelObj?: ReturnType<SessionInitiator['channel']> }).channelObj!;
       this.mux.receivePacket(channel.open(bytes));
     });
+    this.ws.on('close', (code, reason) => resolveClosed({ code, reason: reason.toString() }));
     // If the host refuses (no msg2 within the window), mark refused.
     setTimeout(() => {
       if (!this.channel) this.refused = true;
@@ -691,4 +713,31 @@ describe('relay session end-to-end (RelayLink ↔ mock relay ↔ real switchboar
     expect(after.refused).toBe(true); // no msg2 → handshake never established
     after.close();
   });
+
+  it('replaces the host by retiring stale clients before one fresh Noise handshake', async () => {
+    // harn:assume relay-bridge-callbacks-retire-before-mux-streams ref=relay-bridge-integration-regression
+    const before = new SessionClient(h.relay.port, h.store, h.browser.clientStatic);
+    await before.ready;
+    const liveStream = before.openStream(StreamKind.APP_WS, utf8(TOKEN));
+    liveStream.write(frameMessage(utf8(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }))));
+    await delay(50);
+    const counts = h.relay.stats();
+    expect(h.relayErrors).toEqual([]);
+
+    h.link.restart();
+    expect(await Promise.race([before.closed, delay(1500).then(() => ({ code: 0, reason: 'timeout' }))]))
+      .toEqual({ code: 4001, reason: 'host-replaced' });
+    await delay(100);
+    expect(h.relayErrors).toEqual([]);
+
+    const after = new SessionClient(h.relay.port, h.store, h.browser.clientStatic);
+    await after.ready;
+    expect(h.relay.stats()).toEqual({ hosts: counts.hosts + 1, clients: counts.clients + 1 });
+    const { status } = await httpGet(after, '/api/rooms');
+    expect(status).toBe(200);
+    expect(h.relayErrors.map(String).join('\n')).not.toContain('msg1 must be 40 bytes');
+    after.close();
+    // harn:end relay-bridge-callbacks-retire-before-mux-streams
+  });
 });
+// harn:end relay-host-generations-retire-stale-clients

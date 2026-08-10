@@ -3,11 +3,11 @@ import { expect, test, type Page } from '@playwright/test';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 const SPA_ORIGIN = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_SPA_PORT ?? '28139'}`;
 
-async function control<T = unknown>(path: string): Promise<T> {
+async function control<T = unknown>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`control ${path} failed: ${response.status}`);
   return (await response.json()) as T;
@@ -30,9 +30,21 @@ async function pairLive(page: Page): Promise<string> {
     const runtime = window as unknown as {
       __CODOR_RELAY_URL?: string;
       __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+      __relaySessionDials?: number;
     };
     runtime.__CODOR_RELAY_URL = url;
     runtime.__codorRelayAppOpens = [];
+    runtime.__relaySessionDials = 0;
+    const NativeWebSocket = window.WebSocket;
+    window.WebSocket = class extends NativeWebSocket {
+      constructor(target: string | URL, protocols?: string | string[]) {
+        super(target, protocols);
+        if (String(target).includes('/v1/session/')) {
+          const w = window as unknown as { __relaySessionDials: number };
+          w.__relaySessionDials += 1;
+        }
+      }
+    };
   }, relayUrl);
   await page.goto(`${SPA_ORIGIN}/`);
   await expect(page.getByTestId('landing-page')).toBeVisible();
@@ -50,6 +62,9 @@ const noReload = (page: Page): Promise<boolean> =>
 
 const appOpens = (page: Page): Promise<number> => page.evaluate(() =>
   (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length);
+
+const relayDials = (page: Page): Promise<number> => page.evaluate(() =>
+  (window as unknown as { __relaySessionDials: number }).__relaySessionDials);
 
 /** Shorten the recovery timings AFTER the session is live (grace < extended, never
  *  inverted), so the short grace never pre-empts the initial connect. */
@@ -121,6 +136,49 @@ test.describe('recovery journey', () => {
     expect(await appOpens(page)).toBe(before + 1);
     expect(await noReload(page)).toBe(true);
   });
+
+  // harn:assume relay-host-generations-retire-stale-clients ref=relay-host-replacement-browser-regression
+  test('host replacement performs one fresh handshake and restores root plus worktree rooms', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    await fastRecovery(page, 60_000);
+    const beforeDials = await relayDials(page);
+    const beforeApps = await appOpens(page);
+    const { registered } = await control<{
+      registered: Array<{ id: string; branch: string; conversation_id: string }>;
+    }>('/wt-registered', { room: 'workspace' });
+    const child = registered.find((entry) => entry.branch === 'feature/review');
+    expect(child).toBeDefined();
+
+    await page.getByTestId('room-link-workspace').click();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId(`worktree-connection-${child!.id}`)).toHaveAttribute('aria-label', 'Connected');
+    await control('/relay-replace-host');
+
+    await expect.poll(() => relayDials(page), { timeout: 30_000 }).toBe(beforeDials + 1);
+    await expect.poll(() => appOpens(page), { timeout: 30_000 }).toBe(beforeApps + 1);
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId(`worktree-connection-${child!.id}`)).toHaveAttribute(
+      'aria-label', 'Connected', { timeout: 30_000 },
+    );
+    expect(await noReload(page)).toBe(true);
+
+    await control('/live-chat', { room: 'workspace', body: 'root recovered after host replacement', route: false });
+    await control('/live-chat', {
+      room: child!.conversation_id,
+      body: 'worktree recovered after host replacement',
+      route: false,
+    });
+    await expect(page.getByTestId('timeline')).toContainText('root recovered after host replacement');
+    await expect(page.getByTestId('timeline')).not.toContainText('worktree recovered after host replacement');
+    await page.getByTestId(`worktree-link-${child!.id}`).click();
+    await expect(page.getByTestId('timeline')).toContainText('worktree recovered after host replacement');
+    await expect(page.getByTestId('timeline')).not.toContainText('root recovered after host replacement');
+
+    const diagnostics = await control<{ errors: string[] }>('/relay-errors');
+    expect(diagnostics.errors.join('\n')).not.toContain('msg1 must be 40 bytes');
+  });
+  // harn:end relay-host-generations-retire-stale-clients
   // harn:end hosted-app-streams-follow-tunnel-generations
   // harn:end hosted-foregrounding-reuses-healthy-sessions
 

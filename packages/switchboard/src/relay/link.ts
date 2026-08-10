@@ -217,6 +217,7 @@ export class RelayLink {
     }
     this.socket = socket;
     socket.onOpen(() => {
+      if (this.socket !== socket) return;
       this.opened = true;
       this.failoverNext = false;
       store.setDialWinner(base); // cache whichever member established the session
@@ -244,6 +245,7 @@ export class RelayLink {
       });
     });
     socket.onMessage((data, isBinary) => {
+      if (this.socket !== socket) return;
       // Any inbound frame proves the session is actually usable (not an open-then-
       // blackhole), so it clears the early-death escalation and re-affirms the winner.
       this.sessionHealthy = true;
@@ -251,7 +253,9 @@ export class RelayLink {
       this.keepalive?.noteActivity();
       this.onRelayMessage(data, isBinary);
     });
-    socket.onError((error) => this.deps.onError?.(error));
+    socket.onError((error) => {
+      if (this.socket === socket) this.deps.onError?.(error);
+    });
     socket.onClose(() => this.handleSocketDown(socket));
   }
 
@@ -389,6 +393,7 @@ export class RelayLink {
     else this.bridgeHttp(conn, stream);
   }
 
+  // harn:assume relay-bridge-callbacks-retire-before-mux-streams ref=relay-bridge-lifecycle
   private bridgeAppWs(conn: ConnState, stream: MuxStream): void {
     const token = openToken(stream);
     const url = `ws://127.0.0.1:${this.deps.loopbackPort}/ws?token=${encodeURIComponent(utf8Decode(token ?? new Uint8Array()))}`;
@@ -396,37 +401,76 @@ export class RelayLink {
     const reassembler = new MessageReassembler();
     let open = false;
     let loopbackClosed = false;
+    let active = true;
     const pending: Uint8Array[] = [];
-    const bridge = {
-      close: () => {
-        if (loopbackClosed) return;
+    const retire = (closeLoopback: boolean): boolean => {
+      if (!active) return false;
+      active = false;
+      open = false;
+      pending.length = 0;
+      conn.bridges.delete(bridge);
+      if (closeLoopback && !loopbackClosed) {
         loopbackClosed = true;
-        loopback.close();
-      },
+        try {
+          loopback.close();
+        } catch (error) {
+          this.deps.onError?.(error);
+        }
+      }
+      return true;
+    };
+    const bridge = {
+      close: () => { retire(true); },
     };
     conn.bridges.add(bridge);
 
+    const fail = (error: unknown): void => {
+      if (!active) return;
+      this.deps.onError?.(error);
+      retire(true);
+      stream.reset('loopback-error');
+    };
+
     loopback.onOpen(() => {
+      if (!active) return;
       open = true;
-      for (const message of pending.splice(0)) loopback.send(utf8Decode(message));
+      try {
+        for (const message of pending.splice(0)) loopback.send(utf8Decode(message));
+      } catch (error) {
+        fail(error);
+      }
     });
     // Each loopback WS message is one logical message; length-delimit it so it
     // survives the mux's window/64 KiB DATA fragmentation.
-    loopback.onMessage((data) => stream.write(frameMessage(data)));
+    loopback.onMessage((data) => {
+      if (!active) return;
+      try {
+        stream.write(frameMessage(data));
+      } catch (error) {
+        fail(error);
+      }
+    });
     loopback.onClose((code) => {
       loopbackClosed = true;
-      conn.bridges.delete(bridge);
+      if (!retire(false)) return;
       // Clean close → half-close the browser's stream; abnormal (e.g. 4401 auth
       // failure) → RESET so the browser distinguishes it from a graceful end.
       if (code === undefined || code === 1000 || code === 1005) stream.end();
       else stream.reset(`loopback-close-${code}`);
     });
-    loopback.onError(() => {});
+    loopback.onError((error) => fail(error));
 
     stream.onData = (chunk) => {
+      if (!active) return;
       for (const message of reassembler.push(chunk)) {
-        if (open) loopback.send(utf8Decode(message));
-        else pending.push(message);
+        if (open) {
+          try {
+            loopback.send(utf8Decode(message));
+          } catch (error) {
+            fail(error);
+            return;
+          }
+        } else pending.push(message);
       }
       stream.consume(chunk.length);
     };
@@ -438,41 +482,47 @@ export class RelayLink {
     let head: { method: string; target: string; headers?: Record<string, string> } | undefined;
     const body: Uint8Array[] = [];
     let done = false;
+    let active = true;
     const controller = new AbortController();
+    const retire = (abort: boolean): boolean => {
+      if (!active) return false;
+      active = false;
+      done = true;
+      conn.bridges.delete(bridge);
+      if (abort) controller.abort();
+      return true;
+    };
     const bridge = {
-      close: () => {
-        controller.abort(); // abort an in-flight/never-ending loopback fetch
-        conn.bridges.delete(bridge);
-      },
+      close: () => { retire(true); },
     };
     conn.bridges.add(bridge);
 
     let bodyTotal = 0;
     stream.onHead = (value) => {
+      if (!active) return;
       head = value as typeof head;
     };
     stream.onData = (chunk) => {
+      if (!active) return;
       bodyTotal += chunk.length;
       // Cap the buffered request body (mirror of the response cap): an
       // authenticated browser must not be able to exhaust switchboard heap by
       // streaming an unbounded body before END (or never sending END).
       if (bodyTotal > MAX_HTTP_RESPONSE) {
-        done = true;
+        retire(true);
         stream.reset('request-too-large');
-        bridge.close();
         return;
       }
       body.push(chunk);
       stream.consume(chunk.length);
     };
     stream.onReset = () => {
-      done = true;
       bridge.close();
     };
     stream.onEnd = () => {
-      if (done || !head) return;
+      if (!active || done || !head) return;
       done = true;
-      void this.performHttp(stream, head, body, controller.signal).finally(() => conn.bridges.delete(bridge));
+      void this.performHttp(stream, head, body, controller.signal, () => active).finally(() => retire(false));
     };
   }
 
@@ -481,6 +531,7 @@ export class RelayLink {
     head: { method: string; target: string; headers?: Record<string, string> },
     body: Uint8Array[],
     signal: AbortSignal,
+    isActive: () => boolean,
   ): Promise<void> {
     try {
       const method = head.method.toUpperCase();
@@ -491,21 +542,27 @@ export class RelayLink {
         body: hasBody ? (concat(...body) as unknown as RequestInit['body']) : undefined,
         signal,
       });
+      if (!isActive()) return;
       const headers: Record<string, string> = {};
       response.headers.forEach((v, k) => {
         if (isAllowedHeader(k)) headers[k] = v;
       });
+      if (!isActive()) return;
       stream.sendHead({ status: response.status, headers });
       // Stream the body incrementally, enforcing the 32 MiB cap as we read so a
       // huge response never gets fully buffered before rejection.
       const reader = response.body?.getReader();
       if (!reader) {
-        stream.end();
+        if (isActive()) stream.end();
         return;
       }
       let total = 0;
       for (;;) {
         const { done: finished, value } = await reader.read();
+        if (!isActive()) {
+          await reader.cancel();
+          return;
+        }
         if (finished) break;
         total += value.byteLength;
         if (total > MAX_HTTP_RESPONSE) {
@@ -514,15 +571,17 @@ export class RelayLink {
           return;
         }
         for (let offset = 0; offset < value.length; offset += HTTP_CHUNK) {
+          if (!isActive()) return;
           stream.write(value.subarray(offset, offset + HTTP_CHUNK));
         }
       }
-      stream.end();
+      if (isActive()) stream.end();
     } catch (error) {
-      if ((error as { name?: string }).name === 'AbortError') return; // reset/teardown/over-limit
+      if (!isActive() || (error as { name?: string }).name === 'AbortError') return; // reset/teardown/over-limit
       stream.reset('loopback-error');
       this.deps.onError?.(error);
     }
   }
+  // harn:end relay-bridge-callbacks-retire-before-mux-streams
 }
 // harn:end relay-link-lifecycle

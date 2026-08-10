@@ -1,7 +1,7 @@
 import { RELAY_CLOSE, RELAY_KEEPALIVE_PING, RELAY_KEEPALIVE_PONG, type SessionRole } from './control.js';
 import type { Env } from './index.js';
 
-// harn:assume session-relay-lifecycle ref=session-relay-behavior
+// harn:assume relay-host-generations-retire-stale-clients ref=session-relay-generation-behavior
 // SessionRelay durable rendezvous (PLAN §4.1). One host multiplexes up to 16
 // client connections. It never inspects payloads — it only adds/strips a 4-byte
 // connId routing prefix — so the relay stays blind. Possession of the 256-bit
@@ -14,6 +14,7 @@ const CONN_ID_BYTES = 4;
 interface SessionAttachment {
   role: SessionRole;
   connId?: number;
+  retired?: boolean;
 }
 
 export class SessionRelay {
@@ -37,23 +38,27 @@ export class SessionRelay {
   }
 
   private acceptHost(): Response {
+    // A Noise session belongs to one host generation. Retire every client that
+    // predates this host before admitting it; carrying only the relay connId
+    // forward would make its next ciphertext look like msg1 to the new host.
+    for (const client of this.state.getWebSockets(ROLE_CLIENT)) {
+      const attachment = this.attachmentOf(client);
+      client.serializeAttachment({ ...(attachment ?? { role: ROLE_CLIENT }), retired: true });
+      this.closeSocket(client, RELAY_CLOSE.SUPERSEDED, 'host-replaced');
+    }
     // Newest host wins.
     for (const existing of this.state.getWebSockets(ROLE_HOST)) {
       this.closeSocket(existing, RELAY_CLOSE.SUPERSEDED, 'superseded');
     }
-    const { server, response } = this.admit({ role: ROLE_HOST });
-    // Announce the host to every client, and re-announce every client to the
-    // (possibly reconnected) host so it re-learns their connIds.
-    for (const client of this.state.getWebSockets(ROLE_CLIENT)) {
-      this.sendJson(client, { type: 'host-connected' });
-      const connId = this.attachmentOf(client)?.connId;
-      if (connId !== undefined) this.sendJson(server, { type: 'client-connected', conn: connId });
-    }
+    const { response } = this.admit({ role: ROLE_HOST });
     return response;
   }
 
   private async acceptClient(): Promise<Response> {
-    if (this.state.getWebSockets(ROLE_CLIENT).length >= MAX_CLIENTS) {
+    const activeClients = this.state
+      .getWebSockets(ROLE_CLIENT)
+      .filter((client) => client.readyState === WebSocket.OPEN && !this.attachmentOf(client)?.retired);
+    if (activeClients.length >= MAX_CLIENTS) {
       return this.rejectSocket(RELAY_CLOSE.FULL, 'full');
     }
     const connId = (await this.state.storage.get<number>('next_conn_id')) ?? 1;
@@ -69,7 +74,7 @@ export class SessionRelay {
   webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): void {
     if (typeof message === 'string') return; // keepalive is auto-answered; other text ignored
     const attachment = this.attachmentOf(ws);
-    if (!attachment) return;
+    if (!attachment || attachment.retired) return;
 
     if (attachment.role === ROLE_CLIENT) {
       const host = this.currentHost();
@@ -88,7 +93,10 @@ export class SessionRelay {
     const payload = message.slice(CONN_ID_BYTES);
     const target = this.state
       .getWebSockets(ROLE_CLIENT)
-      .find((client) => this.attachmentOf(client)?.connId === connId);
+      .find((client) => {
+        const attachment = this.attachmentOf(client);
+        return client.readyState === WebSocket.OPEN && !attachment?.retired && attachment?.connId === connId;
+      });
     if (!target) {
       this.sendJson(ws, { type: 'unknown-conn', conn: connId });
       return;
@@ -109,7 +117,7 @@ export class SessionRelay {
           this.sendJson(client, { type: 'host-disconnected' });
         }
       }
-    } else if (attachment?.role === ROLE_CLIENT && attachment.connId !== undefined) {
+    } else if (attachment?.role === ROLE_CLIENT && !attachment.retired && attachment.connId !== undefined) {
       const host = this.currentHost();
       if (host) this.sendJson(host, { type: 'client-disconnected', conn: attachment.connId });
     }
@@ -176,4 +184,4 @@ export class SessionRelay {
     }
   }
 }
-// harn:end session-relay-lifecycle
+// harn:end relay-host-generations-retire-stale-clients

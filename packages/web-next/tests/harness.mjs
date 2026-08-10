@@ -1354,6 +1354,7 @@ daemon.store.postMessage('eng', {
 let mockRelay;
 let relayStore;
 let relayLink;
+const relayErrors = [];
 // P3: a SECOND switchboard ("computer B") sharing the one mock relay (multiplexed
 // by session_id), so the browser can pair two computers and drive the switcher.
 let cryptoB;
@@ -1543,6 +1544,15 @@ createServer((req, res) => {
         relayLink.start();
         payload = { ok: true };
       }
+      // harn:assume relay-host-generations-retire-stale-clients ref=relay-host-replacement-browser-control
+      if (url.pathname === '/relay-replace-host') {
+        relayLink.restart();
+        payload = { ok: true };
+      }
+      if (url.pathname === '/relay-errors') {
+        payload = { errors: relayErrors.map((error) => String(error)) };
+      }
+      // harn:end relay-host-generations-retire-stale-clients
       if (url.pathname === '/relay-pair-b') {
         const host = new RelayPairingHost({ store: relayStoreB, pairing: cryptoB.pairing, identity: cryptoB.keys.publicIdentity() });
         const offer = await host.pair(`http://127.0.0.1:${API_PORT_B}`);
@@ -1814,6 +1824,7 @@ relayLink = new RelayLink({
   store: relayStore,
   loopbackPort: API_PORT,
   isDeviceActive: (deviceId) => crypto.keys.getPeer(deviceId) !== undefined,
+  onError: (error) => relayErrors.push(error),
 });
 crypto.keys.onPeerRevoked((deviceId) => {
   relayLink.dropDevice(deviceId);

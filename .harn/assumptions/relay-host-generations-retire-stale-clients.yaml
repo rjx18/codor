@@ -1,0 +1,16 @@
+id: relay-host-generations-retire-stale-clients
+hash: a-c666d776429f
+title: Each relay host generation owns only freshly admitted clients
+state: active
+statement: >
+  SessionRelay must remain a blind SQLite-backed hibernatable rendezvous with
+  one host, at most sixteen clients, persisted monotonic u32 connIds, verbatim
+  four-byte-prefix routing, keepalive auto-response, close-handshake completion,
+  no alarm and session-id capability access; whenever a host is accepted it must
+  close any prior host and every client admitted before that host, never
+  re-announce their connIds, and accept only newly connected clients for the new
+  host generation, so every browser performs a fresh Noise handshake and stale
+  ciphertext can never be interpreted as the new host's msg1.
+depends_on:
+  - relay-control-vocabulary-is-canonical
+created_by: worktree-orchestration-correctness-p3-relay-stability
