@@ -1,0 +1,12 @@
+id: transcript-history-failures-are-bounded-and-actionable
+hash: a-be21559cc8bc
+title: Initial transcript-history failures leave a retryable actionable state
+state: active
+statement: >
+  When initial combined transcript history fails for any non-compatibility
+  reason, the mounted room must stop showing its loading barrier and expose a
+  retry/update-required error; a successful retry clears that error and restores
+  combined-page rendering without inventing an empty history.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+created_by: hosted-compatibility-foregrounding

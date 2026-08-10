@@ -27,6 +27,8 @@ export const HISTORY_PAGE_SIZE = 20;
 export interface TranscriptHistoryState {
   /** A successful head response, including an honestly empty one, has landed. */
   initialized: boolean;
+  /** The mounted host predates the combined transcript-history endpoint. */
+  legacyFallback: boolean;
   loadingHead: boolean;
   loadingCursor: string | undefined;
   failed: boolean;
@@ -43,6 +45,7 @@ export interface TranscriptHistoryState {
 
 const EMPTY_TRANSCRIPT_HISTORY: TranscriptHistoryState = {
   initialized: false,
+  legacyFallback: false,
   loadingHead: false,
   loadingCursor: undefined,
   failed: false,

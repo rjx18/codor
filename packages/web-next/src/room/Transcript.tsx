@@ -241,6 +241,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       || !observedLiveRootsRef.current.has(unit.root_message_id)),
   }), [history]);
   const liveVisible = useMemo(() => visible.filter((message) => {
+    if (history.legacyFallback) return !coldMessageSuppressed(message, history.coldMessageIds, actionableInteractionIds);
     if (message.kind !== 'run') {
       return !historicalTargets.has(message.id)
         && !coldMessageSuppressed(message, history.coldMessageIds, actionableInteractionIds);
@@ -249,7 +250,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     if (historicalRoots.has(rootId) && !observedLiveRootsRef.current.has(rootId)) return false;
     const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
     return root?.run?.status === 'running' || observedLiveRootsRef.current.has(rootId);
-  }), [actionableInteractionIds, historicalRoots, historicalTargets, history.coldMessageIds, messages, support, visible]);
+  }), [actionableInteractionIds, historicalRoots, historicalTargets, history.coldMessageIds, history.legacyFallback, messages, support, visible]);
   const preservedSettledRoots = useMemo(() => new Set(
     [...observedLiveRootsRef.current].filter((rootId) => {
       const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
@@ -320,7 +321,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
     initialBarrier.current = { room: props.room, ready: false };
   }
   if (hydrated && history.initialized) initialBarrier.current.ready = true;
-  const transcriptReady = hydrated && history.initialized && initialBarrier.current.ready;
+  const transcriptReady = hydrated
+    && (history.initialized || history.legacyFallback)
+    && initialBarrier.current.ready;
+  const historyBlocked = hydrated && !history.initialized && history.failed && !history.loadingHead;
 
   const cancelHistorySettle = useCallback((): void => {
     if (historySettleTimerRef.current !== undefined) clearTimeout(historySettleTimerRef.current);
@@ -714,7 +718,24 @@ export function Transcript(props: { room: string; token: () => string; connectio
           {/* The skeleton holds until hydration COMMITS. `connected` flips at
               socket-open, before a single frame lands, so gating on it flashed an
               empty transcript and then crawled rows in one at a time. */}
-          {!transcriptReady && <TranscriptSkeleton />}
+          {historyBlocked && (
+            <div className="nx-transcript-history-error" data-testid="transcript-history-error">
+              <p className="nx-field-note is-error" role="alert">
+                Could not load this channel&apos;s transcript. Retry, or update the host if combined history is unavailable.
+              </p>
+              <Button
+                variant="quiet"
+                type="button"
+                data-testid="transcript-history-retry"
+                onClick={() => {
+                  void refreshTranscriptHistoryHead(useClientStore, props.room, props.token);
+                }}
+              >
+                Retry
+              </Button>
+            </div>
+          )}
+          {!transcriptReady && !historyBlocked && <TranscriptSkeleton />}
           {transcriptReady && history.units.length === 0 && liveVisible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
           )}

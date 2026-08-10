@@ -85,18 +85,38 @@ export interface MessageHistoryPage {
 }
 
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-api-client
+// harn:assume combined-history-supports-bounded-legacy-host-fallback ref=history-unsupported-status
+/** The installed host predates the combined transcript-history route. */
+export class TranscriptHistoryUnsupportedError extends Error {
+  readonly status: 404 | 405;
+
+  constructor(status: 404 | 405) {
+    super(`combined transcript history is unsupported (${String(status)})`);
+    this.name = 'TranscriptHistoryUnsupportedError';
+    this.status = status;
+  }
+}
+
 export async function fetchTranscriptHistory(
   room: string,
   cursor: string | undefined,
   options: ApiOptions,
 ): Promise<TranscriptHistoryPage> {
   const query = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
-  const body = await fetchJson<unknown>(
-    `/api/rooms/${encodeURIComponent(room)}/transcript-history${query}`,
-    options,
-  );
-  return TranscriptHistoryPageSchema.parse(body);
+  const path = `/api/rooms/${encodeURIComponent(room)}/transcript-history${query}`;
+  const origin = options.origin ?? window.location.origin;
+  const response = await relayFetch(`${origin}${path}`, {
+    headers: { authorization: `Bearer ${options.token}` },
+  });
+  if (!response.ok) {
+    if (response.status === 404 || response.status === 405) {
+      throw new TranscriptHistoryUnsupportedError(response.status);
+    }
+    throw await requestError(response);
+  }
+  return TranscriptHistoryPageSchema.parse(await response.json());
 }
+// harn:end combined-history-supports-bounded-legacy-host-fallback
 // harn:end finalized-browser-history-is-combined-page-owned
 
 export interface LocalDirectoryListing {

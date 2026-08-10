@@ -123,6 +123,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let probeTimer: ReturnType<typeof setInterval> | undefined;
   let probeDeadline: ReturnType<typeof setTimeout> | undefined;
   let awaitingProbe = false;
+  let foregroundProbePending = false;
   let token = options.token;
   // Every socket carries the generation that created it. A frozen tab can hand
   // back events from a socket we already replaced; without this they would
@@ -147,6 +148,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     probeTimer = undefined;
     probeDeadline = undefined;
     awaitingProbe = false;
+    foregroundProbePending = false;
   };
 
   const send = (frame: unknown): void => {
@@ -233,25 +235,36 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
    * protocol — it reuses a request whose `rooms` reply is proof the wire is
    * genuinely alive rather than merely OPEN.
    */
+  const probeNow = (mine: number): void => {
+    if (mine !== generation || state !== 'connected') return;
+    if (document.visibilityState !== 'visible') return;
+    if (options.tunnel?.state !== undefined && options.tunnel.state !== 'connected') {
+      resume();
+      return;
+    }
+    if (socket?.readyState !== WebSocket.OPEN) {
+      resume();
+      return;
+    }
+    if (awaitingProbe) return;
+    awaitingProbe = true;
+    foregroundProbePending = true;
+    send({ type: 'list_rooms' });
+    probeDeadline = setTimeout(() => {
+      if (mine !== generation || !awaitingProbe) return;
+      // Unanswered: the socket lies about being open. Go through the SAME
+      // resume path, so a manual or upgrade park is still respected.
+      awaitingProbe = false;
+      resume();
+    }, PROBE_TIMEOUT_MS);
+  };
+
   const startProbes = (mine: number): void => {
     clearProbes();
     // Test seam: e2e sets a short cadence to exercise seq reconciliation without
     // a wall-clock wait; production uses the fixed foreground interval.
     const interval = (window as unknown as { __codorProbeMs?: number }).__codorProbeMs ?? PROBE_INTERVAL_MS;
-    probeTimer = setInterval(() => {
-      if (mine !== generation || state !== 'connected') return;
-      if (document.visibilityState !== 'visible') return; // only while foregrounded
-      if (awaitingProbe) return; // a probe is already outstanding
-      awaitingProbe = true;
-      send({ type: 'list_rooms' });
-      probeDeadline = setTimeout(() => {
-        if (mine !== generation || !awaitingProbe) return;
-        // Unanswered: the socket lies about being open. Go through the SAME
-        // resume path, so a manual or upgrade park is still respected.
-        awaitingProbe = false;
-        resume();
-      }, PROBE_TIMEOUT_MS);
-    }, interval);
+    probeTimer = setInterval(() => probeNow(mine), interval);
   };
 
   const waitForTunnel = (accelerate = false): void => {
@@ -346,7 +359,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         clientStore.getState().markRoomLive(completed);
       }
       if (frame.type === 'rooms') {
+        const foregroundProbe = foregroundProbePending;
         awaitingProbe = false;
+        foregroundProbePending = false;
         if (probeDeadline !== undefined) clearTimeout(probeDeadline);
         probeDeadline = undefined;
         // Reconcile rooms we already held BEFORE this round subscribes any new
@@ -354,6 +369,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         const priorSubscribed = new Set(subscribed);
         for (const room of frame.rooms) subscribe(room.id);
         reconcile(frame.room_seqs, priorSubscribed);
+        if (foregroundProbe) options.onResume?.(currentRoom);
       }
     };
   // harn:end relay-app-socket-readiness-requires-server-evidence
@@ -431,16 +447,28 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     });
   };
 
-  const onVisibility = (): void => {
-    if (document.visibilityState === 'visible') resume();
+  // harn:assume hosted-foregrounding-reuses-healthy-sessions ref=foreground-health-probe
+  const onForeground = (): void => {
+    if (document.visibilityState !== 'visible') return;
+    if (
+      state !== 'connected'
+      || socket?.readyState !== WebSocket.OPEN
+      || (options.tunnel?.state !== undefined && options.tunnel.state !== 'connected')
+    ) {
+      resume();
+      return;
+    }
+    probeNow(generation);
   };
+  // harn:end hosted-foregrounding-reuses-healthy-sessions
+  const onVisibility = onForeground;
   const onPageShow = (event: PageTransitionEvent): void => {
-    if (event.persisted) resume();
+    if (event.persisted) onForeground();
   };
   // A network event while backgrounded is not a resume: the tab is not being
   // used, and the visibility transition owns that moment when it comes.
   const onOnline = (): void => {
-    if (document.visibilityState === 'visible') resume();
+    onForeground();
   };
 
   window.addEventListener('visibilitychange', onVisibility);

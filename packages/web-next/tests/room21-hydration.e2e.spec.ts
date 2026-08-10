@@ -69,6 +69,40 @@ test.describe('large-room hydration', () => {
     expect(requests.length).toBeLessThan(500);
   });
 
+  // harn:assume combined-history-supports-bounded-legacy-host-fallback ref=history-legacy-fallback-regression
+  test('an old host 404 keeps the hydrated legacy transcript and journal path', async ({ page }) => {
+    const journals = trackJournalRequests(page);
+    await page.route('**/api/rooms/hydration/transcript-history*', (route) => route.fulfill({
+      status: 404,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'not found' }),
+    }));
+
+    await openRoom(page);
+    await expect(page.locator('.nx-run-block', { hasText: 'live hydration prose' })).toBeVisible();
+    await expect(page.getByTestId('transcript-history-error')).toHaveCount(0);
+    expect(journals).toContain(ids.liveRunId);
+  });
+  // harn:end combined-history-supports-bounded-legacy-host-fallback
+
+  // harn:assume transcript-history-failures-are-bounded-and-actionable ref=history-failure-regression
+  test('a non-compatibility history failure shows a bounded retry/update error', async ({ page }) => {
+    await page.route('**/api/rooms/hydration/transcript-history*', (route) => route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'history backend unavailable' }),
+    }));
+
+    await openRoom(page);
+    const error = page.getByTestId('transcript-history-error');
+    await expect(error).toBeVisible();
+    await expect(error).toContainText(/Retry|update the host/);
+    await expect(page.getByTestId('transcript-history-retry')).toBeVisible();
+    await expect(page.locator('.nx-skeleton')).toHaveCount(0);
+    await expect(page.locator('.nx-run-block', { hasText: 'live hydration prose' })).toHaveCount(0);
+  });
+  // harn:end transcript-history-failures-are-bounded-and-actionable
+
   test('the live run keeps its prose across a reload', async ({ page }) => {
     await openRoom(page);
     await expect(page.locator('.nx-run-block', { hasText: 'live hydration prose' })).toBeVisible();

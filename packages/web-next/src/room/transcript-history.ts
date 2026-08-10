@@ -5,7 +5,10 @@ import type {
   TranscriptHistoryUnit,
 } from '@codor/protocol';
 
-import { fetchTranscriptHistory } from '@runtime/api.js';
+import {
+  fetchTranscriptHistory,
+  TranscriptHistoryUnsupportedError,
+} from '@runtime/api.js';
 
 import type { ClientState, ClientStore, TranscriptHistoryState } from '../app/store.js';
 import { roomSlice, sourceClientStore } from '../app/store.js';
@@ -115,6 +118,7 @@ export function mergeTranscriptPages(
   return {
     ...current,
     initialized: true,
+    legacyFallback: false,
     failed: false,
     loadingHead: false,
     loadingCursor: undefined,
@@ -204,6 +208,7 @@ function refreshTranscriptHistoryHeadFrom(
   room: string,
   token: () => string,
 ): Promise<boolean> {
+  if (historyOf(store, room).legacyFallback) return Promise.resolve(true);
   return runRequest(store, room, 'head', async () => {
     update(store, room, (history) => ({ ...history, loadingHead: true, failed: false }));
     const existingKeys = new Set(historyOf(store, room).units.map(transcriptUnitKey));
@@ -227,8 +232,27 @@ function refreshTranscriptHistoryHeadFrom(
         roomSlice(store.getState(), room).messages,
       ));
       return true;
-    } catch {
+    } catch (error) {
+      const current = historyOf(store, room);
+      // harn:assume combined-history-supports-bounded-legacy-host-fallback ref=history-legacy-fallback-materializer
+      if (error instanceof TranscriptHistoryUnsupportedError && !current.initialized) {
+        update(store, room, (history) => ({
+          ...history,
+          initialized: true,
+          legacyFallback: true,
+          loadingHead: false,
+          loadingCursor: undefined,
+          failed: false,
+          coldMessageIds: undefined,
+          beforeCursor: null,
+          hasMore: false,
+        }));
+        return true;
+      }
+      // harn:end combined-history-supports-bounded-legacy-host-fallback
+      // harn:assume transcript-history-failures-are-bounded-and-actionable ref=history-failure-state
       update(store, room, (history) => ({ ...history, loadingHead: false, failed: true }));
+      // harn:end transcript-history-failures-are-bounded-and-actionable
       return false;
     }
   });

@@ -1,8 +1,21 @@
 import type { Message, TranscriptHistoryPage, TranscriptHistoryUnit } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ fetch: vi.fn() }));
-vi.mock('@runtime/api.js', () => ({ fetchTranscriptHistory: api.fetch }));
+const api = vi.hoisted(() => {
+  class Unsupported extends Error {
+    readonly status: 404 | 405;
+
+    constructor(status: 404 | 405) {
+      super(`combined transcript history is unsupported (${String(status)})`);
+      this.status = status;
+    }
+  }
+  return { fetch: vi.fn(), Unsupported };
+});
+vi.mock('@runtime/api.js', () => ({
+  fetchTranscriptHistory: api.fetch,
+  TranscriptHistoryUnsupportedError: api.Unsupported,
+}));
 
 import {
   createClientStore,
@@ -63,6 +76,7 @@ const page = (
 
 const emptyHistory = (): TranscriptHistoryState => ({
   initialized: false,
+  legacyFallback: false,
   loadingHead: false,
   loadingCursor: undefined,
   failed: false,
@@ -146,6 +160,29 @@ describe('combined transcript head recovery', () => {
       beforeCursor: null,
       hasMore: false,
     });
+  });
+
+  it('marks an unsupported host as legacy-ready without importing legacy rows', async () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('same');
+    store.getState().applyFrame({ type: 'message', seq: 1, message: message(1) });
+    api.fetch.mockRejectedValueOnce(new api.Unsupported(404));
+
+    expect(await ensureTranscriptHistory(store, 'same', () => 'token')).toBe(true);
+    expect(roomSlice(store.getState(), 'same').transcriptHistory).toMatchObject({
+      initialized: true,
+      legacyFallback: true,
+      failed: false,
+      units: [],
+      coldMessageIds: undefined,
+      beforeCursor: null,
+      hasMore: false,
+    });
+
+    // Once the route is classified as unsupported, foreground/head refreshes
+    // keep the hydrated legacy transcript and do not retry the absent route.
+    expect(await refreshTranscriptHistoryHead(store, 'same', () => 'token')).toBe(true);
+    expect(api.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('captures cold WebSocket ids once while later live arrivals remain outside the cold snapshot', async () => {

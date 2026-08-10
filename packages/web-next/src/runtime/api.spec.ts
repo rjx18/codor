@@ -11,6 +11,7 @@ import {
   fetchDefaultRoster,
   fetchRoutingCatalog,
   fetchTranscriptHistory,
+  TranscriptHistoryUnsupportedError,
   refreshAdapters,
   replaceDefaultRoster,
   updateAgentPreset,
@@ -608,6 +609,32 @@ describe('combined transcript history client', () => {
       expect.objectContaining({ headers: { authorization: 'Bearer secret' } }),
     );
   });
+
+  // harn:assume combined-history-supports-bounded-legacy-host-fallback ref=history-unsupported-api-regression
+  it('classifies only 404/405 combined-history responses as unsupported', async () => {
+    for (const status of [404, 405] as const) {
+      vi.stubGlobal('fetch', () => Promise.resolve({
+        ok: false,
+        status,
+        json: () => Promise.resolve({ error: 'route unavailable' }),
+      } as Response));
+      await expect(fetchTranscriptHistory('eng', undefined, { token: 'secret' }))
+        .rejects.toBeInstanceOf(TranscriptHistoryUnsupportedError);
+    }
+  });
+  // harn:end combined-history-supports-bounded-legacy-host-fallback
+
+  // harn:assume transcript-history-failures-are-bounded-and-actionable ref=history-failure-api-regression
+  it('keeps an auth/server response as a normal actionable failure', async () => {
+    vi.stubGlobal('fetch', () => Promise.resolve({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve({ error: 'history backend unavailable' }),
+    } as Response));
+    await expect(fetchTranscriptHistory('eng', undefined, { token: 'secret' }))
+      .rejects.toThrow('history backend unavailable');
+  });
+  // harn:end transcript-history-failures-are-bounded-and-actionable
 
   // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-api-transport-regression
   it('keeps worktree routing and combined history distinct on one hosted relay transport', async () => {

@@ -78,18 +78,48 @@ test.describe('recovery journey', () => {
     expect(await noReload(page)).toBe(true);
   });
 
+  // harn:assume hosted-foregrounding-reuses-healthy-sessions ref=foreground-health-browser-regression
   // harn:assume hosted-app-streams-follow-tunnel-generations ref=coordinated-recovery-browser-regression
-  test('foreground recovery replaces the tunnel and opens one app stream without reload', async ({ page }) => {
+  test('healthy foregrounding keeps the tunnel and app stream without reload', async ({ page }) => {
     test.setTimeout(120_000);
     await pairLive(page);
     const before = await appOpens(page);
 
-    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')));
-    await expect.poll(() => appOpens(page), { timeout: 30_000 }).toBe(before + 1);
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      window.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.waitForTimeout(500);
+    expect(await appOpens(page)).toBe(before);
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
     expect(await noReload(page)).toBe(true);
   });
+
+  test('a dead foregrounded connection recovers one app stream without reload', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    const before = await appOpens(page);
+
+    await control('/relay-down');
+    await expect(page.getByTestId('connection')).toHaveClass(/is-error/, { timeout: 30_000 });
+    await control('/relay-up');
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+      window.dispatchEvent(new Event('visibilitychange'));
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+      window.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    await expect.poll(() => appOpens(page), { timeout: 30_000 }).toBe(before + 1);
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await page.waitForTimeout(500);
+    expect(await appOpens(page)).toBe(before + 1);
+    expect(await noReload(page)).toBe(true);
+  });
   // harn:end hosted-app-streams-follow-tunnel-generations
+  // harn:end hosted-foregrounding-reuses-healthy-sessions
 
   test('a sustained outage escalates to the re-pair state (down-clock persists), and re-pair returns to code entry', async ({ page }) => {
     test.setTimeout(120_000);

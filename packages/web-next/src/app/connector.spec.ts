@@ -7,8 +7,8 @@ import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 
 /**
  * A socket that stays OPEN unless something retires it — the shape a frozen tab
- * actually wakes holding. `readyState` alone is not evidence the wire is alive,
- * so a resume must replace it regardless.
+ * actually wakes holding. Foregrounding probes this socket before replacing it;
+ * `readyState` alone is not evidence the wire is alive.
  */
 class FakeSocket {
   static readonly OPEN = 1;
@@ -157,7 +157,8 @@ describe('connector resume', () => {
     connector.dispose();
   });
 
-  it('replaces an apparently-open socket and retires the old generation', async () => {
+  // harn:assume hosted-foregrounding-reuses-healthy-sessions ref=foreground-health-unit-regression
+  it('probes an apparently-open healthy socket without replacing it', async () => {
     const connector = build();
     const first = latest();
     first.accept();
@@ -168,23 +169,38 @@ describe('connector resume', () => {
     fireVisible();
     await flush();
 
-    // A new socket exists and the old one was closed, despite still being OPEN.
-    expect(FakeSocket.instances).toHaveLength(2);
-    expect(first.closed).toBe(1);
-
-    // Late events from the retired socket cannot touch the store.
-    first.drop(1006);
-    latest().accept();
-    expect(useClientStore.getState().connected).toBe(false);
-    latest().deliver({ type: 'rooms', rooms: [] });
+    // A timely list_rooms reply keeps the same tunnel/app stream alive.
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(first.closed).toBe(0);
+    expect(first.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+    first.deliver({ type: 'rooms', rooms: [] });
     expect(useClientStore.getState().connected).toBe(true);
     connector.dispose();
   });
+
+  it('replaces a dead foregrounded socket exactly once', async () => {
+    vi.useFakeTimers();
+    const connector = build();
+    const first = latest();
+    first.accept();
+    first.deliver({ type: 'rooms', rooms: [] });
+    first.drop(1006);
+
+    fireVisible();
+    await flush();
+
+    expect(FakeSocket.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    connector.dispose();
+  });
+  // harn:end hosted-foregrounding-reuses-healthy-sessions
 // harn:end relay-app-socket-readiness-requires-server-evidence
 
   it('coalesces several signals describing one transition into ONE replacement', async () => {
     const connector = build();
     latest().accept();
+    latest().drop(1006);
     const before = FakeSocket.instances.length;
 
     // A real wake fires these together; each must not mint its own socket.
@@ -228,6 +244,7 @@ describe('connector resume', () => {
       },
     } as never);
 
+    latest().drop(1006);
     fireVisible();
     await flush();
     const resumed = latest();
@@ -345,6 +362,7 @@ describe('connector resume', () => {
     await flush();
     expect(FakeSocket.instances).toHaveLength(before);
 
+    latest().drop(1006);
     window.dispatchEvent(Object.assign(new Event('pageshow'), { persisted: true }));
     await flush();
     expect(FakeSocket.instances).toHaveLength(before + 1);
@@ -406,7 +424,7 @@ describe('tunnel-generation-gated connector recovery', () => {
     connector.dispose();
   });
 
-  it('foreground recovery waits for the next tunnel generation and coalesces signals', async () => {
+  it('keeps a healthy tunnel and app stream across foreground signals', async () => {
     const tunnel = new FakeTunnel('connected');
     const onResume = vi.fn();
     const connector = createConnector({
@@ -414,16 +432,16 @@ describe('tunnel-generation-gated connector recovery', () => {
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
     });
     expect(FakeSocket.instances).toHaveLength(1);
+    latest().accept();
+    latest().deliver({ type: 'rooms', rooms: [] });
 
     fireVisible();
     window.dispatchEvent(new Event('online'));
     fireVisible();
     await flush();
-    expect(tunnel.recoveries).toBe(1);
+    expect(tunnel.recoveries).toBe(0);
     expect(FakeSocket.instances).toHaveLength(1);
-    tunnel.ready();
-    await flush();
-    expect(FakeSocket.instances).toHaveLength(2);
+    latest().deliver({ type: 'rooms', rooms: [] });
     expect(onResume).toHaveBeenCalledTimes(1);
     connector.dispose();
   });
@@ -663,6 +681,7 @@ describe('connector hidden-room observation', () => {
 
     // A legal resume replaces the socket and resubscribes the whole desired
     // set alongside the selected public root.
+    first.drop(1006);
     fireVisible();
     await flush();
     const second = latest();
@@ -680,6 +699,7 @@ describe('connector hidden-room observation', () => {
     connector.setDesiredRooms(['wt-child-a', 'wt-child-b']);
     connector.setDesiredRooms(['wt-child-b']);
 
+    first.drop(1006);
     fireVisible();
     await flush();
     const second = latest();
@@ -728,6 +748,7 @@ describe('connector hidden-room observation', () => {
 
     // Replacement: every desired room falls back to connecting even though its
     // hydrated slice is still in the store.
+    first.drop(1006);
     fireVisible();
     await flush();
     const second = latest();
@@ -758,6 +779,7 @@ describe('connector hidden-room observation', () => {
     connector.switchRoom('wt-child-a');
     expect(connector.room()).toBe('wt-child-a');
 
+    first.drop(1006);
     fireVisible();
     await flush();
     const second = latest();

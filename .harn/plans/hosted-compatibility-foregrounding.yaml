@@ -1,0 +1,182 @@
+id: hosted-compatibility-foregrounding
+title: Preserve old-host history compatibility and foreground healthy hosted sessions
+notes: >
+  Add one bounded compatibility seam for browsers mounted against an older host:
+  a combined transcript-history 404 or 405 means that endpoint is unsupported,
+  so the already-hydrated legacy WebSocket transcript remains visible and its
+  existing /runs/:id journal path remains available. Authentication, network,
+  server, and malformed-response failures never silently take that path; they
+  settle into an actionable retry/update-required state instead of an endless
+  skeleton. In hosted mode, a visible-tab transition first probes the existing
+  connected app socket with the already-supported list_rooms request. A healthy
+  response keeps the tunnel and app stream; only a disconnected socket, tunnel,
+  or unanswered probe performs one coalesced recovery. Direct mode, parks,
+  generation ownership, computer isolation, and the existing relay protocol are
+  unchanged. No backend, protocol, release, deployment, or UI redesign work is
+  in scope.
+assumptions:
+  create:
+    - id: combined-history-supports-bounded-legacy-host-fallback
+      title: Unsupported combined history falls back only to hydrated legacy host
+        state
+      statement: >
+        A mounted room must use combined transcript pages on hosts that support
+        the endpoint, but an explicit 404 or 405 from that endpoint may switch
+        only that room to its already-hydrated legacy WebSocket transcript and
+        existing journal reads; authentication, network, server, and malformed
+        response failures must never silently use that fallback, because old
+        hosts need compatibility without hiding authorization or data failures.
+      reason: >
+        The combined-history route was added after already-installed hosts may
+        have shipped, while a broad catch fallback would make modern failures
+        look like valid but incomplete history.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-computer-sessions-keep-state-isolated
+    - id: transcript-history-failures-are-bounded-and-actionable
+      title: Initial transcript-history failures leave a retryable actionable state
+      statement: >
+        When initial combined transcript history fails for any non-compatibility
+        reason, the mounted room must stop showing its loading barrier and
+        expose a retry/update-required error; a successful retry clears that
+        error and restores combined-page rendering without inventing an empty
+        history.
+      reason: >
+        A failed or never-settling history request must not leave an operator
+        staring at a permanent skeleton or silently lose the distinction between
+        an old host and a broken authenticated/server path.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+    - id: hosted-foregrounding-reuses-healthy-sessions
+      title: Hosted foregrounding probes before replacing a healthy session
+      statement: >
+        When a hosted browser tab becomes visible, its connected tunnel and app
+        socket must first be health-checked with the existing list_rooms probe;
+        a timely current response reuses both with no new socket, while a
+        disconnected tunnel/socket or unanswered probe performs exactly one
+        coalesced recovery. Direct mode, manual/auth/upgrade parks, generation
+        ownership, and per-computer isolation remain unchanged.
+      reason: >
+        Replacing a healthy foregrounded connection creates avoidable sockets
+        and can disturb a warm multi-computer session, while a genuinely dead
+        link still needs the existing bounded recovery path.
+      depends_on:
+        - hosted-app-streams-follow-tunnel-generations
+        - browser-tunnel-readiness-follows-current-generation
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Supported current hosts still render finalized history only from
+        combined pages; the new 404/405 path is an explicitly bounded old-host
+        exception and does not permit legacy fallback for other failures.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: >
+        Current-host reconnect refreshes remain retryable combined-head reads;
+        legacy fallback simply avoids repeating an endpoint already proven
+        unsupported and continues the existing mutable-journal refresh.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: >
+        Foreground probing changes when replacement begins, not the rule that
+        only a current non-upgrade server frame restores send admission.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        Tunnel/app recovery still follows the owning generation, coalesces real
+        failures, ignores stale callbacks, and respects every park; a healthy
+        foreground merely proves liveness before invoking that path.
+    - id: browser-tunnel-readiness-follows-current-generation
+      outcome: unchanged
+      reason: >
+        The tunnel keepalive and generation/waiter contract are unchanged; the
+        connector now avoids deliberately replacing a tunnel until app health
+        actually fails.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        History fallback state, probe state, credentials, sockets, and retries
+        remain owned by each injected source store/session.
+files:
+  - .harn/plans/hosted-compatibility-foregrounding.yaml
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/runtime/api.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/tests/room21-hydration.e2e.spec.ts
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+anchors:
+  combined-history-supports-bounded-legacy-host-fallback:
+    history-unsupported-status:
+      action: change
+      reason: Classify only combined-history 404/405 responses as unsupported.
+    history-legacy-fallback-materializer:
+      action: change
+      reason: Mark the room ready for its already-hydrated legacy transcript without
+        importing legacy rows into finalized history.
+    history-legacy-fallback-regression:
+      action: change
+      reason: Prove old-host 404 fallback retains legacy rows and old journal reads in
+        one room.
+  transcript-history-failures-are-bounded-and-actionable:
+    history-failure-state:
+      action: change
+      reason: Preserve a retryable failure state for non-compatibility errors.
+    history-failure-regression:
+      action: change
+      reason: Prove auth/server failures do not fall back and expose a bounded
+        retry/update-required state.
+  hosted-foregrounding-reuses-healthy-sessions:
+    foreground-health-probe:
+      action: change
+      reason: Probe a connected visible session before replacing it and coalesce only
+        genuine failures.
+    foreground-health-unit-regression:
+      action: change
+      reason: Prove healthy hide/show sends list_rooms without a new socket and a dead
+        socket recovers once.
+    foreground-health-browser-regression:
+      action: change
+      reason: Prove healthy hosted foregrounding keeps one app stream and a dead
+        foregrounded connection recovers once.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-api-client:
+      action: change
+      reason: Add the bounded unsupported-status classification at the
+        combined-history client boundary.
+    combined-history-materializer:
+      action: change
+      reason: Keep current-host page materialization intact while recording the
+        explicit legacy compatibility state.
+    combined-history-rendering:
+      action: change
+      reason: Render legacy hydrated rows only for the explicit compatibility state
+        and show errors otherwise.
+    combined-history-browser-regression:
+      action: change
+      reason: Exercise old-host and non-compatibility history outcomes in the browser.
+  missed-terminal-history-refreshes-through-combined-head:
+    combined-history-head-refresh:
+      action: change
+      reason: Do not repeat an endpoint request after the room has entered explicit
+        legacy fallback.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-connector-regression:
+      action: change
+      reason: Update foreground recovery coverage to distinguish healthy probes from
+        real generation failure.
+verification: >
+  Check and lock from clean main 1316dcc. Run focused API, transcript-history,
+  connector, relay, and affected web tests; old-host and failure browser
+  regressions; all web-next units and production build; relevant relay/history
+  E2E journeys; Harn check/apply/staged validation and diff checks. Commit once
+  through the Harn hook. Do not publish, deploy, change the active release tag,
+  or perform remote installation.
+applied:
+  applied_at: 2026-08-10T04:42:03.236Z

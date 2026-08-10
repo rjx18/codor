@@ -1,0 +1,16 @@
+id: hosted-foregrounding-reuses-healthy-sessions
+hash: a-4e3f14b6cb68
+title: Hosted foregrounding probes before replacing a healthy session
+state: active
+statement: >
+  When a hosted browser tab becomes visible, its connected tunnel and app socket
+  must first be health-checked with the existing list_rooms probe; a timely
+  current response reuses both with no new socket, while a disconnected
+  tunnel/socket or unanswered probe performs exactly one coalesced recovery.
+  Direct mode, manual/auth/upgrade parks, generation ownership, and per-computer
+  isolation remain unchanged.
+depends_on:
+  - hosted-app-streams-follow-tunnel-generations
+  - browser-tunnel-readiness-follows-current-generation
+  - hosted-computer-sessions-keep-state-isolated
+created_by: hosted-compatibility-foregrounding
