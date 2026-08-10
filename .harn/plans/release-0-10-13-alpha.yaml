@@ -1,0 +1,81 @@
+id: release-0-10-13-alpha
+title: Publish worktree orchestration and relay recovery as alpha 0.10.13
+notes: >
+  Advance the accepted alpha tree from 0.10.12 to the unique 0.10.13 release
+  identity. Change no runtime behavior, package composition, install behavior,
+  workflow policy, release permissions, or npm latest tag. Push the release
+  commit only to the curated alpha branch; after alpha CI passes, push the
+  signed v0.10.13 tag so the existing release workflow publishes npm dist-tag
+  alpha and a GitHub prerelease. This release contains target-owned worktree
+  conversations, repository-scoped agent orchestration, nested branch-only UI,
+  and fresh-generation hosted relay recovery.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: installed-or-published-release-artifacts-are-version-immutable
+      outcome: unchanged
+      reason: Published 0.10.12 bytes remain immutable, so this alpha uses the unused 0.10.13 identity.
+    - id: release-candidate-requires-publishable-install-tarball
+      outcome: unchanged
+      reason: Existing exact-candidate and packed-install proofs remain mandatory before publication.
+    - id: github-tags-publish-one-immutable-alpha-or-stable-release
+      outcome: unchanged
+      reason: The existing alpha-contained signed-tag workflow remains the only publisher and retains npm OIDC provenance.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: Only the common version advances; bundled runtime composition is unchanged.
+    - id: public-npx-install-is-primary-install
+      outcome: unchanged
+      reason: The operator can install this candidate through the public npm alpha dist-tag after publication.
+    - id: vscode-copilot-bridge-is-manual-local-and-credential-private
+      outcome: unchanged
+      reason: The companion VSIX remains manual and credential-private; only its release identity advances.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.13 release identity.
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: Recursive build, serialized tests, browser tests, audits, and install proofs remain mandatory.
+anchors:
+  installed-or-published-release-artifacts-are-version-immutable:
+    replaceable-preinstall-release-audit:
+      action: change
+      reason: Advance the exact immutable release candidate to 0.10.13.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Advance only the ACP initialize clientInfo version to 0.10.13.
+files:
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/copilot/vscode-extension/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - scripts/release-audit.mjs
+  - website/package.json
+verification: >
+  Verify every tracked non-legacy package manifest is exactly 0.10.13 and the
+  explicit legacy manifests remain exempt. Run recursive build, serialized
+  workspace tests, the complete browser suite, release and license audits,
+  relay deployment-decision tests, artifact build and inspection, focused
+  packed worktree proof, Harn checks, and diff checks. Push only to
+  origin/alpha, require alpha CI green, create and push signed tag v0.10.13,
+  require the release workflow green, then verify npm alpha, GitHub prerelease
+  assets/checksums, public npx alpha metadata, update this XPS, and run a
+  disposable installed-CLI worktree journey. Do not move npm latest or push
+  this release commit to main.
