@@ -7,11 +7,11 @@ notes: >
   stable version, and when necessary acquires that immutable release into an
   isolated temporary prefix by invoking npm directly with no shell. It then
   invokes a hidden private entrypoint from the acquired candidate. The candidate
-  reuses the durable runtime's staged copy and atomic swap, rewrites the existing
-  platform service, replaces the resident generation exactly once, and proves
-  through an owner-authenticated local status route that the new daemon reports
-  the expected version and generation before success. Source checkouts refuse
-  with Git guidance and an already-current durable install is a no-op.
+  reuses the durable runtime's staged copy and atomic swap, rewrites the
+  existing platform service, replaces the resident generation exactly once, and
+  proves through an owner-authenticated local status route that the new daemon
+  reports the expected version and generation before success. Source checkouts
+  refuse with Git guidance and an already-current durable install is a no-op.
 
   Extend the runtime swap with an explicit retained-backup transaction so an
   acquisition, validation, service restart, or readiness/version failure either
@@ -44,13 +44,14 @@ assumptions:
         onboarding, and pairing minting are not permitted.
       reason: >
         The supported updater must not apply mutable, unreviewed, or ambient
-        package bytes, and the old runtime must hand application to the exact new
-        package whose installer semantics are being trusted.
+        package bytes, and the old runtime must hand application to the exact
+        new package whose installer semantics are being trusted.
       depends_on:
         - github-tags-publish-one-immutable-alpha-or-stable-release
         - setup-resolves-complete-invoking-runtime
     - id: runtime-update-is-transactional-through-service-readiness
-      title: Runtime update commits only after the selected service generation is ready
+      title: Runtime update commits only after the selected service generation is
+        ready
       statement: >
         The acquired candidate's private updater must validate its own exact
         version, retain the prior durable runtime backup across the atomic swap,
@@ -94,13 +95,13 @@ assumptions:
         before the bounded readiness proof may succeed; Linux reloads/enables
         then restarts, Windows ends an existing task before recreating/running
         it, and macOS confirms old-target absence then tolerates a bounded
-        loaded-but-booting new target without immediately killing or kickstarting
-        it, while a Retry after this run's verified success performs no second
-        restart and durable state remains untouched.
+        loaded-but-booting new target without immediately killing or
+        kickstarting it, while a Retry after this run's verified success
+        performs no second restart and durable state remains untouched.
       reason: >
         Service-definition replacement is insufficient when an older daemon is
-        already healthy, and timing-lucky launchd teardown can kill the valid new
-        generation before it becomes ready.
+        already healthy, and timing-lucky launchd teardown can kill the valid
+        new generation before it becomes ready.
       depends_on:
         - setup-preserves-private-platform-service
         - setup-verifies-codor-before-creating-pairing-code
@@ -108,44 +109,45 @@ assumptions:
   reviewed:
     - id: github-tags-publish-one-immutable-alpha-or-stable-release
       outcome: unchanged
-      reason: Stable releases continue to publish immutable exact versions under
-        the npm latest dist-tag; update consumes rather than changes that policy.
+      reason: Stable releases continue to publish immutable exact versions under the
+        npm latest dist-tag; update consumes rather than changes that policy.
     - id: setup-resolves-complete-invoking-runtime
       outcome: unchanged
       reason: Runtime layout resolution remains authoritative and now also
         distinguishes the packaged update path from source-checkout refusal.
     - id: setup-installs-durable-per-user-runtime-atomically
       outcome: unchanged
-      reason: Staging, validation, sibling swap, and rollback remain the only
-        runtime installer; update merely retains its backup until service proof.
+      reason: Staging, validation, sibling swap, and rollback remain the only runtime
+        installer; update merely retains its backup until service proof.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
       reason: The same private user services, paths, permissions, token, and
-        environment remain; only resident generation convergence is strengthened.
+        environment remain; only resident generation convergence is
+        strengthened.
     - id: setup-verifies-codor-before-creating-pairing-code
       outcome: unchanged
-      reason: Setup still performs the existing bounded proof before pairing;
-        process replacement must now precede that proof.
+      reason: Setup still performs the existing bounded proof before pairing; process
+        replacement must now precede that proof.
     - id: setup-macos-launchd-confirms-loaded-and-healthy
       outcome: unchanged
-      reason: launchd still must be loaded and healthy; the recovery loop now
-        waits through legitimate unload and boot transitions before retrying.
+      reason: launchd still must be loaded and healthy; the recovery loop now waits
+        through legitimate unload and boot transitions before retrying.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
-      reason: Windows retains the same private protected scheduled task and
-        service script while replacing its resident generation honestly.
+      reason: Windows retains the same private protected scheduled task and service
+        script while replacing its resident generation honestly.
     - id: setup-installs-user-launcher-shim
       outcome: unchanged
-      reason: Successful update repoints the same idempotent launcher at the
-        stable durable CLI path; no second launcher mechanism is introduced.
+      reason: Successful update repoints the same idempotent launcher at the stable
+        durable CLI path; no second launcher mechanism is introduced.
     - id: platform-services-propagate-destination-pnpm-node-path
       outcome: unchanged
       reason: NODE_PATH and PATH remain destination-rooted on every platform;
         version/generation evidence is additive service-private environment.
     - id: setup-readiness-wait-is-wall-clock-bounded
       outcome: unchanged
-      reason: Setup and update retain bounded readiness windows and actionable
-        failure rather than introducing an unbounded process wait.
+      reason: Setup and update retain bounded readiness windows and actionable failure
+        rather than introducing an unbounded process wait.
     - id: setup-unattended-mutation-requires-explicit-intent
       outcome: unchanged
       reason: Install/setup unattended consent remains unchanged; `codor update`
@@ -157,9 +159,9 @@ assumptions:
         redaction remain unchanged.
     - id: channel-archive-requires-explicit-confirmation
       outcome: unchanged
-      reason: Platform expectation edits cross the enclosing index regression,
-        while archive confirmation, --yes, TTY and JSON handling, stdout purity,
-        and refusal-without-mutation semantics remain unchanged.
+      reason: Platform expectation edits cross the enclosing index regression, while
+        archive confirmation, --yes, TTY and JSON handling, stdout purity, and
+        refusal-without-mutation semantics remain unchanged.
     - id: setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable
       outcome: unchanged
       reason: The setup override seam gains update-readiness injections only;
@@ -171,8 +173,8 @@ assumptions:
         continues to serve the same selected web-next static root.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
-      reason: The Windows task remains the same private least-privilege service;
-        only its resident process replacement order and private identity values
+      reason: The Windows task remains the same private least-privilege service; only
+        its resident process replacement order and private identity values
         change.
     - id: setup-dry-run-reports-without-mutation-or-secret
       outcome: unchanged
@@ -197,67 +199,85 @@ anchors:
   official-codor-update-acquires-one-exact-stable-candidate:
     stable-update-command:
       action: change
-      reason: Add the public packaged-install update command and hidden candidate entrypoint.
+      reason: Add the public packaged-install update command and hidden candidate
+        entrypoint.
     stable-update-acquisition:
       action: change
-      reason: Resolve, validate, acquire, invoke, and clean up one exact official candidate without a shell.
+      reason: Resolve, validate, acquire, invoke, and clean up one exact official
+        candidate without a shell.
     stable-update-regression:
       action: change
-      reason: Cover no-op, source refusal, exact argv, registry/acquisition failure, and candidate invocation.
+      reason: Cover no-op, source refusal, exact argv, registry/acquisition failure,
+        and candidate invocation.
   runtime-update-is-transactional-through-service-readiness:
     private-update-application:
       action: change
-      reason: Apply from the candidate, converge/verify, commit, or restore the prior runtime and service.
+      reason: Apply from the candidate, converge/verify, commit, or restore the prior
+        runtime and service.
     update-rollback-regression:
       action: change
-      reason: Exercise previous-to-candidate success and staging, restart, identity, and rollback failures.
+      reason: Exercise previous-to-candidate success and staging, restart, identity,
+        and rollback failures.
     durable-runtime-transaction:
       action: change
-      reason: Retain, finalize, or restore the existing atomic install backup explicitly.
+      reason: Retain, finalize, or restore the existing atomic install backup
+        explicitly.
     durable-runtime-transaction-regression:
       action: change
       reason: Prove transactional commit and rollback leave one valid stable runtime.
   service-runtime-status-is-owner-authenticated:
     runtime-status-rest:
       action: change
-      reason: Return configured version/generation only to the operator owner token with no-store.
+      reason: Return configured version/generation only to the operator owner token
+        with no-store.
     runtime-status-regression:
       action: change
-      reason: Prove exact projection and refusal for missing, browser, human, and agent credentials.
+      reason: Prove exact projection and refusal for missing, browser, human, and
+        agent credentials.
   setup-restarts-resident-runtime-before-readiness:
     setup-runtime-convergence:
       action: change
-      reason: Replace the resident platform generation once before readiness and keep successful retry idempotent.
+      reason: Replace the resident platform generation once before readiness and keep
+        successful retry idempotent.
     launchd-stateful-convergence:
       action: change
-      reason: Wait for old-target absence and give a newly loaded target a bounded health window.
+      reason: Wait for old-target absence and give a newly loaded target a bounded
+        health window.
     setup-runtime-convergence-regression:
       action: change
-      reason: Cover Linux, macOS, and Windows replacement order, readiness, retry, and preserved paths.
+      reason: Cover Linux, macOS, and Windows replacement order, readiness, retry, and
+        preserved paths.
   setup-installs-durable-per-user-runtime-atomically:
     durable-runtime-install:
       action: change
-      reason: Extend the existing atomic swap with an opt-in retained transaction backup.
+      reason: Extend the existing atomic swap with an opt-in retained transaction
+        backup.
     durable-runtime-install-regression:
       action: change
-      reason: Preserve all existing installer semantics while covering retained backup behavior.
+      reason: Preserve all existing installer semantics while covering retained backup
+        behavior.
     setup-install-runtime-wiring:
       action: change
-      reason: Carry the selected durable runtime into the shared service-convergence seam.
+      reason: Carry the selected durable runtime into the shared service-convergence
+        seam.
   setup-preserves-private-platform-service:
     setup-platform-service-runtime:
       action: change
-      reason: Rewrite and replace the private platform service against the selected stable runtime.
+      reason: Rewrite and replace the private platform service against the selected
+        stable runtime.
     setup-platform-service-regression:
       action: change
-      reason: Update Linux and shared fixture expectations for one resident replacement.
+      reason: Update Linux and shared fixture expectations for one resident
+        replacement.
   setup-verifies-codor-before-creating-pairing-code:
     setup-readiness-and-pairing:
       action: change
-      reason: Ensure readiness follows resident replacement and cannot accept the stale prior process.
+      reason: Ensure readiness follows resident replacement and cannot accept the
+        stale prior process.
     setup-readiness-and-pairing-regression:
       action: change
-      reason: Prove setup retry does not replace a generation that already passed readiness.
+      reason: Prove setup retry does not replace a generation that already passed
+        readiness.
   setup-macos-launchd-confirms-loaded-and-healthy:
     launchd-bootstrap-recovery:
       action: change
@@ -271,12 +291,13 @@ anchors:
       reason: Prove Windows replacement order and preserved protected service state.
     windows-service-rendering:
       action: change
-      reason: Add private runtime identity and explicit prior-task termination
-        without changing the protected task's authority or paths.
+      reason: Add private runtime identity and explicit prior-task termination without
+        changing the protected task's authority or paths.
   platform-services-propagate-destination-pnpm-node-path:
     node-path-systemd-emission:
       action: change
-      reason: Keep NODE_PATH while adding private runtime identity to the systemd environment.
+      reason: Keep NODE_PATH while adding private runtime identity to the systemd
+        environment.
     node-path-launchd-emission:
       action: change
       reason: Keep destination NODE_PATH while adding launchd runtime identity.
@@ -295,7 +316,8 @@ anchors:
   setup-installs-user-launcher-shim:
     launcher-install-runtime:
       action: change
-      reason: Reassert the same durable launcher after candidate application without changing its format.
+      reason: Reassert the same durable launcher after candidate application without
+        changing its format.
   setup-readiness-wait-is-wall-clock-bounded:
     readiness-probe-budget:
       action: keep
@@ -309,8 +331,8 @@ anchors:
   management-failures-have-stable-redacted-exits:
     management-error-regression:
       action: change
-      reason: Extend only the asserted command inventory; preserve every
-        existing exit classification, redaction, stderr, and stdout assertion.
+      reason: Extend only the asserted command inventory; preserve every existing exit
+        classification, redaction, stderr, and stdout assertion.
   channel-archive-requires-explicit-confirmation:
     channel-archive-confirmation-regression:
       action: change
@@ -319,13 +341,13 @@ anchors:
   setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable:
     tailscale-exec-override-seam:
       action: change
-      reason: Add update generation/status test seams without changing
-        Tailscale execution, timeout, consent, or diagnostics.
+      reason: Add update generation/status test seams without changing Tailscale
+        execution, timeout, consent, or diagnostics.
   operator-launches-serve-web-next:
     launchd-current-web-client:
       action: change
-      reason: Add private runtime identity environment while preserving the
-        selected web-next root and launch command.
+      reason: Add private runtime identity environment while preserving the selected
+        web-next root and launch command.
   setup-unattended-mutation-requires-explicit-intent:
     setup-unattended-runtime:
       action: change
@@ -334,17 +356,19 @@ anchors:
   setup-dry-run-reports-without-mutation-or-secret:
     setup-dry-run-runtime:
       action: change
-      reason: Preview the corrected platform restart order and placeholder
-        identity without performing mutation or rendering secrets.
+      reason: Preview the corrected platform restart order and placeholder identity
+        without performing mutation or rendering secrets.
 verification: >
   Clean-lock this R2-only contract after the planning checkpoint. Run focused
-  CLI update, runtime installer, Linux/setup, launchd, Windows, and authenticated
-  runtime-status tests; previous-version-to-candidate fixtures proving exact
-  single acquisition, one successful replacement generation, candidate-only
-  command availability, state-path preservation, already-current no-op, source
-  refusal, corrupt staging, registry/acquisition failure, failed restart,
-  mismatched generation/version, and successful rollback/reconvergence. Run the
-  CLI and switchboard builds, then the complete serialized workspace tests and
-  workspace build required by the assignment. Run Harn plan/diff/staged/apply
-  checks and git diff checks. Do not invoke update on a real host, touch R1/R3,
-  push, merge, deploy, publish, or release.
+  CLI update, runtime installer, Linux/setup, launchd, Windows, and
+  authenticated runtime-status tests; previous-version-to-candidate fixtures
+  proving exact single acquisition, one successful replacement generation,
+  candidate-only command availability, state-path preservation, already-current
+  no-op, source refusal, corrupt staging, registry/acquisition failure, failed
+  restart, mismatched generation/version, and successful rollback/reconvergence.
+  Run the CLI and switchboard builds, then the complete serialized workspace
+  tests and workspace build required by the assignment. Run Harn
+  plan/diff/staged/apply checks and git diff checks. Do not invoke update on a
+  real host, touch R1/R3, push, merge, deploy, publish, or release.
+applied:
+  applied_at: 2026-08-10T08:59:53.337Z

@@ -21,6 +21,9 @@ export interface DurableInstallResult {
   location: string;
   action: InstallAction;
   version: string;
+  /** Present only when the caller keeps the pre-swap runtime until a later
+   * service-readiness decision. */
+  transaction?: { backup: string; previousVersion?: string };
 }
 
 /** Injectable filesystem surface so the copy logic is unit-testable. */
@@ -121,6 +124,7 @@ export function installDurableRuntime(options: {
   version: string;
   intent?: InstallIntent;
   io?: InstallIo;
+  retainBackup?: boolean;
 }): DurableInstallResult {
   const io = options.io ?? defaultInstallIo;
   const intent = options.intent ?? 'ensure';
@@ -161,7 +165,36 @@ export function installDurableRuntime(options: {
     if (io.exists(backup)) io.move(backup, location); // roll back to the previous install
     throw error;
   }
-  if (io.exists(backup)) io.remove(backup);
-  return { runtime: installed, location, action: existing === undefined ? 'installed' : 'updated', version: options.version };
+  if (!options.retainBackup && io.exists(backup)) io.remove(backup);
+  return {
+    runtime: installed,
+    location,
+    action: existing === undefined ? 'installed' : 'updated',
+    version: options.version,
+    ...(options.retainBackup
+      ? { transaction: { backup, ...(existing === undefined ? {} : { previousVersion: existing }) } }
+      : {}),
+  };
 }
+
+// harn:assume runtime-update-is-transactional-through-service-readiness ref=durable-runtime-transaction
+/** Commit a retained runtime swap after the selected service generation has
+ * proved healthy. Safe to call repeatedly. */
+export function finalizeDurableRuntimeInstall(
+  result: DurableInstallResult,
+  io: InstallIo = defaultInstallIo,
+): void {
+  if (result.transaction && io.exists(result.transaction.backup)) io.remove(result.transaction.backup);
+}
+
+/** Restore the exact pre-swap runtime after service convergence fails. */
+export function rollbackDurableRuntimeInstall(
+  result: DurableInstallResult,
+  io: InstallIo = defaultInstallIo,
+): void {
+  if (!result.transaction) return;
+  if (io.exists(result.location)) io.remove(result.location);
+  if (io.exists(result.transaction.backup)) io.move(result.transaction.backup, result.location);
+}
+// harn:end runtime-update-is-transactional-through-service-readiness
 // harn:end setup-installs-durable-per-user-runtime-atomically

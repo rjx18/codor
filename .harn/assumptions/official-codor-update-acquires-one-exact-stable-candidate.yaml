@@ -1,0 +1,17 @@
+id: official-codor-update-acquires-one-exact-stable-candidate
+hash: a-135a7ee5d107
+title: Codor update acquires and invokes one exact official stable candidate
+state: active
+statement: >
+  From a packaged durable installation, `codor update` must resolve the official
+  @richhardry/codor `latest` dist-tag to one validated exact non-prerelease
+  version, return without acquisition when that version is already installed,
+  otherwise invoke npm without a shell to install that exact package once in an
+  isolated temporary prefix and execute only the acquired package's hidden
+  updater with the expected version and data root; source checkouts must refuse
+  with Git-update guidance, and arbitrary package sources, prerelease selection,
+  background updates, onboarding, and pairing minting are not permitted.
+depends_on:
+  - github-tags-publish-one-immutable-alpha-or-stable-release
+  - setup-resolves-complete-invoking-runtime
+created_by: hosted-relay-smooth-startup-r2-update

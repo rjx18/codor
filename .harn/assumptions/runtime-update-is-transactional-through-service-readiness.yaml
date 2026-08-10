@@ -1,0 +1,20 @@
+id: runtime-update-is-transactional-through-service-readiness
+hash: a-7737c95b1ff8
+title: Runtime update commits only after the selected service generation is ready
+state: active
+statement: >
+  The acquired candidate's private updater must validate its own exact version,
+  retain the prior durable runtime backup across the atomic swap, rewrite and
+  restart the supported per-user service against the stable durable path, and
+  commit the backup deletion only after an authenticated local readiness
+  response reports both the candidate version and the new generation; any
+  staging, restart, readiness, or identity failure must restore the prior
+  runtime and make a bounded attempt to reconverge that prior service before
+  returning a direct recovery diagnostic, while all durable user data and
+  configuration remain untouched.
+depends_on:
+  - official-codor-update-acquires-one-exact-stable-candidate
+  - setup-installs-durable-per-user-runtime-atomically
+  - setup-preserves-private-platform-service
+  - service-runtime-status-is-owner-authenticated
+created_by: hosted-relay-smooth-startup-r2-update

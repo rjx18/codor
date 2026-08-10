@@ -52,6 +52,8 @@ describe('codor setup on Windows', () => {
       expect(rendered).toContain('install generated ServiceScript');
       expect(rendered).toContain('install generated ScheduledTaskXml');
       expect(rendered).toContain('Get-Content -Raw -Path');
+      expect(rendered).toContain('CODOR_RUNTIME_VERSION');
+      expect(rendered).toContain('CODOR_SERVICE_GENERATION');
       expect(rendered).toContain('exit $LASTEXITCODE');
       expect(rendered).toContain('<Hidden>true</Hidden>');
       expect(rendered).toContain('schtasks /Create');
@@ -90,6 +92,8 @@ describe('codor setup on Windows', () => {
       expect(commands).toContain(`icacls ${tokenPath} /inheritance:r /grant:r test-user:F`);
       expect(commands).toContain(`schtasks /Create /TN Codor Switchboard /XML ${taskPath} /F`);
       expect(commands).toContain('schtasks /Run /TN Codor Switchboard');
+      expect(commands.indexOf('schtasks /End /TN Codor Switchboard'))
+        .toBeLessThan(commands.indexOf(`schtasks /Create /TN Codor Switchboard /XML ${taskPath} /F`));
       expect(output.join('\n')).not.toContain('a'.repeat(64));
       expect(readFileSync(scriptPath, 'utf8')).not.toContain('NODE_PATH');
     } finally {

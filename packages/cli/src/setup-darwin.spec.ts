@@ -59,9 +59,9 @@ describe('bootstrapLaunchAgent validation', () => {
     expect(commands[0]).toBe(`plutil -lint ${PLIST}`);
     expect(commands.slice(1)).toEqual([
       `launchctl bootout ${TARGET}`,
+      `launchctl print ${TARGET}`,
       `launchctl bootstrap ${DOMAIN} ${PLIST}`,
       `launchctl enable ${TARGET}`,
-      `launchctl kickstart -k ${TARGET}`,
     ]);
   });
 
@@ -104,15 +104,41 @@ describe('bootstrapLaunchAgent recovery', () => {
     expect(commands.filter((c) => c.includes('bootstrap')).length).toBe(2);
   });
 
-  it('accepts an already-loaded, healthy daemon on a bootstrap error without restarting', async () => {
+  // harn:assume setup-restarts-resident-runtime-before-readiness ref=setup-runtime-convergence-regression
+  it('keeps a newly loaded healthy daemon after a transient bootstrap error without restarting it', async () => {
+    let prints = 0;
     const { commands, exec } = execWith({
       bootstrap: () => { throw Object.assign(new Error('Bootstrap failed: 37: already loaded'), { status: 37 }); },
-      print: () => 'app.codor.switchboard = { state = running }', // loaded
+      print: () => {
+        prints += 1;
+        if (prints === 1) throw new Error('old target absent');
+        return 'app.codor.switchboard = { state = running }';
+      },
     });
     await bootstrapLaunchAgent(deps(exec, { probe: async () => true }));
-    expect(commands).not.toContain(`launchctl enable ${TARGET}`);
+    expect(commands).toContain(`launchctl enable ${TARGET}`);
     expect(commands).not.toContain(`launchctl kickstart -k ${TARGET}`);
+    expect(commands.filter((command) => command.includes('bootstrap'))).toHaveLength(1);
   });
+
+  it('waits through a loaded-but-booting target and never tears it down or kickstarts it', async () => {
+    let prints = 0;
+    let probes = 0;
+    const { commands, exec } = execWith({
+      bootstrap: () => { throw Object.assign(new Error('Bootstrap failed: 5: Input/output error'), { status: 5 }); },
+      print: () => {
+        prints += 1;
+        if (prints === 1) throw new Error('old target absent');
+        return 'app.codor.switchboard = { state = waiting }';
+      },
+    });
+    await bootstrapLaunchAgent(deps(exec, { probe: async () => { probes += 1; return probes === 3; } }));
+    expect(probes).toBe(3);
+    expect(commands.filter((command) => command.includes('bootout'))).toHaveLength(1);
+    expect(commands.filter((command) => command.includes('bootstrap'))).toHaveLength(1);
+    expect(commands.some((command) => command.includes('kickstart'))).toBe(false);
+  });
+  // harn:end setup-restarts-resident-runtime-before-readiness
 
   it('does NOT accept a briefly-healthy orphan whose print is absent', async () => {
     // Probe answers true (dying process) but print says not loaded: not success.

@@ -3390,6 +3390,54 @@ describe('Phase 3 REST boundaries', () => {
     expect(await on.json()).toEqual({ trusted_enrollment: true });
   });
   // harn:end unpaired-browser-always-has-enrollment-path
+
+  // harn:assume service-runtime-status-is-owner-authenticated ref=runtime-status-regression
+  it('reports the live runtime identity only to the owner token', async () => {
+    await server.close();
+    server = await startServer({
+      daemon,
+      token: TOKEN,
+      principals: [
+        { token: ADMIN_TOKEN, member_id: admin.id },
+        { token: MEMBER_TOKEN, member_id: member.id },
+      ],
+      crypto,
+      pushSubscriptions,
+      runtimeVersion: '0.10.12',
+      serviceGeneration: 'generation-candidate',
+    });
+    base = `http://127.0.0.1:${server.port}`;
+
+    const owner = await fetch(`${base}/api/runtime/status`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(owner.status).toBe(200);
+    expect(owner.headers.get('cache-control')).toBe('no-store');
+    expect(await owner.json()).toEqual({ version: '0.10.12', generation: 'generation-candidate' });
+
+    for (const bearer of [undefined, ADMIN_TOKEN, MEMBER_TOKEN]) {
+      const response = await fetch(`${base}/api/runtime/status`, {
+        ...(bearer === undefined ? {} : { headers: { authorization: `Bearer ${bearer}` } }),
+      });
+      expect(response.status).toBe(bearer === undefined ? 401 : 403);
+    }
+
+    const device = new CryptoVault(join(dir, 'runtime-status-device'));
+    crypto.keys.enrollPeer({ ...device.keys.publicIdentity(), kind: 'device', label: 'Browser' });
+    const browser = crypto.browserSessions.issue(device.keys.identity.device_id);
+    const browserResponse = await fetch(`${base}/api/runtime/status`, {
+      headers: { authorization: `Bearer ${browser.access_token}` },
+    });
+    expect(browserResponse.status).toBe(403);
+    device.close();
+
+    const agent = spawnAgentWithToken('runtime-reader');
+    const agentResponse = await fetch(`${base}/api/runtime/status`, {
+      headers: { authorization: `Bearer ${agent.token}` },
+    });
+    expect(agentResponse.status).toBe(403);
+  });
+  // harn:end service-runtime-status-is-owner-authenticated
 });
 
 // harn:assume durable-room-summaries-stream-and-fallback ref=durable-room-summary-regression

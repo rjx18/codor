@@ -152,7 +152,7 @@ describe('@codor/cli', () => {
       'agent-preset',
       'default-roster',
       'serve',
-      'install',
+      'install', 'update', '__apply-update',
       'spawn',
       'post',
       'tail',
@@ -360,10 +360,13 @@ describe('@codor/cli', () => {
       WantedBy=default.target
       [dry-run] write /home/setup-test/.config/codor/env mode 600
       CODOR_TOKEN=<redacted generated-or-existing token>
+      CODOR_RUNTIME_VERSION=0.10.11
+      CODOR_SERVICE_GENERATION=<new-generation>
       PATH=/home/setup-test/.local/bin:/home/setup-test/.nvm/versions/node/v22.8.0/bin:/home/setup-test/.opencode/bin:/usr/local/bin:/usr/bin
       NODE_PATH=<repo>/node_modules/.pnpm/node_modules
       [dry-run] systemctl --user daemon-reload
-      [dry-run] systemctl --user enable --now codor.service
+      [dry-run] systemctl --user enable codor.service
+      [dry-run] systemctl --user restart codor.service
       [dry-run] access localhost; skip Tailscale Serve
       [dry-run] enable the relay; first code works at codor.app and on your network
       [dry-run] wait for Codor pairing status, then generate a ten-minute QR, URL, and pairing code"
@@ -852,7 +855,7 @@ describe('@codor/cli', () => {
         },
         home,
         nodePath: '/opt/node/bin/node',
-        platform: 'linux',
+        platform: 'linux', generation: () => 'setup-generation',
         probe: async () => true,
         randomToken: () => 'a'.repeat(64),
         renderQr: (payload) => {
@@ -889,9 +892,11 @@ describe('@codor/cli', () => {
     // repoRoot is this real checkout, which is pnpm-linked, so the hoisted
     // dependency dir the durable copy will carry over is present and durable
     // (repoRoot === serviceLocation for a source checkout).
-    expect(readFileSync(envPath, 'utf8')).toContain(
+    const serviceEnv = readFileSync(envPath, 'utf8');
+    for (const expected of [
       `NODE_PATH=${join(repoRoot, 'node_modules', '.pnpm', 'node_modules')}`,
-    );
+      'CODOR_RUNTIME_VERSION=0.10.11', 'CODOR_SERVICE_GENERATION=setup-generation',
+    ]) expect(serviceEnv).toContain(expected);
     // Tailscale is resolved to an absolute path, capability-probed, and Serve is
     // published during Choose access — before the daemon is started.
     expect(commands).toEqual([
@@ -899,7 +904,7 @@ describe('@codor/cli', () => {
       '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
       '/usr/bin/tailscale serve status',
       'systemctl --user daemon-reload',
-      'systemctl --user enable --now codor.service',
+      'systemctl --user enable codor.service', 'systemctl --user restart codor.service',
       'loginctl show-user setup-test -p Linger --value',
     ]);
     expect(output.join('\n')).toContain('setup-host.example.ts.net');
@@ -925,7 +930,7 @@ describe('@codor/cli', () => {
       nodePath: '/opt/homebrew/bin/node',
       platform: 'darwin' as const,
       repoRoot,
-      uid: 501,
+      uid: 501, generation: () => '<new-generation>',
       which,
     };
 
@@ -943,7 +948,7 @@ describe('@codor/cli', () => {
     expect(output).toContain(`[dry-run] launchctl bootout gui/501/app.codor.switchboard (ignore not-loaded)`);
     expect(output).toContain(`[dry-run] launchctl bootstrap gui/501 ${launchAgentPath}`);
     expect(output).toContain('[dry-run] launchctl enable gui/501/app.codor.switchboard');
-    expect(output).toContain('[dry-run] launchctl kickstart -k gui/501/app.codor.switchboard');
+    expect(output.join('\n')).not.toContain('kickstart');
     const plistStart = output.indexOf('[dry-run] launch agent content:') + 1;
     const plistEnd = output.findIndex((line, index) => index >= plistStart && line.startsWith('[dry-run] launchctl'));
     const dryRunPlist = output.slice(plistStart, plistEnd).join('\n') + '\n';
@@ -967,7 +972,7 @@ describe('@codor/cli', () => {
         ...common,
         exec: (command, args) => {
           commands.push([command, ...args].join(' '));
-          if (command === 'launchctl' && args[0] === 'bootout') throw new Error('not loaded');
+          if (command === 'launchctl' && (args[0] === 'bootout' || args[0] === 'print')) throw new Error('not loaded');
           return '';
         },
         exists: () => true,
@@ -1002,9 +1007,9 @@ describe('@codor/cli', () => {
     expect(commands).toEqual([
       `plutil -lint ${launchAgentPath}`,
       'launchctl bootout gui/501/app.codor.switchboard',
+      'launchctl print gui/501/app.codor.switchboard',
       `launchctl bootstrap gui/501 ${launchAgentPath}`,
       'launchctl enable gui/501/app.codor.switchboard',
-      'launchctl kickstart -k gui/501/app.codor.switchboard',
     ]);
     expect(new URL(qrPayload!).origin).toBe('http://127.0.0.1:8137');
     expect(output.join('\n')).not.toContain(token);

@@ -1,0 +1,19 @@
+id: setup-restarts-resident-runtime-before-readiness
+hash: a-ff5e59b92c46
+title: Setup makes the resident service run the selected runtime
+state: active
+statement: >
+  On the first Start-service attempt of each real setup run, Linux, macOS, and
+  Windows must replace any already-running Codor user-service generation with
+  the service definition and runtime selected by that run before the bounded
+  readiness proof may succeed; Linux reloads/enables then restarts, Windows ends
+  an existing task before recreating/running it, and macOS confirms old-target
+  absence then tolerates a bounded loaded-but-booting new target without
+  immediately killing or kickstarting it, while a Retry after this run's
+  verified success performs no second restart and durable state remains
+  untouched.
+depends_on:
+  - setup-preserves-private-platform-service
+  - setup-verifies-codor-before-creating-pairing-code
+  - setup-macos-launchd-confirms-loaded-and-healthy
+created_by: hosted-relay-smooth-startup-r2-update

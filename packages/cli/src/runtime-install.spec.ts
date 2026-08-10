@@ -6,8 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   detectInstalledRuntime,
+  finalizeDurableRuntimeInstall,
   installDurableRuntime,
   isEphemeralRuntime,
+  rollbackDurableRuntimeInstall,
   type InstallIo,
 } from './runtime-install.js';
 import { type RuntimePaths } from './runtime-paths.js';
@@ -205,6 +207,44 @@ describe('installDurableRuntime', () => {
     expect(moves).toContainEqual([LOCATION, `${LOCATION}.backup`]); // previous install moved aside first
     expect(moves).toContainEqual([`${LOCATION}.staging`, LOCATION]);
   });
+
+  // harn:assume runtime-update-is-transactional-through-service-readiness ref=durable-runtime-transaction-regression
+  it('retains the prior runtime until a successful update is finalized', () => {
+    const { io, present, removed } = fakeIo({ existing: '0.9.0' });
+    const result = installDurableRuntime({
+      runtime: ephemeral,
+      dataDir: DATA,
+      version: '0.10.0',
+      intent: 'update',
+      retainBackup: true,
+      io,
+    });
+    expect(result.transaction).toEqual({ backup: `${LOCATION}.backup`, previousVersion: '0.9.0' });
+    expect(present.has(`${LOCATION}.backup`)).toBe(true);
+
+    finalizeDurableRuntimeInstall(result, io);
+    expect(present.has(`${LOCATION}.backup`)).toBe(false);
+    expect(removed).toContain(`${LOCATION}.backup`);
+  });
+
+  it('restores the prior runtime from a retained update transaction', () => {
+    const { io, present, moves } = fakeIo({ existing: '0.9.0' });
+    const result = installDurableRuntime({
+      runtime: ephemeral,
+      dataDir: DATA,
+      version: '0.10.0',
+      intent: 'update',
+      retainBackup: true,
+      io,
+    });
+
+    rollbackDurableRuntimeInstall(result, io);
+    expect(present.has(LOCATION)).toBe(true);
+    expect(present.has(`${LOCATION}.backup`)).toBe(false);
+    expect(moves.at(-1)).toEqual([`${LOCATION}.backup`, LOCATION]);
+    expect(detectInstalledRuntime(DATA, io)?.version).toBe('0.9.0');
+  });
+  // harn:end runtime-update-is-transactional-through-service-readiness
 
   it('leaves the previous runtime intact when the copy fails', () => {
     const { io, present, moves } = fakeIo({ existing: '0.9.0', failCopy: true });
