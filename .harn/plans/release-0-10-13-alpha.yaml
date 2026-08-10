@@ -37,6 +37,18 @@ assumptions:
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
       reason: Recursive build, serialized tests, browser tests, audits, and install proofs remain mandatory.
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: The dry-run snapshot changes only its expected common release identity.
+    - id: platform-services-propagate-destination-pnpm-node-path
+      outcome: unchanged
+      reason: Linux and macOS service fixtures change only their expected selected release identity.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Private service rendering and lifecycle behavior are unchanged by the fixture update.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: Readiness fixtures must report the selected 0.10.13 identity; verification behavior is unchanged.
 anchors:
   installed-or-published-release-artifacts-are-version-immutable:
     replaceable-preinstall-release-audit:
@@ -46,6 +58,25 @@ anchors:
     acp-adapter-runtime:
       action: change
       reason: Advance only the ACP initialize clientInfo version to 0.10.13.
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-regression:
+      action: change
+      reason: Advance only the expected release identity in the dry-run snapshot.
+  platform-services-propagate-destination-pnpm-node-path:
+    node-path-systemd-regression:
+      action: change
+      reason: Advance only the Linux selected-runtime fixture identity.
+    node-path-launchd-regression:
+      action: change
+      reason: Advance only the macOS selected-runtime fixture identity.
+  setup-preserves-private-platform-service:
+    setup-platform-service-regression:
+      action: change
+      reason: Permit the nested platform fixture identity update without changing service behavior.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: Permit the nested readiness fixture identity update without changing verification behavior.
 files:
   - package.json
   - packages/adapters/acp/package.json
@@ -62,6 +93,7 @@ files:
   - packages/bridges/slack/package.json
   - packages/bridges/telegram/package.json
   - packages/cli/package.json
+  - packages/cli/src/index.spec.ts
   - packages/protocol/package.json
   - packages/switchboard/package.json
   - packages/web-next/package.json
