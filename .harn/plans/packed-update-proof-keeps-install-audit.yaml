@@ -1,0 +1,47 @@
+id: packed-update-proof-keeps-install-audit
+title: Keep the packed updater transaction compatible with release audit policy
+notes: >
+  Remove the audit-suppression flag from the controlled npm shim used only by
+  the packed updater transaction proof. The candidate remains exact and local,
+  the proof remains isolated, and updater/runtime behavior is unchanged. This
+  closes the release gate mismatch exposed before publishing alpha 0.10.12.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: packed-update-bootstrap-crosses-real-candidate-transaction
+      outcome: unchanged
+      reason: >
+        The proof still runs the public npx update command through the complete
+        candidate transaction; its controlled npm install simply keeps the
+        default advisory audit enabled.
+    - id: packed-local-tgz-npx-proof-runs-fresh-default-audit
+      outcome: unchanged
+      reason: |
+        No packed npx install path suppresses npm's default advisory audit.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: >
+        The packed proof still builds, installs, updates, boots, exercises, and
+        tears down the complete runtime.
+anchors:
+  packed-update-bootstrap-crosses-real-candidate-transaction:
+    packed-update-transaction-proof:
+      action: change
+      reason: Remove only the controlled shim's audit-suppression flag.
+  packed-local-tgz-npx-proof-runs-fresh-default-audit:
+    packed-npx-fresh-default-audit-proof:
+      action: change
+      reason: Keep every install within the anchored packed npx proof auditable.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: The nested updater proof is part of the complete packed script.
+files:
+  - scripts/packed-install-test.sh
+verification: >
+  Run release and license audits, the packed install/update proof, Harn checks,
+  and diff checks. The full alpha tag workflow repeats the complete release gate
+  before publication.
+applied:
+  applied_at: 2026-08-10T13:15:46.259Z

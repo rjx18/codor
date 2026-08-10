@@ -119,7 +119,7 @@ case "${1:-}" in
       *"--registry https://registry.npmjs.org/"*"--@richhardry:registry=https://registry.npmjs.org/"*"@richhardry/codor@$CANDIDATE_VERSION"*) ;;
       *) printf 'unexpected official acquisition argv: %s\n' "$*" >&2; exit 2 ;;
     esac
-    exec "$REAL_NPM" install --prefix "$prefix" --ignore-scripts --no-audit --no-fund --no-package-lock --no-save "$PROOF_UPDATE_TARBALL"
+    exec "$REAL_NPM" install --prefix "$prefix" --ignore-scripts --no-fund --no-package-lock --no-save "$PROOF_UPDATE_TARBALL"
     ;;
   *) printf 'unexpected npm command: %s\n' "$*" >&2; exit 2 ;;
 esac
