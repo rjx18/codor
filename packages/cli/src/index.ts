@@ -29,6 +29,8 @@ export type { SetupOptions, SetupOverrides } from './setup.js';
 export { renderTerminalQr } from './terminal-qr.js';
 export { startCodor } from './up.js';
 export type { RunningCodor, UpOptions } from './up.js';
+export { runCandidateUpdate, runOfficialUpdate } from './update.js';
+export type { UpdateOptions, UpdateOverrides } from './update.js';
 
 export function packageName(): string {
   return '@codor/cli';

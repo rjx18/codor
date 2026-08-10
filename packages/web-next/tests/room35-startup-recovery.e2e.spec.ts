@@ -50,9 +50,11 @@ test.describe('startup recovery (boot path)', () => {
     await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
     await control('/relay-down-a-only');
     await page.reload();
-    await expect(page.getByTestId('recovery')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await page.getByTestId('computer-current').click();
     await expect(page.getByRole('button', { name: /codor-host-b, Connected/ })).toBeVisible();
-    const recoveryA11y = await new AxeBuilder({ page }).include('[data-testid="recovery"]').analyze();
+    const recoveryA11y = await new AxeBuilder({ page }).include('[data-testid="app"]').analyze();
     expect(recoveryA11y.violations).toEqual([]);
 
     await page.evaluate(() => { (window as unknown as { __bootRecoveryDocument?: boolean }).__bootRecoveryDocument = true; });
@@ -63,7 +65,7 @@ test.describe('startup recovery (boot path)', () => {
     await control('/relay-up');
   });
 
-  test('a paired relay browser booting against a down host shows the recovery card, not landing', async ({ page }) => {
+  test('a paired relay browser booting against a down host renders its last-good room, not landing', async ({ page }) => {
     test.setTimeout(120_000);
     await control('/relay-up');
     const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
@@ -85,15 +87,15 @@ test.describe('startup recovery (boot path)', () => {
     await control('/relay-down');
     await page.reload();
 
-    await expect(page.getByTestId('recovery')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('timeline')).toBeVisible();
     await expect(page.getByTestId('landing-page')).toHaveCount(0);
-    await expect(page.getByTestId('recovery-repair')).toBeVisible();
-    // Re-pair drops to code entry.
-    await page.getByTestId('recovery-repair').click();
-    await expect(page.getByTestId('pairing-code-0')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('recovery')).toHaveCount(0);
+    await expect(page.getByTestId('composer-send')).toBeDisabled();
+    await control('/relay-up');
   });
 
-  test('the boot recovery card retries successfully once the host returns', async ({ page }) => {
+  test('the cached boot recovers automatically once the host returns', async ({ page }) => {
     test.setTimeout(120_000);
     await control('/relay-up');
     const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
@@ -109,16 +111,17 @@ test.describe('startup recovery (boot path)', () => {
     await page.getByTestId('pairing-code-submit').click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
 
-    // Boot against a down host → recovery card.
+    // Boot against a down host → readable cached room.
     await control('/relay-down');
     await page.reload();
-    await expect(page.getByTestId('recovery')).toBeVisible({ timeout: 30_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
 
-    // The agent comes back; "Retry now" reloads into a healthy boot that reaches the
-    // channel and goes live — the honest offline screen has a working way out.
+    // The manager remains subscribed; host return replaces cached truth without
+    // a click or document navigation.
+    await page.evaluate(() => { (window as unknown as { __cachedDocument?: boolean }).__cachedDocument = true; });
     await control('/relay-up');
-    await page.getByTestId('recovery-retry').click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    expect(await page.evaluate(() => (window as unknown as { __cachedDocument?: boolean }).__cachedDocument)).toBe(true);
   });
 
   test('pairing falls back to the alias when the primary relay URL is blocked (P7)', async ({ page }) => {
@@ -155,7 +158,7 @@ test.describe('startup recovery (boot path)', () => {
     await expect(page.getByTestId('recovery')).toHaveCount(0);
   });
 
-  test('a device-offline boot card reloads itself when connectivity returns', async ({ page }) => {
+  test('a cached device-offline boot recovers in the mounted document when connectivity returns', async ({ page }) => {
     test.setTimeout(120_000);
     await control('/relay-up');
     const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
@@ -165,7 +168,7 @@ test.describe('startup recovery (boot path)', () => {
       w.__CODOR_RECOVERY_GRACE_MS = 300;
       w.__CODOR_RECOVERY_EXTENDED_MS = 1_500;
       // Drive navigator.onLine from a sessionStorage flag (real network stays up; we
-      // only spoof the classifier input) so the card's reload can land ONLINE, not loop.
+      // only spoof the classifier input) so the reconnect path can land ONLINE, not loop.
       Object.defineProperty(navigator, 'onLine', {
         configurable: true,
         get: () => sessionStorage.getItem('__offline') !== '1',
@@ -182,15 +185,9 @@ test.describe('startup recovery (boot path)', () => {
     await control('/relay-down');
     await page.evaluate(() => sessionStorage.setItem('__offline', '1'));
     await page.reload();
-    await expect(page.getByTestId('recovery')).toHaveAttribute('data-recovery-state', 'device-offline', { timeout: 30_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
 
-    // Connectivity returns. Plant a window sentinel a real navigation clears, then clear
-    // the offline flag, bring the host back, and fire a REAL `online` event (not a
-    // direct reload call). The card's own listener must catch it and reload: the boot
-    // then goes live AND the sentinel is gone — proving the real event → listener →
-    // reload → healthy-boot chain, not a flag check. (The spoof fakes only
-    // navigator.onLine; the network was up throughout — a true offline can't even load
-    // the SW-less harness, so the device-offline BOOT card would be unreachable.)
+    // Connectivity returns. The mounted manager recovers without a document reload.
     await control('/relay-up');
     await page.evaluate(() => { (window as unknown as { __preReload?: boolean }).__preReload = true; });
     await page.evaluate(() => {
@@ -198,6 +195,6 @@ test.describe('startup recovery (boot path)', () => {
       window.dispatchEvent(new Event('online'));
     });
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    expect(await page.evaluate(() => (window as unknown as { __preReload?: boolean }).__preReload)).toBeUndefined();
+    expect(await page.evaluate(() => (window as unknown as { __preReload?: boolean }).__preReload)).toBe(true);
   });
 });

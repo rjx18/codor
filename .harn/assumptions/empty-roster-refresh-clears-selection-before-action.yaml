@@ -1,0 +1,12 @@
+id: empty-roster-refresh-clears-selection-before-action
+hash: a-8b74b83e927f
+title: Empty roster refresh clears stale selection before action admission
+state: active
+statement: When a selected default roster refresh resolves to an empty
+  authoritative roster, the create UI must invalidate that selection before the
+  next paint and omit default_roster from any immediately admitted request,
+  while preserving the Starting agent fallback, because a stale selection could
+  otherwise submit a zero-agent roster.
+depends_on:
+  - empty-default-roster-is-unconfigured-state
+created_by: hosted-relay-smooth-startup-r3-review-fixes

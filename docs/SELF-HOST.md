@@ -43,6 +43,17 @@ QR, URL, eight-character code, and expiry. Use `npx @richhardry/codor install --
 side-effect-free preview. Unattended mutation requires both `--yes` and
 `--access localhost|tailscale`; installation never guesses remote exposure from detection alone.
 `npx @richhardry/codor setup` remains available as a backward-compatible alias.
+
+Bootstrap the official updater, or update native Windows, with:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After the first bootstrap, Linux and macOS may use `codor update`. Native Windows setup does not
+install a persistent launcher yet, so use the exact npx command for each update. Either path
+replaces and verifies the private user service without a manual restart and preserves the data
+directory. Source checkouts continue to update through Git and a rebuild.
 <!-- harn:end public-npx-install-is-primary-install -->
 
 <!-- harn:assume pnpm-install-docs-disclose-build-approval-boundaries ref=selfhost-pnpm-dlx-disclosure -->
@@ -187,8 +198,10 @@ owner token, and harness-aware `PATH` to explicit values. Current `launchctl` li
 launchctl bootout "gui/$(id -u)/app.codor.switchboard"  # stop/unload; okay if absent
 launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/app.codor.switchboard.plist"
 launchctl enable "gui/$(id -u)/app.codor.switchboard"
-launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"
 ```
+
+The generated agent uses `RunAtLoad`, so a successful bootstrap starts it; an immediate
+`kickstart -k` would unnecessarily replace that new process.
 
 Do not install it as a root LaunchDaemon: that would change which home directory, project files,
 and authenticated harness state the agents can access.
@@ -381,7 +394,6 @@ launchctl bootout "gui/$(id -u)/app.codor.switchboard"
 umask 077
 tar -C "$HOME" -czf "$HOME/codor-backup-$(date +%F).tar.gz" .codor
 launchctl bootstrap "gui/$(id -u)" "$HOME/Library/LaunchAgents/app.codor.switchboard.plist"
-launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"
 ```
 
 Encrypt the archive before moving it off the host. To restore, stop Codor, move any existing data
@@ -401,13 +413,20 @@ codor --data-dir "$HOME/.codor" \
   tail -r desk --once
 ```
 
-Before an upgrade, take a stopped backup. Then fetch the intended Git revision, run
-`corepack pnpm install --frozen-lockfile && corepack pnpm -r build`, and restart. Never run a
-moving branch directly as root.
+Before an upgrade, take a stopped backup. If the installed launcher predates the updater, bootstrap
+it once with `npx --yes --package=@richhardry/codor@latest codor update`; subsequent upgrades use
+plain `codor update`. The command acquires an exact npm version from the official registry without
+a shell,
+atomically stages the durable runtime, replaces the existing per-user service generation, and
+verifies that exact version before deleting its rollback copy. It does not rerun onboarding or
+mint a pairing code, and it does not require a manual service restart. If the service cannot be
+verified, Codor restores the previous runtime and attempts to reconverge it before failing.
 
-Restart with `systemctl --user restart codor.service` on Linux or
-`launchctl kickstart -k "gui/$(id -u)/app.codor.switchboard"` on macOS. Close and reopen an
-installed PWA once after the new static build lands so its service worker can take control.
+A source-linked CLI may update an existing durable installation without mutating the checkout. If
+there is no durable installation, fetch the intended Git revision, run `corepack pnpm install
+--frozen-lockfile && corepack pnpm -r build`, and restart the development service using the
+platform's ordinary manual lifecycle. Never run a moving branch directly as root. Close and reopen
+an installed PWA once after a new static build lands so its service worker can take control.
 <!-- harn:end fresh-clone-install-proven-by-script -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=selfhost-agent-trust-boundary -->

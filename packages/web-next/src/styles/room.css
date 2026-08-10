@@ -13,7 +13,7 @@
 
 .nx-app > * {
   min-height: 0;
-  border: 1px solid var(--c-line);
+  border: 1px solid var(--c-border);
   border-radius: var(--r-panel);
   background: var(--c-surface);
   box-shadow: var(--e-panel);
@@ -2678,6 +2678,18 @@
 .nx-roster-choice-copy strong { font: var(--t-ui-strong); color: var(--c-ink); }
 .nx-roster-choice-copy span { font: var(--t-caption); color: var(--c-secondary); overflow-wrap: anywhere; }
 .nx-roster-choice-card .nx-check { position: static; flex: none; }
+.nx-roster-empty {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px dashed var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-muted);
+  color: var(--c-secondary);
+  font: var(--t-caption);
+}
+.nx-roster-empty strong { color: var(--c-ink); font: var(--t-ui-strong); }
+.nx-roster-empty .nx-btn { justify-self: start; min-height: 44px; }
 .nx-roster-inconsistent {
   display: grid;
   gap: var(--sp-2);
@@ -2700,6 +2712,19 @@
   font: var(--t-caption);
 }
 .nx-roster-selected-note strong { color: var(--c-ink); font: var(--t-ui-strong); }
+.nx-roster-setup-guide {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-muted);
+}
+.nx-roster-setup-guide h3 { margin: 0; color: var(--c-ink); font: var(--t-ui-strong); }
+.nx-roster-setup-guide ol { display: grid; gap: var(--sp-2); margin: 0; padding-left: 1.25rem; }
+.nx-roster-setup-guide li { display: grid; gap: 3px; padding-left: var(--sp-1); color: var(--c-secondary); font: var(--t-caption); }
+.nx-roster-setup-guide li strong { color: var(--c-ink); font: var(--t-ui-strong); }
+.nx-roster-setup-guide li .nx-btn { justify-self: start; margin-top: var(--sp-1); min-height: 44px; }
 
 @media (max-width: 719px) {
   .nx-settings-card-head { align-items: stretch; flex-direction: column; }
@@ -2751,7 +2776,7 @@
   gap: var(--sp-2);
   width: 100%;
   padding: var(--sp-2);
-  border: 1px solid var(--c-border);
+  border: 1px solid var(--c-line);
   border-radius: var(--r-md, 10px);
   background: var(--c-surface);
 }
@@ -3493,6 +3518,33 @@
 .nx-computer-choice-active { flex: none; color: var(--c-faded); font: var(--t-caption); }
 .nx-computer-choice-status { display: inline-flex; align-items: center; gap: 6px; font: var(--t-caption-strong); color: var(--c-secondary); }
 .nx-computer-choice-status.is-connected { color: var(--c-live-text); }
+
+.nx-reconnecting-pill {
+  position: fixed;
+  z-index: 80;
+  top: max(10px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 9px;
+  border: 1px solid var(--c-border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-surface) 92%, transparent);
+  color: var(--c-secondary);
+  font-size: 11px;
+  box-shadow: var(--shadow-sm);
+  backdrop-filter: blur(10px);
+}
+
+.nx-reconnecting-pill > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--c-warn);
+}
 .nx-computer-choice-status.is-reconnecting { color: var(--c-warn-text); }
 .nx-computer-choice-status.is-repair { color: var(--c-error-text); }
 .nx-computer-choice-activity { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--c-secondary); font: var(--t-caption); }

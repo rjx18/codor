@@ -1,0 +1,24 @@
+id: official-codor-update-is-cooperatively-bounded-and-platform-truthful
+hash: a-2bc3bca1f759
+title: Codor update is officially acquired and bounded inside its mutation transaction
+state: active
+statement: >
+  When the selected data root contains a durable Codor runtime, `codor update`
+  may be invoked by its POSIX launcher, a source-linked CLI, or the official npx
+  candidate without mutating the invoking checkout. It must resolve
+  @richhardry/codor latest and acquire that exact stable non-prerelease version
+  only through https://registry.npmjs.org, never downgrade, invoke npm without a
+  shell, and bound lookup and acquisition before mutation. Candidate application
+  carries a deadline into the private transaction; the parent must not hard-kill
+  a mutation-owning child, and expiry after staging or swap must run complete
+  bounded rollback before failure is returned. The first official bootstrap is
+  `npx --yes --package=@richhardry/codor@latest codor update` on every platform.
+  Afterward POSIX has plain `codor update` through its durable launcher; Windows
+  continues to use that exact npx command because setup does not install a
+  persistent Windows launcher. Arbitrary sources, prereleases, background
+  updates, onboarding, and pairing minting remain forbidden.
+depends_on:
+  - github-tags-publish-one-immutable-alpha-or-stable-release
+  - setup-resolves-complete-invoking-runtime
+  - public-package-bundles-complete-codor-runtime
+created_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

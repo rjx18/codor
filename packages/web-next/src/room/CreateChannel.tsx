@@ -1,7 +1,7 @@
 import type { Room } from '@codor/protocol';
 import { deriveAssignableHandle, deriveRoomId } from '@codor/protocol';
 import { FolderPlus, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   createRoom,
@@ -27,6 +27,7 @@ export function CreateChannelDialog(props: {
   token: () => string;
   onClose: () => void;
   onCreated: (room: Room) => void;
+  onSettings?: () => void;
 }) {
   const activeRoom = useClientStore((state) => state.activeRoom);
   const members = useClientStore((state) => roomSlice(state, activeRoom).members);
@@ -45,7 +46,9 @@ export function CreateChannelDialog(props: {
   const hiddenAgentConfig = useRef<AgentConfig>();
   const rosterDraft = useRef<AgentConfig>();
   const skipCatalogReconcile = useRef(false);
+  // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-choice-and-submit
   const [defaultRosterSelected, setDefaultRosterSelected] = useState(false);
+  const [defaultRosterEmpty, setDefaultRosterEmpty] = useState(false);
   // Default name matches legacy: most channels want one agent called `codor`.
   const [agentName, setAgentName] = useState('codor');
   const [busy, setBusy] = useState(false);
@@ -54,6 +57,11 @@ export function CreateChannelDialog(props: {
   // a generic banner at the bottom where it reads as unrelated to the field.
   const [agentError, setAgentError] = useState<string>();
   const nameRef = useRef<HTMLInputElement>(null);
+
+  const onRosterEmptyChange = useCallback((empty: boolean): void => {
+    setDefaultRosterEmpty(empty);
+    if (empty) setDefaultRosterSelected(false);
+  }, []);
 
   const owner = me(members, selfId);
   const canReadDefaultRoster = owner?.kind === 'human' && owner.role === 'owner';
@@ -112,8 +120,9 @@ export function CreateChannelDialog(props: {
   const ownerClash = agentHarness !== '' && derivedHandle !== undefined
     && collidesWithOwner(derivedHandle, owner);
   const acpLaunch = acpLaunchFromConfig(agentConfig);
+  const useDefaultRoster = defaultRosterSelected && !defaultRosterEmpty;
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && owner !== undefined && !busy
-    && (defaultRosterSelected || (
+    && (useDefaultRoster || (
       !ownerClash && (agentHarness === '' || derivedHandle !== undefined)
       && (agentHarness !== 'acp' || acpLaunch !== undefined)
     ));
@@ -127,7 +136,7 @@ export function CreateChannelDialog(props: {
       name: name.trim(),
       owner: { handle: owner.handle, display_name: owner.display_name },
       cwd: cwd.trim(),
-      ...(defaultRosterSelected
+      ...(useDefaultRoster
         ? { default_roster: true as const }
         : agentHarness !== '' && derivedHandle !== undefined && {
         starting_agent: {
@@ -159,12 +168,13 @@ export function CreateChannelDialog(props: {
       (room) => props.onCreated(room),
       (failure: unknown) => {
         const message = failure instanceof Error ? failure.message : String(failure);
-        if (defaultRosterSelected) setError(message);
+        if (useDefaultRoster) setError(message);
         else if (isAgentFieldError(message)) setAgentError(message);
         else setError(message);
       },
     ).finally(() => setBusy(false));
   };
+  // harn:end empty-default-roster-is-unconfigured-state
 
   return (
     <Modal label="Create channel" onClose={props.onClose} testid="create-channel-dialog" structured initialFocus={nameRef}>
@@ -209,11 +219,16 @@ export function CreateChannelDialog(props: {
       <DefaultRosterChoice
         token={props.token}
         enabled={canReadDefaultRoster}
-        selected={defaultRosterSelected}
+        selected={useDefaultRoster}
         onSelectedChange={changeRosterSelection}
+        onRosterEmptyChange={onRosterEmptyChange}
+        onSettings={props.onSettings === undefined ? undefined : () => {
+          props.onClose();
+          props.onSettings?.();
+        }}
         idPrefix="create"
       />
-      {defaultRosterSelected ? (
+      {useDefaultRoster ? (
         <div className="nx-roster-selected-note" data-testid="create-roster-selected" role="status">
           <strong>Starting agent draft saved</strong>
           <span>The saved roster is exclusive for this channel. Deselect it to restore your exact draft.</span>

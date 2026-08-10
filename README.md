@@ -70,6 +70,22 @@ address in your Windows browser.
 <!-- harn:end wsl-setup-keeps-private-windows-loopback -->
 
 Open the pairing link. Codor is then available locally at <http://127.0.0.1:8137>.
+
+To install the first updater release, or to update on native Windows, run:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After that first bootstrap, Linux and macOS can use the durable launcher directly:
+
+```sh
+codor update
+```
+
+Native Windows setup does not install a persistent command launcher yet, so continue using the
+exact npx command there. Updates preserve Codor data and verify the selected service generation;
+no manual restart is required.
 <!-- harn:end public-npx-install-is-primary-install -->
 
 <details>
@@ -204,10 +220,16 @@ launchctl print "gui/$(id -u)/app.codor.switchboard"
 tail -f "$HOME/.codor/logs/codor.err.log"
 ```
 
-For package upgrades, rerun `npx @richhardry/codor install`; it refreshes the user service against
-the invoking installed runtime. Restart `codor.service` on Linux or
-`app.codor.switchboard` with `launchctl kickstart -k` on macOS if the service manager has not
-already restarted it.
+The first release that adds the updater needs one packaged bootstrap when your installed launcher
+does not yet know the command:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After that, use `codor update`. It selects the official stable release, updates the durable runtime
+and private user service as one transaction, and verifies the selected service generation; no
+manual restart is part of a successful update.
 
 <!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=readme-native-windows-installer -->
 For source development, clone the repository, run `pnpm install --frozen-lockfile && pnpm -r build`,

@@ -1,0 +1,19 @@
+id: hosted-last-good-room-cache-is-bounded-read-only-projection
+hash: a-009ddd091144
+title: Hosted reconnects may render one bounded disconnected room snapshot
+state: active
+statement: >
+  Hosted mode may persist in a dedicated IndexedDB database exactly one last
+  successfully authenticated active public-room projection per computer: bounded
+  room summaries/metadata and at most the newest twenty materialized
+  combined-history units with only their projected messages and indexed journal
+  excerpts; it must start disconnected and read-only, never contain drafts,
+  credentials, keys, attachments, voice, inbox, interactions, full journals,
+  search archives, or a second room, reconcile with current live evidence,
+  delete only the addressed snapshot on forget and all Codor databases on
+  unpair, and never enter CacheStorage or service- worker runtime caching.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+  - historical-transcript-pages-match-output-scoped-rendering
+  - relay-app-socket-readiness-requires-server-evidence
+created_by: hosted-relay-smooth-startup-r1

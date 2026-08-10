@@ -1,0 +1,25 @@
+id: runtime-update-transacts-runtime-service-and-selected-data-root
+hash: a-178183b428fc
+title: Update commits the selected data root only after runtime and service
+  identity are ready
+state: retired
+statement: >
+  The acquired candidate must carry the exact public `--data-dir` into its
+  private application, use that root for durable runtime detection, staging,
+  service rendering, and readiness, retain the prior runtime and exact platform
+  service-definition/config bytes and existence across the swap, and delete
+  those rollback assets only after the owner-authenticated status reports the
+  candidate version and generation. Any staging, restart, readiness, timeout, or
+  identity failure must restore the exact prior runtime and Linux unit/env,
+  macOS plist, or Windows task/script artifacts before reconverging that prior
+  service, while leaving every other data/config/log byte and the default data
+  root untouched. A prior identity-capable daemon may be version-verified; a
+  legacy daemon without the identity endpoint may be accepted only after bounded
+  generic health and reported explicitly as healthy but identity-unverified.
+depends_on:
+  - official-codor-update-is-bounded-cross-platform-and-durable-rooted
+  - setup-installs-durable-per-user-runtime-atomically
+  - setup-preserves-private-platform-service
+  - service-runtime-status-is-owner-authenticated
+created_by: hosted-relay-smooth-startup-r2-review-fixes
+retired_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

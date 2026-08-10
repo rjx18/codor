@@ -1,10 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, release } from 'node:os';
@@ -17,8 +19,10 @@ import {
   defaultInstallIo,
   detectInstalledRuntime,
   durableRuntimeLocation,
+  finalizeDurableRuntimeInstall,
   installDurableRuntime,
   installedCliRoot,
+  rollbackDurableRuntimeInstall,
   resolveInstallSource,
   type InstallIntent,
   type InstallIo,
@@ -63,6 +67,8 @@ export interface SetupOverrides {
   renderQr?(payload: string): string;
   repoRoot?: string;
   probe?(endpoint: string): Promise<boolean>;
+  runtimeStatus?(endpoint: string, token: string): Promise<{ version: string; generation: string } | undefined>;
+  generation?(): string;
   runtime?: RuntimePaths;
   installIo?: InstallIo;
   launcherIo?: LauncherIo;
@@ -81,6 +87,7 @@ export type SetupAccess = 'localhost' | 'tailscale';
 
 export interface SetupOptions {
   access?: SetupAccess;
+  dataDir?: string;
   dryRun: boolean;
   env: NodeJS.ProcessEnv;
   /** Opt out of relay-on-by-default: mint a local-only code and leave the relay off. */
@@ -88,6 +95,9 @@ export interface SetupOptions {
   out(line: string): void;
   overrides?: SetupOverrides;
   yes?: boolean;
+  /** Candidate-only application path. It installs/restarts/verifies without
+   * running onboarding, access selection, relay mutation, or pairing. */
+  updateOnly?: { expectedVersion: string; timeoutMs: number; now?: () => number };
 }
 
 // harn:assume setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable ref=tailscale-default-exec-timeout
@@ -231,6 +241,8 @@ interface LaunchAgentOptions {
   runtime: RuntimePaths;
   servicePath: string;
   token: string;
+  runtimeVersion: string;
+  serviceGeneration: string;
 }
 
 // harn:assume operator-launches-serve-web-next ref=launchd-current-web-client
@@ -245,6 +257,8 @@ function renderLaunchAgent(options: LaunchAgentOptions): string {
     servicePath: xml(options.servicePath),
     staticRoot: xml(options.runtime.staticRoot),
     token: xml(options.token),
+    runtimeVersion: xml(options.runtimeVersion),
+    serviceGeneration: xml(options.serviceGeneration),
   };
   // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-launchd-emission
   const nodeModulePathEntry = options.nodeModulePath === undefined
@@ -276,6 +290,10 @@ function renderLaunchAgent(options: LaunchAgentOptions): string {
   <dict>
     <key>CODOR_TOKEN</key>
     <string>${values.token}</string>
+    <key>CODOR_RUNTIME_VERSION</key>
+    <string>${values.runtimeVersion}</string>
+    <key>CODOR_SERVICE_GENERATION</key>
+    <string>${values.serviceGeneration}</string>
     <key>PATH</key>
     <string>${values.servicePath}</string>${nodeModulePathEntry}
   </dict>
@@ -341,6 +359,7 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
   const exists = deps.exists ?? existsSync;
   const MAX_ATTEMPTS = 3;
   const RETRY_DELAY_MS = 500;
+  const STATE_ATTEMPTS = 10;
 
   // Validate before unloading anything, so a broken install never tears down a
   // working prior instance: the plist parses, and the executables it references
@@ -366,35 +385,50 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
     }
   };
 
+  const waitUntilAbsent = async (): Promise<void> => {
+    for (let attempt = 0; attempt < STATE_ATTEMPTS; attempt += 1) {
+      if (!printState().loaded) return;
+      await sleep(RETRY_DELAY_MS);
+    }
+    throw new Error('launchctl did not unload the previous Codor LaunchAgent within the bounded wait');
+  };
+
+  const waitUntilHealthy = async (): Promise<boolean> => {
+    for (let attempt = 0; attempt < STATE_ATTEMPTS; attempt += 1) {
+      if (!printState().loaded) return false;
+      if (await probe(endpoint)) return true;
+      await sleep(RETRY_DELAY_MS);
+    }
+    return false;
+  };
+
+  // harn:assume setup-proves-selected-runtime-before-reuse ref=launchd-stateful-convergence
   bootout();
-  let bootstrapped = false;
+  await waitUntilAbsent();
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
       exec('launchctl', ['bootstrap', domain, plistPath]);
-      bootstrapped = true;
-      break;
+      exec('launchctl', ['enable', target]);
+      return; // RunAtLoad owns the one start; do not kill it with kickstart -k.
     } catch (error) {
       const { text, retryable } = classifyBootstrapError(error);
       const state = printState();
-      const healthy = await probe(endpoint);
-      // Loaded AND healthy is the only success on a bootstrap error; a
-      // briefly-answering orphan whose target print is absent is not loaded.
-      if (state.loaded && healthy) {
-        log('Codor is already loaded and healthy; keeping it running');
-        return;
+      if (state.loaded) {
+        log('Codor is loaded and still booting; waiting for readiness');
+        if (await waitUntilHealthy()) {
+          exec('launchctl', ['enable', target]);
+          return;
+        }
       }
       if (attempt >= MAX_ATTEMPTS || !retryable) {
         throw new Error(`launchctl could not start the Codor LaunchAgent: ${text.split('\n').find((line) => line.trim().length > 0) ?? text}${state.summary}`);
       }
       log(`launchctl bootstrap did not take (attempt ${String(attempt)}); unloading and retrying`);
       bootout();
-      await sleep(RETRY_DELAY_MS);
+      await waitUntilAbsent();
     }
   }
-  if (bootstrapped) {
-    exec('launchctl', ['enable', target]);
-    exec('launchctl', ['kickstart', '-k', target]);
-  }
+  // harn:end setup-proves-selected-runtime-before-reuse
 }
 // harn:end setup-macos-launchd-confirms-loaded-and-healthy
 
@@ -625,6 +659,8 @@ export function renderWindowsServiceScript(options: {
   runtime: RuntimePaths;
   servicePath: string;
   tokenPath: string;
+  runtimeVersion: string;
+  serviceGeneration: string;
 }): string {
   const quote = (value: string): string => value.replaceAll("'", "''");
   const entrypoint = options.runtime.cliEntrypoint;
@@ -632,6 +668,8 @@ export function renderWindowsServiceScript(options: {
   // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-windows-emission
   return [
     `$env:CODOR_TOKEN = (Get-Content -Raw -Path '${quote(options.tokenPath)}').Trim()`,
+    `$env:CODOR_RUNTIME_VERSION = '${quote(options.runtimeVersion)}'`,
+    `$env:CODOR_SERVICE_GENERATION = '${quote(options.serviceGeneration)}'`,
     `$env:PATH = '${quote(options.servicePath)}'`,
     ...(options.nodeModulePath === undefined ? [] : [`$env:NODE_PATH = '${quote(options.nodeModulePath)}'`]),
     `Set-Location -Path '${quote(options.runtime.root)}'`,
@@ -676,12 +714,149 @@ export async function probeCodorStatus(
 }
 // harn:end setup-readiness-wait-is-wall-clock-bounded
 
+async function probeRuntimeIdentity(
+  endpoint: string,
+  token: string,
+): Promise<{ version: string; generation: string } | undefined> {
+  try {
+    const response = await fetch(new URL('/api/runtime/status', endpoint), {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(1_000),
+    });
+    if (!response.ok) return undefined;
+    const value = await response.json() as { version?: unknown; generation?: unknown };
+    return typeof value.version === 'string' && typeof value.generation === 'string'
+      ? { version: value.version, generation: value.generation }
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+interface ServiceFileSnapshot {
+  bytes?: Buffer;
+  mode?: number;
+  path: string;
+}
+
+interface WindowsTaskSnapshot {
+  exists: boolean;
+  xml?: string;
+}
+
+const WINDOWS_TASK_NAME = 'Codor Switchboard';
+
+function windowsTaskErrorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const details = error as Error & { stderr?: unknown; stdout?: unknown };
+  const render = (value: unknown): string => Buffer.isBuffer(value)
+    ? value.toString('utf8')
+    : typeof value === 'string' ? value : '';
+  return [error.message, render(details.stderr), render(details.stdout)]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function windowsTaskNotFound(error: unknown): boolean {
+  const detail = windowsTaskErrorText(error);
+  return /ERROR:\s*The system cannot find (?:the file specified|the specified file)\.?/i.test(detail)
+    || /ERROR:\s*The specified task name .+ does not exist in the system\.?/i.test(detail);
+}
+
+function windowsTaskNotRunning(error: unknown): boolean {
+  return /ERROR:\s*The task is not running\.?/i.test(windowsTaskErrorText(error));
+}
+
+function captureWindowsTask(
+  exec: NonNullable<SetupOverrides['exec']>,
+): WindowsTaskSnapshot {
+  try {
+    const xml = exec('schtasks', ['/Query', '/TN', WINDOWS_TASK_NAME, '/XML']);
+    if (!/<Task(?:\s|>)/i.test(xml)) {
+      throw new Error('Task Scheduler returned malformed XML for Codor Switchboard');
+    }
+    return {
+      exists: true,
+      xml,
+    };
+  } catch (error) {
+    if (windowsTaskNotFound(error)) return { exists: false };
+    throw new Error(`Codor could not inspect the existing Windows scheduled task: ${windowsTaskErrorText(error)}`);
+  }
+}
+
+function stopWindowsTask(
+  exec: NonNullable<SetupOverrides['exec']>,
+  snapshot: WindowsTaskSnapshot,
+): void {
+  if (!snapshot.exists) return;
+  try {
+    exec('schtasks', ['/End', '/TN', WINDOWS_TASK_NAME]);
+  } catch (error) {
+    if (!windowsTaskNotRunning(error) && !windowsTaskNotFound(error)) throw error;
+  }
+}
+
+function quiesceWindowsTask(
+  exec: NonNullable<SetupOverrides['exec']>,
+): WindowsTaskSnapshot {
+  const snapshot = captureWindowsTask(exec);
+  stopWindowsTask(exec, snapshot);
+  return snapshot;
+}
+
+function restartWindowsTask(
+  exec: NonNullable<SetupOverrides['exec']>,
+  snapshot: WindowsTaskSnapshot,
+): void {
+  if (snapshot.exists) exec('schtasks', ['/Run', '/TN', WINDOWS_TASK_NAME]);
+}
+
+function restoreWindowsTask(
+  exec: NonNullable<SetupOverrides['exec']>,
+  snapshot: WindowsTaskSnapshot,
+  restorePath: string,
+): void {
+  try { exec('schtasks', ['/End', '/TN', WINDOWS_TASK_NAME]); } catch { /* it may not be running */ }
+  if (!snapshot.exists) {
+    try { exec('schtasks', ['/Delete', '/TN', WINDOWS_TASK_NAME, '/F']); } catch { /* absence is the target state */ }
+    return;
+  }
+  if (snapshot.xml === undefined) throw new Error('the prior Windows scheduled task definition was not captured');
+  writeFileSync(restorePath, Buffer.from(`\uFEFF${snapshot.xml}`, 'utf16le'));
+  try {
+    exec('schtasks', ['/Create', '/TN', WINDOWS_TASK_NAME, '/XML', restorePath, '/F']);
+  } finally {
+    rmSync(restorePath, { force: true });
+  }
+  exec('schtasks', ['/Run', '/TN', WINDOWS_TASK_NAME]);
+}
+
+function captureServiceFiles(paths: string[]): ServiceFileSnapshot[] {
+  return paths.map((path) => existsSync(path)
+    ? { path, bytes: readFileSync(path), mode: statSync(path).mode & 0o777 }
+    : { path });
+}
+
+function restoreServiceFiles(snapshots: ServiceFileSnapshot[]): void {
+  for (const snapshot of snapshots) {
+    if (snapshot.bytes === undefined) {
+      rmSync(snapshot.path, { force: true });
+      continue;
+    }
+    mkdirSync(dirname(snapshot.path), { recursive: true });
+    writeFileSync(snapshot.path, snapshot.bytes, { mode: snapshot.mode });
+    if (snapshot.mode !== undefined) chmodSync(snapshot.path, snapshot.mode);
+  }
+}
+
 const defaultSleep = async (milliseconds: number): Promise<void> =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
 // harn:assume setup-readiness-wait-is-wall-clock-bounded ref=readiness-wall-clock-deadline
 const defaultMonotonicNow = (): number => performance.now();
 const READINESS_BUDGET_MS = 60_000;
+const RECOVERY_COMMAND_BUDGET_MS = 60_000;
 const READINESS_INITIAL_DELAY_MS = 250;
 const READINESS_MAX_DELAY_MS = 1_000;
 
@@ -691,24 +866,28 @@ export async function waitForCodor(
   probe: (value: string, remainingMs?: number) => Promise<boolean>,
   sleep: (milliseconds: number) => Promise<void>,
   monotonicNow: () => number = defaultMonotonicNow,
+  budgetMs: number = READINESS_BUDGET_MS,
 ): Promise<void> {
   const startedAt = monotonicNow();
   let delayMs = READINESS_INITIAL_DELAY_MS;
   for (;;) {
-    const remainingMs = READINESS_BUDGET_MS - (monotonicNow() - startedAt);
+    const remainingMs = budgetMs - (monotonicNow() - startedAt);
     if (remainingMs <= 0) break;
     const ready = await probe(endpoint, remainingMs);
     const elapsedMs = monotonicNow() - startedAt;
-    if (ready && elapsedMs <= READINESS_BUDGET_MS) return;
-    const remainingAfterProbeMs = READINESS_BUDGET_MS - elapsedMs;
+    if (ready && elapsedMs <= budgetMs) return;
+    const remainingAfterProbeMs = budgetMs - elapsedMs;
     if (remainingAfterProbeMs <= 0) break;
     const wait = Math.min(delayMs, remainingAfterProbeMs);
     await sleep(wait);
     delayMs = Math.min(delayMs * 2, READINESS_MAX_DELAY_MS);
   }
   // harn:assume setup-readiness-wait-is-wall-clock-bounded ref=readiness-timeout-diagnostic
+  const budgetLabel = budgetMs === READINESS_BUDGET_MS
+    ? '60-second'
+    : `${String(budgetMs)} ms`;
   throw new Error(
-    `Codor did not answer its pairing-status check within the 60-second readiness budget at ${endpoint}; run \`codor channels\` and inspect the user-service logs`,
+    `Codor did not answer its pairing-status check within the ${budgetLabel} readiness budget at ${endpoint}; run \`codor channels\` and inspect the user-service logs`,
   );
   // harn:end setup-readiness-wait-is-wall-clock-bounded
 }
@@ -739,12 +918,35 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const home = resolve(overrides.home ?? options.env.HOME ?? homedir());
   const nodePath = resolve(overrides.nodePath ?? process.execPath);
   const exec = overrides.exec ?? defaultExec;
+  const updateNow = options.updateOnly?.now ?? defaultMonotonicNow;
+  const updateStartedAt = updateNow();
+  const remainingUpdateMs = (stage: string): number => {
+    if (options.updateOnly === undefined) return Number.POSITIVE_INFINITY;
+    const remaining = options.updateOnly.timeoutMs - (updateNow() - updateStartedAt);
+    if (remaining <= 0) {
+      throw new Error(`Codor update timed out after ${String(options.updateOnly.timeoutMs)} ms during ${stage}`);
+    }
+    return Math.max(1, Math.floor(remaining));
+  };
+  const serviceExec: NonNullable<SetupOverrides['exec']> = (command, args, execOptions = {}) => {
+    if (options.updateOnly === undefined) return exec(command, args, execOptions);
+    const remaining = remainingUpdateMs(`service command ${command}`);
+    return exec(command, args, {
+      timeoutMs: Math.min(execOptions.timeoutMs ?? remaining, remaining),
+    });
+  };
+  const recoveryExec: NonNullable<SetupOverrides['exec']> = (command, args, execOptions = {}) =>
+    exec(command, args, {
+      timeoutMs: Math.min(execOptions.timeoutMs ?? RECOVERY_COMMAND_BUDGET_MS, RECOVERY_COMMAND_BUDGET_MS),
+    });
   const which = overrides.which ?? defaultWhich;
   const renderQr = overrides.renderQr ?? renderTerminalQr;
   const probe = overrides.probe ?? probeCodorStatus;
+  const runtimeStatus = overrides.runtimeStatus ?? probeRuntimeIdentity;
+  const nextGeneration = overrides.generation ?? randomUUID;
   const sleep = overrides.sleep ?? defaultSleep;
   const configDir = operatorConfigDir(home);
-  const dataDir = join(home, '.codor');
+  const dataDir = resolve(options.dataDir ?? join(home, '.codor'));
   const tokenPath = operatorTokenPath(home);
   const envPath = join(configDir, 'env');
   const userUnitDir = join(home, '.config', 'systemd', 'user');
@@ -778,6 +980,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   // harn:end platform-services-propagate-destination-pnpm-node-path
   const windowsScriptPath = join(configDir, 'codor-service.ps1');
   const windowsTaskPath = join(configDir, 'codor-task.xml');
+  const windowsTaskRestorePath = join(configDir, '.codor-task-rollback.xml');
   const windowsUser = options.env.USERNAME ?? options.env.USER;
   if (platform === 'win32' && !windowsUser) {
     throw new Error('codor setup could not determine the Windows user name');
@@ -820,9 +1023,11 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchDomain = launchUid === undefined ? undefined : `gui/${String(launchUid)}`;
   const launchTarget = launchDomain === undefined ? undefined : `${launchDomain}/${LAUNCH_AGENT_LABEL}`;
   // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-windows-emission
-  const windowsScript = platform === 'win32'
-    ? renderWindowsServiceScript({ dataDir, logDir, nodeModulePath, nodePath, runtime: serviceRuntime, servicePath, tokenPath })
-    : undefined;
+  const windowsScriptFor = (runtimeVersion: string, serviceGeneration: string): string =>
+    renderWindowsServiceScript({
+      dataDir, logDir, nodeModulePath, nodePath, runtime: serviceRuntime, servicePath, tokenPath,
+      runtimeVersion, serviceGeneration,
+    });
   // harn:end platform-services-propagate-destination-pnpm-node-path
   const windowsTask = platform === 'win32'
     ? renderWindowsScheduledTask({ scriptPath: windowsScriptPath, user: windowsUser! })
@@ -830,7 +1035,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
 
   // harn:assume setup-unattended-mutation-requires-explicit-intent ref=setup-unattended-runtime
   const interactive = !options.dryRun && options.yes !== true && isInteractiveSetup(overrides.streams);
-  if (!options.dryRun && !interactive) {
+  if (!options.dryRun && !interactive && options.updateOnly === undefined) {
     if (options.yes !== true) {
       throw new Error('non-interactive setup requires --yes and --access <localhost|tailscale>');
     }
@@ -867,17 +1072,22 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       for (const line of unitContent!.trimEnd().split('\n')) options.out(line);
       options.out(`[dry-run] write ${envPath} mode 600`);
       options.out('CODOR_TOKEN=<redacted generated-or-existing token>');
+      options.out(`CODOR_RUNTIME_VERSION=${version}`);
+      options.out('CODOR_SERVICE_GENERATION=<new-generation>');
       options.out(`PATH=${servicePath}`);
       // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-systemd-emission
       if (nodeModulePath !== undefined) options.out(`NODE_PATH=${nodeModulePath}`);
       // harn:end platform-services-propagate-destination-pnpm-node-path
       options.out('[dry-run] systemctl --user daemon-reload');
-      options.out('[dry-run] systemctl --user enable --now codor.service');
+      options.out('[dry-run] systemctl --user enable codor.service');
+      options.out('[dry-run] systemctl --user restart codor.service');
     } else if (platform === 'darwin') {
       // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-launchd-emission
       const launchAgent = renderLaunchAgent({
         dataDir, logDir, nodeModulePath, nodePath, runtime: serviceRuntime, servicePath,
         token: '<redacted generated-or-existing token>',
+        runtimeVersion: version,
+        serviceGeneration: '<new-generation>',
       });
       // harn:end platform-services-propagate-destination-pnpm-node-path
       options.out(`[dry-run] create ${logDir} mode 700`);
@@ -885,16 +1095,17 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       options.out('[dry-run] launch agent content:');
       for (const line of launchAgent.trimEnd().split('\n')) options.out(line);
       options.out(`[dry-run] launchctl bootout ${launchTarget} (ignore not-loaded)`);
+      options.out(`[dry-run] wait for ${launchTarget} to unload`);
       options.out(`[dry-run] launchctl bootstrap ${launchDomain} ${launchAgentPath}`);
       options.out(`[dry-run] launchctl enable ${launchTarget}`);
-      options.out(`[dry-run] launchctl kickstart -k ${launchTarget}`);
     } else {
       options.out(`[dry-run] protect ${tokenPath} for ${windowsUser} with icacls`);
       options.out(`[dry-run] create ${logDir}`);
       options.out(`[dry-run] install generated ServiceScript -> ${windowsScriptPath}`);
-      for (const line of windowsScript!.trimEnd().split(/\r?\n/)) options.out(line);
+      for (const line of windowsScriptFor(version, '<new-generation>').trimEnd().split(/\r?\n/)) options.out(line);
       options.out(`[dry-run] install generated ScheduledTaskXml -> ${windowsTaskPath} as UTF-16LE`);
       for (const line of windowsTask!.trimEnd().split('\n')) options.out(line);
+      options.out('[dry-run] schtasks /End /TN "Codor Switchboard" (ignore not-running)');
       options.out(`[dry-run] schtasks /Create /TN "Codor Switchboard" /XML "${windowsTaskPath}" /F`);
       options.out('[dry-run] schtasks /Run /TN "Codor Switchboard"');
     }
@@ -927,9 +1138,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
 
   const stepTitles = SETUP_STAGE_TITLES;
 
-  // Shared state the steps thread through. `pairing` and `serviceStarted` are
-  // memoized so a Retry re-runs the step's work idempotently: the daemon is not
-  // restarted and the pairing code is not re-minted.
+  // Shared state the steps thread through. `pairing` and the verified service
+  // identity are memoized so Retry reuses only a generation this run proved;
+  // failed or stale starts converge again, and pairing is not re-minted.
   // The readiness probe always targets the local daemon; the pairing endpoint
   // becomes the tailnet HTTPS origin only when Tailscale Serve succeeds.
   const localEndpoint = 'http://127.0.0.1:8137';
@@ -938,6 +1149,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   let pairing: { code: string; expires: string; qr: string; url: string } | undefined;
   let pairingCopied = false;
   let serviceStarted = false;
+  let verifiedServiceIdentity: { version: string; generation: string } | undefined;
 
   const checkStep = (log: (message: string) => void): string => {
     // Read-only detection; Tailscale is not inspected here.
@@ -993,10 +1205,26 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   };
 
   // harn:assume setup-installs-durable-per-user-runtime-atomically ref=setup-install-runtime-wiring
+  // harn:assume windows-runtime-swap-requires-task-quiescence ref=windows-runtime-quiescence
   // Install Codor: make the invoking runtime durable (so the service never
   // references an npx cache), then create the private config, data, and token.
   const installStep = (log: (message: string) => void, intent: InstallIntent = 'ensure'): string => {
-    const result = installDurableRuntime({ runtime, dataDir, version, intent, io: installIo });
+    const existing = detectInstalledRuntime(dataDir, installIo);
+    const swapsRuntime = platform === 'win32'
+      && !installSource.durable
+      && !(intent === 'keep' && existing !== undefined)
+      && !(intent !== 'update' && existing?.version === version);
+    const priorTask = swapsRuntime ? quiesceWindowsTask(exec) : undefined;
+    let result;
+    try {
+      result = installDurableRuntime({ runtime, dataDir, version, intent, io: installIo });
+    } catch (error) {
+      if (priorTask !== undefined) restartWindowsTask(exec, priorTask);
+      throw error;
+    }
+    // Install and Start are separate UI decisions. Keep the pre-existing task
+    // alive after a successful swap until Start deliberately replaces it.
+    if (priorTask !== undefined) restartWindowsTask(exec, priorTask);
     log(result.action === 'in-place'
       ? `using the Codor runtime in place at ${result.location}`
       : `${result.action} the Codor ${result.version} runtime at ${result.location}`);
@@ -1014,6 +1242,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     }
     return `Codor ${result.version} at ${result.location}`;
   };
+  // harn:end windows-runtime-swap-requires-task-quiescence
   // harn:end setup-installs-durable-per-user-runtime-atomically
 
   // Non-interactive access selection (used by --yes and the linear fallback).
@@ -1052,15 +1281,25 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     return result.summary;
   };
 
-  const startStep = async (log: (message: string) => void): Promise<string> => {
-    // A Retry must not reinstall or restart a daemon that is already up; when
-    // the service was started this run and still answers, short-circuit.
-    if (serviceStarted && await probe(localEndpoint)) {
-      log('Codor is already running; reusing it');
-      return 'service already running';
+  // harn:assume setup-proves-selected-runtime-before-reuse ref=setup-runtime-convergence
+  const startStep = async (
+    log: (message: string) => void,
+    identity: { version: string; generation: string } = { version, generation: nextGeneration() },
+    force = false,
+  ): Promise<string> => {
+    const token = existsSync(tokenPath) ? readFileSync(tokenPath, 'utf8').trim() : undefined;
+    // A Retry may reuse only the exact generation already proved by this run.
+    if (!force && serviceStarted && verifiedServiceIdentity !== undefined && token !== undefined) {
+      const status = await runtimeStatus(localEndpoint, token);
+      if (status?.version === verifiedServiceIdentity.version
+        && status.generation === verifiedServiceIdentity.generation) {
+        log('Codor selected runtime is already verified; reusing it');
+        return 'service already running';
+      }
+      serviceStarted = false;
+      verifiedServiceIdentity = undefined;
     }
     if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
-    serviceStarted = true;
     if (platform === 'linux') {
       const token = readFileSync(tokenPath, 'utf8').trim();
       mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
@@ -1068,13 +1307,18 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       chmodSync(userUnitPath, 0o600);
       // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-systemd-emission
       const nodePathEnvLine = nodeModulePath === undefined ? '' : `NODE_PATH=${nodeModulePath}\n`;
-      writeFileSync(envPath, `CODOR_TOKEN=${token}\nPATH=${servicePath}\n${nodePathEnvLine}`, { encoding: 'utf8', mode: 0o600 });
+      writeFileSync(
+        envPath,
+        `CODOR_TOKEN=${token}\nCODOR_RUNTIME_VERSION=${identity.version}\nCODOR_SERVICE_GENERATION=${identity.generation}\nPATH=${servicePath}\n${nodePathEnvLine}`,
+        { encoding: 'utf8', mode: 0o600 },
+      );
       // harn:end platform-services-propagate-destination-pnpm-node-path
       chmodSync(envPath, 0o600);
-      exec('systemctl', ['--user', 'daemon-reload']);
-      exec('systemctl', ['--user', 'enable', '--now', 'codor.service']);
+      serviceExec('systemctl', ['--user', 'daemon-reload']);
+      serviceExec('systemctl', ['--user', 'enable', 'codor.service']);
+      serviceExec('systemctl', ['--user', 'restart', 'codor.service']);
       try {
-        const linger = exec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
+        const linger = serviceExec('loginctl', ['show-user', options.env.USER ?? '', '-p', 'Linger', '--value']);
         if (linger.trim() !== 'yes') log(`for boot startup: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
       } catch {
         log(`check lingering: loginctl enable-linger ${options.env.USER ?? '$USER'}`);
@@ -1087,11 +1331,13 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-launchd-emission
       writeFileSync(launchAgentPath, renderLaunchAgent({
         dataDir, logDir, nodeModulePath, nodePath, runtime: serviceRuntime, servicePath, token,
+        runtimeVersion: identity.version,
+        serviceGeneration: identity.generation,
       }), { encoding: 'utf8', mode: 0o600 });
       // harn:end platform-services-propagate-destination-pnpm-node-path
       chmodSync(launchAgentPath, 0o600);
       await bootstrapLaunchAgent({
-        exec, probe, sleep,
+        exec: serviceExec, probe, sleep,
         exists: overrides.exists,
         domain: launchDomain!,
         target: launchTarget!,
@@ -1103,16 +1349,30 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       });
     } else {
       mkdirSync(logDir, { recursive: true });
-      writeFileSync(windowsScriptPath, windowsScript!, 'utf8');
+      writeFileSync(windowsScriptPath, windowsScriptFor(identity.version, identity.generation), 'utf8');
       writeFileSync(windowsTaskPath, Buffer.from(`﻿${windowsTask!}`, 'utf16le'));
-      exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
-      exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
+      try { serviceExec('schtasks', ['/End', '/TN', WINDOWS_TASK_NAME]); } catch { /* task may not be running */ }
+      serviceExec('schtasks', ['/Create', '/TN', WINDOWS_TASK_NAME, '/XML', windowsTaskPath, '/F']);
+      serviceExec('schtasks', ['/Run', '/TN', WINDOWS_TASK_NAME]);
     }
-    await waitForCodor(localEndpoint, probe, sleep);
+    const readinessBudget = options.updateOnly === undefined
+      ? READINESS_BUDGET_MS
+      : Math.min(READINESS_BUDGET_MS, remainingUpdateMs('candidate readiness'));
+    await waitForCodor(localEndpoint, probe, sleep, updateNow, readinessBudget);
     log('Codor answered its pairing status check');
+    if (options.updateOnly !== undefined) remainingUpdateMs('candidate identity verification');
+    const selected = await runtimeStatus(localEndpoint, readFileSync(tokenPath, 'utf8').trim());
+    if (options.updateOnly !== undefined) remainingUpdateMs('candidate identity response');
+    if (selected?.version !== identity.version || selected.generation !== identity.generation) {
+      throw new Error(`Codor answered generically but did not report selected runtime ${identity.version} generation ${identity.generation}`);
+    }
+    verifiedServiceIdentity = identity;
+    serviceStarted = true;
+    log(`Codor reported selected runtime ${identity.version} generation ${identity.generation}`);
     if (systemdBindHost === '0.0.0.0') log('WSL2 NAT is reachable through Windows localhost');
     return 'service enabled and answering';
   };
+  // harn:end setup-proves-selected-runtime-before-reuse
 
   const pairStep = async (log: (message: string) => void): Promise<string> => {
     if (pairing === undefined) {
@@ -1151,6 +1411,104 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     log(`pairing code ${pairing.code}`);
     return `code ${pairing.code}`;
   };
+
+  // harn:assume runtime-update-restores-every-mutated-runtime-service-and-launcher-surface ref=private-update-application
+  // harn:assume windows-runtime-swap-requires-task-quiescence ref=windows-runtime-quiescence
+  if (options.updateOnly !== undefined) {
+    if (runtime.layout !== 'installed-package') throw new Error('the private updater requires an acquired package runtime');
+    if (version !== options.updateOnly.expectedVersion) {
+      throw new Error(`acquired Codor version ${version} does not match expected ${options.updateOnly.expectedVersion}`);
+    }
+    const previous = detectInstalledRuntime(dataDir, installIo);
+    if (!previous) throw new Error('no durable Codor installation was found; run `codor install` first');
+    if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
+    const log = (message: string): void => options.out(message);
+    const serviceFiles = platform === 'linux'
+      ? [userUnitPath, envPath, join(home, '.local', 'bin', 'codor')]
+      : platform === 'darwin'
+        ? [launchAgentPath, join(home, '.local', 'bin', 'codor'), join(home, '.zprofile')]
+        : [windowsScriptPath, windowsTaskPath];
+    const priorServiceFiles = captureServiceFiles(serviceFiles);
+    const priorTask = platform === 'win32' ? quiesceWindowsTask(serviceExec) : undefined;
+    let result: ReturnType<typeof installDurableRuntime> | undefined;
+    try {
+      remainingUpdateMs('runtime staging');
+      result = installDurableRuntime({
+        runtime,
+        dataDir,
+        version,
+        intent: 'update',
+        retainBackup: true,
+        io: installIo,
+      });
+      remainingUpdateMs('runtime swap');
+      if (platform !== 'win32') {
+        installLauncher({
+          home, nodePath, cliEntrypoint: serviceRuntime.cliEntrypoint, platform, pathEntries, log, io: launcherIo,
+        });
+      }
+      remainingUpdateMs('launcher installation');
+      const generation = nextGeneration();
+      await startStep(log, { version, generation }, true);
+      finalizeDurableRuntimeInstall(result, installIo);
+      options.out(`Codor updated from ${previous.version} to ${version}; service generation ${generation} is ready`);
+      return;
+    } catch (error) {
+      const restorationFailures: string[] = [];
+      if (platform === 'win32') {
+        try { recoveryExec('schtasks', ['/End', '/TN', WINDOWS_TASK_NAME]); } catch { /* candidate task may not be running */ }
+      }
+      try {
+        if (result !== undefined) rollbackDurableRuntimeInstall(result, installIo);
+      } catch (rollbackError) {
+        restorationFailures.push(`runtime restore failed: ${String(rollbackError)}`);
+      }
+      try { restoreServiceFiles(priorServiceFiles); } catch (restoreError) {
+        restorationFailures.push(`service-file restore failed: ${String(restoreError)}`);
+      }
+      if (restorationFailures.length > 0) {
+        throw new Error(`Codor update failed: ${String(error)}; rollback was incomplete (${restorationFailures.join('; ')}). Inspect the user-service logs and restore the stopped backup before retrying.`);
+      }
+      let rollbackDetail = 'the previous runtime files were restored';
+      try {
+        if (platform === 'linux') {
+          recoveryExec('systemctl', ['--user', 'daemon-reload']);
+          recoveryExec('systemctl', ['--user', 'enable', 'codor.service']);
+          recoveryExec('systemctl', ['--user', 'restart', 'codor.service']);
+        } else if (platform === 'darwin') {
+          await bootstrapLaunchAgent({
+            exec: recoveryExec, probe, sleep,
+            exists: overrides.exists,
+            domain: launchDomain!,
+            target: launchTarget!,
+            plistPath: launchAgentPath,
+            nodePath,
+            cliEntrypoint: serviceRuntime.cliEntrypoint,
+            endpoint: localEndpoint,
+            log,
+          });
+        } else {
+          if (result === undefined) restartWindowsTask(recoveryExec, priorTask!);
+          else restoreWindowsTask(recoveryExec, priorTask!, windowsTaskRestorePath);
+        }
+        await waitForCodor(localEndpoint, probe, sleep);
+        const token = readFileSync(tokenPath, 'utf8').trim();
+        const restored = await runtimeStatus(localEndpoint, token);
+        if (restored === undefined) {
+          rollbackDetail = `Codor ${previous.version} was restored and is generically healthy, but its legacy identity is unverified`;
+        } else if (restored.version === previous.version) {
+          rollbackDetail = `Codor ${previous.version} was restored and version-verified`;
+        } else {
+          throw new Error(`the restored service reported unexpected Codor ${restored.version}`);
+        }
+      } catch (rollbackError) {
+        rollbackDetail = `the previous runtime and exact service files were restored but its service could not be verified: ${String(rollbackError)}`;
+      }
+      throw new Error(`Codor update failed: ${String(error)}; ${rollbackDetail}. Inspect the user-service logs and retry \`codor update\`.`);
+    }
+  }
+  // harn:end windows-runtime-swap-requires-task-quiescence
+  // harn:end runtime-update-restores-every-mutated-runtime-service-and-launcher-surface
 
   const cardColumns = overrides.streams?.output?.columns ?? process.stdout.columns ?? 80;
   // The frame budget is rows - 1. Its fixed pairing overhead is two header rows,

@@ -120,6 +120,9 @@ export interface ServerOptions {
   voiceTimeoutMs?: number;
   /** Test-only hostname seam; production uses node:os. */
   systemHostname?: string;
+  /** Private process identity used only by the authenticated update readiness probe. */
+  runtimeVersion?: string;
+  serviceGeneration?: string;
 }
 
 export interface RunningServer {
@@ -572,6 +575,19 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     });
   });
   // harn:end unpaired-browser-always-has-enrollment-path
+
+  // harn:assume service-runtime-status-is-owner-authenticated ref=runtime-status-rest
+  app.get('/api/runtime/status', (req, reply) => {
+    reply.header('cache-control', 'no-store');
+    const principal = authed(req, reply);
+    if (!principal) return;
+    if (principal.kind !== 'owner') return reply.code(403).send({ error: 'forbidden' });
+    const version = options.runtimeVersion ?? process.env.CODOR_RUNTIME_VERSION;
+    const generation = options.serviceGeneration ?? process.env.CODOR_SERVICE_GENERATION;
+    if (!version || !generation) return reply.code(503).send({ error: 'runtime identity is unavailable' });
+    return reply.send({ version, generation });
+  });
+  // harn:end service-runtime-status-is-owner-authenticated
 
   // harn:assume pairing-code-exchange-uniform-and-rate-limited ref=pairing-code-exchange-rest
   app.post('/api/pairing/exchange', (req, reply) => {

@@ -157,6 +157,21 @@ export function Composer(props: { room: string; token: () => string; connection:
   const suppressClickRef = useRef(false);
   const recording = takes.some((take) => take.state === 'recording');
 
+  // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-boundary
+  // Event-level disabling is presentation, not authority: paste/drop and a
+  // hidden input can invoke uploads without a visible button, while a dictation
+  // session opened online can reach transcription after the socket drops.
+  const mediaMutationReadyRef = useRef(false);
+  mediaMutationReadyRef.current = connected && hydrated;
+  const mediaMutationAllowed = (kind: 'attachment' | 'voice'): boolean => {
+    if (mediaMutationReadyRef.current) return true;
+    setHint(kind === 'attachment'
+      ? 'Reconnect before uploading files'
+      : 'Reconnect before using voice');
+    return false;
+  };
+  // harn:end readable-reconnecting-room-never-admits-mutation
+
   // Programmatic inserts restore the caret synchronously with the DOM update —
   // an rAF here loses keystrokes racing in from a fast typist.
   // Size against the COMMITTED draft, not the keystroke that caused it: quoting,
@@ -333,6 +348,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   // post frame can reference server ids. Chips show what will ride the message.
   const addFiles = (files: File[]): void => {
     if (files.length === 0) return;
+    if (!mediaMutationAllowed('attachment')) return;
     let batch = files;
     if (batch.some((file) => file.size > MAX_ATTACHMENT_BYTES)) {
       setHint('Files must be under 25 MB');
@@ -348,6 +364,7 @@ export function Composer(props: { room: string; token: () => string; connection:
     void (async () => {
       try {
         for (const file of batch) {
+          if (!mediaMutationAllowed('attachment')) break;
           const uploaded = await uploadAttachment(props.room, props.token(), file);
           setPending((prior) => [...prior, uploaded]);
         }
@@ -425,6 +442,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   };
 
   const openDictation = (): void => {
+    if (!mediaMutationAllowed('voice')) return;
     const derived = deriveVoiceRecipientHandle(
       areaRef.current?.value ?? draft,
       roster.map((member) => member.handle),
@@ -434,7 +452,10 @@ export function Composer(props: { room: string; token: () => string; connection:
     setHint(undefined);
     levelsRef.current = [];
     const session = new DictationSession({
-      transcribe: (wav) => transcribeVoice(props.token(), wav),
+      transcribe: async (wav) => {
+        if (!mediaMutationAllowed('voice')) throw new Error('Reconnect before using voice');
+        return transcribeVoice(props.token(), wav);
+      },
       onChange: setTakes,
       onLevel: (level) => {
         levelsRef.current.push(level);
@@ -469,7 +490,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   };
   const sendDictation = (): void => {
     const session = sessionRef.current;
-    if (!session || sending) return;
+    if (!session || sending || !mediaMutationAllowed('voice')) return;
     setSending(true); // single-slot: a second press is impossible
     setHint(undefined);
     session.sendWhenReady()

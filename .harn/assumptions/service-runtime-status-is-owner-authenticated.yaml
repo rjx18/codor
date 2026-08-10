@@ -1,0 +1,14 @@
+id: service-runtime-status-is-owner-authenticated
+hash: a-32577dedb7b9
+title: Local runtime readiness identifies the live service generation privately
+state: active
+statement: >
+  The switchboard must expose its configured runtime version and opaque service
+  generation only through an owner-token-authenticated no-store local status
+  response, so setup/update fixtures and the private updater can distinguish the
+  selected resident process from a stale healthy daemon without exposing
+  operator lifecycle details to unpaired callers, paired browsers, human
+  members, or agents.
+depends_on:
+  - server-token-required
+created_by: hosted-relay-smooth-startup-r2-update

@@ -1,0 +1,14 @@
+id: empty-roster-settings-guides-saveable-setup
+hash: a-5caf68c35e53
+title: Settings guides an empty roster to a saved preset group
+state: active
+statement: "Authorized Settings must explain an empty default roster as a short
+  ordered setup: create a preset when no presets exist, add a saved preset to
+  Default roster, and save the roster; when presets already exist the
+  create-preset step is omitted, while read/save transport, authorization, and
+  schema failures remain retryable and any draft remains intact."
+depends_on:
+  - settings-manages-individual-agent-presets-through-canonical-controls
+  - settings-manages-one-separate-ordered-default-roster
+  - agent-preset-management-is-authorized-across-rest-and-cli
+created_by: hosted-relay-smooth-startup-r3-roster-guidance

@@ -211,6 +211,30 @@ describe('TunnelClient resilience', () => {
     await expect(pending).rejects.toThrow(/session lost/);
     client.dispose();
   });
+
+  // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-regression
+  it('aborts one stalled HTTP stream exactly once without dropping the tunnel', async () => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    client.connect();
+    completeHandshake(dialed[0]!);
+    const controller = new AbortController();
+    const pending = client.fetch('/api/rooms/summary', { signal: controller.signal });
+    let settlements = 0;
+    void pending.then(() => { settlements += 1; }, () => { settlements += 1; });
+
+    controller.abort(new DOMException('summary deadline', 'TimeoutError'));
+    await expect(pending).rejects.toThrow(/summary deadline/);
+    expect(client.state).toBe('connected');
+    expect(settlements).toBe(1);
+
+    // Late transport teardown cannot settle the already-rejected request again.
+    dialed[0]!.close();
+    await Promise.resolve();
+    expect(settlements).toBe(1);
+    client.dispose();
+  });
+  // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded
 });
 
 // P7: some networks kill the canonical relay host while the alias passes. The

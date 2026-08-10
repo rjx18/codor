@@ -339,6 +339,50 @@ it('coalesces several signals describing one transition into ONE replacement', a
     connector.dispose();
   });
 
+  // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion-regression
+  it('hydrates only the current room history and promotes a background room once', () => {
+    const connector = build('eng');
+    const socket = latest();
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [{ id: 'eng' }, { id: 'design' }, { id: 'ops' }] });
+    const frames = () => socket.sent
+      .map((raw) => JSON.parse(raw) as { type?: string; room?: string; hydrate_limit?: number; since_seq?: number })
+      .filter((frame) => frame.type === 'subscribe');
+
+    expect(frames().find((frame) => frame.room === 'eng')?.hydrate_limit).toBe(20);
+    expect(frames().find((frame) => frame.room === 'design')?.hydrate_limit).toBe(0);
+    expect(frames().find((frame) => frame.room === 'ops')?.hydrate_limit).toBe(0);
+
+    socket.deliver({
+      type: 'room_support',
+      room: 'design',
+      support: {
+        room: 'design',
+        summary: { unread: 4, attention: true, working: true },
+        interactions: [],
+        inbox: [],
+        pinned: [],
+      },
+    });
+    expect(useClientStore.getState().rooms.design?.support?.summary).toMatchObject({
+      unread: 4,
+      attention: true,
+      working: true,
+    });
+
+    socket.deliver({ type: 'sync_complete', room: 'design', seq: 12 });
+    connector.switchRoom('design');
+    expect(frames().filter((frame) => frame.room === 'design')).toEqual([
+      expect.objectContaining({ hydrate_limit: 0 }),
+      expect.objectContaining({ hydrate_limit: 20, since_seq: 0 }),
+    ]);
+    connector.switchRoom('eng');
+    connector.switchRoom('design');
+    expect(frames().filter((frame) => frame.room === 'design')).toHaveLength(2);
+    connector.dispose();
+  });
+  // harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+
   it('never resumes a manual park', () => {
     const connector = build();
     latest().accept();

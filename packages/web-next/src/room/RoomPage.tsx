@@ -60,7 +60,7 @@ export function RoomPage(props: {
     manager?.getSnapshot ?? (() => EMPTY_COMPUTER_SNAPSHOT),
     () => EMPTY_COMPUTER_SNAPSHOT,
   );
-  const managed = manager?.active();
+  const managed = manager?.renderableActive();
   return (
     <MountedRoomPage
       key={managed?.id ?? 'direct'}
@@ -475,6 +475,7 @@ function ChannelRail(props: {
     });
   }, [summaries, room, workingByRoom]);
 
+  // harn:assume empty-roster-guidance-reuses-mounted-settings ref=mounted-empty-roster-settings-route
   return (
     <nav className="nx-rail" aria-label="Channels">
       <div className="nx-brand">
@@ -594,6 +595,7 @@ function ChannelRail(props: {
         <CreateChannelDialog
           token={props.token}
           onClose={() => setCreating(false)}
+          onSettings={props.onSettings}
           onCreated={(created) => {
             setCreating(false);
             props.onSwitch(created.id);
@@ -602,6 +604,7 @@ function ChannelRail(props: {
       )}
     </nav>
   );
+  // harn:end empty-roster-guidance-reuses-mounted-settings
 }
 
 function summaryPreview(entry: RoomSummary): string {

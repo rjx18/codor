@@ -71,6 +71,7 @@ import { parseMirrorHook } from './mirror.js';
 import { operatorTokenPath, runSetup, type SetupAccess, type SetupOverrides } from './setup.js';
 import { renderPairingCard } from './setup-ui.js';
 import { renderTerminalQr } from './terminal-qr.js';
+import { runCandidateUpdate, runOfficialUpdate, type UpdateOverrides } from './update.js';
 import { parseLine, startOutpost, startCodor, waitForShutdown } from './up.js';
 import {
   adoptWorktree,
@@ -100,6 +101,8 @@ export interface CliContext {
   isTTY?: boolean;
   /** Test seam for the interactive channel archive confirmation. */
   confirm?(prompt: string): Promise<string | boolean>;
+  /** Test seams for the packaged stable update journey. */
+  update?: UpdateOverrides;
 }
 
 interface GlobalOptions {
@@ -1055,6 +1058,39 @@ defaultRosterManagement
     });
   // harn:end public-install-is-the-primary-command-with-setup-alias
   // harn:end setup-unattended-mutation-requires-explicit-intent
+
+  // harn:assume official-codor-update-is-cooperatively-bounded-and-platform-truthful ref=stable-update-command
+  program
+    .command('update')
+    .description('Update the durable Codor runtime to the current official stable release')
+    .action(async () => {
+      await runOfficialUpdate({
+        dataDir: program.opts<GlobalOptions>().dataDir,
+        env,
+        out,
+        overrides: context.update,
+      });
+    });
+
+  program
+    .command('__apply-update', { hidden: true })
+    .requiredOption('--expected-version <version>')
+    .requiredOption('--timeout-ms <milliseconds>')
+    .action(async (options: { expectedVersion: string; timeoutMs: string }) => {
+      const timeoutMs = Number(options.timeoutMs);
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+        throw new Error('private update timeout must be a positive integer number of milliseconds');
+      }
+      await runCandidateUpdate({
+        dataDir: program.opts<GlobalOptions>().dataDir,
+        expectedVersion: options.expectedVersion,
+        timeoutMs,
+        env,
+        out,
+        overrides: context.update,
+      });
+    });
+  // harn:end official-codor-update-is-cooperatively-bounded-and-platform-truthful
 
   program
     .command('spawn')

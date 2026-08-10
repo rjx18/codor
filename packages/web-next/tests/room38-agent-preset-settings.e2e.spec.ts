@@ -85,6 +85,13 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
   test.beforeEach(async () => { await cleanupPhase4Data(); });
   test.afterEach(async () => { await cleanupPhase4Data(); });
 
+  // harn:assume empty-roster-settings-guides-saveable-setup ref=empty-roster-settings-regression
+  async function deleteAllPresets(): Promise<void> {
+    const { response, body } = await api<{ presets: { id: string }[] }>('/api/agent-presets');
+    if (!response.ok) return;
+    for (const preset of body.presets) await api(`/api/agent-presets/${preset.id}`, { method: 'DELETE' });
+  }
+
   test('Settings maps native, named, and custom presets and saves one ordered roster', async ({ page }) => {
     await openSettings(page);
     const settings = page.getByTestId('agent-preset-settings');
@@ -149,7 +156,7 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
 
     await page.getByTestId(`roster-remove-${namedId}`).click();
     await page.getByTestId('roster-save').click();
-    await expect(page.getByText(/Empty roster/)).toBeVisible();
+    await expect(page.getByText(/No default roster configured yet/)).toBeVisible();
     for (const theme of ['Light', 'Dark']) {
       await page.getByRole('tab', { name: theme }).click();
       const axe = await new AxeBuilder({ page }).analyze();
@@ -369,6 +376,131 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await expect(page.getByTestId('agent-preset-settings')).toBeVisible();
     expect(managementRequests).toEqual(expect.arrayContaining(['/api/agent-presets', '/api/default-roster']));
   });
+
+  test('empty roster Settings guides preset, add, and save, skipping create when a preset exists', async ({ page }) => {
+    await deleteAllPresets();
+    await openSettings(page);
+    const guide = page.getByTestId('default-roster-setup-guide');
+    await expect(guide).toBeVisible();
+    await expect(guide.getByTestId('roster-setup-create-step')).toBeVisible();
+    await expect(guide.getByTestId('roster-setup-add-step')).toContainText('2. Add a saved preset');
+    await expect(guide.getByTestId('roster-setup-save-step')).toContainText('3. Save the roster');
+
+    await guide.getByTestId('roster-setup-add-preset').click();
+    const setupLabel = `P4 setup ${Date.now()}`;
+    await page.getByTestId('preset-label').fill(setupLabel);
+    await page.getByTestId('preset-handle').fill('p4-setup');
+    await page.getByTestId('preset-harness-fake').click();
+    await page.getByTestId('preset-save').click();
+    const setupId = await idForRow(page, setupLabel);
+    await expect(page.getByTestId('default-roster-setup-guide')).toBeVisible();
+    await expect(page.getByTestId('roster-setup-create-step')).toHaveCount(0);
+    await expect(page.getByTestId('roster-setup-add-step')).toContainText('1. Add a saved preset');
+    await expect(page.getByTestId('roster-setup-save-step')).toContainText('2. Save the roster');
+
+    await page.getByTestId('roster-add-select').selectOption(setupId);
+    await page.getByTestId('roster-add').click();
+    await page.getByTestId('roster-save').click();
+    await expect(page.getByTestId(`roster-row-${setupId}`)).toBeVisible();
+
+    await setRoster([]);
+    await page.getByTestId('roster-refresh').click();
+    await expect(page.getByTestId('default-roster-setup-guide')).toBeVisible();
+    await expect(page.getByTestId('roster-setup-create-step')).toHaveCount(0);
+  });
+  // harn:end empty-roster-settings-guides-saveable-setup
+
+  // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-browser-regression
+  // harn:assume empty-roster-guidance-reuses-mounted-settings ref=mounted-empty-roster-settings-route
+  // harn:assume empty-roster-guidance-reuses-mounted-settings ref=hosted-empty-roster-routing-regression
+  test('empty roster guidance keeps Starting agent usable and opens mounted Settings in place', async ({ page }) => {
+    const sockets: unknown[] = [];
+    page.on('websocket', (socket) => sockets.push(socket));
+    await openRoom(page);
+    const timeOrigin = await page.evaluate(() => performance.timeOrigin);
+    const socketsBefore = sockets.length;
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog.getByTestId('create-roster-empty')).toBeVisible();
+    await expect(dialog.getByTestId('create-roster-select')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
+    await dialog.getByTestId('create-roster-settings').click();
+    await expect(page.getByTestId('agent-preset-settings')).toBeVisible();
+    expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
+    expect(sockets.length).toBe(socketsBefore);
+  });
+
+  // harn:end hosted-empty-roster-routing-regression
+  // harn:end mounted-empty-roster-settings-route
+  // harn:end empty-default-roster-is-unconfigured-state
+
+  // harn:assume empty-roster-refresh-clears-selection-before-action ref=empty-roster-refresh-browser-regression
+  test('clearing a selected roster during refresh cannot submit it on the next Create action', async ({ page }) => {
+    const rosterPreset = await createPreset({ label: `P4 refresh race ${Date.now()}`, handle: 'p4-refresh-race', harness: 'fake' });
+    await setRoster([rosterPreset]);
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog.getByTestId('create-roster-select')).toBeVisible();
+    await dialog.getByTestId('create-roster-select').click();
+    await expect(dialog.getByTestId('create-roster-select')).toHaveAttribute('aria-pressed', 'true');
+    await dialog.getByTestId('create-name').fill(`P4 refresh race channel ${Date.now()}`);
+    await dialog.getByTestId('create-folder-alpha-project').click();
+
+    await page.route('**/api/default-roster', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            roster: {
+              id: 'default', schema_version: 1, preset_ids: [], updated_ts: '2026-08-10T00:00:00.000Z',
+            },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await dialog.getByTestId('create-roster-refresh').click();
+    await expect(dialog.getByTestId('create-roster-empty')).toBeVisible();
+    await expect(dialog.getByTestId('create-roster-select')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
+
+    await page.route('**/api/rooms', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'hold refresh-race create' }) });
+        return;
+      }
+      await route.continue();
+    });
+    const request = page.waitForRequest((candidate) => candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/rooms');
+    await dialog.getByTestId('create-go').click();
+    const payload = (await request).postDataJSON();
+    expect(payload).not.toHaveProperty('default_roster');
+    await expect(dialog.getByRole('alert')).toContainText('hold refresh-race create');
+    await page.unroute('**/api/default-roster');
+    await page.unroute('**/api/rooms');
+  });
+  // harn:end empty-roster-refresh-clears-selection-before-action
+
+  // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-onboarding-regression
+  test('empty first-channel onboarding never sends default_roster', async ({ page }) => {
+    await page.route('**/api/rooms/summary?*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rooms: [] }) });
+    }, { times: 1 });
+    await page.goto(`/?token=${OWNER}`);
+    const onboarding = page.getByTestId('first-channel-onboarding');
+    await expect(onboarding.getByTestId('first-roster-empty')).toBeVisible();
+    await expect(onboarding.getByTestId('first-roster-select')).toHaveCount(0);
+    await onboarding.getByTestId('first-folder-alpha-project').click();
+    await onboarding.getByTestId('first-channel-name').fill(`P4 empty ${Date.now()}`);
+    const request = page.waitForRequest((candidate) => candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/rooms');
+    await onboarding.getByTestId('first-channel-create').click();
+    const payload = (await request).postDataJSON();
+    expect(payload).not.toHaveProperty('default_roster');
+  });
+  // harn:end empty-default-roster-is-unconfigured-state
 
   test('Settings, roster ordering, and both creation choices fit at 390px', async ({ page }) => {
     const first = await createPreset({ label: `P4 phone first ${Date.now()}`, handle: 'p4-phone-first', harness: 'fake' });

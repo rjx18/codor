@@ -1,0 +1,16 @@
+id: packed-update-bootstrap-crosses-real-candidate-transaction
+hash: a-6ae9cf361f70
+title: Packed npx proof performs a previous-runtime official update transaction
+state: active
+statement: >
+  The clean local-TGZ release proof must invoke the real public `npx --yes
+  --package=<packed-candidate> codor update` command against a controlled
+  previous durable runtime, exercise official-registry lookup/acquisition, the
+  acquired package's private updater, runtime swap, rendered service generation,
+  and authenticated readiness, and prove the selected version commits without
+  touching a real host. Help-only dispatch is not an update proof.
+depends_on:
+  - official-codor-update-is-cooperatively-bounded-and-platform-truthful
+  - packed-release-proof-runs-install-runtime
+  - packed-local-tgz-npx-proof-runs-fresh-default-audit
+created_by: hosted-relay-smooth-startup-r2-transaction-review-fixes

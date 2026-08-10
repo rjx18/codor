@@ -148,6 +148,7 @@ describe('built public artifact', () => {
     buildArtifact({ repoRoot, outDir });
     const readme = readFileSync(join(outDir, 'README.md'), 'utf8');
     expect(readme).toContain('npx @richhardry/codor install');
+    expect(readme).toContain('npx --yes --package=@richhardry/codor@latest codor update');
     expect(readme).toContain(
       'https://raw.githubusercontent.com/rjx18/codor/main/website/public/codor-mark-light.svg',
     );

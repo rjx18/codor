@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { RoomSummary } from '@codor/protocol';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const recovery = vi.hoisted(() => ({
   refresh: vi.fn(),
@@ -8,12 +8,24 @@ const recovery = vi.hoisted(() => ({
   finalizedRoots: vi.fn((_store: unknown, _room: string) => new Set<number>()),
   upgrade: vi.fn(),
 }));
+const lastGoodCache = vi.hoisted(() => ({ snapshots: new Map<string, unknown>() }));
 vi.mock('../room/run-journals.js', () => ({ refreshMutableRunJournals: recovery.refresh }));
 vi.mock('../room/transcript-history.js', () => ({
   refreshTranscriptHistoryHead: recovery.refreshHead,
   finalizedTranscriptRoots: recovery.finalizedRoots,
 }));
 vi.mock('./compatibility.js', () => ({ requireBrowserUpgrade: recovery.upgrade }));
+vi.mock('../runtime/last-good-room.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../runtime/last-good-room.js')>();
+  return {
+    ...actual,
+    loadLastGoodRoom: vi.fn(async (id: string) => lastGoodCache.snapshots.get(id)),
+    saveLastGoodRoom: vi.fn(async (snapshot: { computerId: string }) => {
+      lastGoodCache.snapshots.set(snapshot.computerId, snapshot);
+    }),
+    deleteLastGoodRoom: vi.fn(async (id: string) => { lastGoodCache.snapshots.delete(id); }),
+  };
+});
 
 import type { HostedComputerMaterial } from '@runtime/crypto.js';
 import type { TunnelState } from '@runtime/relay.js';
@@ -23,7 +35,15 @@ import {
   type ComputerSessionDeps,
 } from './computer-sessions.js';
 import type { ConnectorOptions, RoomConnector } from './connector.js';
-import { rememberedRoom } from './startup.js';
+import { rememberRoom, rememberedRoom } from './startup.js';
+import {
+  deleteLastGoodRoom,
+  loadLastGoodRoom,
+  saveLastGoodRoom,
+  type LastGoodRoomSnapshot,
+} from '../runtime/last-good-room.js';
+
+beforeEach(() => lastGoodCache.snapshots.clear());
 
 const material = (id: string, gen = 1): HostedComputerMaterial => ({
   computer: { id, gen, label: `Computer ${id}`, label_source: 'fallback', paired_at: `2026-08-0${gen}` },
@@ -194,7 +214,9 @@ describe('ComputerSessionManager', () => {
     h.tunnels.get('A')?.set('disconnected', true);
     h.tunnels.get('A')?.set('connected');
     releaseFirstA();
-    for (let tick = 0; tick < 12; tick += 1) await Promise.resolve();
+    // The generation-bound request wrapper adds a settlement hop so stale
+    // authentication and room-summary work cannot outlive its abort cleanup.
+    for (let tick = 0; tick < 24; tick += 1) await Promise.resolve();
 
     expect(aAttempts).toBe(2);
     expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
@@ -345,6 +367,40 @@ describe('ComputerSessionManager', () => {
     delete (window as unknown as { __CODOR_SESSION_BOOT_MS?: number }).__CODOR_SESSION_BOOT_MS;
   });
 
+  // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-regression
+  it('aborts one stalled entry at its deadline and retries without recovering its ready peer', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const authenticate = h.deps.authenticate;
+    let attempts = 0;
+    let firstSignal: AbortSignal | undefined;
+    h.deps.authenticate = async (loaded, tunnel, signal) => {
+      if (loaded.computer.id === 'A' && ++attempts === 1) {
+        firstSignal = signal;
+        await new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      return authenticate(loaded, tunnel, signal);
+    };
+    h.deps.sleep = async () => undefined;
+    (window as unknown as { __CODOR_SESSION_REQUEST_MS?: number }).__CODOR_SESSION_REQUEST_MS = 25;
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    await vi.advanceTimersByTimeAsync(25);
+    for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
+
+    expect(firstSignal?.aborted).toBe(true);
+    expect(h.tunnels.get('A')?.recoveries).toBe(1);
+    expect(h.tunnels.get('B')?.recoveries).toBe(0);
+    expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
+    expect(h.connectorStarts.filter((id) => id === 'B')).toHaveLength(1);
+    manager.dispose();
+    delete (window as unknown as { __CODOR_SESSION_REQUEST_MS?: number }).__CODOR_SESSION_REQUEST_MS;
+    vi.useRealTimers();
+  });
+  // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded
+
   it('keeps a revoked active connector mounted and rejects selecting it later', async () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
@@ -373,6 +429,54 @@ describe('ComputerSessionManager', () => {
     expect(await manager.activate('B')).toBe(false);
     expect(h.switches).toEqual(before);
     expect(manager.active()?.id).toBe('A');
+    manager.dispose();
+  });
+
+  it('retires a mounted stale cache before publishing authenticated empty-room truth', async () => {
+    const h = harness();
+    let resolveEmpty!: (rooms: RoomSummary[]) => void;
+    const loadRooms = h.deps.loadRooms;
+    h.deps.loadRooms = async (token, tunnel, signal) => token.endsWith('A')
+      ? new Promise<RoomSummary[]>((resolve) => { resolveEmpty = resolve; })
+      : loadRooms(token, tunnel, signal);
+    const room = {
+      id: 'same-room',
+      name: 'Stale cached room',
+      created_ts: '2026-08-01T00:00:00.000Z',
+      config: {
+        turn_brake: null,
+        spend_brake_usd: null,
+        stall_minutes: 30,
+        redaction_enabled: true,
+        bridged: false,
+      },
+    };
+    const cached: LastGoodRoomSnapshot = {
+      version: 1,
+      computerId: 'A',
+      room,
+      summaries: [summary('A', 1)],
+      history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+      savedAt: '2026-08-10T00:00:00.000Z',
+    };
+    await deleteLastGoodRoom('A');
+    await saveLastGoodRoom(cached);
+    expect(await loadLastGoodRoom('A')).toEqual(cached);
+    rememberRoom(room.id, 'A');
+
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    expect(manager.renderableActive()).toMatchObject({ id: 'A', room: 'same-room', token: '' });
+
+    resolveEmpty([]);
+    for (let tick = 0; tick < 24 && await loadLastGoodRoom('A') !== undefined; tick += 1) {
+      await Promise.resolve();
+    }
+    expect(manager.activeHasNoRooms()).toBe(true);
+    expect(manager.renderableActive()).toBeUndefined();
+    expect(manager.active()).toBeUndefined();
+    expect(rememberedRoom('A')).toBeUndefined();
+    expect(await loadLastGoodRoom('A')).toBeUndefined();
     manager.dispose();
   });
 

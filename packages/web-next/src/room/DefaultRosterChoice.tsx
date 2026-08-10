@@ -1,6 +1,6 @@
 import type { AgentPreset, DefaultRoster } from '@codor/protocol';
 import { RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   fetchAgentPresets,
@@ -66,7 +66,7 @@ export function rosterSummary(
   presets: readonly AgentPreset[] | undefined,
 ): { text: string; inconsistent: boolean } {
   if (roster === undefined || presets === undefined) return { text: '', inconsistent: false };
-  if (roster.preset_ids.length === 0) return { text: 'Empty roster · no starting agents', inconsistent: false };
+  if (roster.preset_ids.length === 0) return { text: 'No default roster configured', inconsistent: false };
   const byId = new Map(presets.map((preset) => [preset.id, preset]));
   const missing = roster.preset_ids.filter((id) => !byId.has(id));
   if (missing.length > 0) {
@@ -89,6 +89,8 @@ export function DefaultRosterChoice(props: {
   enabled?: boolean;
   selected: boolean;
   onSelectedChange: (selected: boolean) => void;
+  onRosterEmptyChange?: (empty: boolean) => void;
+  onSettings?: () => void;
   idPrefix?: string;
   // harn:assume worktree-lifecycle-ui-is-explicit-and-recoverable ref=worktree-default-roster-choice-copy
   /** Consumer-specific copy; the selector itself is the one accepted control. */
@@ -103,6 +105,17 @@ export function DefaultRosterChoice(props: {
     () => rosterSummary(state.roster, state.presets),
     [state.presets, state.roster],
   );
+
+  // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-choice-and-submit
+  // harn:assume empty-roster-refresh-clears-selection-before-action ref=empty-roster-refresh-synchronous-invalidation
+  useLayoutEffect(() => {
+    if (state.roster === undefined) return;
+    const empty = state.roster.preset_ids.length === 0;
+    props.onRosterEmptyChange?.(empty);
+    if (empty && props.selected) props.onSelectedChange(false);
+  }, [props.onRosterEmptyChange, props.onSelectedChange, props.selected, state.roster]);
+  // harn:end empty-roster-refresh-clears-selection-before-action
+  // harn:end empty-default-roster-is-unconfigured-state
 
   if (!enabled) return null;
 
@@ -146,7 +159,21 @@ export function DefaultRosterChoice(props: {
         </div>
       )}
       {state.roster !== undefined && state.presets !== undefined
-        && state.error === undefined && !summary.inconsistent && (
+        && state.error === undefined && !summary.inconsistent && state.roster.preset_ids.length === 0 && (
+        <div className="nx-roster-empty" role="status" data-testid={`${id}-roster-empty`}>
+          <strong>No default roster configured</strong>
+          <span>{props.onSettings === undefined
+            ? 'Create the first channel with Starting agent, then configure presets and the Default roster in Settings.'
+            : 'Add a saved preset in Settings and save it to Default roster, or use Starting agent for this channel.'}</span>
+          {props.onSettings !== undefined && (
+            <Button variant="quiet" type="button" data-testid={`${id}-roster-settings`} onClick={props.onSettings}>
+              Open Settings
+            </Button>
+          )}
+        </div>
+      )}
+      {state.roster !== undefined && state.presets !== undefined
+        && state.error === undefined && !summary.inconsistent && state.roster.preset_ids.length > 0 && (
         <button
           type="button"
           className={`nx-roster-choice-card ${props.selected ? 'is-selected' : ''}`}
