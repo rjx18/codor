@@ -84,6 +84,7 @@ const emptyHistory = (): TranscriptHistoryState => ({
   messages: {},
   journals: {},
   units: [],
+  latestPage: undefined,
   beforeCursor: undefined,
   hasMore: true,
 });

@@ -1,0 +1,18 @@
+id: hosted-background-rooms-hydrate-metadata-until-promoted
+hash: a-9bed7fbc51c7
+title: Background hosted rooms subscribe live without an eager history tail
+state: active
+statement: >
+  An addressed browser subscribe with hydrate_limit zero must return the room,
+  roster, inbox, meter, recipient-scoped support, cursor, and sync_complete from
+  one snapshot while returning no historical tail; a hosted connector
+  cold-hydrates only its current and explicitly desired rooms with twenty
+  messages, keeps every other authorized room subscribed at zero for live
+  unread/attention/working state, and promotes a zero- hydrated room with one
+  twenty-message cold hydrate when selected.
+depends_on:
+  - addressed-cold-hydration-is-strict-and-legacy-safe
+  - multiplexed-subscriptions-identify-their-room
+  - hosted-background-computer-activity-is-visible
+  - finalized-browser-history-is-combined-page-owned
+created_by: hosted-relay-smooth-startup-r1

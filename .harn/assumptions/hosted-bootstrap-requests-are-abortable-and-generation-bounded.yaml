@@ -1,0 +1,16 @@
+id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
+hash: a-f2cce7627612
+title: Hosted bootstrap HTTP attempts cannot outlive their tunnel generation
+state: active
+statement: >
+  TunnelClient.fetch must honor RequestInit.signal, detach abort listeners,
+  reset its stream, and settle exactly once; each managed authentication and
+  room-summary attempt must have a short deadline whose expiry retires only that
+  entry's current tunnel generation before retry, so a stalled mux stream cannot
+  leave a computer permanently connectorless or leak work into a replacement
+  generation.
+depends_on:
+  - browser-tunnel-readiness-follows-current-generation
+  - tunnel-stream-mux
+  - hosted-computer-sessions-keep-state-isolated
+created_by: hosted-relay-smooth-startup-r1

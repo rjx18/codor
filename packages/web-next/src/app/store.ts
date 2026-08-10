@@ -12,6 +12,7 @@ import {
   type RoomSupport,
   type ServerFrame,
   type TranscriptHistoryJournal,
+  type TranscriptHistoryPage,
   type TranscriptHistoryUnit,
 } from '@codor/protocol';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
@@ -38,6 +39,10 @@ export interface TranscriptHistoryState {
   messages: Record<number, Message>;
   journals: Record<number, TranscriptHistoryJournal>;
   units: TranscriptHistoryUnit[];
+  /** Newest successfully materialized server page. Kept separately so a
+   * bounded last-good snapshot never pairs a sliced unit tail with the cursor
+   * of some older page the operator subsequently loaded. */
+  latestPage: TranscriptHistoryPage | undefined;
   /** Undefined before the first successful head; null at the archive floor. */
   beforeCursor: string | null | undefined;
   hasMore: boolean;
@@ -53,6 +58,7 @@ const EMPTY_TRANSCRIPT_HISTORY: TranscriptHistoryState = {
   messages: {},
   journals: {},
   units: [],
+  latestPage: undefined,
   beforeCursor: undefined,
   hasMore: true,
 };
@@ -127,6 +133,13 @@ export interface ClientState {
   setConnected(connected: boolean): void;
   setAuthRefused(authRefused: boolean): void;
   setRoomSummaries(summaries: RoomSummary[]): void;
+  hydrateLastGoodRoom(
+    room: Room,
+    summaries: RoomSummary[],
+    history: Pick<TranscriptHistoryState, 'messages' | 'journals' | 'units' | 'hasMore'> & {
+      beforeCursor: string | null;
+    },
+  ): void;
   setWorktreeGroup(root: string, group: { repositoryId?: string; registered: RegisteredWorktree[] }): void;
   /** Withdraw current-generation live evidence for the listed rooms (socket
    *  replacement or a fresh desire): they read connecting until their own new
@@ -518,6 +531,44 @@ export function createClientStore(): ClientStore {
   setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
+  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
+  hydrateLastGoodRoom: (room, roomSummaries, history) => set((state) => {
+    const current = state.rooms[room.id] ?? freshRoom();
+    return {
+      connected: false,
+      authRefused: false,
+      activeRoom: room.id,
+      roomSummaries,
+      roomSummariesLoaded: true,
+      rooms: {
+        ...state.rooms,
+        [room.id]: {
+          ...current,
+          hydrated: true,
+          room,
+          messages: { ...history.messages },
+          transcriptHistory: {
+            ...freshTranscriptHistory(),
+            initialized: true,
+            failed: false,
+            messages: { ...history.messages },
+            journals: { ...history.journals },
+            units: [...history.units],
+            latestPage: {
+              messages: Object.values(history.messages),
+              journals: Object.values(history.journals),
+              units: [...history.units],
+              before_cursor: history.beforeCursor,
+              has_more: history.hasMore,
+            },
+            beforeCursor: history.beforeCursor,
+            hasMore: history.hasMore,
+          },
+        },
+      },
+    };
+  }),
+  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
   setWorktreeGroup: (root, group) => set((state) => ({
     worktreeGroups: {
       ...state.worktreeGroups,

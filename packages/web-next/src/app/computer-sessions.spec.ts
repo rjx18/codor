@@ -194,7 +194,9 @@ describe('ComputerSessionManager', () => {
     h.tunnels.get('A')?.set('disconnected', true);
     h.tunnels.get('A')?.set('connected');
     releaseFirstA();
-    for (let tick = 0; tick < 12; tick += 1) await Promise.resolve();
+    // The generation-bound request wrapper adds a settlement hop so stale
+    // authentication and room-summary work cannot outlive its abort cleanup.
+    for (let tick = 0; tick < 24; tick += 1) await Promise.resolve();
 
     expect(aAttempts).toBe(2);
     expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
@@ -344,6 +346,40 @@ describe('ComputerSessionManager', () => {
     manager.dispose();
     delete (window as unknown as { __CODOR_SESSION_BOOT_MS?: number }).__CODOR_SESSION_BOOT_MS;
   });
+
+  // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-regression
+  it('aborts one stalled entry at its deadline and retries without recovering its ready peer', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const authenticate = h.deps.authenticate;
+    let attempts = 0;
+    let firstSignal: AbortSignal | undefined;
+    h.deps.authenticate = async (loaded, tunnel, signal) => {
+      if (loaded.computer.id === 'A' && ++attempts === 1) {
+        firstSignal = signal;
+        await new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        });
+      }
+      return authenticate(loaded, tunnel, signal);
+    };
+    h.deps.sleep = async () => undefined;
+    (window as unknown as { __CODOR_SESSION_REQUEST_MS?: number }).__CODOR_SESSION_REQUEST_MS = 25;
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    await vi.advanceTimersByTimeAsync(25);
+    for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
+
+    expect(firstSignal?.aborted).toBe(true);
+    expect(h.tunnels.get('A')?.recoveries).toBe(1);
+    expect(h.tunnels.get('B')?.recoveries).toBe(0);
+    expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
+    expect(h.connectorStarts.filter((id) => id === 'B')).toHaveLength(1);
+    manager.dispose();
+    delete (window as unknown as { __CODOR_SESSION_REQUEST_MS?: number }).__CODOR_SESSION_REQUEST_MS;
+    vi.useRealTimers();
+  });
+  // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded
 
   it('keeps a revoked active connector mounted and rejects selecting it later', async () => {
     const h = harness();

@@ -1,0 +1,17 @@
+id: hosted-managed-bootstrap-reacts-to-late-readiness
+hash: a-06ea6da41be8
+title: Managed bootstrap remains subscribed until late active readiness
+state: active
+statement: >
+  A paired hosted tab must mount one bootstrap shell subscribed to its
+  ComputerSessionManager, use only the manager-owned authenticated token, room
+  summaries, public root, connector, and upgrade result, and enter a usable
+  active session in the same document whenever it becomes ready, including after
+  the bounded connecting interval, while cached or recovery presentation remains
+  reactive and direct startup keeps its existing compatibility and
+  authorized-room requests.
+depends_on:
+  - hosted-app-keeps-all-paired-computers-live
+  - hosted-offline-recovery-offers-other-computers
+  - hosted-computer-switching-reuses-warm-session
+created_by: hosted-relay-smooth-startup-r1

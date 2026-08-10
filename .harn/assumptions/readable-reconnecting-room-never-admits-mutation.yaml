@@ -1,0 +1,15 @@
+id: readable-reconnecting-room-never-admits-mutation
+hash: a-09e3954c59bc
+title: Retained or cached chats stay readable but never writable while reconnecting
+state: active
+statement: >
+  When a hosted room has renderable retained or cached content but lacks current
+  server readiness, the room must remain nonmodal and readable with one compact
+  reconnecting indicator, preserved scroll/search/copy/draft state, and every
+  mutating control disabled; only a current server frame may restore mutation,
+  no send is queued offline, and fullscreen recovery is reserved for absent
+  content, never-paired state, or terminal unsafe repair.
+depends_on:
+  - hosted-last-good-room-cache-is-bounded-read-only-projection
+  - relay-app-socket-readiness-requires-server-evidence
+created_by: hosted-relay-smooth-startup-r1

@@ -397,19 +397,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     }
   }, [visible]);
 
-  // Follow the tail unless the reader scrolled up; then offer the jump chip instead.
   const lastId = visible.at(-1)?.id;
-  useEffect(() => {
-    const node = scrollerRef.current;
-    if (!node) return;
-    if (pinnedRef.current) {
-      node.scrollTop = node.scrollHeight;
-      lastScrollTopRef.current = node.scrollTop;
-      setShowJump(false);
-    } else {
-      setShowJump(true);
-    }
-  }, [lastId]);
 
   // Durable read edges are about observation, not delivery. A substantive row
   // must occupy meaningful viewport space for a short dwell while the page is
@@ -503,37 +491,41 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // Run prose and evidence can grow without creating a new message. While the
   // reader is pinned, follow that column growth too; an upward scroll past the
   // release threshold is the only thing that suspends this observer.
-  useEffect(() => {
+  // harn:assume transcript-tail-follow-has-one-prepaint-owner ref=transcript-prepaint-geometry
+  useLayoutEffect(() => {
     const node = scrollerRef.current;
     const column = columnRef.current;
     if (!node || !column) return;
-    let frame: number | undefined;
+    // A newly mounted tail row needs correction in this commit's layout phase;
+    // ResizeObserver owns later column/viewport geometry changes in the same
+    // hook, so no second effect or deferred frame can expose an old position.
+    if (pinnedRef.current) {
+      node.scrollTop = node.scrollHeight;
+      lastScrollTopRef.current = node.scrollTop;
+      setShowJump(false);
+    } else if (!pinnedRef.current) {
+      setShowJump(true);
+    }
     const observer = new ResizeObserver(() => {
       if (historyRestoreRef.current?.merged === true) {
         cancelHistorySettle();
-        if (frame !== undefined) cancelAnimationFrame(frame);
-        frame = requestAnimationFrame(() => {
-          restoreHistoryAnchor();
-          settleHistoryAfterQuiet();
-        });
+        restoreHistoryAnchor();
+        settleHistoryAfterQuiet();
         return;
       }
       if (!pinnedRef.current) return;
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        if (!pinnedRef.current) return;
-        node.scrollTop = node.scrollHeight;
-        lastScrollTopRef.current = node.scrollTop;
-        setShowJump(false);
-        markVisibleRowsRead();
-      });
+      node.scrollTop = node.scrollHeight;
+      lastScrollTopRef.current = node.scrollTop;
+      setShowJump(false);
+      markVisibleRowsRead();
     });
     observer.observe(column);
+    observer.observe(node);
     return () => {
       observer.disconnect();
-      if (frame !== undefined) cancelAnimationFrame(frame);
     };
-  }, [cancelHistorySettle, markVisibleRowsRead, restoreHistoryAnchor, settleHistoryAfterQuiet]);
+  }, [cancelHistorySettle, lastId, markVisibleRowsRead, restoreHistoryAnchor, settleHistoryAfterQuiet]);
+  // harn:end transcript-tail-follow-has-one-prepaint-owner
 
   // A permalink jump means the reader is deliberately looking away from the tail.
   // Bounded hydration made this load-bearing: an old target now pages in, and the

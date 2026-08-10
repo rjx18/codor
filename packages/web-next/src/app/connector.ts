@@ -101,6 +101,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let currentRoom = options.room;
   let socket: WebSocket | undefined;
   let subscribed = new Set<string>();
+  /** Highest cold-history budget requested in this socket generation. */
+  let subscriptionBudgets = new Map<string, number>();
+  /** Rooms whose twenty-message promotion completed in any generation. */
+  const historyHydrated = new Set<string>();
+  /** Rooms that completed a metadata-only cold hydrate and still need promotion. */
+  const zeroHydrated = new Set<string>();
   // Hidden child conversations the group view wants live. They ride the same
   // multiplexed socket and resubscribe from their own cursors on every open.
   let desiredRooms = new Set<string>();
@@ -155,21 +161,32 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
   };
 
-  const subscribe = (room: string): void => {
-    if (subscribed.has(room) || socket?.readyState !== WebSocket.OPEN) return;
+  // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion
+  const subscribe = (room: string, hydrateLimit: number): void => {
+    const priorBudget = subscriptionBudgets.get(room);
+    if ((priorBudget ?? -1) >= hydrateLimit || socket?.readyState !== WebSocket.OPEN) return;
+    const promote = hydrateLimit > 0 && zeroHydrated.has(room) && !historyHydrated.has(room);
     subscribed.add(room);
+    subscriptionBudgets.set(room, hydrateLimit);
+    const sinceSeq = promote ? 0 : roomSlice(clientStore.getState(), room).seq;
+    if (typeof window !== 'undefined') {
+      (window as unknown as {
+        __codorRoomSubscribes?: Array<{ room: string; hydrateLimit: number; sinceSeq: number }>;
+      }).__codorRoomSubscribes?.push({ room, hydrateLimit, sinceSeq });
+    }
     send({
       type: 'subscribe',
       room,
       // Each room resumes from ITS OWN committed cursor, so a resubscribe
       // replays only what that room missed and never re-hydrates it.
-      since_seq: roomSlice(clientStore.getState(), room).seq,
-      hydrate_limit: HISTORY_PAGE_SIZE,
+      since_seq: sinceSeq,
+      hydrate_limit: hydrateLimit,
       room_addressed: true,
       browser_protocol: BROWSER_PROTOCOL_EPOCH,
       client_kind: 'browser',
     });
   };
+  // harn:end hosted-background-rooms-hydrate-metadata-until-promoted
 
   /**
    * Warm-resync a room that fell behind, bypassing the `subscribed` guard: it is
@@ -317,6 +334,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const mine = ++generation;
     retire(socket);
     subscribed = new Set();
+    subscriptionBudgets = new Map();
     resyncing = new Map();
     // A new socket generation withdraws every prior live proof: each desired
     // room reads connecting (or offline until server evidence) until THIS
@@ -333,8 +351,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       state = 'connected';
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
-      subscribe(currentRoom);
-      for (const desired of desiredRooms) subscribe(desired);
+      subscribe(currentRoom, HISTORY_PAGE_SIZE);
+      for (const desired of desiredRooms) subscribe(desired, HISTORY_PAGE_SIZE);
       send({ type: 'list_rooms' });
       startProbes(mine);
     };
@@ -362,6 +380,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         // never stands in for a sibling's hydration. Frames from a retired
         // socket are already dropped by the live() guard above.
         const completed = frame.room ?? currentRoom;
+        if ((subscriptionBudgets.get(completed) ?? 0) > 0) {
+          historyHydrated.add(completed);
+          zeroHydrated.delete(completed);
+        } else if (!historyHydrated.has(completed)) {
+          zeroHydrated.add(completed);
+        }
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
       }
@@ -375,7 +399,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         // Reconcile rooms we already held BEFORE this round subscribes any new
         // ones — a freshly subscribed room is hydrating and needs no resync.
         const priorSubscribed = new Set(subscribed);
-        for (const room of frame.rooms) subscribe(room.id);
+        for (const room of frame.rooms) {
+          const foreground = room.id === currentRoom || desiredRooms.has(room.id);
+          subscribe(room.id, foreground ? HISTORY_PAGE_SIZE : 0);
+        }
         reconcile(frame.room_seqs, priorSubscribed);
         if (foregroundProbe) options.onResume?.(currentRoom);
       }
@@ -545,11 +572,11 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (room === currentRoom) return;
       currentRoom = room;
       clientStore.getState().setActiveRoom(room);
-      subscribe(room);
+      subscribe(room, HISTORY_PAGE_SIZE);
     },
     setDesiredRooms: (rooms: readonly string[]) => {
       desiredRooms = new Set(rooms);
-      for (const desired of desiredRooms) subscribe(desired);
+      for (const desired of desiredRooms) subscribe(desired, HISTORY_PAGE_SIZE);
     },
     roomReadiness: (room: string) => {
       if (room !== currentRoom && !desiredRooms.has(room)) return 'unsubscribed';

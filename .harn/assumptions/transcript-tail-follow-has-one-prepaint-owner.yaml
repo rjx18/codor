@@ -1,0 +1,16 @@
+id: transcript-tail-follow-has-one-prepaint-owner
+hash: a-5a2683654157
+title: One pre-paint owner preserves transcript tail and reader anchors
+state: active
+statement: >
+  Transcript content-height and viewport-height changes must be reconciled by
+  one synchronous pre-paint geometry owner: a pinned reader remains at the true
+  bottom through live batches and multiline-composer resize without an
+  intermediate painted jump, while an unpinned reader keeps the same visible
+  unit offset; history prepend anchoring, jump-to-latest, the sticky working
+  indicator gap, and the eight-row composer cap remain unchanged and no global
+  scrolling or competing observer is introduced.
+depends_on:
+  - transcript-history-prepends-one-deliberate-page
+  - agent-activity-bar-keeps-a-visible-gap-above-the-composer
+created_by: hosted-relay-smooth-startup-r1

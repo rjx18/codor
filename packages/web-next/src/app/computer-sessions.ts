@@ -27,6 +27,13 @@ import {
   finalizedTranscriptRoots,
   refreshTranscriptHistoryHead,
 } from '../room/transcript-history.js';
+import {
+  deleteLastGoodRoom,
+  hydrateLastGoodRoom,
+  loadLastGoodRoom,
+  saveLastGoodRoom,
+  snapshotLastGoodRoom,
+} from '../runtime/last-good-room.js';
 
 export interface ComputerActivitySummary {
   connected: boolean;
@@ -74,14 +81,20 @@ interface SessionEntry {
   store: ClientStore;
   token: string;
   connector?: RoomConnector;
+  cachedConnector?: RoomConnector;
   /** The session's remembered PUBLIC root. The warm connector may have a
    *  hidden registered child selected as its current conversation; that
    *  selection is conversation-local and must never replace this root. */
   publicRoot?: string;
   upgrade?: Extract<ServerFrame, { type: 'upgrade_required' }>;
+  noRooms?: boolean;
   disposed: boolean;
   ready: Promise<void>;
   resolveReady: () => void;
+  cachedReady: Promise<void>;
+  resolveCachedReady: () => void;
+  cacheRevision?: string;
+  cacheWrite: Promise<void>;
   stopStore: () => void;
   stopTunnel: () => void;
 }
@@ -89,8 +102,8 @@ interface SessionEntry {
 export interface ComputerSessionDeps {
   load(): Promise<{ materials: HostedComputerMaterial[]; activeId?: string }>;
   makeTunnel(material: HostedComputerMaterial): SessionTunnel;
-  authenticate(material: HostedComputerMaterial, tunnel: SessionTunnel): Promise<BrowserDeviceSession>;
-  loadRooms(token: string, tunnel: SessionTunnel): Promise<RoomSummary[]>;
+  authenticate(material: HostedComputerMaterial, tunnel: SessionTunnel, signal?: AbortSignal): Promise<BrowserDeviceSession>;
+  loadRooms(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<RoomSummary[]>;
   makeConnector(options: ConnectorOptions): RoomConnector;
   switchStored(id: string): Promise<void>;
   pair(code: string, relayUrl: string): Promise<void>;
@@ -107,18 +120,18 @@ const defaultDeps: ComputerSessionDeps = {
     return { materials, activeId: index.active_id };
   },
   makeTunnel: (material) => new TunnelClient(material.relay),
-  authenticate: (material, tunnel) => openBrowserDeviceSessionWith(
+  authenticate: (material, tunnel, signal) => openBrowserDeviceSessionWith(
     material.switchboard,
-    tunnel.fetch.bind(tunnel),
+    (input, init) => tunnel.fetch(input, { ...init, signal }),
     relayAccessOrigin(material.relay.relay_url),
   ),
-  loadRooms: async (token, tunnel) => {
+  loadRooms: async (token, tunnel, signal) => {
     const headers = { authorization: `Bearer ${token}` };
-    const summaryResponse = await tunnel.fetch('/api/rooms/summary?read_state=durable', { headers });
+    const summaryResponse = await tunnel.fetch('/api/rooms/summary?read_state=durable', { headers, signal });
     if (summaryResponse.ok) {
       return ((await summaryResponse.json()) as { rooms: RoomSummary[] }).rooms;
     }
-    const roomsResponse = await tunnel.fetch('/api/rooms', { headers });
+    const roomsResponse = await tunnel.fetch('/api/rooms', { headers, signal });
     if (!roomsResponse.ok) throw new Error(`Channel list failed: ${String(roomsResponse.status)}`);
     return ((await roomsResponse.json()) as { rooms: Room[] }).rooms.map((room) => ({
       id: room.id,
@@ -141,6 +154,10 @@ const defaultDeps: ComputerSessionDeps = {
 
 const bootWaitMs = (): number =>
   (typeof window !== 'undefined' && (window as unknown as { __CODOR_SESSION_BOOT_MS?: number }).__CODOR_SESSION_BOOT_MS)
+  || 8_000;
+
+const requestDeadlineMs = (): number =>
+  (typeof window !== 'undefined' && (window as unknown as { __CODOR_SESSION_REQUEST_MS?: number }).__CODOR_SESSION_REQUEST_MS)
   || 8_000;
 
 // harn:assume hosted-app-keeps-all-paired-computers-live ref=computer-session-lifecycle
@@ -168,7 +185,7 @@ export class ComputerSessionManager {
 
     const active = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
     if (active) {
-      await Promise.race([active.ready, this.deps.sleep(bootWaitMs())]);
+      await Promise.race([active.ready, active.cachedReady, this.deps.sleep(bootWaitMs())]);
       this.applyActiveRuntime();
     }
     return true;
@@ -194,8 +211,26 @@ export class ComputerSessionManager {
     };
   }
 
+  renderableActive(): ActiveComputerSession | undefined {
+    const live = this.active();
+    if (live) return live;
+    const entry = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
+    if (!entry?.cachedConnector || !entry.publicRoot) return undefined;
+    return {
+      id: entry.material.computer.id,
+      room: entry.publicRoot,
+      token: '',
+      connector: entry.cachedConnector,
+    };
+  }
+
   activeToken(): string {
     return this.activeId === undefined ? '' : this.entries.get(this.activeId)?.token ?? '';
+  }
+
+  activeHasNoRooms(): boolean {
+    const entry = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
+    return entry?.noRooms === true && entry.token !== '';
   }
 
   activeTunnelState(): TunnelState | undefined {
@@ -266,6 +301,7 @@ export class ComputerSessionManager {
   }
 
   async forget(id: string): Promise<boolean> {
+    const forgotten = this.entries.get(id);
     const wasActive = id === this.activeId;
     const fallback = wasActive
       ? [...this.entries.values()]
@@ -274,6 +310,11 @@ export class ComputerSessionManager {
       : undefined;
     await this.deps.forget(id);
     this.disposeEntry(id);
+    // Stop future store writes, drain the one serialized projection writer,
+    // then delete. A pre-forget transaction must never finish afterward and
+    // resurrect the addressed computer's snapshot.
+    await forgotten?.cacheWrite.catch(() => undefined);
+    await deleteLastGoodRoom(id);
     const loaded = await this.deps.load();
     if (loaded.materials.length === 0) {
       setRelayTransport(undefined);
@@ -337,6 +378,8 @@ export class ComputerSessionManager {
   private startEntry(material: HostedComputerMaterial): void {
     let resolveReady = (): void => undefined;
     const ready = new Promise<void>((resolve) => { resolveReady = resolve; });
+    let resolveCachedReady = (): void => undefined;
+    const cachedReady = new Promise<void>((resolve) => { resolveCachedReady = resolve; });
     const store = createClientStore();
     const tunnel = this.deps.makeTunnel(material);
     const entry: SessionEntry = {
@@ -347,26 +390,92 @@ export class ComputerSessionManager {
       disposed: false,
       ready,
       resolveReady,
+      cachedReady,
+      resolveCachedReady,
+      cacheWrite: Promise.resolve(),
       stopStore: () => undefined,
       stopTunnel: () => undefined,
     };
-    entry.stopStore = store.subscribe(() => this.publish());
+    entry.stopStore = store.subscribe(() => {
+      this.persistEntrySnapshot(entry);
+      this.publish();
+    });
     entry.stopTunnel = tunnel.subscribe(() => this.publish());
     this.entries.set(material.computer.id, entry);
     tunnel.connect();
+    void this.hydrateEntrySnapshot(entry);
     void this.completeEntry(entry);
   }
+
+  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
+  private async hydrateEntrySnapshot(entry: SessionEntry): Promise<void> {
+    try {
+      const snapshot = await loadLastGoodRoom(entry.material.computer.id);
+      if (entry.disposed || entry.connector !== undefined || snapshot === undefined) return;
+      hydrateLastGoodRoom(entry.store, snapshot);
+      entry.publicRoot = snapshot.room.id;
+      entry.cachedConnector = this.makeCachedConnector(entry);
+      if (entry.material.computer.id === this.activeId) this.applyActiveRuntime();
+      this.publish();
+      entry.resolveCachedReady();
+    } catch {
+      // Optional local fallback must never block or fail live startup.
+    }
+  }
+
+  private persistEntrySnapshot(entry: SessionEntry): void {
+    if (entry.disposed || entry.token === '' || entry.publicRoot === undefined) return;
+    const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, entry.publicRoot);
+    if (!snapshot) return;
+    const revision = JSON.stringify({
+      room: snapshot.room,
+      summaries: snapshot.summaries,
+      history: snapshot.history,
+    });
+    if (revision === entry.cacheRevision) return;
+    entry.cacheRevision = revision;
+    entry.cacheWrite = entry.cacheWrite
+      .catch(() => undefined)
+      .then(async () => await saveLastGoodRoom(snapshot))
+      .catch(() => {
+        if (entry.cacheRevision === revision) entry.cacheRevision = undefined;
+      });
+  }
+
+  private makeCachedConnector(entry: SessionEntry): RoomConnector {
+    let room = entry.publicRoot!;
+    return {
+      room: () => room,
+      state: () => 'disconnected',
+      post: () => undefined,
+      act: () => undefined,
+      disconnect: () => undefined,
+      reconnect: () => entry.tunnel.recover(),
+      switchRoom: (next) => {
+        room = next;
+        entry.store.getState().setActiveRoom(next);
+      },
+      setDesiredRooms: () => undefined,
+      roomReadiness: () => 'offline',
+      dispose: () => undefined,
+    };
+  }
+  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
 
   private async completeEntry(entry: SessionEntry): Promise<void> {
     let retryMs = 500;
     while (!this.disposed && !entry.disposed && !entry.connector) {
       try {
         const tunnelGeneration = await entry.tunnel.whenReady();
-        const token = await this.refreshEntryToken(entry);
-        if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
-          throw new Error('stale tunnel generation after authentication');
-        }
-        const rooms = await this.deps.loadRooms(token, entry.tunnel);
+        // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-attempt
+        const { token, rooms } = await this.withEntryDeadline(entry, tunnelGeneration, async (signal) => {
+          const token = await this.refreshEntryToken(entry, signal);
+          if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
+            throw new Error('stale tunnel generation after authentication');
+          }
+          return { token, rooms: await this.deps.loadRooms(token, entry.tunnel, signal) };
+        });
+        // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded
         if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
           throw new Error('stale tunnel generation after room loading');
         }
@@ -379,6 +488,7 @@ export class ComputerSessionManager {
           remembered: rememberedRoom(entry.material.computer.id),
         });
         if (room === undefined) {
+          entry.noRooms = true;
           entry.resolveReady();
           this.publish();
           return;
@@ -387,6 +497,7 @@ export class ComputerSessionManager {
         // remembered room regardless of which conversation gets selected later.
         entry.publicRoot = room;
         rememberRoom(room, entry.material.computer.id);
+        const replacingCache = entry.cachedConnector !== undefined;
         entry.connector = this.deps.makeConnector({
           room,
           token,
@@ -417,6 +528,17 @@ export class ComputerSessionManager {
           },
           expose: false,
         });
+        entry.cachedConnector = undefined;
+        if (replacingCache) {
+          void refreshTranscriptHistoryHead(entry.store, room, () => entry.token).then((refreshed) => {
+            if (!refreshed || entry.disposed) return;
+            refreshMutableRunJournals(
+              room,
+              () => entry.token,
+              finalizedTranscriptRoots(entry.store, room),
+            );
+          });
+        }
         entry.resolveReady();
         if (entry.material.computer.id === this.activeId) this.applyActiveRuntime();
         this.publish();
@@ -430,8 +552,8 @@ export class ComputerSessionManager {
   // harn:end hosted-computer-sessions-keep-state-isolated
   // harn:end hosted-app-streams-follow-tunnel-generations
 
-  private async refreshEntryToken(entry: SessionEntry): Promise<string> {
-    const session = await this.deps.authenticate(entry.material, entry.tunnel);
+  private async refreshEntryToken(entry: SessionEntry, signal?: AbortSignal): Promise<string> {
+    const session = await this.deps.authenticate(entry.material, entry.tunnel, signal);
     // harn:assume hosted-generated-computer-label-follows-authenticated-hostname ref=authenticated-computer-label
     if (session.hostname) {
       const computer = await this.deps.adoptHostname(entry.material.computer.id, session.hostname);
@@ -439,6 +561,35 @@ export class ComputerSessionManager {
     }
     // harn:end hosted-generated-computer-label-follows-authenticated-hostname
     return this.setEntryToken(entry, session.token);
+  }
+
+  private async withEntryDeadline<T>(
+    entry: SessionEntry,
+    generation: number,
+    work: (signal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
+    const controller = new AbortController();
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      const finish = (act: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        act();
+      };
+      const timer = setTimeout(() => {
+        const error = new DOMException('Hosted bootstrap request timed out', 'TimeoutError');
+        controller.abort(error);
+        // Recovery advances/retains only this entry's tunnel generation and
+        // rejects sibling work on the stale mux before the retry loop continues.
+        if (entry.tunnel.generation === generation) entry.tunnel.recover();
+        finish(() => reject(error));
+      }, requestDeadlineMs());
+      void work(controller.signal).then(
+        (value) => finish(() => resolve(value)),
+        (error: unknown) => finish(() => reject(error)),
+      );
+    });
   }
 
   private setEntryToken(entry: SessionEntry, token: string): string {
@@ -456,8 +607,9 @@ export class ComputerSessionManager {
     setRelayTransport({ origin, fetch: entry.tunnel.fetch.bind(entry.tunnel) });
     setActiveBrowserAccessToken(entry.token);
     mirrorClientStore(entry.store);
-    if (entry.connector) {
-      (window as unknown as { __codor?: RoomConnector }).__codor = entry.connector;
+    const connector = entry.connector ?? entry.cachedConnector;
+    if (connector) {
+      (window as unknown as { __codor?: RoomConnector }).__codor = connector;
     }
   }
 
@@ -485,7 +637,7 @@ export class ComputerSessionManager {
   }
 
   private async restoreAfterFailedAdd(previous: SessionEntry | undefined): Promise<false> {
-    if (this.usable(previous)) {
+    if (previous !== undefined && !previous.disposed) {
       await this.deps.switchStored(previous.material.computer.id);
       this.activeId = previous.material.computer.id;
       this.applyActiveRuntime();

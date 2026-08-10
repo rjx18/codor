@@ -1155,7 +1155,7 @@ describe('WS client frames', () => {
     // a positive integer so a limit can never mean "everything" by accident.
     expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0 }).success).toBe(true);
     expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 20 }).success).toBe(true);
-    expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 0 }).success).toBe(false);
+    expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 0 }).success).toBe(true);
     expect(ClientFrameSchema.safeParse({ type: 'subscribe', room: 'r', since_seq: 0, hydrate_limit: 1.5 }).success).toBe(false);
   });
 

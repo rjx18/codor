@@ -60,7 +60,7 @@ export function RoomPage(props: {
     manager?.getSnapshot ?? (() => EMPTY_COMPUTER_SNAPSHOT),
     () => EMPTY_COMPUTER_SNAPSHOT,
   );
-  const managed = manager?.active();
+  const managed = manager?.renderableActive();
   return (
     <MountedRoomPage
       key={managed?.id ?? 'direct'}

@@ -125,6 +125,9 @@ export function mergeTranscriptPages(
     messages: mergeMessages(current.messages, pagesNewestFirst, liveMessages),
     journals: mergeJournals(current.journals, pagesNewestFirst),
     units,
+    ...(mode === 'head' && pagesNewestFirst[0] !== undefined
+      ? { latestPage: pagesNewestFirst[0] }
+      : {}),
     ...(mode === 'older' || establishFloor ? {
       beforeCursor: oldestFetched?.before_cursor ?? null,
       hasMore: oldestFetched?.has_more ?? false,

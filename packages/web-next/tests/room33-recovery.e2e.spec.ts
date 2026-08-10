@@ -68,12 +68,15 @@ test.describe('recovery journey', () => {
     await fastRecovery(page, 60_000); // stay agent-offline, don't escalate
 
     await control('/relay-down');
-    await expect(page.getByTestId('recovery')).toHaveAttribute('data-recovery-state', 'agent-offline', { timeout: 15_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('recovery')).toHaveCount(0);
+    await expect(page.getByTestId('composer-send')).toBeDisabled();
+    await expect(page.getByTestId('toggle-message-search')).toBeEnabled();
 
     // Host comes back: the still-mounted connector's own backoff reconnects — the
     // overlay clears and the app is live again WITHOUT any navigation.
     await control('/relay-up');
-    await expect(page.getByTestId('recovery')).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
     expect(await noReload(page)).toBe(true);
   });
@@ -121,29 +124,19 @@ test.describe('recovery journey', () => {
   // harn:end hosted-app-streams-follow-tunnel-generations
   // harn:end hosted-foregrounding-reuses-healthy-sessions
 
-  test('a sustained outage escalates to the re-pair state (down-clock persists), and re-pair returns to code entry', async ({ page }) => {
+  test('a sustained ordinary outage keeps retained chat readable and recovers in place', async ({ page }) => {
     test.setTimeout(120_000);
     await pairLive(page);
     await fastRecovery(page, 1_500);
 
     await control('/relay-down');
-    // The escalation is only reachable because the app never unmounts/reloads —
-    // the down-clock runs continuously past the extended threshold.
-    await expect(page.getByTestId('recovery-repair')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('recovery')).toHaveAttribute('data-recovery-state', 'agent-offline-extended');
-    await expect(page.getByText('Still can’t reach your agent')).toBeVisible();
-    expect(await noReload(page)).toBe(true); // never auto-reloaded during escalation
-
-    // Truly modal: with the overlay up, focus can never reach the inert app beneath.
-    await page.getByTestId('recovery-retry').focus();
-    for (let i = 0; i < 6; i += 1) {
-      await page.keyboard.press('Tab');
-      const leaked = await page.evaluate(() => Boolean(document.activeElement?.closest('[aria-hidden="true"]')));
-      expect(leaked).toBe(false);
-    }
-
-    await page.getByTestId('recovery-repair').click();
-    await expect(page.getByTestId('pairing-code-0')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('recovery')).toHaveCount(0);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    expect(await noReload(page)).toBe(true);
+    await control('/relay-up');
+    await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
   });
 
   test('a device going offline shows the device-offline message, not a pairing failure', async ({ page, context }) => {
@@ -154,8 +147,8 @@ test.describe('recovery journey', () => {
     // device's own network). Drop the host too so `connected` flips promptly.
     await context.setOffline(true);
     await control('/relay-down');
-    await expect(page.getByTestId('recovery')).toHaveAttribute('data-recovery-state', 'device-offline', { timeout: 15_000 });
-    await expect(page.getByText('You appear to be offline')).toBeVisible();
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('recovery')).toHaveCount(0);
     await expect(page.getByTestId('recovery-repair')).toHaveCount(0);
     await context.setOffline(false);
   });

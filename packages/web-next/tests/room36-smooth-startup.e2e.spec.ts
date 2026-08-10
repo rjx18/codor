@@ -1,0 +1,212 @@
+import { expect, test, type Page } from '@playwright/test';
+
+const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
+const SPA_ORIGIN = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_SPA_PORT ?? '28139'}`;
+
+async function control<T = unknown>(path: string, body: unknown = {}): Promise<T> {
+  const response = await fetch(`${CONTROL}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`control ${path} failed: ${String(response.status)}`);
+  return (await response.json()) as T;
+}
+
+async function pasteCode(page: Page, code: string): Promise<void> {
+  await page.getByTestId('pairing-code-0').evaluate((element, pasted) => {
+    const data = new DataTransfer();
+    data.setData('text/plain', pasted);
+    element.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data }));
+  }, code);
+}
+
+async function pairLive(page: Page, shortBoot = false): Promise<void> {
+  await control('/relay-up');
+  const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
+  await page.addInitScript(({ url, short }) => {
+    const runtime = window as unknown as Record<string, unknown>;
+    runtime.__CODOR_RELAY_URL = url;
+    runtime.__codorRelayHttp = [];
+    runtime.__codorRelayAppOpens = [];
+    runtime.__codorRoomSubscribes = [];
+    if (short) {
+      runtime.__CODOR_SESSION_BOOT_MS = 200;
+      runtime.__CODOR_SESSION_REQUEST_MS = 300;
+    }
+  }, { url: relayUrl, short: shortBoot });
+  await page.goto(`${SPA_ORIGIN}/`);
+  await pasteCode(page, code);
+  await page.getByTestId('pairing-code-submit').click();
+  await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+}
+
+// harn:assume hosted-managed-bootstrap-reacts-to-late-readiness ref=reactive-managed-bootstrap-regression
+// harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion-regression
+test.describe('hosted smooth startup budgets', () => {
+  test('uses manager-owned bootstrap requests and promotes one zero-history room once', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    await expect.poll(async () => await page.evaluate(() => (
+      (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
+        .filter((entry) => entry.target.includes('/transcript-history')).length
+    ))).toBe(1);
+
+    const before = await page.evaluate(() => ({
+      http: (window as unknown as { __codorRelayHttp: unknown[] }).__codorRelayHttp,
+      app: (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens,
+      subscriptions: (window as unknown as { __codorRoomSubscribes: unknown[] }).__codorRoomSubscribes,
+    })) as {
+      http: Array<{ target: string; durationMs: number; bytes: number; status?: number }>;
+      app: unknown[];
+      subscriptions: Array<{ room: string; hydrateLimit: number; sinceSeq: number }>;
+    };
+    const matching = (path: string): number => before.http.filter((entry) => entry.target.startsWith(path)).length;
+    expect(matching('/api/auth/challenge')).toBe(1);
+    expect(matching('/api/auth/session')).toBe(1);
+    expect(matching('/api/rooms/summary')).toBe(1);
+    expect(matching('/api/client-compatibility')).toBe(0);
+    expect(before.http.filter((entry) => entry.target.includes('/transcript-history'))).toHaveLength(1);
+    expect(before.app).toHaveLength(1);
+    expect(before.subscriptions.find((entry) => entry.room === 'eng' && entry.hydrateLimit === 20)).toBeTruthy();
+    expect(before.subscriptions.find((entry) => entry.room === 'design' && entry.hydrateLimit === 0)).toBeTruthy();
+
+    await page.getByTestId('room-link-design').click();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect.poll(async () => await page.evaluate(() => (
+      (window as unknown as {
+        __codorRoomSubscribes: Array<{ room: string; hydrateLimit: number }>;
+      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 20).length
+    ))).toBe(1);
+    await page.getByTestId('room-link-eng').click();
+    await page.getByTestId('room-link-design').click();
+    await page.waitForTimeout(100);
+    expect(await page.evaluate(() => (
+      (window as unknown as {
+        __codorRoomSubscribes: Array<{ room: string; hydrateLimit: number }>;
+      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 20).length
+    ))).toBe(1);
+
+    console.info('[hosted-startup-browser-metrics]', JSON.stringify({
+      requests: before.http.length,
+      responseBytes: before.http.reduce((total, entry) => total + entry.bytes, 0),
+      requestDurationMs: Number(before.http.reduce((total, entry) => total + entry.durationMs, 0).toFixed(1)),
+      appSockets: before.app.length,
+      hydrationBudgets: before.subscriptions.reduce<Record<string, number>>((counts, entry) => {
+        const key = String(entry.hydrateLimit);
+        counts[key] = (counts[key] ?? 0) + 1;
+        return counts;
+      }, {}),
+    }));
+  });
+
+  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-regression
+  // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
+  test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    await expect.poll(async () => await page.evaluate(async () => {
+      const opened = indexedDB.open('codor-last-good-room-v1');
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        opened.onsuccess = () => resolve(opened.result);
+        opened.onerror = () => reject(opened.error);
+      });
+      const count = await new Promise<number>((resolve, reject) => {
+        const request = database.transaction('rooms').objectStore('rooms').count();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
+      return count;
+    })).toBeGreaterThan(0);
+    const retained = (await page.locator('[data-transcript-unit] .nx-prose').first().textContent())?.trim();
+    expect(retained).toBeTruthy();
+
+    await control('/relay-down');
+    const started = Date.now();
+    await page.reload();
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 1_000 });
+    const cachedRenderMs = Date.now() - started;
+    expect(cachedRenderMs).toBeLessThan(1_000);
+    await expect(page.getByTestId('timeline')).toContainText(retained!);
+    await expect(page.getByTestId('connection')).toHaveClass(/is-error/);
+    await expect(page.getByTestId('composer-send')).toBeDisabled();
+    await expect(page.getByTestId('toggle-message-search')).toBeEnabled();
+    await page.evaluate(() => { (window as unknown as { __cachedDocument?: boolean }).__cachedDocument = true; });
+
+    await control('/relay-up');
+    await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0, { timeout: 30_000 });
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
+    expect(await page.evaluate(() => (window as unknown as { __cachedDocument?: boolean }).__cachedDocument)).toBe(true);
+    const input = page.getByTestId('composer-input');
+    await input.fill('@viewer current evidence restored');
+    await expect(page.getByTestId('composer-send')).toBeEnabled();
+    console.info('[hosted-cached-render-metrics]', JSON.stringify({ cachedRenderMs }));
+  });
+  // harn:end readable-reconnecting-room-never-admits-mutation
+  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
+
+  test('a cacheless active host that returns late enters the same document automatically', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page, true);
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase('codor-last-good-room-v1');
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+        request.onblocked = () => reject(new Error('last-good database remained open'));
+      });
+    });
+    await control('/relay-down');
+    await page.reload();
+    await expect(page.getByTestId('recovery')).toBeVisible({ timeout: 10_000 });
+    await page.evaluate(() => { (window as unknown as { __lateReadyDocument?: boolean }).__lateReadyDocument = true; });
+    await control('/relay-up');
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId('recovery')).toHaveCount(0);
+    expect(await page.evaluate(() => (window as unknown as { __lateReadyDocument?: boolean }).__lateReadyDocument)).toBe(true);
+  });
+});
+// harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+// harn:end hosted-managed-bootstrap-reacts-to-late-readiness
+
+// harn:assume transcript-tail-follow-has-one-prepaint-owner ref=transcript-prepaint-geometry-regression
+test('direct and hosted transcript geometry keeps one pre-paint tail owner', async ({ page }) => {
+  await page.goto('/?room=eng&token=next-e2e-token');
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  const timeline = page.getByTestId('timeline');
+  await expect.poll(() => timeline.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(4);
+  await page.evaluate(() => {
+    const samples: number[] = [];
+    (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps = samples;
+    let remaining = 30;
+    const sample = (): void => {
+      const node = document.querySelector<HTMLElement>('[data-testid="timeline"]');
+      if (node) samples.push(node.scrollHeight - node.scrollTop - node.clientHeight);
+      remaining -= 1;
+      if (remaining > 0) requestAnimationFrame(() => setTimeout(sample, 0));
+    };
+    requestAnimationFrame(() => setTimeout(sample, 0));
+  });
+  await control('/live-chat', { room: 'eng', body: 'prepaint geometry live arrival', route: false });
+  const input = page.getByTestId('composer-input');
+  await input.fill('one\ntwo\nthree\nfour\nfive\nsix');
+  await input.fill('one');
+  await page.waitForTimeout(900);
+  const gaps = await page.evaluate(() => (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps);
+  expect(gaps.length).toBeGreaterThan(10);
+  expect(Math.max(...gaps)).toBeLessThanOrEqual(2);
+
+  const directResources = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => ({
+    name: entry.name,
+    duration: Number(entry.duration.toFixed(1)),
+    bytes: (entry as PerformanceResourceTiming).transferSize,
+  })).filter((entry) => entry.name.includes('/api/')));
+  console.info('[direct-startup-browser-metrics]', JSON.stringify({
+    requests: directResources.length,
+    responseBytes: directResources.reduce((total, entry) => total + entry.bytes, 0),
+    requestDurationMs: Number(directResources.reduce((total, entry) => total + entry.duration, 0).toFixed(1)),
+  }));
+});
+// harn:end transcript-tail-follow-has-one-prepaint-owner

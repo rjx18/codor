@@ -45,7 +45,9 @@ export const SubscribeFrameSchema = z.object({
    * (agents, the CLI) gets the full replay byte-identically, and it is ignored
    * on a warm subscribe so a reconnect can never miss an in-place change.
    */
-  hydrate_limit: z.number().int().positive().optional(),
+  // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=zero-history-subscribe-protocol
+  hydrate_limit: z.number().int().nonnegative().optional(),
+  // harn:end hosted-background-rooms-hydrate-metadata-until-promoted
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
   /**
    * Opt into outer room ids on the otherwise ambiguous self, member, and

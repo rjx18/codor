@@ -229,12 +229,14 @@ test.describe('multi-computer pairing', () => {
     await expect(menuItem(page, 'codor-host-b').locator('[data-testid^="computer-unread-"]')).not.toHaveText('0');
     await page.getByTestId('computer-current').click();
 
-    // Active A fails; recovery offers already-warm B. Choosing it neither reloads
-    // nor starts another B relay handshake, and A's retry loop continues.
+    // Active A fails; its retained room stays readable and the rail switcher
+    // still offers already-warm B. Choosing it neither reloads nor starts
+    // another B relay handshake, and A's retry loop continues.
     const bDialsBeforeRecovery = Object.entries(initialDials).find(([url]) => url.includes(bSession))?.[1];
     // harn:assume hosted-app-streams-follow-tunnel-generations ref=independent-computer-recovery-regression
     await control('/relay-down-a-only');
-    await expect(page.getByTestId('recovery')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('computer-current').click();
     await page.getByRole('button', { name: /codor-host-b, Connected/ }).click();
     await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/);

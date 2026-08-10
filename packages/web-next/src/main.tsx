@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useSyncExternalStore } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { applyThemeChoice } from '@runtime/theme.js';
@@ -16,9 +16,14 @@ import {
 import { checkBrowserCompatibility, CompatibilityGate } from './app/compatibility.js';
 import { StartupConnecting } from './surfaces/StartupConnecting.js';
 import { RecoveryCard } from './surfaces/RecoveryCard.js';
+import { RecoveryOverlay } from './surfaces/RecoveryOverlay.js';
 import { SettingsPage } from './surfaces/SettingsPage.js';
+import { LedgerPage } from './surfaces/LedgerPage.js';
+import { NoChannels } from './surfaces/NoChannels.js';
 import { RoomPage } from './room/RoomPage.js';
 import { computerSessions } from './app/computer-sessions.js';
+import { primeRoomSummaries } from './app/summary.js';
+import { useClientStore } from './app/store.js';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/primitives.css';
@@ -43,8 +48,7 @@ function canonicalizeRoom(path: string, room: string): void {
   window.history.replaceState(null, '', `${path}${canonical.search}${canonical.hash}`);
 }
 
-async function surfaceFor(path: string, room: string, token: string) {
-  const { RecoveryOverlay } = await import('./surfaces/RecoveryOverlay.js');
+function surfaceFor(path: string, room: string, token: string) {
   // Wrap ONLY the surfaces that own a live connector (RoomPage, SettingsPage) —
   // LedgerPage is REST-only with no session, so the recovery state can't apply,
   // and landing/pairing/no-channels are their own terminal screens.
@@ -62,11 +66,38 @@ async function surfaceFor(path: string, room: string, token: string) {
     );
   }
   if (path === '/ledger') {
-    const { LedgerPage } = await import('./surfaces/LedgerPage.js');
     return <LedgerPage room={room} token={token} />;
   }
   return <RecoveryOverlay><RoomPage room={room} token={token} refreshToken={resolveAccessToken} /></RecoveryOverlay>;
 }
+
+// harn:assume hosted-managed-bootstrap-reacts-to-late-readiness ref=reactive-managed-bootstrap
+function ManagedBootstrap({ path }: { path: string }) {
+  const manager = computerSessions()!;
+  useSyncExternalStore(manager.subscribe, manager.getSnapshot, manager.getSnapshot);
+  const session = path === '/ledger' || path === '/settings'
+    ? manager.active()
+    : manager.renderableActive();
+  useEffect(() => {
+    if (session) canonicalizeRoom(path, session.room);
+  }, [path, session]);
+  if (session) {
+    // The mounted rail reads the same manager-owned cold summaries. Prime the
+    // legacy direct hook so it never issues a second hosted summary request;
+    // live addressed support remains the fresher authority after mount.
+    primeRoomSummaries(useClientStore.getState().roomSummaries);
+    return <CompatibilityGate>{surfaceFor(path, session.room, session.token)}</CompatibilityGate>;
+  }
+  if (manager.activeHasNoRooms()) return <NoChannels token={manager.activeToken()} />;
+  return (
+    <RecoveryCard
+      presentation="fullscreen"
+      state={bootRecoveryState()}
+      onComputerSwitch={async () => undefined}
+    />
+  );
+}
+// harn:end hosted-managed-bootstrap-reacts-to-late-readiness
 
 /**
  * Terminal boot-failure recovery state: `device-offline` if the device's own network is
@@ -87,16 +118,20 @@ async function render(): Promise<void> {
   reactRoot.render(<StrictMode><StartupConnecting /></StrictMode>);
   await initRelayMode(); // relay-paired browsers route transport through the tunnel
   const managedSessions = computerSessions();
-  const token = await resolveAccessToken();
-  if (token !== '') await checkBrowserCompatibility(token);
   const path = window.location.pathname;
   const returnTo = `${path}${window.location.search}${window.location.hash}`;
+  if (managedSessions !== undefined && path !== '/pair') {
+    reactRoot.render(<StrictMode><ManagedBootstrap path={path} /></StrictMode>);
+    return;
+  }
+  const token = await resolveAccessToken();
+  if (token !== '') await checkBrowserCompatibility(token);
   const openWarmComputer = async (): Promise<void> => {
     const active = computerSessions()?.active();
     if (!active) return;
     await checkBrowserCompatibility(active.token);
     canonicalizeRoom(path, active.room);
-    const recovered = await surfaceFor(path, active.room, active.token);
+    const recovered = surfaceFor(path, active.room, active.token);
     reactRoot.render(<StrictMode><CompatibilityGate>{recovered}</CompatibilityGate></StrictMode>);
   };
   const managedColdSurfaceNotReady = (): boolean =>
@@ -166,7 +201,6 @@ async function render(): Promise<void> {
     if (startup === undefined) {
       // A successful, genuinely empty authorization: say so, open nothing.
       if (rememberedRoom() !== undefined) forgetRoom();
-      const { NoChannels } = await import('./surfaces/NoChannels.js');
       return <NoChannels token={token} />;
     }
     // A managed token can arrive before its room-list retry has produced the

@@ -424,28 +424,79 @@ export class TunnelClient {
   };
 
   /** fetch() over an HTTP tunnel stream (path+query target per §4.4). */
+  // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=abortable-tunnel-fetch
   fetch = async (input: string, init: RequestInit = {}): Promise<Response> => {
     if (!this.mux) throw new Error('tunnel not connected');
+    if (init.signal?.aborted) throw init.signal.reason instanceof Error
+      ? init.signal.reason
+      : new DOMException('The operation was aborted', 'AbortError');
     const url = new URL(input, 'http://relay.local');
     const target = `${url.pathname}${url.search}`;
     const method = (init.method ?? 'GET').toUpperCase();
     const headers = normalizeHeaders(init.headers);
     const stream = this.mux.openStream(StreamKind.HTTP);
+    const requestGeneration = this.generationValue;
+    const startedAt = typeof performance === 'undefined' ? Date.now() : performance.now();
+    const diagnostics = typeof window === 'undefined'
+      ? undefined
+      : (window as unknown as {
+        __codorRelayHttp?: Array<{
+          target: string;
+          method: string;
+          generation: number;
+          durationMs: number;
+          bytes: number;
+          status?: number;
+          outcome: 'ok' | 'error';
+        }>;
+      }).__codorRelayHttp;
     return new Promise<Response>((resolve, reject) => {
       let status = 0;
       let responseHeaders: Record<string, string> = {};
       const chunks: Uint8Array[] = [];
       // Register a rejecter so a session drop (onDisconnect) fails this fetch
       // instead of leaving it pending on a mux that no longer exists.
-      const abort = (error: Error): void => {
+      let settled = false;
+      const record = (outcome: 'ok' | 'error'): void => {
+        if (!diagnostics) return;
+        const now = typeof performance === 'undefined' ? Date.now() : performance.now();
+        diagnostics.push({
+          target,
+          method,
+          generation: requestGeneration,
+          durationMs: Math.max(0, now - startedAt),
+          bytes: chunks.reduce((total, chunk) => total + chunk.length, 0),
+          ...(status > 0 && { status }),
+          outcome,
+        });
+      };
+      const cleanup = (): void => {
         this.pendingHttp.delete(abort);
-        reject(error);
+        init.signal?.removeEventListener('abort', onSignalAbort);
       };
       const settle = <T>(value: T, done: (value: T) => void): void => {
-        this.pendingHttp.delete(abort);
+        if (settled) return;
+        settled = true;
+        cleanup();
         done(value);
       };
+      const abort = (error: Error): void => {
+        if (!settled) record('error');
+        settle(error, reject);
+      };
+      const onSignalAbort = (): void => {
+        const reason = init.signal?.reason instanceof Error
+          ? init.signal.reason
+          : new DOMException('The operation was aborted', 'AbortError');
+        try {
+          stream.reset('request aborted');
+        } catch {
+          // The peer may have settled the stream at the same instant.
+        }
+        abort(reason);
+      };
       this.pendingHttp.add(abort);
+      init.signal?.addEventListener('abort', onSignalAbort, { once: true });
       stream.onHead = (head) => {
         const h = head as { status: number; headers: Record<string, string> };
         status = h.status;
@@ -455,13 +506,17 @@ export class TunnelClient {
         chunks.push(chunk);
         stream.consume(chunk.length);
       };
-      stream.onEnd = () => settle(new Response(concatBytes(chunks) as unknown as BodyInit, { status, headers: responseHeaders }), resolve);
+      stream.onEnd = () => {
+        if (!settled) record('ok');
+        settle(new Response(concatBytes(chunks) as unknown as BodyInit, { status, headers: responseHeaders }), resolve);
+      };
       stream.onReset = (reason) => abort(new Error(`tunnel http reset: ${reason}`));
       stream.sendHead({ method, target, headers });
       if (init.body !== undefined && init.body !== null) stream.write(bodyToBytes(init.body));
       stream.end();
     });
   };
+  // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded
 
   dispose(): void {
     if (this.disposed) return;

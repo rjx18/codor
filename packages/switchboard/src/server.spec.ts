@@ -4084,6 +4084,23 @@ describe('bounded cold hydration (subscribe)', () => {
     client.ws.close();
   });
 
+  // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=zero-history-server-hydration
+  it('returns addressed room state and completion but no historical messages for limit zero', async () => {
+    seedTail(30);
+    const client = await connectAs(TOKEN);
+    client.ws.send(JSON.stringify({
+      type: 'subscribe', room: 'eng', since_seq: 0, hydrate_limit: 0, room_addressed: true,
+    }));
+    const complete = await client.next((frame) => frame.type === 'sync_complete' && frame.room === 'eng');
+
+    expect(client.frames.filter((frame) => frame.type === 'message')).toEqual([]);
+    expect(client.frames.some((frame) => frame.type === 'room' && frame.room.id === 'eng')).toBe(true);
+    expect(client.frames.some((frame) => frame.type === 'room_support')).toBe(true);
+    expect(complete).not.toHaveProperty('history_floor');
+    client.ws.close();
+  });
+  // harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+
   it('replays everything for a subscriber that sends no limit', async () => {
     const ids = seedTail(30);
     const client = await connectAs(TOKEN);

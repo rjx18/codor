@@ -48,9 +48,9 @@ assumptions:
         ComputerSessionManager, use only the manager-owned authenticated token,
         room summaries, public root, connector, and upgrade result, and enter a
         usable active session in the same document whenever it becomes ready,
-        including after the bounded connecting interval, while cached or recovery
-        presentation remains reactive and direct startup keeps its existing
-        compatibility and authorized-room requests.
+        including after the bounded connecting interval, while cached or
+        recovery presentation remains reactive and direct startup keeps its
+        existing compatibility and authorized-room requests.
       reason: >
         A one-shot await turns the eight-second presentation boundary into a
         permanent dead end and repeats relay requests whose truth the manager
@@ -62,12 +62,12 @@ assumptions:
     - id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
       title: Hosted bootstrap HTTP attempts cannot outlive their tunnel generation
       statement: >
-        TunnelClient.fetch must honor RequestInit.signal, detach abort listeners,
-        reset its stream, and settle exactly once; each managed authentication and
-        room-summary attempt must have a short deadline whose expiry retires only
-        that entry's current tunnel generation before retry, so a stalled mux
-        stream cannot leave a computer permanently connectorless or leak work into
-        a replacement generation.
+        TunnelClient.fetch must honor RequestInit.signal, detach abort
+        listeners, reset its stream, and settle exactly once; each managed
+        authentication and room-summary attempt must have a short deadline whose
+        expiry retires only that entry's current tunnel generation before retry,
+        so a stalled mux stream cannot leave a computer permanently
+        connectorless or leak work into a replacement generation.
       reason: >
         The tunnel may remain connected while one HTTP stream stalls forever, so
         ordinary tunnel-loss rejection cannot bound managed readiness.
@@ -86,9 +86,9 @@ assumptions:
         at zero for live unread/attention/working state, and promotes a zero-
         hydrated room with one twenty-message cold hydrate when selected.
       reason: >
-        Eager history tails for every room on every paired computer multiply relay
-        latency and payload even though background aggregate truth needs no
-        transcript rows.
+        Eager history tails for every room on every paired computer multiply
+        relay latency and payload even though background aggregate truth needs
+        no transcript rows.
       depends_on:
         - addressed-cold-hydration-is-strict-and-legacy-safe
         - multiplexed-subscriptions-identify-their-room
@@ -103,10 +103,10 @@ assumptions:
         materialized combined-history units with only their projected messages
         and indexed journal excerpts; it must start disconnected and read-only,
         never contain drafts, credentials, keys, attachments, voice, inbox,
-        interactions, full journals, search archives, or a second room, reconcile
-        with current live evidence, delete only the addressed snapshot on forget
-        and all Codor databases on unpair, and never enter CacheStorage or service-
-        worker runtime caching.
+        interactions, full journals, search archives, or a second room,
+        reconcile with current live evidence, delete only the addressed snapshot
+        on forget and all Codor databases on unpair, and never enter
+        CacheStorage or service- worker runtime caching.
       reason: >
         A reload during host absence otherwise leaves a paired operator with an
         empty modal recovery screen even though one carefully bounded last-good
@@ -116,14 +116,16 @@ assumptions:
         - historical-transcript-pages-match-output-scoped-rendering
         - relay-app-socket-readiness-requires-server-evidence
     - id: readable-reconnecting-room-never-admits-mutation
-      title: Retained or cached chats stay readable but never writable while reconnecting
+      title: Retained or cached chats stay readable but never writable while
+        reconnecting
       statement: >
         When a hosted room has renderable retained or cached content but lacks
-        current server readiness, the room must remain nonmodal and readable with
-        one compact reconnecting indicator, preserved scroll/search/copy/draft
-        state, and every mutating control disabled; only a current server frame may
-        restore mutation, no send is queued offline, and fullscreen recovery is
-        reserved for absent content, never-paired state, or terminal unsafe repair.
+        current server readiness, the room must remain nonmodal and readable
+        with one compact reconnecting indicator, preserved
+        scroll/search/copy/draft state, and every mutating control disabled;
+        only a current server frame may restore mutation, no send is queued
+        offline, and fullscreen recovery is reserved for absent content,
+        never-paired state, or terminal unsafe repair.
       reason: >
         A modal overlay discards the value of retained state, while optimistic
         mutation would fabricate delivery during a disconnected generation.
@@ -133,50 +135,60 @@ assumptions:
     - id: transcript-tail-follow-has-one-prepaint-owner
       title: One pre-paint owner preserves transcript tail and reader anchors
       statement: >
-        Transcript content-height and viewport-height changes must be reconciled by
-        one synchronous pre-paint geometry owner: a pinned reader remains at the
-        true bottom through live batches and multiline-composer resize without an
-        intermediate painted jump, while an unpinned reader keeps the same visible
-        unit offset; history prepend anchoring, jump-to-latest, the sticky working
-        indicator gap, and the eight-row composer cap remain unchanged and no
-        global scrolling or competing observer is introduced.
+        Transcript content-height and viewport-height changes must be reconciled
+        by one synchronous pre-paint geometry owner: a pinned reader remains at
+        the true bottom through live batches and multiline-composer resize
+        without an intermediate painted jump, while an unpinned reader keeps the
+        same visible unit offset; history prepend anchoring, jump-to-latest, the
+        sticky working indicator gap, and the eight-row composer cap remain
+        unchanged and no global scrolling or competing observer is introduced.
       reason: >
         Deferred animation-frame corrections expose one wrong frame and separate
-        content/viewport ownership lets composer resize pull or strand the reader.
+        content/viewport ownership lets composer resize pull or strand the
+        reader.
       depends_on:
         - transcript-history-prepends-one-deliberate-page
         - agent-activity-bar-keeps-a-visible-gap-above-the-composer
   reviewed:
     - id: hosted-app-keeps-all-paired-computers-live
       outcome: unchanged
-      reason: Every paired entry still starts concurrently and remains live until forget or disposal.
+      reason: Every paired entry still starts concurrently and remains live until
+        forget or disposal.
     - id: hosted-computer-sessions-keep-state-isolated
       outcome: unchanged
-      reason: Deadlines, snapshots, cursors, and promotion state are owned by one captured computer entry.
+      reason: Deadlines, snapshots, cursors, and promotion state are owned by one
+        captured computer entry.
     - id: hosted-computer-switching-reuses-warm-session
       outcome: unchanged
-      reason: A ready computer still activates its existing tunnel/token/store/connector without reload.
+      reason: A ready computer still activates its existing
+        tunnel/token/store/connector without reload.
     - id: hosted-offline-recovery-offers-other-computers
       outcome: unchanged
-      reason: Warm alternatives remain selectable while late active readiness stays observable.
+      reason: Warm alternatives remain selectable while late active readiness stays
+        observable.
     - id: hosted-background-computer-activity-is-visible
       outcome: unchanged
-      reason: Zero-history subscriptions retain live unread, attention, working, and connection signals.
+      reason: Zero-history subscriptions retain live unread, attention, working, and
+        connection signals.
     - id: hosted-app-streams-follow-tunnel-generations
       outcome: unchanged
-      reason: Request deadlines retire the owning tunnel generation and preserve coordinated app recovery.
+      reason: Request deadlines retire the owning tunnel generation and preserve
+        coordinated app recovery.
     - id: browser-tunnel-readiness-follows-current-generation
       outcome: unchanged
-      reason: Abort and deadline handling use the current generation without changing handshake ownership.
+      reason: Abort and deadline handling use the current generation without changing
+        handshake ownership.
     - id: tunnel-stream-mux
       outcome: unchanged
-      reason: Abort resets one existing mux stream; framing, flow control, and sibling streams remain unchanged.
+      reason: Abort resets one existing mux stream; framing, flow control, and sibling
+        streams remain unchanged.
     - id: tunnel-session-handshake-kk
       outcome: unchanged
       reason: No authenticated handshake bytes or cryptographic behavior change.
     - id: tunnel-keepalive
       outcome: unchanged
-      reason: Existing half-open detection remains intact beside request-local deadlines.
+      reason: Existing half-open detection remains intact beside request-local
+        deadlines.
     - id: relay-link-dials-with-alias-fallback
       outcome: unchanged
       reason: Generation restart retains canonical and alias dial selection.
@@ -185,31 +197,40 @@ assumptions:
       reason: The same signed challenge/session exchange is merely deadline-bound.
     - id: addressed-cold-hydration-is-strict-and-legacy-safe
       outcome: unchanged
-      reason: N may now be zero, while addressed snapshot atomicity and legacy non-addressed behavior remain exact.
+      reason: N may now be zero, while addressed snapshot atomicity and legacy
+        non-addressed behavior remain exact.
     - id: multiplexed-subscriptions-identify-their-room
       outcome: unchanged
-      reason: Every zero- or twenty-history frame remains explicitly room-addressed and socket-local.
+      reason: Every zero- or twenty-history frame remains explicitly room-addressed
+        and socket-local.
     - id: sync-cursor-commits-after-hydration
       outcome: unchanged
-      reason: Zero-history sync still advances only on the final sync_complete snapshot cursor.
+      reason: Zero-history sync still advances only on the final sync_complete
+        snapshot cursor.
     - id: room-support-is-bounded-recipient-scoped-state
       outcome: unchanged
-      reason: Zero-history rooms still receive the same bounded support and actionable interaction projection.
+      reason: Zero-history rooms still receive the same bounded support and actionable
+        interaction projection.
     - id: finalized-browser-history-is-combined-page-owned
       outcome: unchanged
-      reason: The cache stores only a materialized bounded projection and promotion never fetches finalized full journals.
+      reason: The cache stores only a materialized bounded projection and promotion
+        never fetches finalized full journals.
     - id: historical-transcript-pages-match-output-scoped-rendering
       outcome: unchanged
-      reason: Cached combined pages retain the exact existing twenty-renderable-unit projection.
+      reason: Cached combined pages retain the exact existing twenty-renderable-unit
+        projection.
     - id: relay-app-socket-readiness-requires-server-evidence
       outcome: unchanged
-      reason: Cached content and WebSocket OPEN remain disconnected until a current server frame arrives.
+      reason: Cached content and WebSocket OPEN remain disconnected until a current
+        server frame arrives.
     - id: foreground-watchdog-probes-are-refresh-neutral
       outcome: unchanged
-      reason: Reactive bootstrap and caching do not turn periodic probes into resume work.
+      reason: Reactive bootstrap and caching do not turn periodic probes into resume
+        work.
     - id: hosted-foregrounding-reuses-healthy-sessions
       outcome: unchanged
-      reason: Foreground recovery continues probing healthy hosted streams before replacement.
+      reason: Foreground recovery continues probing healthy hosted streams before
+        replacement.
     - id: agent-activity-bar-keeps-a-visible-gap-above-the-composer
       outcome: unchanged
       reason: The single geometry owner preserves the measured sticky activity gap.
@@ -218,7 +239,8 @@ assumptions:
       reason: Older-page prepend retains its existing stable visible-unit anchor.
     - id: settings-navigation-reuses-live-session
       outcome: unchanged
-      reason: Settings continues using the manager's mounted connector and active token.
+      reason: Settings continues using the manager's mounted connector and active
+        token.
   retire:
     - id: sw-caches-shell-only-no-message-data
       reason: >
@@ -265,17 +287,20 @@ anchors:
   hosted-managed-bootstrap-reacts-to-late-readiness:
     reactive-managed-bootstrap:
       action: change
-      reason: Mount a subscribed hosted shell and consume manager-owned bootstrap truth without duplicate requests.
+      reason: Mount a subscribed hosted shell and consume manager-owned bootstrap
+        truth without duplicate requests.
     reactive-managed-bootstrap-regression:
       action: change
-      reason: Prove late readiness enters the same document and direct boot keeps its prior requests.
+      reason: Prove late readiness enters the same document and direct boot keeps its
+        prior requests.
   hosted-bootstrap-requests-are-abortable-and-generation-bounded:
     abortable-tunnel-fetch:
       action: change
       reason: Bind abort to one mux stream and settle exactly once.
     bounded-managed-bootstrap-attempt:
       action: change
-      reason: Deadline authentication and summary loading and retire only the timed-out generation.
+      reason: Deadline authentication and summary loading and retire only the
+        timed-out generation.
     bounded-managed-bootstrap-regression:
       action: change
       reason: Cover stalled auth/summary, cleanup, retry, and independent computers.
@@ -288,50 +313,62 @@ anchors:
       reason: Emit full metadata/support/cursor completion with no historical tail.
     background-room-promotion:
       action: change
-      reason: Subscribe background rooms at zero and promote selected/desired rooms once at twenty.
+      reason: Subscribe background rooms at zero and promote selected/desired rooms
+        once at twenty.
     background-room-promotion-regression:
       action: change
       reason: Prove payload bounds, live aggregates, one promotion, and isolation.
   hosted-last-good-room-cache-is-bounded-read-only-projection:
     hosted-last-good-room-store:
       action: change
-      reason: Add bounded per-computer IndexedDB projection validation, write, read, and purge.
+      reason: Add bounded per-computer IndexedDB projection validation, write, read,
+        and purge.
     hosted-last-good-room-lifecycle:
       action: change
-      reason: Hydrate before live startup, persist only authenticated materialization, reconcile, forget, and unpair.
+      reason: Hydrate before live startup, persist only authenticated materialization,
+        reconcile, forget, and unpair.
     hosted-last-good-room-regression:
       action: change
-      reason: Prove bounds, forbidden fields, same-room isolation, cached reload, replacement, and purge.
+      reason: Prove bounds, forbidden fields, same-room isolation, cached reload,
+        replacement, and purge.
   readable-reconnecting-room-never-admits-mutation:
     nonmodal-reconnecting-surface:
       action: change
-      reason: Keep renderable content interactive for reads while disabling every mutation until server evidence.
+      reason: Keep renderable content interactive for reads while disabling every
+        mutation until server evidence.
     nonmodal-reconnecting-regression:
       action: change
-      reason: Prove retained and cached content, draft/scroll preservation, disabled actions, and terminal fallback.
+      reason: Prove retained and cached content, draft/scroll preservation, disabled
+        actions, and terminal fallback.
   transcript-tail-follow-has-one-prepaint-owner:
     transcript-prepaint-geometry:
       action: change
-      reason: Consolidate content and viewport resize correction before paint for pinned and anchored readers.
+      reason: Consolidate content and viewport resize correction before paint for
+        pinned and anchored readers.
     transcript-prepaint-geometry-regression:
       action: change
-      reason: Sample live batches and composer resize frame-by-frame while retaining prepend and gap behavior.
+      reason: Sample live batches and composer resize frame-by-frame while retaining
+        prepend and gap behavior.
   hosted-app-keeps-all-paired-computers-live:
     computer-session-lifecycle:
       action: change
-      reason: Publish late active readiness and hydrate/persist each entry's bounded local fallback without stopping peers.
+      reason: Publish late active readiness and hydrate/persist each entry's bounded
+        local fallback without stopping peers.
   hosted-computer-sessions-keep-state-isolated:
     per-computer-session-state:
       action: change
-      reason: Scope deadlines, background hydration state, and last-good snapshots to the owning computer.
+      reason: Scope deadlines, background hydration state, and last-good snapshots to
+        the owning computer.
   hosted-computer-switching-reuses-warm-session:
     warm-computer-activation:
       action: change
-      reason: Render cached or newly ready active entries in place while retaining warm switching.
+      reason: Render cached or newly ready active entries in place while retaining
+        warm switching.
   hosted-offline-recovery-offers-other-computers:
     multi-computer-recovery-exit:
       action: change
-      reason: Replace modal recovery only when renderable content exists and keep warm alternatives available.
+      reason: Replace modal recovery only when renderable content exists and keep warm
+        alternatives available.
   hosted-background-computer-activity-is-visible:
     background-computer-summary:
       action: change
@@ -361,25 +398,30 @@ anchors:
   multiplexed-subscriptions-identify-their-room:
     room-addressed-frame-contract:
       action: change
-      reason: Permit the explicit zero hydration value in the addressed subscribe schema.
+      reason: Permit the explicit zero hydration value in the addressed subscribe
+        schema.
     room-addressed-hydration:
       action: change
       reason: Preserve addressed attribution for zero-history metadata/support frames.
   sync-cursor-commits-after-hydration:
     sync-complete-frame:
       action: change
-      reason: Cover the zero-history subscription shape without changing cursor commit order.
+      reason: Cover the zero-history subscription shape without changing cursor commit
+        order.
   relay-app-socket-readiness-requires-server-evidence:
     relay-app-socket-readiness:
       action: change
-      reason: Keep cached and retained rooms disconnected until current server evidence.
+      reason: Keep cached and retained rooms disconnected until current server
+        evidence.
   finalized-browser-history-is-combined-page-owned:
     combined-history-store:
       action: change
-      reason: Export only the bounded materialized projection needed for last-good persistence.
+      reason: Export only the bounded materialized projection needed for last-good
+        persistence.
     combined-history-materializer:
       action: change
-      reason: Trigger cache replacement only after successful authenticated head materialization.
+      reason: Trigger cache replacement only after successful authenticated head
+        materialization.
   transcript-history-prepends-one-deliberate-page:
     deliberate-history-page-controller:
       action: change
@@ -388,3 +430,5 @@ anchors:
     activity-gap-geometry:
       action: change
       reason: Preserve the measured gap under the consolidated resize owner.
+applied:
+  applied_at: 2026-08-10T11:44:26.654Z
