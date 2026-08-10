@@ -1059,10 +1059,10 @@ defaultRosterManagement
   // harn:end public-install-is-the-primary-command-with-setup-alias
   // harn:end setup-unattended-mutation-requires-explicit-intent
 
-  // harn:assume official-codor-update-acquires-one-exact-stable-candidate ref=stable-update-command
+  // harn:assume official-codor-update-is-bounded-cross-platform-and-durable-rooted ref=stable-update-command
   program
     .command('update')
-    .description('update a packaged Codor install to the current official stable release')
+    .description('Update the durable Codor runtime to the current official stable release')
     .action(async () => {
       await runOfficialUpdate({
         dataDir: program.opts<GlobalOptions>().dataDir,
@@ -1077,13 +1077,14 @@ defaultRosterManagement
     .requiredOption('--expected-version <version>')
     .action(async (options: { expectedVersion: string }) => {
       await runCandidateUpdate({
+        dataDir: program.opts<GlobalOptions>().dataDir,
         expectedVersion: options.expectedVersion,
         env,
         out,
         overrides: context.update,
       });
     });
-  // harn:end official-codor-update-acquires-one-exact-stable-candidate
+  // harn:end official-codor-update-is-bounded-cross-platform-and-durable-rooted
 
   program
     .command('spawn')

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { RelayStore, type PairingOffer } from '@codor/switchboard';
 
@@ -181,7 +181,10 @@ function posixOverrides(root: string, relayOffer?: SetupOverrides['relayOffer'])
     renderQr: () => '[qr]',
     repoRoot,
     probe: async () => true,
+    generation: () => 'test-generation',
+    runtimeStatus: async () => ({ version: 'test-version', generation: 'test-generation' }),
     sleep: async () => undefined,
+    version: 'test-version',
     which: () => undefined,
     relayOffer,
   };
@@ -209,6 +212,37 @@ const universalOffer: PairingOffer = {
   switchboard_sign_pub: 'sp',
   doors: 'both',
 };
+
+describe('runSetup selected runtime identity', () => {
+  it('does not reuse generic health after stale identity and converges on the next attempt', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codor-setup-identity-'));
+    const commands: string[] = [];
+    const overrides = posixOverrides(root, async () => universalOffer);
+    overrides.exec = (command, args) => {
+      commands.push([command, ...args].join(' '));
+      return command === 'loginctl' ? 'yes' : '';
+    };
+    try {
+      await expect(runSetup({
+        dryRun: false, yes: true, access: 'localhost',
+        env: { HOME: join(root, 'home'), USER: 'tester', PATH: '/usr/bin' },
+        out: vi.fn(),
+        overrides: {
+          ...overrides,
+          runtimeStatus: async () => ({ version: 'old-version', generation: 'old-generation' }),
+        },
+      })).rejects.toThrow(/answered generically but did not report selected runtime/);
+      await runSetup({
+        dryRun: false, yes: true, access: 'localhost',
+        env: { HOME: join(root, 'home'), USER: 'tester', PATH: '/usr/bin' },
+        out: vi.fn(), overrides,
+      });
+      expect(commands.filter((command) => command === 'systemctl --user restart codor.service')).toHaveLength(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('runSetup relay-on-by-default (P6b)', () => {
   it('enables the relay and mints a universal first code through the daemon by default', async () => {

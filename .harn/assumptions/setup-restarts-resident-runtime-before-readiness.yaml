@@ -1,7 +1,7 @@
 id: setup-restarts-resident-runtime-before-readiness
 hash: a-ff5e59b92c46
 title: Setup makes the resident service run the selected runtime
-state: active
+state: retired
 statement: >
   On the first Start-service attempt of each real setup run, Linux, macOS, and
   Windows must replace any already-running Codor user-service generation with
@@ -17,3 +17,4 @@ depends_on:
   - setup-verifies-codor-before-creating-pairing-code
   - setup-macos-launchd-confirms-loaded-and-healthy
 created_by: hosted-relay-smooth-startup-r2-update
+retired_by: hosted-relay-smooth-startup-r2-review-fixes

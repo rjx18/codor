@@ -204,10 +204,16 @@ launchctl print "gui/$(id -u)/app.codor.switchboard"
 tail -f "$HOME/.codor/logs/codor.err.log"
 ```
 
-For package upgrades, rerun `npx @richhardry/codor install`; it refreshes the user service against
-the invoking installed runtime. Restart `codor.service` on Linux or
-`app.codor.switchboard` with `launchctl kickstart -k` on macOS if the service manager has not
-already restarted it.
+The first release that adds the updater needs one packaged bootstrap when your installed launcher
+does not yet know the command:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After that, use `codor update`. It selects the official stable release, updates the durable runtime
+and private user service as one transaction, and verifies the selected service generation; no
+manual restart is part of a successful update.
 
 <!-- harn:assume source-cli-installers-remain-idempotent-fallback ref=readme-native-windows-installer -->
 For source development, clone the repository, run `pnpm install --frozen-lockfile && pnpm -r build`,

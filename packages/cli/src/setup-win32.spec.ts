@@ -26,7 +26,10 @@ const winOptions = (root: string, commands: string[], output: string[]) => {
   renderQr: () => '[qr]',
   repoRoot,
   probe: async () => true,
+  generation: () => 'windows-generation',
+  runtimeStatus: async () => ({ version: 'test-version', generation: 'windows-generation' }),
   sleep: async () => undefined,
+  version: 'test-version',
   which: (command: string) => command === 'codex'
     ? join(root, 'tools', 'codex.cmd')
     : undefined,

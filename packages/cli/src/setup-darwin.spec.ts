@@ -104,7 +104,7 @@ describe('bootstrapLaunchAgent recovery', () => {
     expect(commands.filter((c) => c.includes('bootstrap')).length).toBe(2);
   });
 
-  // harn:assume setup-restarts-resident-runtime-before-readiness ref=setup-runtime-convergence-regression
+  // harn:assume setup-proves-selected-runtime-before-reuse ref=setup-runtime-convergence-regression
   it('keeps a newly loaded healthy daemon after a transient bootstrap error without restarting it', async () => {
     let prints = 0;
     const { commands, exec } = execWith({
@@ -138,7 +138,7 @@ describe('bootstrapLaunchAgent recovery', () => {
     expect(commands.filter((command) => command.includes('bootstrap'))).toHaveLength(1);
     expect(commands.some((command) => command.includes('kickstart'))).toBe(false);
   });
-  // harn:end setup-restarts-resident-runtime-before-readiness
+  // harn:end setup-proves-selected-runtime-before-reuse
 
   it('does NOT accept a briefly-healthy orphan whose print is absent', async () => {
     // Probe answers true (dying process) but print says not loaded: not success.

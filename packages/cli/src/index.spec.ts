@@ -443,6 +443,8 @@ describe('@codor/cli', () => {
         nodePath: process.execPath,
         platform: 'linux',
         probe: async () => true,
+        generation: () => 'setup-generation',
+        runtimeStatus: async () => ({ version: 'dev', generation: 'setup-generation' }),
         randomToken: () => 'a'.repeat(64),
         repoRoot,
         sleep: async () => undefined,
@@ -485,6 +487,8 @@ describe('@codor/cli', () => {
         nodePath: process.execPath,
         platform: 'linux',
         probe: async () => true,
+        generation: () => 'setup-generation',
+        runtimeStatus: async () => ({ version: 'dev', generation: 'setup-generation' }),
         randomToken: () => 'a'.repeat(64),
         sleep: async () => undefined,
         which: () => undefined,
@@ -536,6 +540,8 @@ describe('@codor/cli', () => {
         nodePath: process.execPath,
         platform: 'linux',
         probe: async () => true,
+        generation: () => 'setup-generation',
+        runtimeStatus: async () => ({ version: 'dev', generation: 'setup-generation' }),
         randomToken: () => 'a'.repeat(64),
         sleep: async () => undefined,
         which: () => undefined,
@@ -587,6 +593,8 @@ describe('@codor/cli', () => {
         nodePath: process.execPath,
         platform: 'linux',
         probe: async () => true,
+        generation: () => 'setup-generation',
+        runtimeStatus: async () => ({ version: 'dev', generation: 'setup-generation' }),
         randomToken: () => 'a'.repeat(64),
         sleep: async () => undefined,
         which: () => undefined,
@@ -857,6 +865,7 @@ describe('@codor/cli', () => {
         nodePath: '/opt/node/bin/node',
         platform: 'linux', generation: () => 'setup-generation',
         probe: async () => true,
+        runtimeStatus: async () => ({ version: '0.10.11', generation: 'setup-generation' }),
         randomToken: () => 'a'.repeat(64),
         renderQr: (payload) => {
           qrPayload = payload;
@@ -931,6 +940,7 @@ describe('@codor/cli', () => {
       platform: 'darwin' as const,
       repoRoot,
       uid: 501, generation: () => '<new-generation>',
+      runtimeStatus: async () => ({ version: '0.10.11', generation: '<new-generation>' }),
       which,
     };
 

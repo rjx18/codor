@@ -402,18 +402,20 @@ codor --data-dir "$HOME/.codor" \
   tail -r desk --once
 ```
 
-Before an upgrade, take a stopped backup. A packaged installation updates to the current official
-stable release with `codor update`. The command acquires an exact npm version without a shell,
+Before an upgrade, take a stopped backup. If the installed launcher predates the updater, bootstrap
+it once with `npx --yes --package=@richhardry/codor@latest codor update`; subsequent upgrades use
+plain `codor update`. The command acquires an exact npm version from the official registry without
+a shell,
 atomically stages the durable runtime, replaces the existing per-user service generation, and
 verifies that exact version before deleting its rollback copy. It does not rerun onboarding or
 mint a pairing code, and it does not require a manual service restart. If the service cannot be
 verified, Codor restores the previous runtime and attempts to reconverge it before failing.
 
-For a source checkout, `codor update` refuses with Git guidance. Fetch the intended Git revision,
-run `corepack pnpm install --frozen-lockfile && corepack pnpm -r build`, and restart the service
-using the platform's ordinary manual lifecycle. Never run a moving branch directly as root. Close
-and reopen an installed PWA once after a new static build lands so its service worker can take
-control.
+A source-linked CLI may update an existing durable installation without mutating the checkout. If
+there is no durable installation, fetch the intended Git revision, run `corepack pnpm install
+--frozen-lockfile && corepack pnpm -r build`, and restart the development service using the
+platform's ordinary manual lifecycle. Never run a moving branch directly as root. Close and reopen
+an installed PWA once after a new static build lands so its service worker can take control.
 <!-- harn:end fresh-clone-install-proven-by-script -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=selfhost-agent-trust-boundary -->

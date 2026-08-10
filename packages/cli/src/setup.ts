@@ -5,6 +5,8 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir, release } from 'node:os';
@@ -85,6 +87,7 @@ export type SetupAccess = 'localhost' | 'tailscale';
 
 export interface SetupOptions {
   access?: SetupAccess;
+  dataDir?: string;
   dryRun: boolean;
   env: NodeJS.ProcessEnv;
   /** Opt out of relay-on-by-default: mint a local-only code and leave the relay off. */
@@ -399,7 +402,7 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
     return false;
   };
 
-  // harn:assume setup-restarts-resident-runtime-before-readiness ref=launchd-stateful-convergence
+  // harn:assume setup-proves-selected-runtime-before-reuse ref=launchd-stateful-convergence
   bootout();
   await waitUntilAbsent();
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
@@ -425,7 +428,7 @@ export async function bootstrapLaunchAgent(deps: LaunchAgentBootstrap): Promise<
       await waitUntilAbsent();
     }
   }
-  // harn:end setup-restarts-resident-runtime-before-readiness
+  // harn:end setup-proves-selected-runtime-before-reuse
 }
 // harn:end setup-macos-launchd-confirms-loaded-and-healthy
 
@@ -730,6 +733,30 @@ async function probeRuntimeIdentity(
   }
 }
 
+interface ServiceFileSnapshot {
+  bytes?: Buffer;
+  mode?: number;
+  path: string;
+}
+
+function captureServiceFiles(paths: string[]): ServiceFileSnapshot[] {
+  return paths.map((path) => existsSync(path)
+    ? { path, bytes: readFileSync(path), mode: statSync(path).mode & 0o777 }
+    : { path });
+}
+
+function restoreServiceFiles(snapshots: ServiceFileSnapshot[]): void {
+  for (const snapshot of snapshots) {
+    if (snapshot.bytes === undefined) {
+      rmSync(snapshot.path, { force: true });
+      continue;
+    }
+    mkdirSync(dirname(snapshot.path), { recursive: true });
+    writeFileSync(snapshot.path, snapshot.bytes, { mode: snapshot.mode });
+    if (snapshot.mode !== undefined) chmodSync(snapshot.path, snapshot.mode);
+  }
+}
+
 const defaultSleep = async (milliseconds: number): Promise<void> =>
   new Promise((resolveSleep) => setTimeout(resolveSleep, milliseconds));
 
@@ -800,7 +827,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const nextGeneration = overrides.generation ?? randomUUID;
   const sleep = overrides.sleep ?? defaultSleep;
   const configDir = operatorConfigDir(home);
-  const dataDir = join(home, '.codor');
+  const dataDir = resolve(options.dataDir ?? join(home, '.codor'));
   const tokenPath = operatorTokenPath(home);
   const envPath = join(configDir, 'env');
   const userUnitDir = join(home, '.config', 'systemd', 'user');
@@ -991,9 +1018,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
 
   const stepTitles = SETUP_STAGE_TITLES;
 
-  // Shared state the steps thread through. `pairing` and `serviceStarted` are
-  // memoized so a Retry re-runs the step's work idempotently: the daemon is not
-  // restarted and the pairing code is not re-minted.
+  // Shared state the steps thread through. `pairing` and the verified service
+  // identity are memoized so Retry reuses only a generation this run proved;
+  // failed or stale starts converge again, and pairing is not re-minted.
   // The readiness probe always targets the local daemon; the pairing endpoint
   // becomes the tailnet HTTPS origin only when Tailscale Serve succeeds.
   const localEndpoint = 'http://127.0.0.1:8137';
@@ -1002,6 +1029,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   let pairing: { code: string; expires: string; qr: string; url: string } | undefined;
   let pairingCopied = false;
   let serviceStarted = false;
+  let verifiedServiceIdentity: { version: string; generation: string } | undefined;
 
   const checkStep = (log: (message: string) => void): string => {
     // Read-only detection; Tailscale is not inspected here.
@@ -1116,20 +1144,25 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     return result.summary;
   };
 
-  // harn:assume setup-restarts-resident-runtime-before-readiness ref=setup-runtime-convergence
+  // harn:assume setup-proves-selected-runtime-before-reuse ref=setup-runtime-convergence
   const startStep = async (
     log: (message: string) => void,
     identity: { version: string; generation: string } = { version, generation: nextGeneration() },
     force = false,
   ): Promise<string> => {
-    // A Retry must not reinstall or restart a daemon that is already up; when
-    // the service was started this run and still answers, short-circuit.
-    if (!force && serviceStarted && await probe(localEndpoint)) {
-      log('Codor is already running; reusing it');
-      return 'service already running';
+    const token = existsSync(tokenPath) ? readFileSync(tokenPath, 'utf8').trim() : undefined;
+    // A Retry may reuse only the exact generation already proved by this run.
+    if (!force && serviceStarted && verifiedServiceIdentity !== undefined && token !== undefined) {
+      const status = await runtimeStatus(localEndpoint, token);
+      if (status?.version === verifiedServiceIdentity.version
+        && status.generation === verifiedServiceIdentity.generation) {
+        log('Codor selected runtime is already verified; reusing it');
+        return 'service already running';
+      }
+      serviceStarted = false;
+      verifiedServiceIdentity = undefined;
     }
     if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
-    serviceStarted = true;
     if (platform === 'linux') {
       const token = readFileSync(tokenPath, 'utf8').trim();
       mkdirSync(userUnitDir, { recursive: true, mode: 0o700 });
@@ -1187,10 +1220,17 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     }
     await waitForCodor(localEndpoint, probe, sleep);
     log('Codor answered its pairing status check');
+    const selected = await runtimeStatus(localEndpoint, readFileSync(tokenPath, 'utf8').trim());
+    if (selected?.version !== identity.version || selected.generation !== identity.generation) {
+      throw new Error(`Codor answered generically but did not report selected runtime ${identity.version} generation ${identity.generation}`);
+    }
+    verifiedServiceIdentity = identity;
+    serviceStarted = true;
+    log(`Codor reported selected runtime ${identity.version} generation ${identity.generation}`);
     if (systemdBindHost === '0.0.0.0') log('WSL2 NAT is reachable through Windows localhost');
     return 'service enabled and answering';
   };
-  // harn:end setup-restarts-resident-runtime-before-readiness
+  // harn:end setup-proves-selected-runtime-before-reuse
 
   const pairStep = async (log: (message: string) => void): Promise<string> => {
     if (pairing === undefined) {
@@ -1230,7 +1270,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     return `code ${pairing.code}`;
   };
 
-  // harn:assume runtime-update-is-transactional-through-service-readiness ref=private-update-application
+  // harn:assume runtime-update-transacts-runtime-service-and-selected-data-root ref=private-update-application
   if (options.updateOnly !== undefined) {
     if (runtime.layout !== 'installed-package') throw new Error('the private updater requires an acquired package runtime');
     if (version !== options.updateOnly.expectedVersion) {
@@ -1240,6 +1280,12 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     if (!previous) throw new Error('no durable Codor installation was found; run `codor install` first');
     if (!existsSync(tokenPath)) throw new Error(`operator token is missing at ${tokenPath}`);
     const log = (message: string): void => options.out(message);
+    const serviceFiles = platform === 'linux'
+      ? [userUnitPath, envPath]
+      : platform === 'darwin'
+        ? [launchAgentPath]
+        : [windowsScriptPath, windowsTaskPath];
+    const priorServiceFiles = captureServiceFiles(serviceFiles);
     const result = installDurableRuntime({
       runtime,
       dataDir,
@@ -1256,33 +1302,60 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       }
       const generation = nextGeneration();
       await startStep(log, { version, generation }, true);
-      const token = readFileSync(tokenPath, 'utf8').trim();
-      const status = await runtimeStatus(localEndpoint, token);
-      if (status?.version !== version || status.generation !== generation) {
-        throw new Error(`the restarted service did not report Codor ${version} generation ${generation}`);
-      }
       finalizeDurableRuntimeInstall(result, installIo);
       options.out(`Codor updated from ${previous.version} to ${version}; service generation ${generation} is ready`);
       return;
     } catch (error) {
-      rollbackDurableRuntimeInstall(result, installIo);
+      const restorationFailures: string[] = [];
+      try { rollbackDurableRuntimeInstall(result, installIo); } catch (rollbackError) {
+        restorationFailures.push(`runtime restore failed: ${String(rollbackError)}`);
+      }
+      try { restoreServiceFiles(priorServiceFiles); } catch (restoreError) {
+        restorationFailures.push(`service-file restore failed: ${String(restoreError)}`);
+      }
+      if (restorationFailures.length > 0) {
+        throw new Error(`Codor update failed: ${String(error)}; rollback was incomplete (${restorationFailures.join('; ')}). Inspect the user-service logs and restore the stopped backup before retrying.`);
+      }
       let rollbackDetail = 'the previous runtime files were restored';
       try {
-        const rollbackGeneration = nextGeneration();
-        await startStep(log, { version: previous.version, generation: rollbackGeneration }, true);
+        if (platform === 'linux') {
+          exec('systemctl', ['--user', 'daemon-reload']);
+          exec('systemctl', ['--user', 'enable', 'codor.service']);
+          exec('systemctl', ['--user', 'restart', 'codor.service']);
+        } else if (platform === 'darwin') {
+          await bootstrapLaunchAgent({
+            exec, probe, sleep,
+            exists: overrides.exists,
+            domain: launchDomain!,
+            target: launchTarget!,
+            plistPath: launchAgentPath,
+            nodePath,
+            cliEntrypoint: serviceRuntime.cliEntrypoint,
+            endpoint: localEndpoint,
+            log,
+          });
+        } else {
+          try { exec('schtasks', ['/End', '/TN', 'Codor Switchboard']); } catch { /* task may not be running */ }
+          exec('schtasks', ['/Create', '/TN', 'Codor Switchboard', '/XML', windowsTaskPath, '/F']);
+          exec('schtasks', ['/Run', '/TN', 'Codor Switchboard']);
+        }
+        await waitForCodor(localEndpoint, probe, sleep);
         const token = readFileSync(tokenPath, 'utf8').trim();
         const restored = await runtimeStatus(localEndpoint, token);
-        if (restored?.version !== previous.version || restored.generation !== rollbackGeneration) {
-          throw new Error('the restored service identity could not be verified');
+        if (restored === undefined) {
+          rollbackDetail = `Codor ${previous.version} was restored and is generically healthy, but its legacy identity is unverified`;
+        } else if (restored.version === previous.version) {
+          rollbackDetail = `Codor ${previous.version} was restored and version-verified`;
+        } else {
+          throw new Error(`the restored service reported unexpected Codor ${restored.version}`);
         }
-        rollbackDetail = `Codor ${previous.version} was restored and is ready`;
       } catch (rollbackError) {
-        rollbackDetail = `the previous runtime files were restored but its service could not be verified: ${String(rollbackError)}`;
+        rollbackDetail = `the previous runtime and exact service files were restored but its service could not be verified: ${String(rollbackError)}`;
       }
       throw new Error(`Codor update failed: ${String(error)}; ${rollbackDetail}. Inspect the user-service logs and retry \`codor update\`.`);
     }
   }
-  // harn:end runtime-update-is-transactional-through-service-readiness
+  // harn:end runtime-update-transacts-runtime-service-and-selected-data-root
 
   const cardColumns = overrides.streams?.output?.columns ?? process.stdout.columns ?? 80;
   // The frame budget is rows - 1. Its fixed pairing overhead is two header rows,

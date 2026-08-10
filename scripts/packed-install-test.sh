@@ -77,6 +77,10 @@ docker run --rm \
     grep -Fq "[dry-run] wait for Codor pairing status" <<<"$PACKAGED_DRY_RUN"
     PACKAGED_WARM_DRY_RUN="$(npx --yes --package="$TARBALL" codor install --dry-run)"
     [[ "$PACKAGED_WARM_DRY_RUN" == "$PACKAGED_DRY_RUN" ]]
+    # The first updater release must itself dispatch through the documented
+    # one-time packaged bootstrap; older installed launchers cannot contain it.
+    PACKAGED_UPDATE_HELP="$(npx --yes --package="$TARBALL" codor update --help)"
+    grep -Fq "Update the durable Codor runtime" <<<"$PACKAGED_UPDATE_HELP"
     # harn:end packed-local-tgz-npx-proof-runs-fresh-default-audit
     # Durability: the install copies a durable runtime, and the rendered service
     # ExecStart references that ~/.codor/runtime copy, never the ephemeral npx

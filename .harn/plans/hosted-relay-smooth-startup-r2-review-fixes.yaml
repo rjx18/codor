@@ -1,5 +1,6 @@
 id: hosted-relay-smooth-startup-r2-review-fixes
-title: Make the official updater durable-rooted, bounded, identity-safe, and fully transactional
+title: Make the official updater durable-rooted, bounded, identity-safe, and
+  fully transactional
 notes: >
   Contained R2 review correction only. Preserve the accepted updater, platform
   service, authentication, data-preservation, and no-onboarding behavior while
@@ -21,10 +22,10 @@ notes: >
   daemon without the private identity endpoint may be reported only as
   generically healthy and unverified.
 
-  Document and prove the one-time first-update bootstrap through
-  `npx --yes --package=@richhardry/codor@latest codor update`, after which the
-  durable launcher contains plain `codor update`. Do not update a real host,
-  touch R1/R3, alter archive behavior, weaken authentication/redaction, or add
+  Document and prove the one-time first-update bootstrap through `npx --yes
+  --package=@richhardry/codor@latest codor update`, after which the durable
+  launcher contains plain `codor update`. Do not update a real host, touch
+  R1/R3, alter archive behavior, weaken authentication/redaction, or add
   background updates, alternate registries, onboarding, pairing, push, relay,
   account, or UI work.
 assumptions:
@@ -33,13 +34,14 @@ assumptions:
       reason: >
         The packaged-only/source-refusal statement is false for Richard's
         source-linked launcher and omits official-registry pinning, downgrade
-        refusal, Windows shell-free npm resolution, bounded child execution,
-        and the one-time npx bootstrap.
+        refusal, Windows shell-free npm resolution, bounded child execution, and
+        the one-time npx bootstrap.
     - id: runtime-update-is-transactional-through-service-readiness
       reason: >
         Runtime-file rollback alone is not the complete transaction: the exact
-        selected data root and prior platform service artifacts must participate,
-        and a legacy restored daemon cannot be falsely identity-verified.
+        selected data root and prior platform service artifacts must
+        participate, and a legacy restored daemon cannot be falsely
+        identity-verified.
     - id: setup-restarts-resident-runtime-before-readiness
       reason: >
         Restart ordering is necessary but generic health is insufficient; setup
@@ -47,24 +49,25 @@ assumptions:
         the authenticated identity proof.
   create:
     - id: official-codor-update-is-bounded-cross-platform-and-durable-rooted
-      title: Codor update selects one bounded official candidate for an existing durable runtime
+      title: Codor update selects one bounded official candidate for an existing
+        durable runtime
       statement: >
         When the selected data root contains a durable Codor runtime, `codor
         update` may be invoked by its launcher, a source-linked CLI, or the
         official npx candidate without mutating the invoking checkout; it must
         resolve @richhardry/codor latest and acquire the resulting exact stable
         non-prerelease version only through https://registry.npmjs.org, never
-        downgrade a newer installed semantic version, invoke npm without a
-        shell (using Node plus npm's JavaScript entrypoint on Windows), bound
-        registry lookup, acquisition, and candidate-child execution with direct
-        timeout diagnostics, and execute only the acquired candidate against
-        the exact selected data root. If no durable runtime exists, a source
-        invocation gives Git/build guidance and a packaged invocation gives
-        install guidance; arbitrary sources, prereleases, background updates,
-        onboarding, and pairing minting remain forbidden. The first release
-        that introduces update must be invokable once as `npx --yes
-        --package=@richhardry/codor@latest codor update`, after which the durable
-        launcher provides plain `codor update`.
+        downgrade a newer installed semantic version, invoke npm without a shell
+        (using Node plus npm's JavaScript entrypoint on Windows), bound registry
+        lookup, acquisition, and candidate-child execution with direct timeout
+        diagnostics, and execute only the acquired candidate against the exact
+        selected data root. If no durable runtime exists, a source invocation
+        gives Git/build guidance and a packaged invocation gives install
+        guidance; arbitrary sources, prereleases, background updates,
+        onboarding, and pairing minting remain forbidden. The first release that
+        introduces update must be invokable once as `npx --yes
+        --package=@richhardry/codor@latest codor update`, after which the
+        durable launcher provides plain `codor update`.
       reason: >
         The supported update journey must work on the installed XPS topology,
         stay pinned to official immutable bytes on every platform, never move
@@ -74,21 +77,23 @@ assumptions:
         - setup-resolves-complete-invoking-runtime
         - public-package-bundles-complete-codor-runtime
     - id: runtime-update-transacts-runtime-service-and-selected-data-root
-      title: Update commits the selected data root only after runtime and service identity are ready
+      title: Update commits the selected data root only after runtime and service
+        identity are ready
       statement: >
         The acquired candidate must carry the exact public `--data-dir` into its
         private application, use that root for durable runtime detection,
         staging, service rendering, and readiness, retain the prior runtime and
         exact platform service-definition/config bytes and existence across the
-        swap, and delete those rollback assets only after the owner-authenticated
-        status reports the candidate version and generation. Any staging,
-        restart, readiness, timeout, or identity failure must restore the exact
-        prior runtime and Linux unit/env, macOS plist, or Windows task/script
-        artifacts before reconverging that prior service, while leaving every
-        other data/config/log byte and the default data root untouched. A prior
-        identity-capable daemon may be version-verified; a legacy daemon without
-        the identity endpoint may be accepted only after bounded generic health
-        and reported explicitly as healthy but identity-unverified.
+        swap, and delete those rollback assets only after the
+        owner-authenticated status reports the candidate version and generation.
+        Any staging, restart, readiness, timeout, or identity failure must
+        restore the exact prior runtime and Linux unit/env, macOS plist, or
+        Windows task/script artifacts before reconverging that prior service,
+        while leaving every other data/config/log byte and the default data root
+        untouched. A prior identity-capable daemon may be version-verified; a
+        legacy daemon without the identity endpoint may be accepted only after
+        bounded generic health and reported explicitly as healthy but
+        identity-unverified.
       reason: >
         A runtime-only rollback can strand a prior binary behind candidate
         service configuration, while dropping the chosen data root can mutate
@@ -103,15 +108,15 @@ assumptions:
       statement: >
         On the first real Start attempt, Linux, macOS, and Windows must replace
         the resident service generation using the selected runtime, wait for
-        generic Codor readiness, and then require the owner-authenticated runtime
-        status to equal that run's expected version and generation before the
-        step is marked successful or reusable. Linux reloads/enables then
-        restarts, Windows ends before recreating/running, and macOS confirms old
-        target absence and waits through a loaded-but-booting target without
-        kickstart; a failed restart or stale healthy daemon leaves the run
-        unverified so Retry performs convergence again, while Retry after a
-        completed identity proof does not restart and durable user state remains
-        untouched.
+        generic Codor readiness, and then require the owner-authenticated
+        runtime status to equal that run's expected version and generation
+        before the step is marked successful or reusable. Linux reloads/enables
+        then restarts, Windows ends before recreating/running, and macOS
+        confirms old target absence and waits through a loaded-but-booting
+        target without kickstart; a failed restart or stale healthy daemon
+        leaves the run unverified so Retry performs convergence again, while
+        Retry after a completed identity proof does not restart and durable user
+        state remains untouched.
       reason: >
         Generic health can come from the old process, so it cannot authorize a
         successful or reusable setup generation.
@@ -123,67 +128,88 @@ assumptions:
   reviewed:
     - id: github-tags-publish-one-immutable-alpha-or-stable-release
       outcome: unchanged
-      reason: Stable publication remains one immutable exact npm release; update pins its consumer to the official registry.
+      reason: Stable publication remains one immutable exact npm release; update pins
+        its consumer to the official registry.
     - id: setup-resolves-complete-invoking-runtime
       outcome: unchanged
-      reason: Runtime layout detection remains authoritative; invoking layout no longer overrides an existing durable target.
+      reason: Runtime layout detection remains authoritative; invoking layout no
+        longer overrides an existing durable target.
     - id: setup-installs-durable-per-user-runtime-atomically
       outcome: unchanged
-      reason: The existing staged copy and atomic runtime swap remain the runtime transaction primitive.
+      reason: The existing staged copy and atomic runtime swap remain the runtime
+        transaction primitive.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
-      reason: The same private user services, absolute paths, permissions, token, and harness environment remain.
+      reason: The same private user services, absolute paths, permissions, token, and
+        harness environment remain.
     - id: setup-verifies-codor-before-creating-pairing-code
       outcome: unchanged
-      reason: The existing generic Codor readiness and pairing gate remains, with selected identity added before reuse.
+      reason: The existing generic Codor readiness and pairing gate remains, with
+        selected identity added before reuse.
     - id: setup-macos-launchd-confirms-loaded-and-healthy
       outcome: unchanged
-      reason: launchd validation and bounded loaded/healthy recovery remain unchanged while identity proof follows readiness.
+      reason: launchd validation and bounded loaded/healthy recovery remain unchanged
+        while identity proof follows readiness.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
-      reason: Windows retains the private least-privilege scheduled task and exact service script contract.
+      reason: Windows retains the private least-privilege scheduled task and exact
+        service script contract.
     - id: service-runtime-status-is-owner-authenticated
       outcome: unchanged
-      reason: The existing no-store owner-only projection remains the sole positive identity proof.
+      reason: The existing no-store owner-only projection remains the sole positive
+        identity proof.
     - id: setup-readiness-wait-is-wall-clock-bounded
       outcome: unchanged
-      reason: Generic readiness retains the same monotonic sixty-second budget and diagnostics.
+      reason: Generic readiness retains the same monotonic sixty-second budget and
+        diagnostics.
     - id: platform-services-propagate-destination-pnpm-node-path
       outcome: unchanged
-      reason: PATH and NODE_PATH remain destination-rooted across update, rollback, and normal setup.
+      reason: PATH and NODE_PATH remain destination-rooted across update, rollback,
+        and normal setup.
     - id: setup-installs-user-launcher-shim
       outcome: unchanged
-      reason: The same stable launcher path is installed; only its update eligibility is corrected.
+      reason: The same stable launcher path is installed; only its update eligibility
+        is corrected.
     - id: setup-unattended-mutation-requires-explicit-intent
       outcome: unchanged
-      reason: Public update remains the explicit mutation command and install/setup consent is unchanged.
+      reason: Public update remains the explicit mutation command and install/setup
+        consent is unchanged.
     - id: management-failures-have-stable-redacted-exits
       outcome: unchanged
-      reason: Timeout and update errors remain concise/redacted without changing management exit behavior.
+      reason: Timeout and update errors remain concise/redacted without changing
+        management exit behavior.
     - id: channel-archive-requires-explicit-confirmation
       outcome: unchanged
-      reason: Monolithic index regression edits must not change archive confirmation, --yes, TTY/JSON, stdout, or refusal semantics.
+      reason: Monolithic index regression edits must not change archive confirmation,
+        --yes, TTY/JSON, stdout, or refusal semantics.
     - id: public-npx-install-is-primary-install
       outcome: unchanged
-      reason: npx install remains primary installation; the new npx update command is only the first-update bootstrap.
+      reason: npx install remains primary installation; the new npx update command is
+        only the first-update bootstrap.
     - id: public-package-readme-renders-on-npm
       outcome: unchanged
-      reason: The staged npm README retains public branding and primary install guidance while adding truthful update bootstrap copy.
+      reason: The staged npm README retains public branding and primary install
+        guidance while adding truthful update bootstrap copy.
     - id: public-package-bundles-complete-codor-runtime
       outcome: unchanged
-      reason: The existing artifact closure and bin remain complete; packed coverage proves that bin exposes update.
+      reason: The existing artifact closure and bin remain complete; packed coverage
+        proves that bin exposes update.
     - id: packed-release-proof-runs-install-runtime
       outcome: unchanged
-      reason: The clean packed proof keeps all install/runtime checks and adds the candidate update entrypoint.
+      reason: The clean packed proof keeps all install/runtime checks and adds the
+        candidate update entrypoint.
     - id: packed-local-tgz-npx-proof-runs-fresh-default-audit
       outcome: unchanged
-      reason: The same fresh npx cache and default audit path also dispatch the packed update command help.
+      reason: The same fresh npx cache and default audit path also dispatch the packed
+        update command help.
     - id: fresh-clone-install-proven-by-script
       outcome: unchanged
-      reason: Source checkout upgrade guidance remains explicit and separate from packaged update.
+      reason: Source checkout upgrade guidance remains explicit and separate from
+        packaged update.
     - id: source-cli-installers-remain-idempotent-fallback
       outcome: unchanged
-      reason: Source installers remain contributor fallbacks and are never mutated by update.
+      reason: Source installers remain contributor fallbacks and are never mutated by
+        update.
 anchors:
   official-codor-update-acquires-one-exact-stable-candidate:
     stable-update-command:
@@ -191,77 +217,94 @@ anchors:
       reason: Re-anchor the corrected durable-rooted command contract.
     stable-update-acquisition:
       action: remove
-      reason: Replace packaged-only ambient acquisition with bounded official cross-platform acquisition.
+      reason: Replace packaged-only ambient acquisition with bounded official
+        cross-platform acquisition.
     stable-update-regression:
       action: remove
       reason: Replace the obsolete source-refusal regression contract.
   runtime-update-is-transactional-through-service-readiness:
     private-update-application:
       action: remove
-      reason: Re-anchor private application to the full runtime/service/data-root transaction.
+      reason: Re-anchor private application to the full runtime/service/data-root
+        transaction.
     update-rollback-regression:
       action: remove
       reason: Replace runtime-only rollback regressions.
     durable-runtime-transaction:
       action: remove
-      reason: Re-anchor the retained runtime primitive under the complete successor transaction.
+      reason: Re-anchor the retained runtime primitive under the complete successor
+        transaction.
     durable-runtime-transaction-regression:
       action: remove
-      reason: Re-anchor retained-backup coverage under the complete successor transaction.
+      reason: Re-anchor retained-backup coverage under the complete successor
+        transaction.
   setup-restarts-resident-runtime-before-readiness:
     setup-runtime-convergence:
       action: remove
       reason: Replace generic-health reuse with selected-identity reuse.
     launchd-stateful-convergence:
       action: remove
-      reason: Re-anchor unchanged launchd ordering under the stronger identity contract.
+      reason: Re-anchor unchanged launchd ordering under the stronger identity
+        contract.
     setup-runtime-convergence-regression:
       action: remove
       reason: Replace restart-only regressions with identity/retry regressions.
   official-codor-update-is-bounded-cross-platform-and-durable-rooted:
     stable-update-command:
       action: change
-      reason: Thread the exact data root through both public and private update commands.
+      reason: Thread the exact data root through both public and private update
+        commands.
     stable-update-acquisition:
       action: change
-      reason: Allow existing durable targets from any invoking layout, pin the registry, refuse downgrades, resolve Windows npm JS, and bound all children.
+      reason: Allow existing durable targets from any invoking layout, pin the
+        registry, refuse downgrades, resolve Windows npm JS, and bound all
+        children.
     stable-update-regression:
       action: change
-      reason: Cover source-linked durable use, missing durable guidance, official registry argv, downgrade refusal, Windows Node/npm, and each timeout.
+      reason: Cover source-linked durable use, missing durable guidance, official
+        registry argv, downgrade refusal, Windows Node/npm, and each timeout.
   runtime-update-transacts-runtime-service-and-selected-data-root:
     private-update-application:
       action: change
-      reason: Apply against the selected data root and snapshot/restore exact service artifacts around candidate convergence.
+      reason: Apply against the selected data root and snapshot/restore exact service
+        artifacts around candidate convergence.
     update-rollback-regression:
       action: change
-      reason: Prove non-default-root isolation, exact platform-file restoration, identity-capable rollback, and legacy generic recovery.
+      reason: Prove non-default-root isolation, exact platform-file restoration,
+        identity-capable rollback, and legacy generic recovery.
     durable-runtime-transaction:
       action: change
-      reason: Keep retained runtime backup mechanics tied to the complete update transaction.
+      reason: Keep retained runtime backup mechanics tied to the complete update
+        transaction.
     durable-runtime-transaction-regression:
       action: change
       reason: Preserve atomic runtime coverage under the successor transaction.
   setup-proves-selected-runtime-before-reuse:
     setup-runtime-convergence:
       action: change
-      reason: Mark serviceStarted only after generic and authenticated identity proof; retry stale or failed starts.
+      reason: Mark serviceStarted only after generic and authenticated identity proof;
+        retry stale or failed starts.
     launchd-stateful-convergence:
       action: change
       reason: Preserve launchd replacement ordering under the selected-identity gate.
     setup-runtime-convergence-regression:
       action: change
-      reason: Cover stale generic health, failed restart retry, successful identity reuse, and all platform ordering.
+      reason: Cover stale generic health, failed restart retry, successful identity
+        reuse, and all platform ordering.
   setup-preserves-private-platform-service:
     setup-platform-service-runtime:
       action: change
-      reason: Capture, restore, and reconverge the exact existing platform service files without changing their privacy model.
+      reason: Capture, restore, and reconverge the exact existing platform service
+        files without changing their privacy model.
     setup-platform-service-regression:
       action: change
-      reason: Extend platform fixtures for selected identity and exact artifact preservation.
+      reason: Extend platform fixtures for selected identity and exact artifact
+        preservation.
   setup-verifies-codor-before-creating-pairing-code:
     setup-readiness-and-pairing:
       action: change
-      reason: Compose selected identity proof after the existing generic readiness gate.
+      reason: Compose selected identity proof after the existing generic readiness
+        gate.
     setup-readiness-and-pairing-regression:
       action: change
       reason: Prove generic health alone cannot complete Start.
@@ -285,22 +328,28 @@ anchors:
   platform-services-propagate-destination-pnpm-node-path:
     node-path-systemd-emission:
       action: change
-      reason: Snapshot and restore the containing Linux env artifact while preserving destination NODE_PATH.
+      reason: Snapshot and restore the containing Linux env artifact while preserving
+        destination NODE_PATH.
     node-path-launchd-emission:
       action: change
-      reason: Snapshot and restore the containing plist while preserving destination NODE_PATH.
+      reason: Snapshot and restore the containing plist while preserving destination
+        NODE_PATH.
     node-path-windows-emission:
       action: change
-      reason: Snapshot and restore the containing Windows script while preserving destination NODE_PATH.
+      reason: Snapshot and restore the containing Windows script while preserving
+        destination NODE_PATH.
     node-path-systemd-regression:
       action: change
       reason: Extend Linux setup/update identity and rollback assertions.
     node-path-source-probe-regression:
       action: change
-      reason: Add only the selected runtime-status fixture required by the new identity gate; preserve ephemeral source-to-destination NODE_PATH derivation exactly.
+      reason: Add only the selected runtime-status fixture required by the new
+        identity gate; preserve ephemeral source-to-destination NODE_PATH
+        derivation exactly.
     node-path-reused-destination-regression:
       action: change
-      reason: Add only the selected runtime-status fixture required by the new identity gate; preserve reused durable NODE_PATH behavior exactly.
+      reason: Add only the selected runtime-status fixture required by the new
+        identity gate; preserve reused durable NODE_PATH behavior exactly.
     node-path-launchd-regression:
       action: change
       reason: Extend macOS setup identity assertions without changing NODE_PATH.
@@ -310,15 +359,18 @@ anchors:
   setup-installs-user-launcher-shim:
     launcher-install-runtime:
       action: change
-      reason: Preserve the stable launcher while allowing its source-linked invocation to target the durable runtime.
+      reason: Preserve the stable launcher while allowing its source-linked invocation
+        to target the durable runtime.
   setup-unattended-mutation-requires-explicit-intent:
     setup-unattended-runtime:
       action: change
-      reason: Carry the exact private update data root without changing public setup consent.
+      reason: Carry the exact private update data root without changing public setup
+        consent.
   management-failures-have-stable-redacted-exits:
     management-error-regression:
       action: change
-      reason: Extend only update command/data-root assertions in the monolithic CLI regression.
+      reason: Extend only update command/data-root assertions in the monolithic CLI
+        regression.
     public-cli-failure-regression:
       action: change
       reason: Keep the packed wrapper's concise failure path while proving update help.
@@ -328,11 +380,13 @@ anchors:
   channel-archive-requires-explicit-confirmation:
     channel-archive-confirmation-regression:
       action: change
-      reason: Permit enclosing index setup expectations only; archive assertions and behavior remain unchanged.
+      reason: Permit enclosing index setup expectations only; archive assertions and
+        behavior remain unchanged.
   public-npx-install-is-primary-install:
     readme-primary-install:
       action: change
-      reason: Add the one-time npx update bootstrap while retaining primary install guidance.
+      reason: Add the one-time npx update bootstrap while retaining primary install
+        guidance.
     setup-quickstart:
       action: change
       reason: Document bootstrap then plain packaged update.
@@ -369,11 +423,13 @@ anchors:
   packed-local-tgz-npx-proof-runs-fresh-default-audit:
     packed-npx-fresh-default-audit-proof:
       action: change
-      reason: Reuse the fresh audited npx cache to prove the candidate update entrypoint.
+      reason: Reuse the fresh audited npx cache to prove the candidate update
+        entrypoint.
   fresh-clone-install-proven-by-script:
     selfhost-guide:
       action: change
-      reason: Distinguish packaged first-update bootstrap from source Git rebuild guidance.
+      reason: Distinguish packaged first-update bootstrap from source Git rebuild
+        guidance.
   source-cli-installers-remain-idempotent-fallback:
     readme-native-windows-installer:
       action: change
@@ -383,7 +439,8 @@ anchors:
       reason: Keep source contributor guidance truthful after adding update bootstrap.
     selfhost-windows-cli-installer:
       action: change
-      reason: Preserve Windows source fallback while documenting official packaged update.
+      reason: Preserve Windows source fallback while documenting official packaged
+        update.
     per-user-cli-install-script:
       action: keep
       reason: Source installer implementation remains unchanged.
@@ -405,13 +462,16 @@ files:
   - scripts/packed-install-test.sh
 verification: >
   Clean-lock this review plan at caf67cf. Run focused update, runtime installer,
-  normal setup/retry, Linux, launchd, Windows, artifact, and authenticated status
-  coverage; fixtures must cover source-linked and npx durable targets, exact
-  custom data-root isolation, official registry args, no downgrade, Windows
-  Node/npm JS invocation, lookup/acquisition/candidate timeouts, stale generic
-  health, failed-restart retry, exact service-file restoration, identity-capable
-  rollback, legacy generic/unverified recovery, and packed candidate dispatch.
-  Run complete CLI and switchboard suites, the full serialized workspace tests,
-  recursive build, the packed/npx proof, Harn diff/staged/apply gates, and clean
-  tree checks. Do not update a real host, touch R1/R3, delegate, monitor, push,
-  merge, deploy, publish, release, or begin another phase.
+  normal setup/retry, Linux, launchd, Windows, artifact, and authenticated
+  status coverage; fixtures must cover source-linked and npx durable targets,
+  exact custom data-root isolation, official registry args, no downgrade,
+  Windows Node/npm JS invocation, lookup/acquisition/candidate timeouts, stale
+  generic health, failed-restart retry, exact service-file restoration,
+  identity-capable rollback, legacy generic/unverified recovery, and packed
+  candidate dispatch. Run complete CLI and switchboard suites, the full
+  serialized workspace tests, recursive build, the packed/npx proof, Harn
+  diff/staged/apply gates, and clean tree checks. Do not update a real host,
+  touch R1/R3, delegate, monitor, push, merge, deploy, publish, release, or
+  begin another phase.
+applied:
+  applied_at: 2026-08-10T09:35:14.077Z

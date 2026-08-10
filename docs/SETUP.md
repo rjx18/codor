@@ -21,7 +21,14 @@ npx @richhardry/codor install --yes --access localhost
 
 `npx @richhardry/codor setup` remains available as a backward-compatible alias.
 
-For a packaged installation, update to the current official stable release with:
+An installed launcher older than the first updater release cannot contain `codor update`. Bootstrap
+that first update once through the official package:
+
+```sh
+npx --yes --package=@richhardry/codor@latest codor update
+```
+
+After that, update to the current official stable release with:
 
 ```sh
 codor update
@@ -32,8 +39,9 @@ exact stable npm release, replaces the per-user service, and verifies that the n
 generation is answering before it succeeds. It preserves the operator token, relay identity,
 pairings, channels, worktrees, presets, roster, agents, logs, and other data under `~/.codor`; no
 manual restart is needed. If service verification fails, Codor restores the previous runtime and
-reports whether that generation recovered. Source checkouts intentionally refuse this command—use
-Git, install dependencies, and rebuild that checkout instead.
+reports whether that generation recovered. A source-linked launcher may update an existing durable
+installation without changing the checkout. If no durable installation exists, use Git, install
+dependencies, and rebuild the source checkout instead.
 
 See the [self-host guide](/docs/SELF-HOST) for Tailscale, source-development fallback, manual
 service operation, backup, and recovery.

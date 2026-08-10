@@ -1,0 +1,21 @@
+id: setup-proves-selected-runtime-before-reuse
+hash: a-6afa784d4644
+title: Setup reuses a service only after the selected identity has passed
+state: active
+statement: >
+  On the first real Start attempt, Linux, macOS, and Windows must replace the
+  resident service generation using the selected runtime, wait for generic Codor
+  readiness, and then require the owner-authenticated runtime status to equal
+  that run's expected version and generation before the step is marked
+  successful or reusable. Linux reloads/enables then restarts, Windows ends
+  before recreating/running, and macOS confirms old target absence and waits
+  through a loaded-but-booting target without kickstart; a failed restart or
+  stale healthy daemon leaves the run unverified so Retry performs convergence
+  again, while Retry after a completed identity proof does not restart and
+  durable user state remains untouched.
+depends_on:
+  - setup-preserves-private-platform-service
+  - setup-verifies-codor-before-creating-pairing-code
+  - setup-macos-launchd-confirms-loaded-and-healthy
+  - service-runtime-status-is-owner-authenticated
+created_by: hosted-relay-smooth-startup-r2-review-fixes

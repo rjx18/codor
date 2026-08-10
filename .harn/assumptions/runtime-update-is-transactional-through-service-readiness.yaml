@@ -1,7 +1,7 @@
 id: runtime-update-is-transactional-through-service-readiness
 hash: a-7737c95b1ff8
 title: Runtime update commits only after the selected service generation is ready
-state: active
+state: retired
 statement: >
   The acquired candidate's private updater must validate its own exact version,
   retain the prior durable runtime backup across the atomic swap, rewrite and
@@ -18,3 +18,4 @@ depends_on:
   - setup-preserves-private-platform-service
   - service-runtime-status-is-owner-authenticated
 created_by: hosted-relay-smooth-startup-r2-update
+retired_by: hosted-relay-smooth-startup-r2-review-fixes
