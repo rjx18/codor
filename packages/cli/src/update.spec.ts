@@ -478,6 +478,7 @@ it.each([
         exec: (command, args) => {
           fixture.commands.push([command, ...args].join(' '));
           if (platform === 'darwin' && command === 'launchctl' && args[0] === 'print') throw new Error('not loaded');
+          if (platform === 'win32' && command === 'schtasks' && args[0] === '/Query') return '<Task />';
           return '';
         },
         exists: () => true,
@@ -613,7 +614,11 @@ it('leaves a previously absent registered Windows task absent after rollback', a
         exec: (command, args) => {
           const rendered = [command, ...args].join(' ');
           fixture.commands.push(rendered);
-          if (command === 'schtasks' && args[0] === '/Query') throw new Error('task not found');
+          if (command === 'schtasks' && args[0] === '/Query') {
+            throw Object.assign(new Error('task not found'), {
+              stderr: 'ERROR: The system cannot find the file specified.',
+            });
+          }
           return '';
         },
         which: () => undefined,
@@ -627,6 +632,68 @@ it('leaves a previously absent registered Windows task absent after rollback', a
     const creates = fixture.commands.filter((command) => command.startsWith('schtasks /Create'));
     expect(creates).toHaveLength(1);
     expect(fixture.commands.at(-1)).not.toBe('schtasks /Run /TN Codor Switchboard');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+it.each([
+  {
+    label: 'timeout',
+    query: () => { throw Object.assign(new Error('query timed out'), { code: 'ETIMEDOUT' }); },
+    message: /could not inspect.*query timed out/i,
+  },
+  {
+    label: 'permission error',
+    query: () => { throw Object.assign(new Error('access denied'), { stderr: 'ERROR: Access is denied.' }); },
+    message: /could not inspect.*access denied/i,
+  },
+  {
+    label: 'malformed output',
+    query: () => 'not task xml',
+    message: /could not inspect.*malformed XML/i,
+  },
+])('aborts before mutation when Windows task discovery has a $label', async ({ query, message }) => {
+  const fixture = updateFixture();
+  const copyTree = vi.fn(defaultInstallIo.copyTree);
+  const move = vi.fn(defaultInstallIo.move);
+  const commands: Array<{ command: string; args: string[]; timeoutMs?: number }> = [];
+  try {
+    await expect(runCandidateUpdate({
+      dataDir: fixture.dataDir,
+      expectedVersion: '0.10.12',
+      timeoutMs: 41,
+      env: { HOME: fixture.home, USER: 'tester', USERNAME: 'tester', PATH: 'C:\\Windows\\System32' },
+      out: vi.fn(),
+      overrides: {
+        now: () => 0,
+        setup: {
+          runtime: fixture.candidate,
+          home: fixture.home,
+          nodePath: 'C:\\Program Files\\nodejs\\node.exe',
+          platform: 'win32',
+          installIo: { ...defaultInstallIo, copyTree, move },
+          exec: (command, args, options) => {
+            commands.push({ command, args, timeoutMs: options?.timeoutMs });
+            if (command === 'schtasks' && args[0] === '/Query') return query();
+            return '';
+          },
+          which: () => undefined,
+          probe: async () => true,
+          runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
+          sleep: async () => undefined,
+        },
+      },
+    })).rejects.toThrow(message);
+
+    expect(commands).toEqual([{
+      command: 'schtasks',
+      args: ['/Query', '/TN', 'Codor Switchboard', '/XML'],
+      timeoutMs: 41,
+    }]);
+    expect(copyTree).not.toHaveBeenCalled();
+    expect(move).not.toHaveBeenCalled();
+    expect(commands.some(({ args }) => args[0] === '/Delete')).toBe(false);
   } finally {
     fixture.cleanup();
   }

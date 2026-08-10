@@ -135,6 +135,7 @@ describe('codor setup on Windows', () => {
     const root = mkdtempSync(join(tmpdir(), 'codor-win32-quiesce-'));
     const commands: string[] = [];
     const output: string[] = [];
+    const events: string[] = [];
     let taskRunning = true;
     try {
       const overrides = winOptions(root, commands, output);
@@ -152,6 +153,7 @@ describe('codor setup on Windows', () => {
         ...defaultInstallIo,
         move: (from, to) => {
           if (taskRunning) throw new Error('runtime move attempted while task was running');
+          events.push(`move ${from} ${to}`);
           defaultInstallIo.move(from, to);
         },
       };
@@ -164,7 +166,9 @@ describe('codor setup on Windows', () => {
       };
       overrides.installIo = installIo;
       overrides.exec = (command, args) => {
-        commands.push([command, ...args].join(' '));
+        const rendered = [command, ...args].join(' ');
+        commands.push(rendered);
+        events.push(rendered);
         if (command === 'schtasks' && args[0] === '/Query') return '<Task />';
         if (command === 'schtasks' && args[0] === '/End') taskRunning = false;
         if (command === 'schtasks' && args[0] === '/Run') taskRunning = true;
@@ -182,6 +186,9 @@ describe('codor setup on Windows', () => {
 
       expect(commands[0]).toBe('schtasks /Query /TN Codor Switchboard /XML');
       expect(commands[1]).toBe('schtasks /End /TN Codor Switchboard');
+      const firstMove = events.findIndex((event) => event.startsWith('move '));
+      expect(firstMove).toBeGreaterThan(1);
+      expect(events.slice(0, firstMove).filter((event) => event === 'schtasks /End /TN Codor Switchboard')).toHaveLength(1);
       expect(taskRunning).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });

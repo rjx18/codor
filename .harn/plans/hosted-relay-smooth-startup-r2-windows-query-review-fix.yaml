@@ -8,8 +8,8 @@ notes: >
   failure before stopping a task or moving runtime files. Keep normal setup to
   exactly one pre-swap stop and prove the boundary directly. Preserve the
   accepted POSIX, packed-npx, cooperative rollback, service identity, task
-  registration, NODE_PATH, and private-service behavior. Do not touch R1/R3 or
-  a real host.
+  registration, NODE_PATH, and private-service behavior. Do not touch R1/R3 or a
+  real host.
 assumptions:
   reviewed:
     - id: windows-runtime-swap-requires-task-quiescence
@@ -28,10 +28,12 @@ assumptions:
       reason: Atomic staging and swap behavior remains unchanged.
     - id: windows-setup-installs-private-task-service
       outcome: unchanged
-      reason: The private least-privilege task definition and lifecycle remain unchanged.
+      reason: The private least-privilege task definition and lifecycle remain
+        unchanged.
     - id: platform-services-propagate-destination-pnpm-node-path
       outcome: unchanged
-      reason: Windows destination NODE_PATH behavior remains unchanged inside the shared fixture.
+      reason: Windows destination NODE_PATH behavior remains unchanged inside the
+        shared fixture.
 anchors:
   windows-runtime-swap-requires-task-quiescence:
     windows-runtime-quiescence:
@@ -47,21 +49,24 @@ anchors:
   runtime-update-restores-every-mutated-runtime-service-and-launcher-surface:
     private-update-application:
       action: change
-      reason: Move Windows discovery onto the existing cooperative service command budget.
+      reason: Move Windows discovery onto the existing cooperative service command
+        budget.
     update-rollback-regression:
       action: change
       reason: Cover bounded discovery refusal before the rollback transaction begins.
   setup-installs-durable-per-user-runtime-atomically:
     setup-install-runtime-wiring:
       action: change
-      reason: Keep exactly one confirmed Windows task stop before the unchanged swap primitive.
+      reason: Keep exactly one confirmed Windows task stop before the unchanged swap
+        primitive.
   windows-setup-installs-private-task-service:
     windows-setup-runtime:
       action: change
       reason: Preserve the task lifecycle while requiring confirmed discovery.
     windows-setup-regression:
       action: change
-      reason: Extend only the enclosing Windows setup regression with exact stop ordering.
+      reason: Extend only the enclosing Windows setup regression with exact stop
+        ordering.
   platform-services-propagate-destination-pnpm-node-path:
     node-path-windows-regression:
       action: change
@@ -71,8 +76,10 @@ files:
   - packages/cli/src/update.spec.ts
   - packages/cli/src/setup-win32.spec.ts
 verification: >
-  Lock cleanly at 9d744a2. Run focused Windows setup, updater, runtime installer,
-  setup-flow, and launchd regression suites; complete CLI tests; CLI and
-  recursive build; Harn diff/staged/apply gates; git diff --check; commit once;
-  and verify a clean worktree. Do not reopen POSIX, packed npx, R1/R3, or update
-  a real host.
+  Lock cleanly at 9d744a2. Run focused Windows setup, updater, runtime
+  installer, setup-flow, and launchd regression suites; complete CLI tests; CLI
+  and recursive build; Harn diff/staged/apply gates; git diff --check; commit
+  once; and verify a clean worktree. Do not reopen POSIX, packed npx, R1/R3, or
+  update a real host.
+applied:
+  applied_at: 2026-08-10T10:49:13.777Z

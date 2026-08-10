@@ -746,16 +746,42 @@ interface WindowsTaskSnapshot {
 
 const WINDOWS_TASK_NAME = 'Codor Switchboard';
 
+function windowsTaskErrorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const details = error as Error & { stderr?: unknown; stdout?: unknown };
+  const render = (value: unknown): string => Buffer.isBuffer(value)
+    ? value.toString('utf8')
+    : typeof value === 'string' ? value : '';
+  return [error.message, render(details.stderr), render(details.stdout)]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function windowsTaskNotFound(error: unknown): boolean {
+  const detail = windowsTaskErrorText(error);
+  return /ERROR:\s*The system cannot find (?:the file specified|the specified file)\.?/i.test(detail)
+    || /ERROR:\s*The specified task name .+ does not exist in the system\.?/i.test(detail);
+}
+
+function windowsTaskNotRunning(error: unknown): boolean {
+  return /ERROR:\s*The task is not running\.?/i.test(windowsTaskErrorText(error));
+}
+
 function captureWindowsTask(
   exec: NonNullable<SetupOverrides['exec']>,
 ): WindowsTaskSnapshot {
   try {
+    const xml = exec('schtasks', ['/Query', '/TN', WINDOWS_TASK_NAME, '/XML']);
+    if (!/<Task(?:\s|>)/i.test(xml)) {
+      throw new Error('Task Scheduler returned malformed XML for Codor Switchboard');
+    }
     return {
       exists: true,
-      xml: exec('schtasks', ['/Query', '/TN', WINDOWS_TASK_NAME, '/XML']),
+      xml,
     };
-  } catch {
-    return { exists: false };
+  } catch (error) {
+    if (windowsTaskNotFound(error)) return { exists: false };
+    throw new Error(`Codor could not inspect the existing Windows scheduled task: ${windowsTaskErrorText(error)}`);
   }
 }
 
@@ -764,7 +790,19 @@ function stopWindowsTask(
   snapshot: WindowsTaskSnapshot,
 ): void {
   if (!snapshot.exists) return;
-  try { exec('schtasks', ['/End', '/TN', WINDOWS_TASK_NAME]); } catch { /* it may already be stopped */ }
+  try {
+    exec('schtasks', ['/End', '/TN', WINDOWS_TASK_NAME]);
+  } catch (error) {
+    if (!windowsTaskNotRunning(error) && !windowsTaskNotFound(error)) throw error;
+  }
+}
+
+function quiesceWindowsTask(
+  exec: NonNullable<SetupOverrides['exec']>,
+): WindowsTaskSnapshot {
+  const snapshot = captureWindowsTask(exec);
+  stopWindowsTask(exec, snapshot);
+  return snapshot;
 }
 
 function restartWindowsTask(
@@ -1176,8 +1214,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
       && !installSource.durable
       && !(intent === 'keep' && existing !== undefined)
       && !(intent !== 'update' && existing?.version === version);
-    const priorTask = swapsRuntime ? captureWindowsTask(exec) : undefined;
-    if (priorTask !== undefined) stopWindowsTask(exec, priorTask);
+    const priorTask = swapsRuntime ? quiesceWindowsTask(exec) : undefined;
     let result;
     try {
       result = installDurableRuntime({ runtime, dataDir, version, intent, io: installIo });
@@ -1392,8 +1429,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         ? [launchAgentPath, join(home, '.local', 'bin', 'codor'), join(home, '.zprofile')]
         : [windowsScriptPath, windowsTaskPath];
     const priorServiceFiles = captureServiceFiles(serviceFiles);
-    const priorTask = platform === 'win32' ? captureWindowsTask(exec) : undefined;
-    if (priorTask !== undefined) stopWindowsTask(exec, priorTask);
+    const priorTask = platform === 'win32' ? quiesceWindowsTask(serviceExec) : undefined;
     let result: ReturnType<typeof installDurableRuntime> | undefined;
     try {
       remainingUpdateMs('runtime staging');
