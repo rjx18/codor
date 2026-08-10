@@ -71,6 +71,10 @@ assumptions:
     - id: main-and-direct-conversations-stay-compatible
       outcome: unchanged
       reason: Main and direct behavior remains unchanged by child selector formatting.
+    - id: operator-launches-serve-web-next
+      outcome: unchanged
+      reason: The CLI regression imports the selector helper inside a monolithic fixture;
+        every service and current-web-client path remains unchanged.
 anchors:
   readable-branch-conversations-own-worktree-identity:
     readable-worktree-conversation-regression:
@@ -198,6 +202,11 @@ anchors:
     worktree-child-metadata-regression:
       action: change
       reason: The retired enclosing fixture changes only derived selector expectations.
+  operator-launches-serve-web-next:
+    systemd-current-web-client:
+      action: change
+      reason: Permit the shared test-file import and selector expectations only; systemd
+        and web-client behavior remain unchanged.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
