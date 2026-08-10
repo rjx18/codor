@@ -241,6 +241,13 @@ export function AgentPresetSettings(props: { token: () => string }) {
     }).finally(() => setDeleting(false));
   };
 
+  // harn:assume empty-roster-settings-guides-saveable-setup ref=empty-roster-settings-render
+  const rosterSetupGuide = presets !== undefined && roster !== undefined
+    && refreshError === undefined && roster.preset_ids.length === 0 ? (
+    <DefaultRosterSetupGuide hasPresets={presets.length > 0} onCreatePreset={openCreate} />
+  ) : null;
+  // harn:end empty-roster-settings-guides-saveable-setup
+
   return (
     <>
       <section className="nx-settings-card nx-agent-preset-settings" aria-labelledby="s-agent-presets" data-testid="agent-preset-settings">
@@ -321,6 +328,7 @@ export function AgentPresetSettings(props: { token: () => string }) {
         </div>
       </section>
 
+      {rosterSetupGuide}
       <DefaultRosterEditor
         token={props.token}
         presets={presets ?? []}
@@ -363,6 +371,36 @@ export function AgentPresetSettings(props: { token: () => string }) {
     </>
   );
 }
+
+// harn:assume empty-roster-settings-guides-saveable-setup ref=empty-roster-settings-guide
+function DefaultRosterSetupGuide(props: { hasPresets: boolean; onCreatePreset: () => void }) {
+  const firstRosterStep = props.hasPresets ? 1 : 2;
+  return (
+    <section className="nx-roster-setup-guide" aria-labelledby="s-default-roster-setup" data-testid="default-roster-setup-guide">
+      <h3 id="s-default-roster-setup">Set up the Default roster</h3>
+      <ol>
+        {!props.hasPresets && (
+          <li data-testid="roster-setup-create-step">
+            <strong>1. Create a preset</strong>
+            <span>Save one reusable agent configuration first.</span>
+            <Button variant="secondary" type="button" data-testid="roster-setup-add-preset" onClick={props.onCreatePreset}>
+              Create preset
+            </Button>
+          </li>
+        )}
+        <li data-testid="roster-setup-add-step">
+          <strong>{firstRosterStep}. Add a saved preset</strong>
+          <span>Choose a saved preset in the Default roster below.</span>
+        </li>
+        <li data-testid="roster-setup-save-step">
+          <strong>{firstRosterStep + 1}. Save the roster</strong>
+          <span>Save the ordered roster before using it for a new channel.</span>
+        </li>
+      </ol>
+    </section>
+  );
+}
+// harn:end empty-roster-settings-guides-saveable-setup
 
 function PresetEditorModal(props: {
   draft: EditorDraft;
@@ -523,7 +561,7 @@ function DefaultRosterEditor(props: {
         <>
           <fieldset className="nx-roster-draft" disabled={saving}>
           <ol className="nx-roster-list" data-testid="roster-list">
-            {draftIds.length === 0 && <li className="nx-field-note">Empty roster — new channels can start without agents.</li>}
+            {draftIds.length === 0 && <li className="nx-field-note">No default roster configured yet. Add a saved preset below, then save the roster.</li>}
             {draftIds.map((id, index) => {
               const preset = byId.get(id);
               return (

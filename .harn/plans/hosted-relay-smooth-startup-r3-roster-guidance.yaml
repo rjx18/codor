@@ -1,0 +1,156 @@
+id: hosted-relay-smooth-startup-r3-roster-guidance
+title: R3 - make an empty default roster an actionable setup state
+notes: >-
+  Phase R3 of the hosted smooth-startup follow-up, based on clean main commit
+  831d61c60f179c03c485d8f8ea59e43715bc07bf. Keep the change in the existing web
+  surfaces: an empty singleton default roster is valid unconfigured state, not
+  an error and not a selectable zero-agent channel-create mode. Starting agent
+  remains available, transport/auth/schema failures retain their Retry surfaces,
+  and no request may send default_roster: true unless a nonempty authoritative
+  roster is currently available. From an already-mounted room, empty-roster
+  guidance may open the existing in-app Settings surface through its live
+  connector/token and history path; it must not reload or reconnect.
+
+  Settings must explain the setup sequence honestly: create a preset only when
+  none exist, add a saved preset to the Default roster, then save the roster.
+  When presets already exist, the create-preset step is omitted. Hosted state
+  remains owned by the active computer and direct mode remains unchanged. No
+  protocol, daemon, relay, session, release, deployment, or unrelated Settings
+  behavior changes.
+assumptions:
+  create:
+    - id: empty-default-roster-is-unconfigured-state
+      title: An empty default roster is normal unconfigured state
+      statement: "When the authoritative default roster has zero preset references,
+        channel creation and first-channel onboarding must present it as normal
+        unconfigured state rather than a selectable zero-agent roster, keep the
+        existing Starting agent path usable, and omit default_roster: true from
+        every create request until a nonempty valid roster is selected, because
+        an empty group is a valid stored state but is not an actionable creation
+        mode."
+      reason: The server intentionally accepts an empty singleton roster; the browser
+        must not turn that valid absence of configuration into a misleading
+        selection or a request that pretends to seed a roster.
+      depends_on:
+        - default-roster-channel-selection-is-exclusive-and-preflighted
+        - default-roster-is-one-versioned-ordered-preset-reference-group
+        - create-channel-roster-choice-preserves-starting-agent-draft
+    - id: empty-roster-settings-guides-saveable-setup
+      title: Settings guides an empty roster to a saved preset group
+      statement: "Authorized Settings must explain an empty default roster as a short
+        ordered setup: create a preset when no presets exist, add a saved preset
+        to Default roster, and save the roster; when presets already exist the
+        create-preset step is omitted, while read/save transport, authorization,
+        and schema failures remain retryable and any draft remains intact."
+      reason: The existing preset and roster editors already provide the required
+        mutations; the empty state must connect them without inventing a second
+        workflow or hiding genuine failures behind setup copy.
+      depends_on:
+        - settings-manages-individual-agent-presets-through-canonical-controls
+        - settings-manages-one-separate-ordered-default-roster
+        - agent-preset-management-is-authorized-across-rest-and-cli
+    - id: empty-roster-guidance-reuses-mounted-settings
+      title: Mounted room roster guidance opens the live Settings surface
+      statement: From an already-mounted RoomPage, empty default-roster guidance in
+        Add Channel may open the existing in-app Settings surface using the
+        active computer's live connector and token, updating history without a
+        document reload or second connection; hosted state remains scoped to the
+        active computer and direct mode keeps its existing behavior.
+      reason: Operators should be able to fix an unconfigured roster at the point of
+        use without losing a live conversation or crossing computer ownership.
+      depends_on:
+        - settings-navigation-reuses-live-session
+        - hosted-preset-state-follows-only-the-active-computer
+        - hosted-computer-switching-reuses-warm-session
+  reviewed:
+    - id: default-roster-channel-selection-is-exclusive-and-preflighted
+      outcome: unchanged
+      reason: The UI now refuses to select an empty roster but retains the existing
+        exclusive literal request and server-side preflight for nonempty groups.
+    - id: default-roster-is-one-versioned-ordered-preset-reference-group
+      outcome: unchanged
+      reason: The singleton roster identity, empty persistence, ordering, and API
+        remain unchanged.
+    - id: create-channel-roster-choice-preserves-starting-agent-draft
+      outcome: unchanged
+      reason: A nonempty roster still preserves and restores the Starting agent draft
+        exactly.
+    - id: settings-manages-individual-agent-presets-through-canonical-controls
+      outcome: unchanged
+      reason: Settings keeps the existing preset editor and its retryable CRUD
+        semantics.
+    - id: settings-manages-one-separate-ordered-default-roster
+      outcome: unchanged
+      reason: Settings keeps the existing duplicate-free ordered editor and atomic
+        save.
+    - id: agent-preset-management-is-authorized-across-rest-and-cli
+      outcome: unchanged
+      reason: No endpoint, capability, CLI, or transport authority changes.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: Guidance uses the existing mounted RoomPage route rather than a new
+        connector.
+    - id: hosted-preset-state-follows-only-the-active-computer
+      outcome: unchanged
+      reason: Empty-state reads and Settings navigation continue through the active
+        computer.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: No computer manager or warm switching behavior changes.
+files:
+  - .harn/plans/hosted-relay-smooth-startup-r3-roster-guidance.yaml
+  - packages/web-next/src/room/DefaultRosterChoice.tsx
+  - packages/web-next/src/room/DefaultRosterChoice.spec.tsx
+  - packages/web-next/src/room/CreateChannel.tsx
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/surfaces/AgentPresetSettings.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+anchors:
+  empty-default-roster-is-unconfigured-state:
+    empty-roster-choice-and-submit:
+      action: change
+      reason: Render nonselectable empty-roster guidance and guard both onboarding and
+        mounted Create Channel requests from sending default_roster true.
+    empty-roster-choice-regression:
+      action: change
+      reason: Unit coverage proves an empty roster has no selector, retains Starting
+        agent/error behavior, and can invoke mounted Settings guidance.
+    empty-roster-browser-regression:
+      action: change
+      reason: Browser coverage proves empty mounted creation remains usable without a
+        default-roster request.
+    empty-roster-onboarding-regression:
+      action: change
+      reason: First-channel onboarding coverage proves the empty state never emits the
+        default-roster request field.
+  empty-roster-settings-guides-saveable-setup:
+    empty-roster-settings-render:
+      action: change
+      reason: Connect the empty roster condition to the conditional setup guide in the
+        existing Settings surface.
+    empty-roster-settings-guide:
+      action: change
+      reason: Settings presents the conditional preset/add/save sequence while the
+        existing controls and retry paths remain authoritative.
+    empty-roster-settings-regression:
+      action: change
+      reason: Browser coverage proves the create-preset step is present only when no
+        presets exist and is skipped when a saved preset already exists.
+  empty-roster-guidance-reuses-mounted-settings:
+    mounted-empty-roster-settings-route:
+      action: change
+      reason: Wire mounted Create Channel guidance to RoomPage's existing Settings
+        callback and prove the route remains in-app on the live session.
+    hosted-empty-roster-routing-regression:
+      action: change
+      reason: Retain hosted active-computer routing and Settings navigation coverage
+        while exercising the new guidance callback.
+verification: Run focused DefaultRosterChoice units; exact roster
+  Settings/onboarding and hosted active-computer browser coverage in room38,
+  room39, room2, and room35; all web-next units; web-next production build; harn
+  plan check, lock, check, apply, and staged validation; git diff --check; and a
+  clean worktree check.
+applied:
+  applied_at: 2026-08-10T12:33:05.513Z

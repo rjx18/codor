@@ -42,9 +42,16 @@ export function NoChannels(props: { token: string }) {
   });
   const rosterDraft = useRef<AgentConfig>();
   const skipCatalogReconcile = useRef(false);
+  // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-choice-and-submit
   const [defaultRosterSelected, setDefaultRosterSelected] = useState(false);
+  const [defaultRosterEmpty, setDefaultRosterEmpty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+
+  const onRosterEmptyChange = useCallback((empty: boolean): void => {
+    setDefaultRosterEmpty(empty);
+    if (empty) setDefaultRosterSelected(false);
+  }, []);
 
   const ownerHandle = useMemo(
     () => deriveAssignableHandle(ownerName.trim()),
@@ -84,8 +91,9 @@ export function NoChannels(props: { token: string }) {
   // harn:end agent-selection-shows-detected-acp-and-advanced-custom
   const identityClash = hasAgent && ownerHandle !== undefined && agentHandle === ownerHandle;
   const acpLaunch = acpLaunchFromConfig(agentConfig);
+  const useDefaultRoster = defaultRosterSelected && !defaultRosterEmpty;
   const canCreate = name.trim() !== '' && cwd.trim() !== '' && ownerHandle !== undefined && !busy
-    && (defaultRosterSelected || (
+    && (useDefaultRoster || (
       (!hasAgent || (agentHandle !== undefined && !identityClash))
       && (agentConfig.harness !== 'acp' || acpLaunch !== undefined)
     ));
@@ -105,7 +113,7 @@ export function NoChannels(props: { token: string }) {
       name: name.trim(),
       owner: { handle: ownerHandle, display_name: ownerName.trim() },
       cwd: cwd.trim(),
-      ...(defaultRosterSelected
+      ...(useDefaultRoster
         ? { default_roster: true as const }
         : hasAgent && agentHandle !== undefined && {
         starting_agent: {
@@ -138,6 +146,7 @@ export function NoChannels(props: { token: string }) {
       },
     );
   };
+  // harn:end empty-default-roster-is-unconfigured-state
 
   return (
     <main className="nx-onboarding" data-testid="first-channel-onboarding">
@@ -192,11 +201,12 @@ export function NoChannels(props: { token: string }) {
 
         <DefaultRosterChoice
           token={token}
-          selected={defaultRosterSelected}
+          selected={useDefaultRoster}
           onSelectedChange={changeRosterSelection}
+          onRosterEmptyChange={onRosterEmptyChange}
           idPrefix="first"
         />
-        {defaultRosterSelected ? (
+        {useDefaultRoster ? (
           <div className="nx-roster-selected-note" data-testid="first-roster-selected" role="status">
             <strong>Starting agent draft saved</strong>
             <span>The saved roster is exclusive for this channel. Deselect it to restore your exact draft.</span>

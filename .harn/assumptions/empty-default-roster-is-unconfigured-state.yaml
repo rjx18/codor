@@ -1,0 +1,15 @@
+id: empty-default-roster-is-unconfigured-state
+hash: a-264e35221938
+title: An empty default roster is normal unconfigured state
+state: active
+statement: "When the authoritative default roster has zero preset references,
+  channel creation and first-channel onboarding must present it as normal
+  unconfigured state rather than a selectable zero-agent roster, keep the
+  existing Starting agent path usable, and omit default_roster: true from every
+  create request until a nonempty valid roster is selected, because an empty
+  group is a valid stored state but is not an actionable creation mode."
+depends_on:
+  - default-roster-channel-selection-is-exclusive-and-preflighted
+  - default-roster-is-one-versioned-ordered-preset-reference-group
+  - create-channel-roster-choice-preserves-starting-agent-draft
+created_by: hosted-relay-smooth-startup-r3-roster-guidance

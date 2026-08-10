@@ -1,0 +1,14 @@
+id: empty-roster-guidance-reuses-mounted-settings
+hash: a-ef044589b514
+title: Mounted room roster guidance opens the live Settings surface
+state: active
+statement: From an already-mounted RoomPage, empty default-roster guidance in
+  Add Channel may open the existing in-app Settings surface using the active
+  computer's live connector and token, updating history without a document
+  reload or second connection; hosted state remains scoped to the active
+  computer and direct mode keeps its existing behavior.
+depends_on:
+  - settings-navigation-reuses-live-session
+  - hosted-preset-state-follows-only-the-active-computer
+  - hosted-computer-switching-reuses-warm-session
+created_by: hosted-relay-smooth-startup-r3-roster-guidance
