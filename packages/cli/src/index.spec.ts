@@ -360,7 +360,7 @@ describe('@codor/cli', () => {
       WantedBy=default.target
       [dry-run] write /home/setup-test/.config/codor/env mode 600
       CODOR_TOKEN=<redacted generated-or-existing token>
-      CODOR_RUNTIME_VERSION=0.10.12
+      CODOR_RUNTIME_VERSION=0.10.13
       CODOR_SERVICE_GENERATION=<new-generation>
       PATH=/home/setup-test/.local/bin:/home/setup-test/.nvm/versions/node/v22.8.0/bin:/home/setup-test/.opencode/bin:/usr/local/bin:/usr/bin
       NODE_PATH=<repo>/node_modules/.pnpm/node_modules
@@ -865,7 +865,7 @@ describe('@codor/cli', () => {
         nodePath: '/opt/node/bin/node',
         platform: 'linux', generation: () => 'setup-generation',
         probe: async () => true,
-        runtimeStatus: async () => ({ version: '0.10.12', generation: 'setup-generation' }),
+        runtimeStatus: async () => ({ version: '0.10.13', generation: 'setup-generation' }),
         randomToken: () => 'a'.repeat(64),
         renderQr: (payload) => {
           qrPayload = payload;
@@ -904,7 +904,7 @@ describe('@codor/cli', () => {
     const serviceEnv = readFileSync(envPath, 'utf8');
     for (const expected of [
       `NODE_PATH=${join(repoRoot, 'node_modules', '.pnpm', 'node_modules')}`,
-      'CODOR_RUNTIME_VERSION=0.10.12', 'CODOR_SERVICE_GENERATION=setup-generation',
+      'CODOR_RUNTIME_VERSION=0.10.13', 'CODOR_SERVICE_GENERATION=setup-generation',
     ]) expect(serviceEnv).toContain(expected);
     // Tailscale is resolved to an absolute path, capability-probed, and Serve is
     // published during Choose access — before the daemon is started.
@@ -940,7 +940,7 @@ describe('@codor/cli', () => {
       platform: 'darwin' as const,
       repoRoot,
       uid: 501, generation: () => '<new-generation>',
-      runtimeStatus: async () => ({ version: '0.10.12', generation: '<new-generation>' }),
+      runtimeStatus: async () => ({ version: '0.10.13', generation: '<new-generation>' }),
       which,
     };
 
