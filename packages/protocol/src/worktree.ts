@@ -38,16 +38,29 @@ export type WorktreeAvailability = z.infer<typeof WorktreeAvailabilitySchema>;
 
 /** A routing shorthand is derived from the branch. It is not a second name. */
 export function worktreeSelectorFromBranch(branch: string): string {
+  if (branch.trim() === '') throw new Error('worktree branch does not produce a usable selector');
   const normalized = branch.trim().toLowerCase()
     .replace(/[^a-z0-9._-]+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^[^a-z0-9]+/, '')
-    .slice(0, 48)
     .replace(/[^a-z0-9]+$/, '');
-  if (normalized === '' || normalized === 'main') {
+  if (normalized === 'main' && branch === normalized) {
     throw new Error('worktree branch does not produce a usable selector');
   }
-  return WorktreeAliasSchema.parse(normalized);
+  if (normalized !== '' && branch === normalized && normalized.length <= 48) {
+    return WorktreeAliasSchema.parse(normalized);
+  }
+
+  let digest = 0x811c9dc5;
+  for (let index = 0; index < branch.length; index += 1) {
+    digest ^= branch.charCodeAt(index);
+    digest = Math.imul(digest, 0x01000193) >>> 0;
+  }
+  const suffix = digest.toString(16).padStart(8, '0');
+  const prefix = (normalized || 'branch')
+    .slice(0, 39)
+    .replace(/[^a-z0-9]+$/, '') || 'branch';
+  return WorktreeAliasSchema.parse(`${prefix}-${suffix}`);
 }
 
 // harn:assume qualified-member-target-identity-is-durable ref=qualified-member-target-protocol

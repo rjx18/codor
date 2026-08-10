@@ -105,6 +105,26 @@ describe('native worktree protocol', () => {
     expect(WorktreeListResponseSchema.parse(response).discovered).toHaveLength(2);
     expect(WorktreeDiscoveryResponseSchema.parse(response).registered).toHaveLength(1);
   });
+
+  it('digests only lossy or truncated selectors and keeps them distinct', () => {
+    expect(worktreeSelectorFromBranch('feature')).toBe('feature');
+    expect(worktreeSelectorFromBranch('feat-foo')).toBe('feat-foo');
+
+    const slash = worktreeSelectorFromBranch('feat/foo');
+    const upper = worktreeSelectorFromBranch('FEAT/FOO');
+    expect(slash).toMatch(/^feat-foo-[0-9a-f]{8}$/);
+    expect(upper).toMatch(/^feat-foo-[0-9a-f]{8}$/);
+    expect(new Set([slash, upper, worktreeSelectorFromBranch('feat-foo')]).size).toBe(3);
+
+    const common = `feature/${'long-prefix-'.repeat(6)}`;
+    const first = worktreeSelectorFromBranch(`${common}one`);
+    const second = worktreeSelectorFromBranch(`${common}two`);
+    expect(first).not.toBe(second);
+    expect(first).toHaveLength(48);
+    expect(second).toHaveLength(48);
+    expect(first).toMatch(/-[0-9a-f]{8}$/);
+    expect(second).toMatch(/-[0-9a-f]{8}$/);
+  });
 });
 // harn:end readable-branch-conversations-own-worktree-identity
 // harn:end registered-worktree-identities-are-durable
@@ -145,9 +165,10 @@ describe('worktree lifecycle projection protocol', () => {
   });
 
   it('derives one bounded routing selector from the branch', () => {
-    expect(worktreeSelectorFromBranch('feature/Review Two')).toBe('feature-review-two');
-    expect(worktreeSelectorFromBranch('feat/foo')).toBe('feat-foo');
-    expect(worktreeSelectorFromBranch('fix/foo')).toBe('fix-foo');
+    expect(worktreeSelectorFromBranch('feature/Review Two'))
+      .toMatch(/^feature-review-two-[0-9a-f]{8}$/);
+    expect(worktreeSelectorFromBranch('feat/foo')).toMatch(/^feat-foo-[0-9a-f]{8}$/);
+    expect(worktreeSelectorFromBranch('fix/foo')).toMatch(/^fix-foo-[0-9a-f]{8}$/);
     expect(() => worktreeSelectorFromBranch('main')).toThrow(/usable selector/);
     expect(WorktreeAdoptRequestSchema.parse({ path: '/tmp/target', alias: 'extra' }))
       .toEqual({ path: '/tmp/target' });

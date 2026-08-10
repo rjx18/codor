@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BROWSER_PROTOCOL_EPOCH, type ServerFrame } from '@codor/protocol';
+import { BROWSER_PROTOCOL_EPOCH, type ServerFrame, worktreeSelectorFromBranch } from '@codor/protocol';
 import {
   BUILTIN_ADAPTER_IDS,
   CryptoVault,
@@ -2374,7 +2374,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     );
     expect(adoptedResult.error).toBeUndefined();
     expect(JSON.parse(adoptedResult.stdout[0]!)).toMatchObject({
-      alias: 'feature-adopted', source: 'adopted', branch: 'feature/adopted',
+      alias: worktreeSelectorFromBranch('feature/adopted'), source: 'adopted', branch: 'feature/adopted',
     });
 
     const createdResult = await invoke(
@@ -2383,7 +2383,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     );
     expect(createdResult.error).toBeUndefined();
     expect(JSON.parse(createdResult.stdout[0]!)).toMatchObject({
-      alias: 'feature-created', source: 'created', branch: 'feature/created',
+      alias: worktreeSelectorFromBranch('feature/created'), source: 'created', branch: 'feature/created',
     });
 
     const dirtyAdopted = await invoke(
@@ -2400,14 +2400,14 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
 
     writeFileSync(join(dirty, 'uncommitted.txt'), 'dirty\n');
     const dirtyRemoval = await invoke(
-      'worktree', 'remove', 'feature-dirty', '--channel', 'eng', '--filesystem', '--yes', '--json',
+      'worktree', 'remove', worktreeSelectorFromBranch('feature/dirty'), '--channel', 'eng', '--filesystem', '--yes', '--json',
     );
     expect(dirtyRemoval.error).toMatchObject({ exitCode: 6 });
     expect(dirtyRemoval.stdout).toEqual([]);
     expect(existsSync(dirty)).toBe(true);
 
     const removed = await invoke(
-      'worktree', 'remove', 'feature-created', '--channel', 'eng', '--filesystem', '--yes', '--json',
+      'worktree', 'remove', worktreeSelectorFromBranch('feature/created'), '--channel', 'eng', '--filesystem', '--yes', '--json',
     );
     expect(removed.error).toBeUndefined();
     expect(existsSync(created)).toBe(false);
@@ -2595,6 +2595,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     fixtureGit(primary, ['worktree', 'add', '-b', 'feature/qualified-wait', child, 'HEAD']);
     daemon.store.updateRoomConfig('eng', { cwd: primary });
     const target = await daemon.adoptWorktree('eng', { path: child });
+    const targetAlias = worktreeSelectorFromBranch('feature/qualified-wait');
     const origin = credentialedAgent('same-handle');
     const foreign = daemon.spawnMember(target.worktree.conversation_id, {
       harness: 'fake',
@@ -2607,26 +2608,26 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
       ? true
       : undefined);
     fake.enqueue({ kind: 'complete', final_text: 'foreign setup remains active', delay_ms: 300 });
-    daemon.postHumanMessage('eng', '~feature-qualified-wait:@same-handle establish the scoped group');
+    daemon.postHumanMessage('eng', `~${targetAlias}:@same-handle establish the scoped group`);
     await until(() => daemon.store.getMember(target.worktree.conversation_id, foreign.id)?.state === 'running'
       ? true
       : undefined);
     void (async () => {
       await until(() => daemon.store.listMessages(target.worktree.conversation_id, { limit: 20 })
-        .some((message) => message.body === '~feature-qualified-wait:@same-handle scoped question')
+        .some((message) => message.body === `~${targetAlias}:@same-handle scoped question`)
         ? true
         : undefined);
       daemon.postAgentMessage(target.worktree.conversation_id, foreign.id, '~main:@same-handle foreign answer');
     })();
 
     output = [];
-    await memberCli(origin.env, 'post', '--wait', '--timeout', '1', '~feature-qualified-wait:@same-handle scoped question');
+    await memberCli(origin.env, 'post', '--wait', '--timeout', '1', `~${targetAlias}:@same-handle scoped question`);
     expect(output.at(-1)).toBe('~main:@same-handle foreign answer');
     const posted = daemon.store.listMessages(target.worktree.conversation_id, { limit: 20 }).find((message) =>
-      message.body === '~feature-qualified-wait:@same-handle scoped question');
+      message.body === `~${targetAlias}:@same-handle scoped question`);
     expect(posted?.mentions.map((mention) => mention.member_id)).toContain(foreign.id);
     expect(daemon.store.listMessages('eng', { limit: 20 }).some((message) =>
-      message.body === '~feature-qualified-wait:@same-handle scoped question')).toBe(false);
+      message.body === `~${targetAlias}:@same-handle scoped question`)).toBe(false);
     expect(daemon.store.listDeliveries('eng', { recipient: origin.member.id })
       .some((delivery) => delivery.state === 'consumed')).toBe(true);
     await daemon.settle();

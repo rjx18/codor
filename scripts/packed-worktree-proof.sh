@@ -74,16 +74,18 @@ CHILD_JSON="$(codor_npx worktree add --channel packed-root --create \
   --path "$CHILD" --branch feat/packed-child --json)"
 CHILD_ROOM="$(CHILD_JSON="$CHILD_JSON" node --input-type=module -e \
   "const value=JSON.parse(process.env.CHILD_JSON); if (!/^packed-root-feat-packed-child-[0-9a-f]{8}$/.test(value.conversation_id)) throw new Error(value.conversation_id); console.log(value.conversation_id)")"
+CHILD_ALIAS="$(CHILD_JSON="$CHILD_JSON" node --input-type=module -e \
+  "const value=JSON.parse(process.env.CHILD_JSON); if (!/^feat-packed-child-[0-9a-f]{8}$/.test(value.alias)) throw new Error(value.alias); console.log(value.alias)")"
 
 FIRST="$(codor_npx agent add worker --channel packed-root --worktree feat/packed-child \
   --adapter housecat --cwd "$CHILD" --json)"
-SECOND="$(codor_npx agent add worker --channel packed-root --worktree feat-packed-child \
+SECOND="$(codor_npx agent add worker --channel packed-root --worktree "$CHILD_ALIAS" \
   --adapter housecat --cwd "$CHILD" --json)"
 FIRST_ID="$(FIRST="$FIRST" node --input-type=module -e 'console.log(JSON.parse(process.env.FIRST).id)')"
 SECOND_ID="$(SECOND="$SECOND" node --input-type=module -e 'console.log(JSON.parse(process.env.SECOND).id)')"
 [[ "$FIRST_ID" == "$SECOND_ID" ]]
 
-codor_npx post -r packed-root '~feat-packed-child:@worker please run the adapter boundary turn'
+codor_npx post -r packed-root "~${CHILD_ALIAS}:@worker please run the adapter boundary turn"
 CHILD_HISTORY=''
 for _ in $(seq 1 100); do
   CHILD_HISTORY="$(codor_npx tail -r "$CHILD_ROOM" --once)"

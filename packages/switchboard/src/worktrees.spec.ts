@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { worktreeSelectorFromBranch } from '@codor/protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Store, type InitialAgent } from './store.js';
@@ -88,7 +89,7 @@ describe('Git repository identity and read-only discovery', () => {
     const beforeSeq = store.currentSeq('eng');
     const adopted = await manager.adopt('eng', repositoryPath, { path: secondaryPath });
     expect(adopted.worktree).toMatchObject({
-      alias: 'review-one',
+      alias: worktreeSelectorFromBranch('review/one'),
       source: 'adopted',
       lifecycle: 'active',
     });
@@ -213,7 +214,9 @@ describe('safe creation and conservative removal', () => {
       branch: 'feature/created-one',
       path: target,
     });
-    expect(created.worktree).toMatchObject({ alias: 'feature-created-one', branch: 'feature/created-one' });
+    expect(created.worktree).toMatchObject({
+      alias: worktreeSelectorFromBranch('feature/created-one'), branch: 'feature/created-one',
+    });
     expect(store.listRegisteredWorktrees('eng').filter((item) => item.id === created.worktree.id))
       .toHaveLength(1);
     expect(store.listRegisteredWorktrees('eng').filter((item) => item.path === target)).toHaveLength(1);
@@ -642,7 +645,11 @@ describe('Phase 5 disposable Git fixture safety', () => {
       path: join(fixtureRoot, 'selected created secondary'),
     });
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'feature-adopted', 'feature-created']);
+      .toEqual([
+        'main',
+        worktreeSelectorFromBranch('feature/adopted'),
+        worktreeSelectorFromBranch('feature/created'),
+      ]);
 
     // Unregister is database-only and does not touch the adopted checkout.
     expect(traced.unregister('eng', adopted.worktree.id).lifecycle).toBe('unregistered');

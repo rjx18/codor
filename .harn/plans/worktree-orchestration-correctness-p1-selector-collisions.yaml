@@ -34,8 +34,8 @@ assumptions:
       reason: Creation remains collision-safe and registers only its observed result.
     - id: worktree-git-execution-is-argument-safe
       outcome: unchanged
-      reason: Git argv and safety boundaries remain unchanged while expectations follow
-        the corrected selector.
+      reason: Git argv and safety boundaries remain unchanged while expectations
+        follow the corrected selector.
     - id: worktree-removal-is-clean-and-branch-preserving
       outcome: unchanged
       reason: Removal and branch preservation remain unchanged.
@@ -45,10 +45,12 @@ assumptions:
         now carry the collision-safe value.
     - id: target-worktree-owns-qualified-conversation
       outcome: unchanged
-      reason: Target-owned routing is unchanged; test messages address returned aliases.
+      reason: Target-owned routing is unchanged; test messages address returned
+        aliases.
     - id: qualified-destination-refusals-are-atomic
       outcome: unchanged
-      reason: Atomic refusal behavior is unchanged; fixtures address valid derived aliases.
+      reason: Atomic refusal behavior is unchanged; fixtures address valid derived
+        aliases.
     - id: delivery-attempt-wal-reconcile
       outcome: unchanged
       reason: Delivery recovery remains unchanged across selector fixture updates.
@@ -57,11 +59,12 @@ assumptions:
       reason: Child runtime isolation and teardown remain unchanged.
     - id: agent-orchestration-is-repository-scoped
       outcome: unchanged
-      reason: Repository-scoped authorization is unchanged; response expectations use the
-        corrected selector.
+      reason: Repository-scoped authorization is unchanged; response expectations use
+        the corrected selector.
     - id: qualified-completion-lists-registered-targets-only
       outcome: unchanged
-      reason: Catalog membership is unchanged; aliases reflect collision-safe derivation.
+      reason: Catalog membership is unchanged; aliases reflect collision-safe
+        derivation.
     - id: structured-worktree-cli-targets-branches-and-child-rooms
       outcome: unchanged
       reason: Exact branch and derived shorthand CLI selection remains unchanged.
@@ -73,8 +76,8 @@ assumptions:
       reason: Main and direct behavior remains unchanged by child selector formatting.
     - id: operator-launches-serve-web-next
       outcome: unchanged
-      reason: The CLI regression imports the selector helper inside a monolithic fixture;
-        every service and current-web-client path remains unchanged.
+      reason: The CLI regression imports the selector helper inside a monolithic
+        fixture; every service and current-web-client path remains unchanged.
 anchors:
   readable-branch-conversations-own-worktree-identity:
     readable-worktree-conversation-regression:
@@ -93,7 +96,8 @@ anchors:
   worktree-discovery-never-registers-candidates:
     worktree-discovery-regression:
       action: change
-      reason: Update the nested selector expectation without changing discovery behavior.
+      reason: Update the nested selector expectation without changing discovery
+        behavior.
     phase5-git-fixture-safety-regression:
       action: change
       reason: Align the disposable Git fixture with collision-safe selectors.
@@ -136,10 +140,12 @@ anchors:
   target-worktree-owns-qualified-conversation:
     cross-worktree-runtime-regression:
       action: change
-      reason: Address the target by its returned selector without changing runtime ownership.
+      reason: Address the target by its returned selector without changing runtime
+        ownership.
     cross-worktree-turn-orchestration-regression:
       action: change
-      reason: Address the target by its returned selector without changing transcript ownership.
+      reason: Address the target by its returned selector without changing transcript
+        ownership.
     phase5-qualified-integration-regression:
       action: change
       reason: Use returned selectors in the qualified integration fixture.
@@ -205,8 +211,8 @@ anchors:
   operator-launches-serve-web-next:
     systemd-current-web-client:
       action: change
-      reason: Permit the shared test-file import and selector expectations only; systemd
-        and web-client behavior remain unchanged.
+      reason: Permit the shared test-file import and selector expectations only;
+        systemd and web-client behavior remain unchanged.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
@@ -216,3 +222,5 @@ files:
   - packages/switchboard/src/worktrees.spec.ts
   - packages/cli/src/index.spec.ts
   - scripts/packed-worktree-proof.sh
+applied:
+  applied_at: 2026-08-10T17:37:24.246Z

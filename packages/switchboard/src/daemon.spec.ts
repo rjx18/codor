@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { AgentLimit, HarnessAdapter, Message, ServerFrame, Session, SpawnOpts, WireEvent } from '@codor/protocol';
+import { worktreeSelectorFromBranch } from '@codor/protocol';
 import { createTurnTranslator as createCodexTurnTranslator } from '@codor/adapter-codex';
 import { AcpAdapter } from '@codor/adapter-acp';
 import { createTurnTranslator, wireEventFromHook } from '@codor/adapter-claude-code';
@@ -4837,7 +4838,7 @@ describe('collaboration recovery and unavailable participants', () => {
 
     expect(() => daemon.postHumanMessage(
       'eng',
-      '@boot-group-alpha ~feature-boot-group-target:@boot-group-remote group up',
+      `@boot-group-alpha ~${worktreeSelectorFromBranch('feature/boot-group-target')}:@boot-group-remote group up`,
     )).toThrow('one message cannot target multiple worktree conversations');
     expect(daemon.store.listMessages('eng')).toEqual([]);
     expect(daemon.store.listMessages(worktree.conversation_id)).toEqual([]);
@@ -8133,9 +8134,10 @@ describe('qualified target orchestration', () => {
       },
       { kind: 'complete', final_text: 'second target answer' },
     );
-    const first = daemon.postHumanMessage('eng', '~feature-target-a:@same-target first request');
+    const targetAlias = worktreeSelectorFromBranch('feature/target-a');
+    const first = daemon.postHumanMessage('eng', `~${targetAlias}:@same-target first request`);
     await daemon.settle();
-    const second = daemon.postHumanMessage(originRoom, '~feature-target-a:@same-target second request');
+    const second = daemon.postHumanMessage(originRoom, `~${targetAlias}:@same-target second request`);
     await daemon.settle();
 
     expect(first.room).toBe(targetRoom);
@@ -8147,8 +8149,8 @@ describe('qualified target orchestration', () => {
     const targetMessages = daemon.store.listMessages(targetRoom);
     expect(targetMessages.filter((message) => message.kind === 'chat').map((message) => message.body))
       .toEqual(expect.arrayContaining([
-        '~feature-target-a:@same-target first request',
-        '~feature-target-a:@same-target second request',
+        `~${targetAlias}:@same-target first request`,
+        `~${targetAlias}:@same-target second request`,
       ]));
     const targetRuns = targetMessages.filter((message) => message.kind === 'run');
     expect(targetRuns).toHaveLength(2);
@@ -8175,10 +8177,10 @@ describe('qualified target orchestration', () => {
     const before = daemon.store.listMessages('eng').length;
 
     expect(() => daemon.postHumanMessage(
-      'eng', '@mixed-local ~feature-mixed-first:@mixed-first-agent compare scopes',
+      'eng', `@mixed-local ~${worktreeSelectorFromBranch('feature/mixed-first')}:@mixed-first-agent compare scopes`,
     )).toThrow('one message cannot target multiple worktree conversations');
     expect(() => daemon.postHumanMessage(
-      'eng', '~feature-mixed-first:@mixed-first-agent ~feature-mixed-second:@mixed-second-agent compare scopes',
+      'eng', `~${worktreeSelectorFromBranch('feature/mixed-first')}:@mixed-first-agent ~${worktreeSelectorFromBranch('feature/mixed-second')}:@mixed-second-agent compare scopes`,
     )).toThrow('one message cannot target multiple worktree conversations');
     expect(daemon.store.listMessages('eng')).toHaveLength(before);
     expect(daemon.store.listMessages(first.conversation_id)).toEqual([]);
@@ -8681,7 +8683,9 @@ describe('Phase 5 qualified integration hardening', () => {
       harness: 'fake', handle: 'stable-target', cwd: testCwd('stable-target'),
     });
     daemon.pauseMember(child, target.id);
-    const accepted = daemon.postHumanMessage('eng', '~feature-stable-scope:@stable-target accepted before move');
+    const accepted = daemon.postHumanMessage(
+      'eng', `~${worktreeSelectorFromBranch('feature/stable-scope')}:@stable-target accepted before move`,
+    );
     const delivery = daemon.store.listDeliveries(child, { recipient: target.id })
       .find((candidate) => candidate.message_id === accepted.id)!;
     expect(delivery.target).toBeUndefined();
@@ -8730,7 +8734,9 @@ describe('Phase 5 qualified integration hardening', () => {
     );
 
     daemon.postHumanMessage('eng', '@equal-handle main concurrent request');
-    daemon.postHumanMessage('eng', '~feature-equal-child:@equal-handle child concurrent request');
+    daemon.postHumanMessage(
+      'eng', `~${worktreeSelectorFromBranch('feature/equal-child')}:@equal-handle child concurrent request`,
+    );
     await until(() => fake.deliveries.length === 2 ? true : undefined);
 
     expect(daemon.store.getMember('eng', main.id)?.state).toBe('running');
@@ -8943,7 +8949,9 @@ describe('worktree removal refuses live child runtime before Git', () => {
     const remove = vi.spyOn(daemon.worktrees, 'remove').mockImplementation(async () => {
       throw new Error('Git removal reached');
     });
-    daemon.postHumanMessage('eng', '~feature-removal-child:@inflight-child keep running');
+    daemon.postHumanMessage(
+      'eng', `~${worktreeSelectorFromBranch('feature/removal-child')}:@inflight-child keep running`,
+    );
     await until(() => fake.deliveries.length === 1 &&
       daemon.store.getMember(worktree.conversation_id, target.id)?.state === 'running'
       ? true : undefined);

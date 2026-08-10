@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import {
   BROWSER_PROTOCOL_EPOCH,
   VoiceTranscribeError,
+  worktreeSelectorFromBranch,
   type Member,
   type ServerFrame,
   type Session,
@@ -760,7 +761,7 @@ describe('native worktree REST authorization and lifecycle', () => {
     const adopted = await agentMutation.json() as {
       worktree: { id: string; alias: string; conversation_id: string };
     };
-    expect(adopted.worktree.alias).toBe('review-rest');
+    expect(adopted.worktree.alias).toBe(worktreeSelectorFromBranch('review/rest'));
     expect(adopted.worktree.conversation_id).toMatch(/^eng-review-rest-[0-9a-f]{8}$/);
     expect(agentMutation.headers.get('content-type')).toContain('application/json');
     const childRoom = adopted.worktree.conversation_id;
@@ -877,7 +878,9 @@ describe('native worktree REST authorization and lifecycle', () => {
       discovered?: unknown;
     };
     expect(projection.repository).not.toBeNull();
-    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'feature-projection']);
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual([
+      'main', worktreeSelectorFromBranch('feature/projection'),
+    ]);
     expect(projection.registered.every((worktree) => worktree.lifecycle === 'active')).toBe(true);
     expect(projection.registered.some((worktree) => worktree.id === adopted.worktree.id)).toBe(true);
     expect(projection).not.toHaveProperty('discovered');
@@ -903,7 +906,8 @@ describe('native worktree REST authorization and lifecycle', () => {
       const absent = await jsonRequest(token, url, { method: 'POST', body: JSON.stringify({ alias: 'nope' }) });
       expect(absent.status).toBe(404);
     }
-    expect(daemon.store.getWorktree('eng', adopted.worktree.id)?.alias).toBe('feature-alias-route');
+    expect(daemon.store.getWorktree('eng', adopted.worktree.id)?.alias)
+      .toBe(worktreeSelectorFromBranch('feature/alias-route'));
     expect(daemon.store.getRoom(adopted.worktree.conversation_id)?.name).toBe('feature/alias-route');
   });
 
@@ -1058,7 +1062,9 @@ describe('repository-scoped agent worktree orchestration', () => {
     const child = (await created.json() as {
       worktree: { id: string; conversation_id: string; branch: string; alias: string };
     }).worktree;
-    expect(child).toMatchObject({ branch: 'feat/agent-created', alias: 'feat-agent-created' });
+    expect(child).toMatchObject({
+      branch: 'feat/agent-created', alias: worktreeSelectorFromBranch('feat/agent-created'),
+    });
     expect(child.conversation_id).toMatch(/^eng-feat-agent-created-[0-9a-f]{8}$/);
 
     const manager = await connectAs(principal.token);
@@ -2966,8 +2972,9 @@ describe('Phase 3 REST boundaries', () => {
       tombstones: unknown[];
     };
     expect(catalog.room).toBe('eng');
-    expect(catalog.targets.map((target) => target.alias)).toContain('feature-catalog-child');
-    expect(catalog.targets.find((target) => target.alias === 'feature-catalog-child')?.members)
+    const catalogAlias = worktreeSelectorFromBranch('feature/catalog-child');
+    expect(catalog.targets.map((target) => target.alias)).toContain(catalogAlias);
+    expect(catalog.targets.find((target) => target.alias === catalogAlias)?.members)
       .toEqual(expect.arrayContaining([expect.objectContaining({ handle: 'catalog-agent' })]));
     expect(JSON.stringify(catalog)).not.toMatch(/path|branch|git_admin/i);
 

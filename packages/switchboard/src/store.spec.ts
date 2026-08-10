@@ -1,4 +1,4 @@
-import { CHANNEL_ACCENTS, deriveRoomColor } from '@codor/protocol';
+import { CHANNEL_ACCENTS, deriveRoomColor, worktreeSelectorFromBranch } from '@codor/protocol';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,7 +70,7 @@ describe('registered worktree store lifecycle', () => {
       'child-label',
       'adopted',
     );
-    expect(first.worktree.alias).toBe('feature-child');
+    expect(first.worktree.alias).toBe(worktreeSelectorFromBranch('feature/child'));
     expect(first.worktree.conversation_id).toMatch(/^eng-feature-child-[a-f0-9]{8}$/);
     expect(first.worktree.conversation_id).not.toBe('eng');
     expect(store.listRegisteredWorktrees('eng').find((item) => item.primary)?.conversation_id)
@@ -308,8 +308,9 @@ describe('qualified routing store projection', () => {
     });
     const first = store.routingCatalog('eng');
     expect(first.room).toBe('eng');
-    expect(first.targets.map((target) => target.alias)).toEqual(['main', 'feature-child']);
-    const target = first.targets.find((candidate) => candidate.alias === 'feature-child')!;
+    const childAlias = worktreeSelectorFromBranch('feature/child');
+    expect(first.targets.map((target) => target.alias)).toEqual(['main', childAlias]);
+    const target = first.targets.find((candidate) => candidate.alias === childAlias)!;
     expect(target.members).toEqual(expect.arrayContaining([
       expect.objectContaining({ member_id: childAgent.id, handle: 'coder', kind: 'agent' }),
     ]));
@@ -319,13 +320,13 @@ describe('qualified routing store projection', () => {
       ...secondary, path: join(dir, 'moved-child'),
     });
     expect(refreshed.id).toBe(registered.worktree.id);
-    expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === 'feature-child')?.worktree_id)
+    expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === childAlias)?.worktree_id)
       .toBe(registered.worktree.id);
 
     const tombstone = store.unregisterWorktree('eng', registered.worktree.id);
     expect(store.routingCatalog('eng').targets.map((candidate) => candidate.alias)).toEqual(['main']);
     expect(store.routingCatalog('eng').tombstones).toEqual([
-      expect.objectContaining({ alias: 'feature-child', lifecycle: 'unregistered' }),
+      expect.objectContaining({ alias: childAlias, lifecycle: 'unregistered' }),
     ]);
     expect(tombstone.conversation_id).toBe(child);
   });
@@ -350,7 +351,7 @@ describe('qualified routing store projection', () => {
     });
     const target = {
       worktree_id: registered.worktree.id, conversation_id: child, member_id: childAgent.id,
-      alias: 'feature-child', handle: 'old-coder',
+      alias: worktreeSelectorFromBranch('feature/child'), handle: 'old-coder',
     } as const;
     const message = store.postMessage('eng', {
       author: store.getMemberByHandle('eng', 'richard')!.id,
@@ -360,7 +361,7 @@ describe('qualified routing store projection', () => {
 
     store.updateMember(child, childAgent.id, { removed_ts: '2026-08-06T00:10:00.000Z', state: 'dead' });
     const projected = store.routingCatalog('eng');
-    expect(projected.targets.find((item) => item.alias === 'feature-child')).toMatchObject({
+    expect(projected.targets.find((item) => item.alias === worktreeSelectorFromBranch('feature/child'))).toMatchObject({
       removed_members: [{ member_id: childAgent.id, handle: 'old-coder', kind: 'agent' }],
     });
     expect(projected.targets.find((item) => item.alias === 'child')?.members)
@@ -395,7 +396,9 @@ describe('qualified routing store projection', () => {
         state: 'dead',
       });
     }
-    const projected = store.routingCatalog('eng').targets.find((target) => target.alias === 'feature-child')!;
+    const projected = store.routingCatalog('eng').targets.find(
+      (target) => target.alias === worktreeSelectorFromBranch('feature/child'),
+    )!;
     const expected = removed.map((member) => member.id).sort().slice(0, 256);
     expect(projected.removed_members).toHaveLength(256);
     expect(projected.removed_members?.map((member) => member.member_id)).toEqual(expected);
@@ -3873,6 +3876,32 @@ describe('readable worktree conversation identity', () => {
     expect(long.length).toBeLessThanOrEqual(63);
     expect(long).toMatch(/^a+-feature-b+-[0-9a-f]{8}$/);
   });
+
+  it('registers normalized, case, and truncated branch collisions side by side', () => {
+    openRoom(store);
+    const common = `feature/${'long-prefix-'.repeat(6)}`;
+    const branches = [
+      'feat/foo',
+      'feat-foo',
+      'FEAT/FOO',
+      `${common}one`,
+      `${common}two`,
+    ];
+    const registered = branches.map((branch, index) => store.registerWorktree(
+      'eng',
+      repoObs(),
+      mainObs(),
+      childObs(`collision-${index}`, { branch }),
+      'ignored',
+      'adopted',
+    ).worktree);
+
+    expect(new Set(registered.map((entry) => entry.alias)).size).toBe(branches.length);
+    expect(new Set(registered.map((entry) => entry.conversation_id)).size).toBe(branches.length);
+    expect(registered.map((entry) => store.getRoom(entry.conversation_id)?.name)).toEqual(branches);
+    expect(store.listWorktrees('eng').filter((entry) => !entry.primary).map((entry) => entry.branch).sort())
+      .toEqual([...branches].sort());
+  });
 });
 // harn:end readable-branch-conversations-own-worktree-identity
 
@@ -4099,31 +4128,33 @@ describe('worktree child metadata follows stable identity', () => {
     openRoom(store);
     store.registerWorktree('eng', repoObs(), mainObs(), childObs('bravo'), 'bravo', 'created');
     store.registerWorktree('eng', repoObs(), mainObs(), childObs('alpha'), 'alpha', 'created');
+    const alphaAlias = worktreeSelectorFromBranch('feature/alpha');
+    const bravoAlias = worktreeSelectorFromBranch('feature/bravo');
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'feature-alpha', 'feature-bravo']);
-    const alpha = store.listRegisteredWorktrees('eng').find((worktree) => worktree.alias === 'feature-alpha')!;
+      .toEqual(['main', alphaAlias, bravoAlias]);
+    const alpha = store.listRegisteredWorktrees('eng').find((worktree) => worktree.alias === alphaAlias)!;
     store.unregisterWorktree('eng', alpha.id, '2026-08-06T00:04:00.000Z');
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'feature-bravo']);
+      .toEqual(['main', bravoAlias]);
     store.close();
     store = new Store(join(dir, 'test.sqlite'));
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'feature-bravo']);
+      .toEqual(['main', bravoAlias]);
     const withTombstones = store.listWorktrees('eng', { includeTombstones: true });
-    expect(withTombstones.map((worktree) => worktree.alias)).toEqual(['main', 'feature-alpha', 'feature-bravo']);
-    expect(withTombstones.find((worktree) => worktree.alias === 'feature-alpha'))
+    expect(withTombstones.map((worktree) => worktree.alias)).toEqual(['main', alphaAlias, bravoAlias]);
+    expect(withTombstones.find((worktree) => worktree.alias === alphaAlias))
       .toMatchObject({ id: alpha.id, lifecycle: 'unregistered' });
   });
 
   it('derives immutable routing identity from the branch', () => {
     openRoom(store);
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
-    expect(worktree.alias).toBe('feature-child');
+    expect(worktree.alias).toBe(worktreeSelectorFromBranch('feature/child'));
     expect(store.getRoom(worktree.conversation_id)?.name).toBe('feature/child');
     store.close();
     store = new Store(join(dir, 'test.sqlite'));
     expect(store.getWorktree('eng', worktree.id)).toMatchObject({
-      alias: 'feature-child', branch: 'feature/child', conversation_id: worktree.conversation_id,
+      alias: worktreeSelectorFromBranch('feature/child'), branch: 'feature/child', conversation_id: worktree.conversation_id,
     });
   });
 
