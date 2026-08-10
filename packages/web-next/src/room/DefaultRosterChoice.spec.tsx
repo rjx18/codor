@@ -106,6 +106,23 @@ describe('DefaultRosterChoice empty and failure states', () => {
     expect(onSelectedChange).toHaveBeenCalledWith(false);
   });
 
+  it('explains first-channel setup when Settings is not mounted', async () => {
+    await mount(
+      <DefaultRosterChoice
+        token={() => 'token'}
+        selected={false}
+        onSelectedChange={vi.fn()}
+        idPrefix="choice"
+      />,
+    );
+    await flush();
+
+    expect(byTestId('choice-roster-empty')?.textContent).toContain(
+      'Create the first channel with Starting agent, then configure presets and the Default roster in Settings.',
+    );
+    expect(byTestId('choice-roster-settings')).toBeNull();
+  });
+
   it('retains the selectable choice for a nonempty roster', async () => {
     api.fetchAgentPresets.mockResolvedValue([preset]);
     api.fetchDefaultRoster.mockResolvedValue({ ...emptyRoster, preset_ids: [preset.id] });
@@ -124,6 +141,33 @@ describe('DefaultRosterChoice empty and failure states', () => {
     await click(byTestId('choice-roster-select'));
     expect(onSelectedChange).toHaveBeenCalledWith(true);
   });
+
+  // harn:assume empty-roster-refresh-clears-selection-before-action ref=empty-roster-refresh-unit-regression
+  it('invalidates a selected roster when refresh returns an empty roster', async () => {
+    api.fetchAgentPresets.mockResolvedValueOnce([preset]).mockResolvedValue([]);
+    api.fetchDefaultRoster
+      .mockResolvedValueOnce({ ...emptyRoster, preset_ids: [preset.id] })
+      .mockResolvedValue(emptyRoster);
+    const onSelectedChange = vi.fn();
+    await mount(
+      <DefaultRosterChoice
+        token={() => 'token'}
+        selected
+        onSelectedChange={onSelectedChange}
+        idPrefix="choice"
+      />,
+    );
+    await flush();
+
+    expect(byTestId('choice-roster-select')).not.toBeNull();
+    await click(byTestId('choice-roster-refresh'));
+    await flush();
+
+    expect(byTestId('choice-roster-empty')).not.toBeNull();
+    expect(byTestId('choice-roster-select')).toBeNull();
+    expect(onSelectedChange).toHaveBeenCalledWith(false);
+  });
+  // harn:end empty-roster-refresh-clears-selection-before-action
 
   it('keeps the Starting agent fallback and Retry action for transport failure', async () => {
     api.fetchAgentPresets.mockRejectedValue(new Error('temporary transport failure'));

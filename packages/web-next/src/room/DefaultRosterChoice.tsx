@@ -1,6 +1,6 @@
 import type { AgentPreset, DefaultRoster } from '@codor/protocol';
 import { RefreshCw } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   fetchAgentPresets,
@@ -107,12 +107,14 @@ export function DefaultRosterChoice(props: {
   );
 
   // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-choice-and-submit
-  useEffect(() => {
+  // harn:assume empty-roster-refresh-clears-selection-before-action ref=empty-roster-refresh-synchronous-invalidation
+  useLayoutEffect(() => {
     if (state.roster === undefined) return;
     const empty = state.roster.preset_ids.length === 0;
     props.onRosterEmptyChange?.(empty);
     if (empty && props.selected) props.onSelectedChange(false);
   }, [props.onRosterEmptyChange, props.onSelectedChange, props.selected, state.roster]);
+  // harn:end empty-roster-refresh-clears-selection-before-action
   // harn:end empty-default-roster-is-unconfigured-state
 
   if (!enabled) return null;
@@ -160,7 +162,9 @@ export function DefaultRosterChoice(props: {
         && state.error === undefined && !summary.inconsistent && state.roster.preset_ids.length === 0 && (
         <div className="nx-roster-empty" role="status" data-testid={`${id}-roster-empty`}>
           <strong>No default roster configured</strong>
-          <span>Add a saved preset in Settings and save it to Default roster, or use Starting agent for this channel.</span>
+          <span>{props.onSettings === undefined
+            ? 'Create the first channel with Starting agent, then configure presets and the Default roster in Settings.'
+            : 'Add a saved preset in Settings and save it to Default roster, or use Starting agent for this channel.'}</span>
           {props.onSettings !== undefined && (
             <Button variant="quiet" type="button" data-testid={`${id}-roster-settings`} onClick={props.onSettings}>
               Open Settings

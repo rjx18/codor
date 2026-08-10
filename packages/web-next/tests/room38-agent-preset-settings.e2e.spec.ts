@@ -429,9 +429,60 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     expect(await page.evaluate(() => performance.timeOrigin)).toBe(timeOrigin);
     expect(sockets.length).toBe(socketsBefore);
   });
+
   // harn:end hosted-empty-roster-routing-regression
   // harn:end mounted-empty-roster-settings-route
   // harn:end empty-default-roster-is-unconfigured-state
+
+  // harn:assume empty-roster-refresh-clears-selection-before-action ref=empty-roster-refresh-browser-regression
+  test('clearing a selected roster during refresh cannot submit it on the next Create action', async ({ page }) => {
+    const rosterPreset = await createPreset({ label: `P4 refresh race ${Date.now()}`, handle: 'p4-refresh-race', harness: 'fake' });
+    await setRoster([rosterPreset]);
+    await openRoom(page);
+    await page.getByTestId('create-room').click();
+    const dialog = page.getByTestId('create-channel-dialog');
+    await expect(dialog.getByTestId('create-roster-select')).toBeVisible();
+    await dialog.getByTestId('create-roster-select').click();
+    await expect(dialog.getByTestId('create-roster-select')).toHaveAttribute('aria-pressed', 'true');
+    await dialog.getByTestId('create-name').fill(`P4 refresh race channel ${Date.now()}`);
+    await dialog.getByTestId('create-folder-alpha-project').click();
+
+    await page.route('**/api/default-roster', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            roster: {
+              id: 'default', schema_version: 1, preset_ids: [], updated_ts: '2026-08-10T00:00:00.000Z',
+            },
+          }),
+        });
+        return;
+      }
+      await route.continue();
+    });
+    await dialog.getByTestId('create-roster-refresh').click();
+    await expect(dialog.getByTestId('create-roster-empty')).toBeVisible();
+    await expect(dialog.getByTestId('create-roster-select')).toHaveCount(0);
+    await expect(dialog.getByTestId('create-agent-none-note')).toBeVisible();
+
+    await page.route('**/api/rooms', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 422, contentType: 'application/json', body: JSON.stringify({ error: 'hold refresh-race create' }) });
+        return;
+      }
+      await route.continue();
+    });
+    const request = page.waitForRequest((candidate) => candidate.method() === 'POST' && new URL(candidate.url()).pathname === '/api/rooms');
+    await dialog.getByTestId('create-go').click();
+    const payload = (await request).postDataJSON();
+    expect(payload).not.toHaveProperty('default_roster');
+    await expect(dialog.getByRole('alert')).toContainText('hold refresh-race create');
+    await page.unroute('**/api/default-roster');
+    await page.unroute('**/api/rooms');
+  });
+  // harn:end empty-roster-refresh-clears-selection-before-action
 
   // harn:assume empty-default-roster-is-unconfigured-state ref=empty-roster-onboarding-regression
   test('empty first-channel onboarding never sends default_roster', async ({ page }) => {

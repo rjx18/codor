@@ -1,0 +1,98 @@
+id: hosted-relay-smooth-startup-r3-review-fixes
+title: R3 review fixes - close roster refresh action race and clarify
+  first-channel guidance
+notes: "Contained review correction on top of
+  dff88d042598b74e839c8687522c0c3d325d5370. Preserve the accepted empty-roster
+  contract: an empty authoritative roster is normal unconfigured state, Starting
+  agent remains usable, and no create request may claim default_roster while the
+  roster is empty. Make the roster refresh invalidation synchronous before paint
+  so a selected nonempty roster cannot leave one actionable window after it
+  becomes empty. Keep mounted RoomPage guidance linked to the existing Settings
+  surface, while first-channel onboarding states explicitly that the first
+  channel must be created with Starting agent before Settings can configure
+  presets and the Default roster. No server, protocol, transport, session,
+  Settings workflow, deployment, or release behavior changes."
+assumptions:
+  create:
+    - id: empty-roster-refresh-clears-selection-before-action
+      title: Empty roster refresh clears stale selection before action admission
+      statement: When a selected default roster refresh resolves to an empty
+        authoritative roster, the create UI must invalidate that selection
+        before the next paint and omit default_roster from any immediately
+        admitted request, while preserving the Starting agent fallback, because
+        a stale selection could otherwise submit a zero-agent roster.
+      reason: The roster read resolves in a child choice component while the parent
+        owns create admission; the invalidation must close the refresh-time
+        stale selection window rather than relying on a later passive effect.
+      depends_on:
+        - empty-default-roster-is-unconfigured-state
+  retire: []
+  reviewed:
+    - id: empty-default-roster-is-unconfigured-state
+      outcome: unchanged
+      reason: The fix closes the refresh-time admission race and clarifies onboarding
+        copy without changing the empty-roster or default_roster request
+        contract.
+    - id: empty-roster-settings-guides-saveable-setup
+      outcome: unchanged
+      reason: Settings setup order and its existing retryable mutations are unchanged.
+    - id: empty-roster-guidance-reuses-mounted-settings
+      outcome: unchanged
+      reason: Mounted guidance still invokes the existing in-app Settings callback;
+        only the no-callback first-channel wording is clarified.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: No routing, connector, history, or connection behavior changes.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: No computer switching or session lifecycle behavior changes.
+files:
+  - .harn/plans/hosted-relay-smooth-startup-r3-review-fixes.yaml
+  - packages/web-next/src/room/DefaultRosterChoice.tsx
+  - packages/web-next/src/room/DefaultRosterChoice.spec.tsx
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+anchors:
+  empty-default-roster-is-unconfigured-state:
+    empty-roster-choice-and-submit:
+      action: change
+      reason: Use a layout-synchronous roster snapshot to clear stale selection before
+        paint/action admission and provide callback-aware empty-roster guidance
+        copy.
+    empty-roster-choice-regression:
+      action: change
+      reason: Prove empty guidance copy and selected nonempty state invalidation when
+        refresh returns an empty authoritative roster.
+    empty-roster-browser-regression:
+      action: keep
+      reason: Existing mounted empty-roster browser coverage remains unchanged.
+    empty-roster-onboarding-regression:
+      action: keep
+      reason: Existing no-default_roster first-channel request coverage remains intact.
+  empty-roster-guidance-reuses-mounted-settings:
+    mounted-empty-roster-settings-route:
+      action: keep
+      reason: Mounted guidance continues to open the existing Settings route in place.
+    hosted-empty-roster-routing-regression:
+      action: keep
+      reason: Hosted active-computer routing and no-reconnect coverage remain
+        unchanged.
+  empty-roster-refresh-clears-selection-before-action:
+    empty-roster-refresh-synchronous-invalidation:
+      action: change
+      reason: Run the parent invalidation in a layout effect so it completes before
+        browser paint and the next create action.
+    empty-roster-refresh-unit-regression:
+      action: change
+      reason: Unit coverage proves a selected nonempty roster is cleared by an empty
+        refresh and the choice no longer renders as selectable.
+    empty-roster-refresh-browser-regression:
+      action: change
+      reason: Browser coverage proves the immediate Create request omits
+        default_roster after a selected roster refreshes empty.
+verification: Run the focused DefaultRosterChoice unit suite, the exact Room 38
+  roster/settings browser suite, all web-next units, and the web-next production
+  build. Run harn plan check/lock, harn check/apply, staged validation, git diff
+  --check, and verify a clean worktree after one Harn-consumed review-fix
+  commit.
+applied:
+  applied_at: 2026-08-10T12:51:55.533Z
