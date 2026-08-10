@@ -1,0 +1,78 @@
+id: hosted-relay-smooth-startup-r2-windows-query-review-fix
+title: Require confirmed bounded Windows task state before runtime mutation
+notes: >
+  Final contained R2 Windows correction only. Query the registered task through
+  the cooperative update command budget, accept absence only for an explicit
+  Task Scheduler not-found diagnostic, validate successful XML, and propagate
+  timeout, permission, malformed-output, and every other unknown discovery
+  failure before stopping a task or moving runtime files. Keep normal setup to
+  exactly one pre-swap stop and prove the boundary directly. Preserve the
+  accepted POSIX, packed-npx, cooperative rollback, service identity, task
+  registration, NODE_PATH, and private-service behavior. Do not touch R1/R3 or
+  a real host.
+assumptions:
+  reviewed:
+    - id: windows-runtime-swap-requires-task-quiescence
+      outcome: unchanged
+      reason: >
+        Querying and snapshotting whether the task exists already requires a
+        confirmed result; unknown discovery failures cannot truthfully mean
+        absence, and the existing one-stop-before-move contract remains.
+    - id: runtime-update-restores-every-mutated-runtime-service-and-launcher-surface
+      outcome: unchanged
+      reason: >
+        The accepted update transaction is unchanged; task discovery now uses
+        its existing cooperative command budget and aborts before mutation.
+    - id: setup-installs-durable-per-user-runtime-atomically
+      outcome: unchanged
+      reason: Atomic staging and swap behavior remains unchanged.
+    - id: windows-setup-installs-private-task-service
+      outcome: unchanged
+      reason: The private least-privilege task definition and lifecycle remain unchanged.
+    - id: platform-services-propagate-destination-pnpm-node-path
+      outcome: unchanged
+      reason: Windows destination NODE_PATH behavior remains unchanged inside the shared fixture.
+anchors:
+  windows-runtime-swap-requires-task-quiescence:
+    windows-runtime-quiescence:
+      action: change
+      reason: >
+        Distinguish confirmed absence from discovery failure, validate exported
+        XML, and use the bounded service executor during updates.
+    windows-runtime-quiescence-regression:
+      action: change
+      reason: >
+        Prove query timeout/error causes no stop, move, delete, or synthetic
+        absence, and assert exactly one normal pre-swap stop.
+  runtime-update-restores-every-mutated-runtime-service-and-launcher-surface:
+    private-update-application:
+      action: change
+      reason: Move Windows discovery onto the existing cooperative service command budget.
+    update-rollback-regression:
+      action: change
+      reason: Cover bounded discovery refusal before the rollback transaction begins.
+  setup-installs-durable-per-user-runtime-atomically:
+    setup-install-runtime-wiring:
+      action: change
+      reason: Keep exactly one confirmed Windows task stop before the unchanged swap primitive.
+  windows-setup-installs-private-task-service:
+    windows-setup-runtime:
+      action: change
+      reason: Preserve the task lifecycle while requiring confirmed discovery.
+    windows-setup-regression:
+      action: change
+      reason: Extend only the enclosing Windows setup regression with exact stop ordering.
+  platform-services-propagate-destination-pnpm-node-path:
+    node-path-windows-regression:
+      action: change
+      reason: Preserve existing NODE_PATH assertions in the enclosing Windows fixture.
+files:
+  - packages/cli/src/setup.ts
+  - packages/cli/src/update.spec.ts
+  - packages/cli/src/setup-win32.spec.ts
+verification: >
+  Lock cleanly at 9d744a2. Run focused Windows setup, updater, runtime installer,
+  setup-flow, and launchd regression suites; complete CLI tests; CLI and
+  recursive build; Harn diff/staged/apply gates; git diff --check; commit once;
+  and verify a clean worktree. Do not reopen POSIX, packed npx, R1/R3, or update
+  a real host.
