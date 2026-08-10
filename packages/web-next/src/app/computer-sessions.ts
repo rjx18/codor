@@ -20,7 +20,7 @@ import { setActiveComputer } from '@runtime/active-computer.js';
 
 import { createConnector, type ConnectorOptions, type RoomConnector } from './connector.js';
 import { requireBrowserUpgrade } from './compatibility.js';
-import { rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
+import { forgetRoom, rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
 import { createClientStore, mirrorClientStore, type ClientStore } from './store.js';
 import { refreshMutableRunJournals } from '../room/run-journals.js';
 import {
@@ -411,7 +411,7 @@ export class ComputerSessionManager {
   private async hydrateEntrySnapshot(entry: SessionEntry): Promise<void> {
     try {
       const snapshot = await loadLastGoodRoom(entry.material.computer.id);
-      if (entry.disposed || entry.connector !== undefined || snapshot === undefined) return;
+      if (entry.disposed || entry.connector !== undefined || entry.noRooms === true || snapshot === undefined) return;
       hydrateLastGoodRoom(entry.store, snapshot);
       entry.publicRoot = snapshot.room.id;
       entry.cachedConnector = this.makeCachedConnector(entry);
@@ -488,7 +488,22 @@ export class ComputerSessionManager {
           remembered: rememberedRoom(entry.material.computer.id),
         });
         if (room === undefined) {
+          // Current authenticated truth is authoritative over an optional
+          // projection. Withdraw it before publishing No Channels, and set the
+          // marker first so an IndexedDB read already in flight cannot hydrate
+          // the stale room after deletion.
           entry.noRooms = true;
+          const cached = entry.cachedConnector;
+          entry.cachedConnector = undefined;
+          entry.publicRoot = undefined;
+          cached?.dispose();
+          forgetRoom(entry.material.computer.id);
+          await entry.cacheWrite.catch(() => undefined);
+          await deleteLastGoodRoom(entry.material.computer.id);
+          if (entry.material.computer.id === this.activeId
+            && (window as unknown as { __codor?: RoomConnector }).__codor === cached) {
+            delete (window as unknown as { __codor?: RoomConnector }).__codor;
+          }
           entry.resolveReady();
           this.publish();
           return;

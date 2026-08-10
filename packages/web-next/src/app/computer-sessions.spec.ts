@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { RoomSummary } from '@codor/protocol';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const recovery = vi.hoisted(() => ({
   refresh: vi.fn(),
@@ -8,12 +8,24 @@ const recovery = vi.hoisted(() => ({
   finalizedRoots: vi.fn((_store: unknown, _room: string) => new Set<number>()),
   upgrade: vi.fn(),
 }));
+const lastGoodCache = vi.hoisted(() => ({ snapshots: new Map<string, unknown>() }));
 vi.mock('../room/run-journals.js', () => ({ refreshMutableRunJournals: recovery.refresh }));
 vi.mock('../room/transcript-history.js', () => ({
   refreshTranscriptHistoryHead: recovery.refreshHead,
   finalizedTranscriptRoots: recovery.finalizedRoots,
 }));
 vi.mock('./compatibility.js', () => ({ requireBrowserUpgrade: recovery.upgrade }));
+vi.mock('../runtime/last-good-room.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../runtime/last-good-room.js')>();
+  return {
+    ...actual,
+    loadLastGoodRoom: vi.fn(async (id: string) => lastGoodCache.snapshots.get(id)),
+    saveLastGoodRoom: vi.fn(async (snapshot: { computerId: string }) => {
+      lastGoodCache.snapshots.set(snapshot.computerId, snapshot);
+    }),
+    deleteLastGoodRoom: vi.fn(async (id: string) => { lastGoodCache.snapshots.delete(id); }),
+  };
+});
 
 import type { HostedComputerMaterial } from '@runtime/crypto.js';
 import type { TunnelState } from '@runtime/relay.js';
@@ -23,7 +35,15 @@ import {
   type ComputerSessionDeps,
 } from './computer-sessions.js';
 import type { ConnectorOptions, RoomConnector } from './connector.js';
-import { rememberedRoom } from './startup.js';
+import { rememberRoom, rememberedRoom } from './startup.js';
+import {
+  deleteLastGoodRoom,
+  loadLastGoodRoom,
+  saveLastGoodRoom,
+  type LastGoodRoomSnapshot,
+} from '../runtime/last-good-room.js';
+
+beforeEach(() => lastGoodCache.snapshots.clear());
 
 const material = (id: string, gen = 1): HostedComputerMaterial => ({
   computer: { id, gen, label: `Computer ${id}`, label_source: 'fallback', paired_at: `2026-08-0${gen}` },
@@ -409,6 +429,54 @@ describe('ComputerSessionManager', () => {
     expect(await manager.activate('B')).toBe(false);
     expect(h.switches).toEqual(before);
     expect(manager.active()?.id).toBe('A');
+    manager.dispose();
+  });
+
+  it('retires a mounted stale cache before publishing authenticated empty-room truth', async () => {
+    const h = harness();
+    let resolveEmpty!: (rooms: RoomSummary[]) => void;
+    const loadRooms = h.deps.loadRooms;
+    h.deps.loadRooms = async (token, tunnel, signal) => token.endsWith('A')
+      ? new Promise<RoomSummary[]>((resolve) => { resolveEmpty = resolve; })
+      : loadRooms(token, tunnel, signal);
+    const room = {
+      id: 'same-room',
+      name: 'Stale cached room',
+      created_ts: '2026-08-01T00:00:00.000Z',
+      config: {
+        turn_brake: null,
+        spend_brake_usd: null,
+        stall_minutes: 30,
+        redaction_enabled: true,
+        bridged: false,
+      },
+    };
+    const cached: LastGoodRoomSnapshot = {
+      version: 1,
+      computerId: 'A',
+      room,
+      summaries: [summary('A', 1)],
+      history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+      savedAt: '2026-08-10T00:00:00.000Z',
+    };
+    await deleteLastGoodRoom('A');
+    await saveLastGoodRoom(cached);
+    expect(await loadLastGoodRoom('A')).toEqual(cached);
+    rememberRoom(room.id, 'A');
+
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    expect(manager.renderableActive()).toMatchObject({ id: 'A', room: 'same-room', token: '' });
+
+    resolveEmpty([]);
+    for (let tick = 0; tick < 24 && await loadLastGoodRoom('A') !== undefined; tick += 1) {
+      await Promise.resolve();
+    }
+    expect(manager.activeHasNoRooms()).toBe(true);
+    expect(manager.renderableActive()).toBeUndefined();
+    expect(manager.active()).toBeUndefined();
+    expect(rememberedRoom('A')).toBeUndefined();
+    expect(await loadLastGoodRoom('A')).toBeUndefined();
     manager.dispose();
   });
 

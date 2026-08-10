@@ -103,9 +103,35 @@ test.describe('hosted smooth startup budgets', () => {
 
   // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
+  // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-regression
   test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
     test.setTimeout(120_000);
+    const mediaMutations: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST'
+        && (/\/attachments(?:\?|$)/.test(request.url()) || request.url().includes('/api/voice/transcribe'))) {
+        mediaMutations.push(request.url());
+      }
+    });
     await pairLive(page);
+    await expect(page.getByTestId('composer-mic')).toHaveCount(1);
+    const liveInput = page.getByTestId('composer-input');
+    const retainedDraft = '@viewer preserve retained draft';
+    await liveInput.fill(retainedDraft);
+    await control('/relay-down');
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => {
+      const mic = document.querySelector<HTMLButtonElement>('[data-testid="composer-mic"]')!;
+      // Bypass the presentation guard to prove the action boundary itself.
+      mic.disabled = false;
+      mic.click();
+    });
+    await page.waitForTimeout(100);
+    expect(mediaMutations).toEqual([]);
+    await expect(liveInput).toHaveValue(retainedDraft);
+    await expect(page.getByTestId('composer-dictation-panel')).toHaveCount(0);
+    await control('/relay-up');
+    await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0, { timeout: 30_000 });
     await expect.poll(async () => await page.evaluate(async () => {
       const opened = indexedDB.open('codor-last-good-room-v1');
       const database = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -135,15 +161,36 @@ test.describe('hosted smooth startup budgets', () => {
     await expect(page.getByTestId('toggle-message-search')).toBeEnabled();
     await page.evaluate(() => { (window as unknown as { __cachedDocument?: boolean }).__cachedDocument = true; });
 
+    const input = page.getByTestId('composer-input');
+    const draft = '@viewer keep this offline draft';
+    await input.fill(draft);
+    await page.evaluate(() => {
+      const input = document.querySelector<HTMLTextAreaElement>('[data-testid="composer-input"]')!;
+      const file = new File(['offline'], 'offline.txt', { type: 'text/plain' });
+      const transfer = new DataTransfer();
+      transfer.items.add(file);
+      input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, clipboardData: transfer }));
+      input.closest('footer')?.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
+    });
+    await page.getByTestId('composer-file').setInputFiles({
+      name: 'selected-offline.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('offline'),
+    });
+    await page.waitForTimeout(100);
+    expect(mediaMutations).toEqual([]);
+    await expect(input).toHaveValue(draft);
+    await expect(page.getByTestId('attach-tray')).toHaveCount(0);
+
     await control('/relay-up');
     await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
     expect(await page.evaluate(() => (window as unknown as { __cachedDocument?: boolean }).__cachedDocument)).toBe(true);
-    const input = page.getByTestId('composer-input');
     await input.fill('@viewer current evidence restored');
     await expect(page.getByTestId('composer-send')).toBeEnabled();
     console.info('[hosted-cached-render-metrics]', JSON.stringify({ cachedRenderMs }));
   });
+  // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
 

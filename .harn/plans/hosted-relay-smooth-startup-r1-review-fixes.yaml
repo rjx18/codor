@@ -54,8 +54,10 @@ files:
   - packages/web-next/src/room/Composer.tsx
   - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
 verification: >
-  Clean-lock after the required draft-plan checkpoint on e1149495. Run focused manager/composer and browser
-  regressions, all web units, production build, Rooms 33 through 36, Harn
-  diff/staged/apply checks, and git diff --check. Commit once and verify a clean
-  worktree. Do not begin R3, update a real host, push, merge, deploy, or
-  publish.
+  Clean-lock after the required draft-plan checkpoint on e1149495. Run focused
+  manager/composer and browser regressions, all web units, production build,
+  Rooms 33 through 36, Harn diff/staged/apply checks, and git diff --check.
+  Commit once and verify a clean worktree. Do not begin R3, update a real host,
+  push, merge, deploy, or publish.
+applied:
+  applied_at: 2026-08-10T12:05:47.826Z
