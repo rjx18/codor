@@ -131,6 +131,10 @@ assumptions:
       outcome: unchanged
       reason: Child runtime ownership and teardown remain unchanged; only the removal
         regression's selector follows the full-branch shorthand contract.
+    - id: qualified-cli-wait-follows-target-owned-conversation
+      outcome: unchanged
+      reason: Correlated waiting remains bound to the target-owned conversation; only
+        the fixture's obsolete leaf shorthand becomes its full-branch shorthand.
 anchors:
   deterministic-branch-conversations-own-worktree-identity:
     deterministic-worktree-conversation-protocol:
@@ -252,6 +256,10 @@ anchors:
     worktree-runtime-removal-regression:
       action: change
       reason: Replace the obsolete leaf selector while preserving child runtime teardown.
+  qualified-cli-wait-follows-target-owned-conversation:
+    qualified-target-post-wait-regression:
+      action: change
+      reason: Replace the obsolete leaf selector while preserving correlated wait behavior.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
