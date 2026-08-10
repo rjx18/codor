@@ -1,0 +1,16 @@
+id: deterministic-branch-conversations-own-worktree-identity
+hash: a-5d584e82a2c9
+title: Registered branches deterministically own their child conversations
+state: active
+statement: >
+  The root conversation remains main; each explicitly registered secondary gets
+  one RoomId deterministically derived from the root RoomId and its branch at
+  registration, and its room name is the exact current Git branch. The bounded
+  shorthand selector is derived from that branch and cannot be independently
+  edited. Discovery creates no room, re-adoption restores the same registered
+  identity, and direct/non-Git channels remain unchanged.
+depends_on:
+  - registered-worktree-identities-are-durable
+  - worktree-discovery-never-registers-candidates
+  - main-and-direct-conversations-stay-compatible
+created_by: worktree-orchestration-correctness-p1

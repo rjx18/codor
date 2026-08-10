@@ -1,0 +1,16 @@
+id: held-recovery-runs-are-inactive-until-release
+hash: a-74be5a0d1314
+title: Held recovery runs are terminal until an explicit release
+state: active
+statement: >
+  When crash reconciliation parks an ambiguous delivery, its abandoned run must
+  immediately leave running state and stop contributing active/working status.
+  Boot and ordinary pumping must not revive it. Only release_hold may atomically
+  restore that exact held run and delivery attempt to running immediately before
+  the explicit retry, preserving its root, journal, attempt accounting, and
+  exactly-once evidence; a failed release leaves it inactive and held.
+depends_on:
+  - delivery-attempt-wal-reconcile
+  - turns-reuse-one-root-and-append-output-messages
+  - redeliver-interrupts-stranded-run
+created_by: worktree-orchestration-correctness-p1

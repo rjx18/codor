@@ -15,6 +15,7 @@ import {
   RepositoryRecordSchema,
   WorktreeAdoptRequestSchema,
   WorktreeAliasSchema,
+  worktreeSelectorFromBranch,
   WorktreeCreateRequestSchema,
   WorktreeDiscoveryCandidateSchema,
   WorktreeListResponseSchema,
@@ -412,27 +413,6 @@ export class WorktreeManager {
   }
   // harn:end registered-worktree-identities-are-durable
 
-  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-manager
-  /** Normalize and apply an active-secondary alias with no Git invocation: the
-   * store transaction owns uniqueness and child metadata reconciliation. */
-  updateAlias(
-    room: string,
-    worktreeId: string,
-    alias: string,
-  ): { repository: RepositoryRecord; worktree: RegisteredWorktree } {
-    const normalized = normalizeAlias(alias);
-    const worktree = this.store.updateWorktreeAlias(room, worktreeId, normalized);
-    const repository = this.store.getRepository(room);
-    if (repository === undefined || repository.id !== worktree.repository_id) {
-      throw new Error('worktree repository is not registered');
-    }
-    return {
-      repository: RepositoryRecordSchema.parse(repository),
-      worktree: RegisteredWorktreeSchema.parse(worktree),
-    };
-  }
-  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
-
   // harn:assume worktree-creation-registers-only-a-new-secondary ref=worktree-create-contract
   async adopt(
     room: string,
@@ -452,19 +432,17 @@ export class WorktreeManager {
     this.assertRepositoryAllowed(room, inspection.common_path);
     const repositoryObservation = this.repositoryObservation(inspection);
     const existing = this.store.getRepositoryByCommonPath(room, inspection.common_path);
+    if (candidate.branch === undefined) throw new Error('a detached worktree cannot be adopted');
     const tombstone = existing === undefined
       ? undefined
       : this.store.getWorktreeByGitAdmin(room, candidate.git_admin_id, { includeTombstones: true });
-    const alias = parsedInput.alias === undefined
-      ? tombstone?.alias ?? defaultAliasFromObservation(candidate, target)
-      : normalizeAlias(parsedInput.alias);
+    const alias = worktreeSelectorFromBranch(candidate.branch);
     this.assertAliasAvailable(room, existing?.id, alias, tombstone?.id);
     const result = this.store.registerWorktree(
       room,
       repositoryObservation,
       inspection.worktrees.find((observation) => observation.primary) ?? candidate,
       candidate,
-      alias,
       'adopted',
     );
     return {
@@ -489,7 +467,7 @@ export class WorktreeManager {
     if (primary === undefined || primary.availability !== 'available') {
       throw new Error('the primary checkout is unavailable');
     }
-    const alias = normalizeAlias(parsedInput.alias);
+    const alias = worktreeSelectorFromBranch(parsedInput.branch);
     this.assertRepositoryAllowed(room, inspection.common_path);
     const existing = this.store.getRepositoryByCommonPath(room, inspection.common_path);
     this.assertAliasAvailable(room, existing?.id, alias);
@@ -541,7 +519,6 @@ export class WorktreeManager {
         this.repositoryObservation(created),
         created.worktrees.find((observation) => observation.primary) ?? primary,
         createdObservation,
-        alias,
         'created',
         new Date().toISOString(),
         bindSeed?.(createdObservation.path) ?? [],

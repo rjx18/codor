@@ -151,16 +151,16 @@ describe('worktree management client and projections', () => {
     };
 
     await listWorktrees(client, 'eng', '/repo with spaces');
-    await adoptWorktree(client, 'eng', { path: '/repo/child with spaces', alias: 'child' }, '/repo');
-    await createWorktree(client, 'eng', { path: '/repo/new', alias: 'new', branch: 'feature/new' }, '/repo');
+    await adoptWorktree(client, 'eng', { path: '/repo/child with spaces' }, '/repo');
+    await createWorktree(client, 'eng', { path: '/repo/new', branch: 'feature/new' }, '/repo');
     await previewWorktreeRemoval(client, 'eng', alpha.id, '/repo');
     await removeWorktree(client, 'eng', alpha.id, '/repo');
     await removeFilesystemWorktree(client, 'eng', beta.id, '/repo');
 
     expect(calls).toEqual([
       { method: 'GET', path: '/api/rooms/eng/worktrees?cwd=%2Frepo+with+spaces' },
-      { method: 'POST', path: '/api/rooms/eng/worktrees/adopt?cwd=%2Frepo', body: { path: '/repo/child with spaces', alias: 'child' } },
-      { method: 'POST', path: '/api/rooms/eng/worktrees?cwd=%2Frepo', body: { path: '/repo/new', alias: 'new', branch: 'feature/new' } },
+      { method: 'POST', path: '/api/rooms/eng/worktrees/adopt?cwd=%2Frepo', body: { path: '/repo/child with spaces' } },
+      { method: 'POST', path: '/api/rooms/eng/worktrees?cwd=%2Frepo', body: { path: '/repo/new', branch: 'feature/new' } },
       { method: 'GET', path: `/api/rooms/eng/worktrees/${alpha.id}/removal-preview?cwd=%2Frepo` },
       { method: 'POST', path: `/api/rooms/eng/worktrees/${alpha.id}/unregister`, body: {} },
       { method: 'POST', path: `/api/rooms/eng/worktrees/${beta.id}/remove?cwd=%2Frepo`, body: {} },
@@ -186,9 +186,12 @@ describe('worktree management client and projections', () => {
 
 // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-confirmation-regression
 describe('worktree removal consent and selectors', () => {
-  it('resolves stable ids before aliases and refuses main or ambiguous selectors', () => {
+  it('resolves exact branches or derived selectors and refuses opaque ids, main, or ambiguity', () => {
     const registered = projectWorktreeList(response).registered;
-    expect(resolveWorktreeSelector(registered, alpha.id)).toMatchObject({ alias: 'alpha' });
+    expect(() => resolveWorktreeSelector(registered, alpha.id)).toThrowError(
+      expect.objectContaining({ exitCode: MANAGEMENT_EXIT_CODES.notFound }),
+    );
+    expect(resolveWorktreeSelector(registered, 'feature/alpha')).toMatchObject({ alias: 'alpha' });
     expect(resolveWorktreeSelector(registered, 'beta')).toMatchObject({ id: beta.id });
     expect(() => resolveWorktreeSelector(registered, 'main')).toThrowError(
       expect.objectContaining({ exitCode: MANAGEMENT_EXIT_CODES.conflict }),

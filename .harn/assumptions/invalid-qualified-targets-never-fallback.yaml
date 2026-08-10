@@ -1,7 +1,7 @@
 id: invalid-qualified-targets-never-fallback
 hash: a-931956e72609
 title: Invalid qualified targets refuse visibly without fallback
-state: active
+state: retired
 statement: If any qualified target is malformed, unknown, ambiguous,
   unregistered, removed, or names an unknown/removed member, the complete post
   must create no message or delivery and return a specific visible refusal; if
@@ -14,3 +14,4 @@ depends_on:
   - default-recipient-fallback-chain
   - worktree-discovery-never-registers-candidates
 created_by: native-worktrees-phase3-qualified-routing-v3
+retired_by: worktree-orchestration-correctness-p1

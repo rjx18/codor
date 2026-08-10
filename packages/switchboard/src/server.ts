@@ -21,11 +21,11 @@ import {
   CreateRoomRequestSchema,
   DefaultRosterInputSchema,
   WorktreeAdoptRequestSchema,
-  WorktreeAliasUpdateRequestSchema,
   WorktreeCreateRequestSchema,
   WorktreeIdSchema,
   WorktreeLifecycleResponseSchema,
   type BridgeOrigin,
+  type Message,
   type Member,
   type Policy,
   type ScopedMemberTarget,
@@ -342,7 +342,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     return member;
   };
 
-  // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-server
+  // Legacy in-flight rows may still carry an invocation coordinate during this
+  // unshipped correction; new target-owned turns never create one.
   // A long-lived target session may reconnect through its home selector while
   // one durable cross-origin invocation is active. The credential remains
   // bounded to that single origin; it never gains a general room selector.
@@ -352,7 +353,6 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       ? principal.invocation.originRoom
       : requestedRoom;
   };
-  // harn:end agent-authority-follows-one-active-invocation
 
   const memberForGlobal = (principal: AuthPrincipal): Member | undefined => {
     if (principal.kind === 'owner' || principal.kind === 'browser') return undefined;
@@ -364,7 +364,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     throw new Error('principal is not a human member');
   };
 
-  // harn:assume agent-network-authority-is-narrow ref=agent-room-authorization
+  // harn:assume agent-orchestration-is-repository-scoped ref=repository-scoped-agent-authorization
   const assertRoomCapability = (
     principal: AuthPrincipal,
     room: string,
@@ -427,19 +427,58 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end main-and-direct-conversations-stay-compatible
   // harn:end channel-archive-is-durable-soft-state
-  // harn:end agent-network-authority-is-narrow
+  // harn:end agent-orchestration-is-repository-scoped
 
-  // harn:assume worktree-management-is-human-admin-only ref=worktree-lifecycle-role-gate
+  // harn:assume agent-orchestration-is-repository-scoped ref=repository-scoped-agent-authorization
+  const agentRootRoom = (principal: Extract<AuthPrincipal, { kind: 'agent' }>): string =>
+    daemon.store.rootRoomId(principal.homeRoom) ?? principal.homeRoom;
+
+  const assertAgentRepositoryRoot = (
+    principal: Extract<AuthPrincipal, { kind: 'agent' }>,
+    room: string,
+  ): Member => {
+    const root = agentRootRoom(principal);
+    if (room !== root) throw new Error(`forbidden: agent worktree management is scoped to root channel ${root}`);
+    const member = daemon.agentMemberForRoom(principal.homeRoom, principal.memberId);
+    if (member?.kind !== 'agent' || member.removed_ts !== undefined) {
+      throw new Error('forbidden: inactive agent principal');
+    }
+    return member;
+  };
+
+  const assertAgentChildManagement = (
+    principal: Extract<AuthPrincipal, { kind: 'agent' }>,
+    room: string,
+  ): Member => {
+    const root = agentRootRoom(principal);
+    const worktree = daemon.store.getWorktreeByConversation(root, room);
+    if (worktree === undefined || worktree.primary || worktree.lifecycle !== 'active') {
+      throw new Error('forbidden: agents may manage workers only in an active secondary worktree');
+    }
+    const member = daemon.agentMemberForRoom(principal.homeRoom, principal.memberId);
+    if (member?.kind !== 'agent' || member.removed_ts !== undefined) {
+      throw new Error('forbidden: inactive agent principal');
+    }
+    return member;
+  };
+
+  const assertMemberManagement = (
+    principal: AuthPrincipal,
+    room: string,
+  ): Member => principal.kind === 'agent'
+    ? assertAgentChildManagement(principal, room)
+    : assertRoomCapability(principal, room, 'manage_agents');
+
   const authorizeWorktreeRead = (
     principal: AuthPrincipal,
     room: string,
     reply: FastifyReply,
   ): Member | undefined => {
-    // Worktree metadata is operator-facing room state. Agent credentials do not
-    // gain even read access merely because they can read room transcripts.
     if (principal.kind === 'agent') {
-      void reply.code(403).send({ error: 'forbidden: agent cannot use worktree management' });
-      return undefined;
+      try { return assertAgentRepositoryRoot(principal, room); } catch (error) {
+        void reply.code(403).send({ error: String(error) });
+        return undefined;
+      }
     }
     return authorizeRoom(principal, room, 'read', reply);
   };
@@ -450,8 +489,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     reply: FastifyReply,
   ): Member | undefined => {
     if (principal.kind === 'agent') {
-      void reply.code(403).send({ error: 'forbidden: agent cannot use worktree management' });
-      return undefined;
+      try { return assertAgentRepositoryRoot(principal, room); } catch (error) {
+        void reply.code(403).send({ error: String(error) });
+        return undefined;
+      }
     }
     return authorizeRoom(principal, room, 'manage_worktrees', reply);
   };
@@ -464,11 +505,26 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     room: string,
     reply: FastifyReply,
   ): Member | undefined => {
+    if (principal.kind === 'agent') {
+      void reply.code(403).send({ error: 'forbidden: agents cannot apply default rosters' });
+      return undefined;
+    }
     const member = authorizeWorktreeMutation(principal, room, reply);
     if (member === undefined) return undefined;
     return authorizeRoom(principal, room, 'manage_agents', reply);
   };
-  // harn:end worktree-management-is-human-admin-only
+  const authorizeWorktreeDestructive = (
+    principal: AuthPrincipal,
+    room: string,
+    reply: FastifyReply,
+  ): Member | undefined => {
+    if (principal.kind === 'agent') {
+      void reply.code(403).send({ error: 'forbidden: destructive worktree management requires an operator' });
+      return undefined;
+    }
+    return authorizeRoom(principal, room, 'manage_worktrees', reply);
+  };
+  // harn:end agent-orchestration-is-repository-scoped
 
   // harn:assume voice-provider-selection-is-operator-config ref=voice-selection-server-option
   // The active provider is operator config only — a browser never names it.
@@ -1301,7 +1357,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     const principal = authed(req, reply);
     if (!principal) return;
     const { room } = req.params as { room: string };
-    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    if (!authorizeWorktreeDestructive(principal, room, reply)) return;
     try {
       const body = (req.body ?? {}) as Record<string, unknown>;
       const input = WorktreeCreateRequestSchema.parse({
@@ -1346,29 +1402,11 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   app.post('/api/rooms/:room/worktrees/:worktreeId/unregister', unregisterWorktreeRoute);
   app.delete('/api/rooms/:room/worktrees/:worktreeId', unregisterWorktreeRoute);
 
-  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-rest
-  /** Identity-preserving alias edit: admin/owner only, keyed by the stable id,
-   * no Git invocation, returns the stable lifecycle projection. */
-  app.post('/api/rooms/:room/worktrees/:worktreeId/alias', (req, reply) => {
-    const principal = authed(req, reply);
-    if (!principal) return;
-    const { room } = req.params as { room: string };
-    if (!authorizeWorktreeMutation(principal, room, reply)) return;
-    try {
-      const input = WorktreeAliasUpdateRequestSchema.parse(req.body);
-      const result = daemon.updateWorktreeAlias(room, worktreeIdFromParams(req), input.alias);
-      void reply.send(WorktreeLifecycleResponseSchema.parse(result));
-    } catch (error) {
-      void reply.code(400).send({ error: String(error) });
-    }
-  });
-  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
-
   const removeWorktreeRoute = async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     const principal = authed(req, reply);
     if (!principal) return;
     const { room } = req.params as { room: string };
-    if (!authorizeWorktreeMutation(principal, room, reply)) return;
+    if (!authorizeWorktreeDestructive(principal, room, reply)) return;
     try {
       const { cwd } = req.query as { cwd?: string };
       return void reply.send(await daemon.removeWorktree(room, worktreeIdFromParams(req), cwd));
@@ -2014,7 +2052,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             });
           // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-server
           } else if (frame.type === 'list_agents') {
-            assertRoomCapability(principal, frame.room, 'read');
+            if (principal.kind === 'agent') assertAgentChildManagement(principal, frame.room);
+            else assertRoomCapability(principal, frame.room, 'read');
             const agents = daemon.store.listMembers(frame.room)
               .filter((member) => member.kind === 'agent' && member.removed_ts === undefined)
               .sort((left, right) => left.id.localeCompare(right.id));
@@ -2025,7 +2064,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               ref: frame.ref,
             });
           } else if (frame.type === 'add_agent') {
-            assertRoomCapability(principal, frame.room, 'manage_agents');
+            const manager = assertMemberManagement(principal, frame.room);
+            if (principal.kind === 'agent') {
+              if (frame.preset_id !== undefined) throw new Error('forbidden: agents cannot use presets');
+              if (frame.policy !== undefined && frame.policy !== manager.policy) {
+                throw new Error('forbidden: an agent cannot assign a different policy');
+              }
+            }
             // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=agent-add-catalog-resolution
             const member = frame.preset_id !== undefined
               ? daemon.spawnMemberFromPreset(frame.room, frame.preset_id, {
@@ -2204,8 +2249,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           } else if (frame.type === 'post') {
             const actor = assertRoomCapability(principal, frame.room, 'post');
             const room = effectiveAgentRoom(principal, frame.room);
+            let posted: Message;
             if (principal.kind === 'agent') {
-              daemon.postAgentMessage(
+              posted = daemon.postAgentMessage(
                 room,
                 actor.id,
                 frame.body,
@@ -2219,17 +2265,38 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               if (frame.body.trim().length === 0 && attachments.length === 0) {
                 throw new Error('a post needs body text or at least one attachment');
               }
-              daemon.postHumanMessage(frame.room, frame.body, {
+              posted = daemon.postHumanMessage(frame.room, frame.body, {
                 author: actor.id,
                 reply_to: frame.reply_to,
                 attachments,
                 voice: frame.voice,
               });
             }
-            // harn:end cross-worktree-runtime-stays-target-local
+            // A qualified post is committed in its destination room. The posting
+            // socket may not subscribe there (notably an agent returning to main),
+            // so acknowledge the accepted message on that socket without copying
+            // it into the source room. Subscribers already received the ordinary
+            // live frame and must not see a duplicate.
+            if (!subscriptions.get(socket)?.has(posted.room)) {
+              send({ type: 'message', seq: daemon.store.currentSeq(posted.room), message: posted });
+            }
           } else if (frame.type === 'act') {
             const act = frame.act;
-            const actor = assertRoomCapability(principal, frame.room, act.act);
+            const agentManageActs = new Set([
+              'spawn', 'configure', 'rename', 'revive', 'kill', 'pause', 'unpause', 'interrupt',
+            ]);
+            const actor = principal.kind === 'agent' && agentManageActs.has(act.act)
+              ? assertAgentChildManagement(principal, frame.room)
+              : assertRoomCapability(principal, frame.room, act.act);
+            if (principal.kind === 'agent' && act.act === 'configure' && act.policy !== undefined) {
+              throw new Error('forbidden: an agent cannot change worker policy');
+            }
+            if (principal.kind === 'agent' && act.act === 'spawn') {
+              if (act.acp_launch !== undefined) throw new Error('forbidden: agents cannot set custom launches');
+              if (act.policy !== undefined && act.policy !== actor.policy) {
+                throw new Error('forbidden: an agent cannot assign a different policy');
+              }
+            }
             const room = effectiveAgentRoom(principal, frame.room);
             if (act.act === 'answer_interaction') {
               void daemon

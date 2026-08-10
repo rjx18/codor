@@ -186,8 +186,7 @@ describe('agent member credential principal', () => {
       room: 'eng',
       act: { act: 'configure', member_id: agent.id, policy: 'full-access' },
     }));
-    const denied = await client.next((frame) =>
-      frame.type === 'error' && frame.message.includes('agent cannot configure'));
+    const denied = await client.next((frame) => frame.type === 'error' && frame.ref === 'act');
     expect(denied).toMatchObject({ type: 'error', ref: 'act' });
     client.ws.send(JSON.stringify({
       type: 'list_rooms', all: true, ref: 'agent-list',
@@ -432,8 +431,8 @@ describe('correlated agent management over WebSocket', () => {
     const principalToken = agentSession!.env!.CODOR_MEMBER_TOKEN!;
     const agentClient = await connectAs(principalToken);
     agentClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'eng', ref: 'principal-list' }));
-    expect(await agentClient.next((frame) => frame.type === 'agents' && frame.ref === 'principal-list'))
-      .toMatchObject({ type: 'agents', ref: 'principal-list' });
+    expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'principal-list'))
+      .toMatchObject({ type: 'error', ref: 'principal-list' });
     daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'elsewhere', display_name: 'Elsewhere' } });
     agentClient.ws.send(JSON.stringify({ type: 'list_agents', room: 'other', ref: 'cross-room-list' }));
     expect(await agentClient.next((frame) => frame.type === 'error' && frame.ref === 'cross-room-list'))
@@ -683,7 +682,7 @@ describe('retry_run act (retried-runs-are-fresh-deliveries)', () => {
 // harn:assume agent-network-authority-is-narrow ref=agent-authz-regression
 // harn:assume main-and-direct-conversations-stay-compatible ref=conversation-main-compatibility-regression
 describe('native worktree REST authorization and lifecycle', () => {
-  it('keeps discovery read-only, admits human room readers, and gates lifecycle mutation to admins', async () => {
+  it('lets repository-scoped agents discover/adopt while keeping destructive lifecycle admin-only', async () => {
     const fixture = join(dir, 'worktree lifecycle fixture');
     const primary = join(fixture, 'primary checkout');
     const secondary = join(fixture, 'secondary checkout');
@@ -739,8 +738,8 @@ describe('native worktree REST authorization and lifecycle', () => {
     const agentPrincipal = spawnAgentWithToken('worktree-rest-agent');
     const listSpy = vi.spyOn(daemon.worktrees, 'list');
     const agentRead = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees');
-    expect(agentRead.status).toBe(403);
-    expect(listSpy).not.toHaveBeenCalled();
+    expect(agentRead.status).toBe(200);
+    expect(listSpy).toHaveBeenCalled();
     listSpy.mockRestore();
 
     const memberMutation = await jsonRequest(MEMBER_TOKEN, '/api/rooms/eng/worktrees/adopt', {
@@ -757,20 +756,13 @@ describe('native worktree REST authorization and lifecycle', () => {
       method: 'POST',
       body: JSON.stringify({ path: secondary, alias: 'agent-attempt' }),
     });
-    expect(agentMutation.status).toBe(403);
-    expect(daemon.store.getRepository('eng')).toBeUndefined();
-
-    const adoptedResponse = await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
-      method: 'POST',
-      body: JSON.stringify({ path: secondary, alias: 'REST Review' }),
-    });
-    expect(adoptedResponse.status).toBe(201);
-    const adopted = await adoptedResponse.json() as {
+    expect(agentMutation.status).toBe(201);
+    const adopted = await agentMutation.json() as {
       worktree: { id: string; alias: string; conversation_id: string };
     };
-    expect(adopted.worktree.alias).toBe('rest-review');
+    expect(adopted.worktree.alias).toBe('rest');
     expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
-    expect(adoptedResponse.headers.get('content-type')).toContain('application/json');
+    expect(agentMutation.headers.get('content-type')).toContain('application/json');
     const childRoom = adopted.worktree.conversation_id;
     const childSync = await fetch(`${base}/api/rooms/${childRoom}/sync?since_seq=0`, {
       headers: { authorization: `Bearer ${TOKEN}` },
@@ -843,7 +835,7 @@ describe('native worktree REST authorization and lifecycle', () => {
     return primary;
   };
 
-  it('serves the store-only registered projection to humans and never to agents', async () => {
+  it('serves the store-only registered projection to humans and repository-scoped agents', async () => {
     const primary = fixtureRepository('registered projection fixture');
     const secondary = join(dir, 'registered projection fixture', 'secondary checkout');
     fixtureGit(primary, ['worktree', 'add', '-b', 'feature/projection', secondary, 'HEAD']);
@@ -857,7 +849,7 @@ describe('native worktree REST authorization and lifecycle', () => {
     expect(anonymous.status).toBe(401);
     const agentPrincipal = spawnAgentWithToken('registered-projection-agent');
     const agentRead = await jsonRequest(agentPrincipal.token, '/api/rooms/eng/worktrees/registered');
-    expect(agentRead.status).toBe(403);
+    expect(agentRead.status).toBe(200);
 
     // Adopt, then tombstone a second child: the projection shows actives only.
     const adopted = await (await jsonRequest(ADMIN_TOKEN, '/api/rooms/eng/worktrees/adopt', {
@@ -885,13 +877,13 @@ describe('native worktree REST authorization and lifecycle', () => {
       discovered?: unknown;
     };
     expect(projection.repository).not.toBeNull();
-    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'projection-child']);
+    expect(projection.registered.map((worktree) => worktree.alias)).toEqual(['main', 'projection']);
     expect(projection.registered.every((worktree) => worktree.lifecycle === 'active')).toBe(true);
     expect(projection.registered.some((worktree) => worktree.id === adopted.worktree.id)).toBe(true);
     expect(projection).not.toHaveProperty('discovered');
   });
 
-  it('edits an active secondary alias only for admins and keeps every stable identity', async () => {
+  it('has no mutable alias endpoint because routing selectors derive from branches', async () => {
     const primary = fixtureRepository('alias route fixture');
     const secondary = join(dir, 'alias route fixture', 'secondary checkout');
     fixtureGit(primary, ['worktree', 'add', '-b', 'feature/alias-route', secondary, 'HEAD']);
@@ -907,30 +899,12 @@ describe('native worktree REST authorization and lifecycle', () => {
     const agentPrincipal = spawnAgentWithToken('alias-route-agent');
     const url = `/api/rooms/eng/worktrees/${adopted.worktree.id}/alias`;
 
-    for (const token of [MEMBER_TOKEN, OBSERVER_TOKEN, agentPrincipal.token]) {
-      const refused = await jsonRequest(token, url, { method: 'POST', body: JSON.stringify({ alias: 'nope' }) });
-      expect(refused.status).toBe(403);
+    for (const token of [MEMBER_TOKEN, OBSERVER_TOKEN, agentPrincipal.token, ADMIN_TOKEN]) {
+      const absent = await jsonRequest(token, url, { method: 'POST', body: JSON.stringify({ alias: 'nope' }) });
+      expect(absent.status).toBe(404);
     }
-    const renamed = await jsonRequest(ADMIN_TOKEN, url, {
-      method: 'POST', body: JSON.stringify({ alias: ' Renamed Child ' }),
-    });
-    expect(renamed.status).toBe(200);
-    const renamedBody = await renamed.json() as {
-      worktree: { id: string; alias: string; conversation_id: string; path: string };
-    };
-    expect(renamedBody.worktree).toMatchObject({
-      id: adopted.worktree.id,
-      alias: 'renamed-child',
-      conversation_id: adopted.worktree.conversation_id,
-    });
-    expect(daemon.store.getRoom(adopted.worktree.conversation_id)?.name)
-      .toBe('Eng · renamed-child');
-    expect((await jsonRequest(ADMIN_TOKEN, url, {
-      method: 'POST', body: JSON.stringify({ alias: 'renamed-child' }),
-    })).status).toBe(200);
-    expect((await jsonRequest(ADMIN_TOKEN, url, {
-      method: 'POST', body: JSON.stringify({ alias: 'main' }),
-    })).status).toBe(400);
+    expect(daemon.store.getWorktree('eng', adopted.worktree.id)?.alias).toBe('alias-route');
+    expect(daemon.store.getRoom(adopted.worktree.conversation_id)?.name).toBe('feature/alias-route');
   });
 
   it('previews removal read-only for humans with fresh truthful states', async () => {
@@ -948,7 +922,7 @@ describe('native worktree REST authorization and lifecycle', () => {
     const agentPrincipal = spawnAgentWithToken('preview-route-agent');
     const url = `/api/rooms/eng/worktrees/${created.worktree.id}/removal-preview`;
 
-    expect((await jsonRequest(agentPrincipal.token, url)).status).toBe(403);
+    expect((await jsonRequest(agentPrincipal.token, url)).status).toBe(200);
     const registeredBefore = JSON.stringify(daemon.store.listRegisteredWorktrees('eng'));
     const clean = await jsonRequest(OBSERVER_TOKEN, url);
     expect(clean.status).toBe(200);
@@ -1091,6 +1065,31 @@ describe('child conversation REST and WebSocket isolation', () => {
       headers: { authorization: `Bearer ${childAgent.token}` },
     })).status).toBe(403);
 
+    const manager = await connectAs(childAgent.token);
+    const workerCwd = testCwd('child-managed-worker');
+    manager.ws.send(JSON.stringify({
+      type: 'add_agent', room: child, ref: 'child-add-first', adapter: 'fake',
+      handle: 'child-managed-worker', cwd: workerCwd,
+    }));
+    const firstWorker = await manager.next((frame) => frame.type === 'member' && frame.ref === 'child-add-first');
+    manager.ws.send(JSON.stringify({
+      type: 'add_agent', room: child, ref: 'child-add-again', adapter: 'fake',
+      handle: 'child-managed-worker', cwd: workerCwd,
+    }));
+    const sameWorker = await manager.next((frame) => frame.type === 'member' && frame.ref === 'child-add-again');
+    expect(firstWorker.type === 'member' && sameWorker.type === 'member'
+      ? sameWorker.member.id : undefined)
+      .toBe(firstWorker.type === 'member' ? firstWorker.member.id : undefined);
+    expect(daemon.store.listMembers(child).filter((member) => member.handle === 'child-managed-worker'))
+      .toHaveLength(1);
+    manager.ws.send(JSON.stringify({
+      type: 'add_agent', room: 'eng', ref: 'root-add-refused', adapter: 'fake',
+      handle: 'root-worker', cwd: workerCwd,
+    }));
+    expect(await manager.next((frame) => frame.type === 'error' && frame.ref === 'root-add-refused'))
+      .toMatchObject({ type: 'error', ref: 'root-add-refused' });
+    manager.ws.close();
+
     const childClient = await connect();
     childClient.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
     await childClient.next((frame) => frame.type === 'sync_complete' && frame.room === child);
@@ -1121,180 +1120,8 @@ describe('child conversation REST and WebSocket isolation', () => {
 // harn:end child-members-own-isolated-runtime
 // harn:end child-conversation-state-is-room-isolated
 
-// harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-server-regression
-it('maps an active target session across home and origin selectors without widening authority', async () => {
-  const fixture = join(dir, 'active invocation fixture');
-  const primary = join(fixture, 'primary');
-  const childPath = join(fixture, 'child');
-  mkdirSync(primary, { recursive: true });
-  fixtureGit(primary, ['init', '-q', '-b', 'main']);
-  fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
-  fixtureGit(primary, ['config', 'user.name', 'Fixture']);
-  writeFileSync(join(primary, 'README.md'), 'active invocation fixture\n');
-  fixtureGit(primary, ['add', 'README.md']);
-  fixtureGit(primary, ['commit', '-qm', 'active invocation fixture']);
-  fixtureGit(primary, ['worktree', 'add', '-b', 'feature/active-invocation', childPath, 'HEAD']);
-  daemon.store.updateRoomConfig('eng', { cwd: primary });
-  const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'active-target' });
-  const child = adopted.worktree.conversation_id;
-  const { agent, token: initialToken, session } = spawnAgentWithToken('active-target-agent', child);
-  const sibling = daemon.spawnMember(child, {
-    harness: 'fake', handle: 'target-sibling', cwd: testCwd('target-sibling'),
-  });
-  const unrelated = spawnAgentWithToken('unrelated-origin-agent').agent;
-  daemon.pauseMember('eng', unrelated.id);
-  daemon.createRoom({ id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' } });
-
-  fake.enqueue({
-    kind: 'ask',
-    card: { kind: 'ask', prompt: 'Keep the target invocation active?' },
-    reply: () => 'target invocation completed',
-  });
-  daemon.postHumanMessage('eng', '~active-target:@active-target-agent begin scoped work');
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const activeToken = session.env?.CODOR_MEMBER_TOKEN;
-    if (activeToken !== undefined && activeToken !== initialToken
-      && daemon.authenticateAgentToken(activeToken)?.invocation !== undefined) break;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  const originDeliveries = daemon.store.listDeliveries('eng');
-  expect(originDeliveries.filter((delivery) => delivery.target !== undefined)).toEqual([
-    expect.objectContaining({
-      recipient: agent.id,
-      state: 'delivering',
-      target: expect.objectContaining({
-        alias: 'active-target',
-        conversation_id: child,
-        member_id: agent.id,
-      }),
-    }),
-  ]);
-  expect(daemon.store.getMember(child, agent.id)).toEqual(expect.objectContaining({
-    id: agent.id,
-    state: expect.stringMatching(/^(running|awaiting_input)$/),
-  }));
-  expect(fake.deliveries).toHaveLength(1);
-  const activeToken = session.env?.CODOR_MEMBER_TOKEN;
-  expect(activeToken).toBeDefined();
-  expect(daemon.authenticateAgentToken(initialToken)).toBeUndefined();
-  expect(daemon.authenticateAgentToken(activeToken!)).toMatchObject({
-    room: 'eng', homeRoom: child,
-    invocation: { originRoom: 'eng', targetRoom: child },
-  });
-
-  const client = await connectAs(activeToken!);
-  const nextFrame = async (label: string, predicate: (frame: ServerFrame) => boolean) => {
-    try {
-      return await client.next(predicate);
-    } catch (error) {
-      throw new Error(`${label}: ${String(error)}; frames=${JSON.stringify(client.frames)}`);
-    }
-  };
-  client.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
-  expect(await nextFrame('home self', (frame) => frame.type === 'self' && frame.room === 'eng'))
-    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
-  expect(await nextFrame('home sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng'))
-    .toMatchObject({ type: 'sync_complete', room: 'eng' });
-  const homeTargetMembers = client.frames.filter(
-    (frame): frame is Extract<ServerFrame, { type: 'member' }> =>
-      frame.type === 'member' && frame.room === 'eng' && frame.member.id === agent.id,
-  );
-  expect(homeTargetMembers).toHaveLength(1);
-  expect(client.frames.some((frame) => frame.type === 'member' && frame.member.id === sibling.id))
-    .toBe(false);
-
-  daemon.postHumanMessage('eng', '@unrelated-origin-agent unrelated pending work');
-  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
-  expect(await nextFrame('origin self', (frame) => frame.type === 'self' && frame.room === 'eng'))
-    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
-  await nextFrame('origin sync', (frame) => frame.type === 'sync_complete' && frame.room === 'eng');
-  const inboxes = client.frames.filter((frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox');
-  expect(inboxes.every((frame) => frame.delivery.recipient === agent.id)).toBe(true);
-
-  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'other', since_seq: 0, room_addressed: true }));
-  expect(await nextFrame('other refusal', (frame) => frame.type === 'error'))
-    .toMatchObject({ type: 'error' });
-  client.ws.close();
-});
-
-it('drops effective-origin authority on the live socket once the durable target invalidates, restoring home only on fresh auth', async () => {
-  const fixture = join(dir, 'invalidated invocation fixture');
-  const primary = join(fixture, 'primary');
-  const childPath = join(fixture, 'child');
-  mkdirSync(primary, { recursive: true });
-  fixtureGit(primary, ['init', '-q', '-b', 'main']);
-  fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
-  fixtureGit(primary, ['config', 'user.name', 'Fixture']);
-  writeFileSync(join(primary, 'README.md'), 'invalidated invocation fixture\n');
-  fixtureGit(primary, ['add', 'README.md']);
-  fixtureGit(primary, ['commit', '-qm', 'invalidated invocation fixture']);
-  fixtureGit(primary, ['worktree', 'add', '-b', 'feature/invalidated-invocation', childPath, 'HEAD']);
-  daemon.store.updateRoomConfig('eng', { cwd: primary });
-  const adopted = await daemon.adoptWorktree('eng', { path: childPath, alias: 'invalid-target' });
-  const child = adopted.worktree.conversation_id;
-  const { agent, session } = spawnAgentWithToken('invalid-target-agent', child);
-  const sibling = daemon.spawnMember(child, {
-    harness: 'fake', handle: 'invalid-target-sibling', cwd: testCwd('invalid-target-sibling'),
-  });
-  daemon.pauseMember(child, sibling.id);
-
-  fake.enqueue({
-    kind: 'ask',
-    card: { kind: 'ask', prompt: 'Keep the doomed invocation active?' },
-    reply: () => 'too late',
-  });
-  daemon.postHumanMessage('eng', '~invalid-target:@invalid-target-agent begin scoped work');
-  for (let attempt = 0; attempt < 200; attempt++) {
-    const activeToken = session.env?.CODOR_MEMBER_TOKEN;
-    if (activeToken !== undefined && daemon.authenticateAgentToken(activeToken)?.invocation !== undefined) break;
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  const activeToken = session.env?.CODOR_MEMBER_TOKEN!;
-  expect(daemon.authenticateAgentToken(activeToken)).toMatchObject({
-    room: 'eng', homeRoom: child,
-    invocation: { originRoom: 'eng', targetRoom: child },
-  });
-
-  const client = await connectAs(activeToken);
-  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
-  expect(await client.next((frame) => frame.type === 'self' && frame.room === 'eng'))
-    .toMatchObject({ type: 'self', member_id: agent.id, room: 'eng' });
-
-  // The durable target invalidates mid-turn: the same socket loses every
-  // effective-origin mapping, including the home selector that used to remap.
-  daemon.store.unregisterWorktree('eng', adopted.worktree.id, '2026-08-06T00:40:00.000Z');
-  expect(daemon.authenticateAgentToken(activeToken)).toMatchObject({ room: child, homeRoom: child });
-  expect(daemon.authenticateAgentToken(activeToken)?.invocation).toBeUndefined();
-  client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
-  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 1);
-  client.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
-  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 2);
-  client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: 'still here?' }));
-  await client.next(() => client.frames.filter((frame) => frame.type === 'error').length >= 3);
-  expect(client.frames.filter((frame) => frame.type === 'error')).toHaveLength(3);
-  client.ws.close();
-
-  // A sibling's queued row must never hydrate into the target agent's inbox;
-  // the agent's own queued row must.
-  daemon.postHumanMessage(child, '@invalid-target-sibling sibling work');
-  daemon.postHumanMessage(child, '@invalid-target-agent own queued work');
-
-  // Fresh authentication after settlement restores exactly the home scope.
-  const fresh = await connectAs(activeToken);
-  fresh.ws.send(JSON.stringify({ type: 'subscribe', room: child, since_seq: 0, room_addressed: true }));
-  expect(await fresh.next((frame) => frame.type === 'self'))
-    .toMatchObject({ type: 'self', member_id: agent.id });
-  await fresh.next((frame) => frame.type === 'sync_complete');
-  const freshInboxes = fresh.frames.filter(
-    (frame): frame is Extract<ServerFrame, { type: 'inbox' }> => frame.type === 'inbox',
-  );
-  expect(freshInboxes.length).toBeGreaterThan(0);
-  expect(freshInboxes.every((frame) => frame.delivery.recipient === agent.id)).toBe(true);
-  fresh.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0, room_addressed: true }));
-  expect(await fresh.next((frame) => frame.type === 'error')).toMatchObject({ type: 'error' });
-  fresh.ws.close();
-});
-// harn:end agent-authority-follows-one-active-invocation
+// Cross-worktree turns now authenticate directly in the target-owned
+// conversation. Origin-scoped invocation authority no longer exists.
 
 afterEach(async () => {
   await server.close();
@@ -3058,7 +2885,7 @@ describe('Phase 3 REST boundaries', () => {
     const agentResponse = await fetch(`${base}/api/rooms/eng/routing-targets`, {
       headers: { authorization: `Bearer ${session?.env?.CODOR_MEMBER_TOKEN}` },
     });
-    expect(agentResponse.status).toBe(403);
+    expect(agentResponse.status).toBe(200);
   });
   // harn:end qualified-completion-lists-registered-targets-only
 

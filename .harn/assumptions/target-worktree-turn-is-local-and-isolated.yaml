@@ -1,0 +1,17 @@
+id: target-worktree-turn-is-local-and-isolated
+hash: a-d5c4afbff15e
+title: A qualified worktree turn uses one target-local transcript and runtime
+state: active
+statement: >
+  Once destination selection commits a qualified message in its target
+  conversation, admission must use that conversation's member row, cwd, native
+  session/session_ref, credential, adapter cache, tasks, wait/usage state,
+  meter, FIFO, journal, and live fanout exactly like an ordinary local turn;
+  equal handles in root and children remain isolated and restart cannot move or
+  duplicate any accepted work.
+depends_on:
+  - target-worktree-owns-qualified-conversation
+  - child-members-own-isolated-runtime
+  - one-inflight-turn-per-member
+  - delivery-attempt-wal-reconcile
+created_by: worktree-orchestration-correctness-p1

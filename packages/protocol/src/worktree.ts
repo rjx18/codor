@@ -36,6 +36,21 @@ export type WorktreeSource = z.infer<typeof WorktreeSourceSchema>;
 export type WorktreeLifecycle = z.infer<typeof WorktreeLifecycleSchema>;
 export type WorktreeAvailability = z.infer<typeof WorktreeAvailabilitySchema>;
 
+/** A routing shorthand is derived from the branch. It is not a second name. */
+export function worktreeSelectorFromBranch(branch: string): string {
+  const leaf = branch.trim().split('/').filter(Boolean).at(-1) ?? '';
+  const normalized = leaf.toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[^a-z0-9]+/, '')
+    .slice(0, 48)
+    .replace(/[^a-z0-9]+$/, '');
+  if (normalized === '' || normalized === 'main') {
+    throw new Error('worktree branch does not produce a usable selector');
+  }
+  return WorktreeAliasSchema.parse(normalized);
+}
+
 // harn:assume qualified-member-target-identity-is-durable ref=qualified-member-target-protocol
 /**
  * A qualified route carries only stable Codor identities and bounded display
@@ -159,13 +174,14 @@ export const RepositoryRecordSchema = z.object({
 });
 export type RepositoryRecord = z.infer<typeof RepositoryRecordSchema>;
 
+// harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-protocol
 export const RegisteredWorktreeSchema = z.object({
   id: WorktreeIdSchema,
   repository_id: RepositoryIdSchema,
   room: RoomIdSchema,
-  // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-protocol
-  /** Main points at the existing room; a secondary points at its hidden child room. */
+  /** Main points at the existing room; a secondary uses a deterministic child room. */
   conversation_id: RoomIdSchema,
+  /** Derived routing selector retained on the wire; the branch is the visible name. */
   alias: WorktreeAliasSchema,
   path: WorktreePathSchema,
   git_admin_id: WorktreePathSchema,
@@ -182,7 +198,7 @@ export const RegisteredWorktreeSchema = z.object({
   removed_ts: TimestampSchema.optional(),
 });
 export type RegisteredWorktree = z.infer<typeof RegisteredWorktreeSchema>;
-// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end deterministic-branch-conversations-own-worktree-identity
 
 export const WorktreeDiscoveryCandidateSchema = z.object({
   path: WorktreePathSchema,
@@ -216,21 +232,23 @@ export type WorktreeRegisteredResponse = z.infer<typeof WorktreeRegisteredRespon
 
 export const WorktreeAdoptRequestSchema = z.object({
   path: WorktreePathSchema,
-  alias: z.string().trim().min(1).max(128).optional(),
-});
-export type WorktreeAdoptRequest = z.infer<typeof WorktreeAdoptRequestSchema>;
+  /** Ignored compatibility input until the Phase 2 UI stops sending it. */
+  alias: WorktreeAliasSchema.optional(),
+}).transform(({ alias: _alias, ...request }) => request);
+export type WorktreeAdoptRequest = z.input<typeof WorktreeAdoptRequestSchema>;
 
 export const WorktreeCreateRequestSchema = z.object({
-  alias: z.string().trim().min(1).max(128),
   branch: WorktreeBranchSchema,
   path: WorktreePathSchema,
+  /** Ignored compatibility input until the Phase 2 UI stops sending it. */
+  alias: WorktreeAliasSchema.optional(),
   // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-protocol
   /** Literal-only opt-in: the accepted ordered default roster seeds exactly the
    * brand-new child. Omission creates an agent-empty child exactly as before. */
   default_roster: z.literal(true).optional(),
   // harn:end worktree-child-default-roster-is-an-explicit-snapshot
-});
-export type WorktreeCreateRequest = z.infer<typeof WorktreeCreateRequestSchema>;
+}).transform(({ alias: _alias, ...request }) => request);
+export type WorktreeCreateRequest = z.input<typeof WorktreeCreateRequestSchema>;
 
 // harn:assume child-files-voice-and-keys-are-isolated ref=conversation-key-response
 /** A room key envelope is returned only when the caller has a paired browser device. */
@@ -248,16 +266,6 @@ export const WorktreeLifecycleResponseSchema = z.object({
 });
 export type WorktreeLifecycleResponse = z.infer<typeof WorktreeLifecycleResponseSchema>;
 // harn:end registered-worktree-identities-are-durable
-
-// harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-alias-protocol
-/** An alias edit is keyed by the stable WorktreeId in the route; the body
- * carries only the raw desired label, normalized server-side like adoption. */
-export const WorktreeAliasUpdateRequestSchema = z.object({
-  alias: z.string().trim().min(1).max(128),
-}).strict();
-export type WorktreeAliasUpdateRequest = z.infer<typeof WorktreeAliasUpdateRequestSchema>;
-export const WorktreeAliasUpdateResponseSchema = WorktreeLifecycleResponseSchema;
-// harn:end worktree-alias-and-child-metadata-follow-stable-identity
 
 // harn:assume worktree-discovery-never-registers-candidates ref=worktree-discovery-contract
 export const WorktreeDiscoveryResponseSchema = WorktreeListResponseSchema;

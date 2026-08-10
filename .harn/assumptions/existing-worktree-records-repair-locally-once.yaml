@@ -1,0 +1,17 @@
+id: existing-worktree-records-repair-locally-once
+hash: a-302696c93506
+title: Unshipped worktree records repair idempotently without touching Git
+state: active
+statement: >
+  Startup may perform one bounded local repair of existing secondary records
+  whose child RoomId or room name predates deterministic branch identity: it
+  must transactionally move every room-keyed database reference and the known
+  room-scoped journal/file directories to the deterministic id, keep stable
+  repository/worktree/member/message/run identities and ordering, preserve the
+  Git checkout path and branch byte-for-byte, fail closed on a conflicting
+  destination, and become a no-op on every later restart.
+depends_on:
+  - deterministic-branch-conversations-own-worktree-identity
+  - child-conversation-state-is-room-isolated
+  - child-files-voice-and-keys-are-isolated
+created_by: worktree-orchestration-correctness-p1

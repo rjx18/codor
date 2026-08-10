@@ -613,8 +613,13 @@ export class Daemon {
 
   constructor(options: DaemonOptions) {
     const serviceHome = options.homeDir ?? homedir();
+    const dataRoot = dirname(options.dbPath);
+    const attachmentsRoot = join(dataRoot, 'attachments');
+    const artifactsRoot = join(dataRoot, 'artifacts');
+    const artifactErrorsRoot = join(dataRoot, 'artifact-errors');
     this.store = new Store(options.dbPath, {
       codexHome: process.env.CODEX_HOME ?? join(serviceHome, '.codex'),
+      roomDataRoots: [options.blobRoot, attachmentsRoot, artifactsRoot, artifactErrorsRoot],
     });
     this.worktrees = new WorktreeManager(this.store);
     this.blobs = new BlobStore(options.blobRoot);
@@ -624,10 +629,10 @@ export class Daemon {
     this.pushProducer = options.pushProducer;
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = serviceHome;
-    this.socketPath = options.socketPath ?? localSocketPath(dirname(options.dbPath));
-    this.attachmentsRoot = join(dirname(options.dbPath), 'attachments');
-    this.artifactsRoot = join(dirname(options.dbPath), 'artifacts');
-    this.artifactErrorsRoot = join(dirname(options.dbPath), 'artifact-errors');
+    this.socketPath = options.socketPath ?? localSocketPath(dataRoot);
+    this.attachmentsRoot = attachmentsRoot;
+    this.artifactsRoot = artifactsRoot;
+    this.artifactErrorsRoot = artifactErrorsRoot;
     this.sweepOrphanAttachments(); // boot-time: drop uploads no message ever claimed
     this.cleanupArtifactStore(); // boot-time: drop temp + orphan (sidecar-less) artifact blobs
     this.ledger?.setRoomValidator((room) => this.store.getRoom(room) !== undefined);
@@ -1676,6 +1681,24 @@ export class Daemon {
     },
   ): Member {
     const cwd = normalizeWorkingDirectory(opts.cwd, this.homeDir);
+    // harn:assume repeated-child-agent-add-is-idempotent ref=idempotent-child-agent-creation
+    const existing = this.store.listMembers(room)
+      .find((member) => member.handle === opts.handle && member.removed_ts === undefined);
+    if (existing !== undefined) {
+      const compatible = existing.kind === 'agent'
+        && opts.acp_launch === undefined
+        && existing.harness === opts.harness
+        && existing.cwd === cwd
+        && existing.policy === opts.policy
+        && existing.model === opts.model
+        && existing.thinking === opts.thinking
+        && existing.display_name === (opts.display_name ?? opts.handle)
+        && existing.purpose === opts.purpose
+        && existing.acp_provider === opts.acp_provider;
+      if (compatible) return existing;
+      throw new Error(`agent @${opts.handle} already exists in channel ${room} with different configuration`);
+    }
+    // harn:end repeated-child-agent-add-is-idempotent
     const adapter = this.requireNewAgentAdapter(opts.harness);
     // harn:assume named-acp-provider-selection-resolves-to-private-structured-launch ref=acp-provider-spawn-resolution
     // Resolve a named provider id to its private launch (rechecking detection) before
@@ -2731,18 +2754,49 @@ export class Daemon {
     const parsed = parseBody(body, this.store.listMembers(executionRoom), {
       qualifiedTargets: routingState.catalog,
     });
-    // harn:assume invalid-qualified-targets-never-fallback ref=qualified-post-error-boundary
+    // harn:assume qualified-destination-refusals-are-atomic ref=qualified-destination-refusal
     if ((parsed.qualified_issues?.length ?? 0) > 0) {
       throw new Error(
         `qualified target refused: ${parsed.qualified_issues!.map((issue) => issue.token).join(', ')}`,
       );
     }
-    // harn:end invalid-qualified-targets-never-fallback
+    const destinations = new Set<string>();
+    for (const mention of parsed.mentions) {
+      destinations.add(mention.target?.conversation_id ?? room);
+    }
+    if (destinations.size > 1) {
+      throw new Error('qualified target refused: one message cannot target multiple worktree conversations');
+    }
+    const destination = destinations.values().next().value as string | undefined ?? room;
+    if (destination !== room && replyTo !== undefined) {
+      throw new Error('qualified target refused: cross-worktree replies must be posted from the target conversation');
+    }
+    if (destination !== room && ((attachments?.length ?? 0) > 0 || voice !== undefined)) {
+      throw new Error('qualified target refused: attachments and voice must be posted from the target conversation');
+    }
+    // harn:end qualified-destination-refusals-are-atomic
+    // harn:assume target-worktree-owns-qualified-conversation ref=qualified-destination-selection
+    let authorTarget = routing?.authorTarget;
+    if (destination !== room && authorTarget === undefined) {
+      const author = this.store.getMember(executionRoom, authorId);
+      const source = routingState.catalog.targets.find((target) =>
+        target.conversation_id === executionRoom
+        && target.members.some((member) => member.member_id === authorId));
+      if (author?.kind === 'agent' && source !== undefined) {
+        authorTarget = {
+          worktree_id: source.worktree_id,
+          conversation_id: source.conversation_id,
+          member_id: author.id,
+          alias: source.alias,
+          handle: author.handle,
+        };
+      }
+    }
     // harn:assume eligible-multi-agent-routing-starts-one-group ref=multi-agent-group-ingress
-    const committed = this.store.commitRoutedMessage(room, {
+    const committed = this.store.commitRoutedMessage(destination, {
       message: {
         author: authorId,
-        author_target: routing?.authorTarget,
+        author_target: authorTarget,
         kind: 'chat',
         body,
         mentions: parsed.mentions,
@@ -2753,7 +2807,7 @@ export class Daemon {
         ...(voice !== undefined && { voice }),
       },
       plan: (message) => this.planRoutedMessage(
-        room,
+        destination,
         message,
         undefined,
         undefined,
@@ -2762,9 +2816,10 @@ export class Daemon {
         executionRoom,
       ).plan,
     });
-    this.emitMessage(room, committed.message);
-    if (committed.member) this.emitMember(room, committed.member);
-    this.dispatchCreatedDeliveries(room, committed.deliveries);
+    this.emitMessage(destination, committed.message);
+    if (committed.member) this.emitMember(destination, committed.member);
+    this.dispatchCreatedDeliveries(destination, committed.deliveries);
+    // harn:end target-worktree-owns-qualified-conversation
     return committed.message;
   }
 
@@ -2781,7 +2836,7 @@ export class Daemon {
     );
   }
 
-  // harn:assume agent-network-authority-is-narrow ref=agent-interim-post-ingress
+  // harn:assume target-worktree-turn-is-local-and-isolated ref=qualified-local-turn-orchestration
   postAgentMessage(
     room: string,
     memberId: string,
@@ -2824,7 +2879,7 @@ export class Daemon {
         : undefined,
     );
   }
-  // harn:end agent-network-authority-is-narrow
+  // harn:end target-worktree-turn-is-local-and-isolated
 
   // harn:assume live-agent-waits-are-transient ref=transient-wait-registry
   // harn:assume answered-approval-tools-can-register-live-waits ref=approved-tool-wait-eligibility
@@ -3407,10 +3462,14 @@ export class Daemon {
       qualifiedTargets: routingState.catalog,
       qualifiedMembers: routingState.members,
     });
-    const agentTargets: RoutedRecipient[] = result.agentTargets
-      ?? result.agents.map((member) => ({ member }));
-    const humanTargets: RoutedRecipient[] = result.humanTargets
-      ?? result.humans.map((member) => ({ member }));
+    const localize = ({ member, target }: RoutedRecipient): RoutedRecipient => ({
+      member,
+      ...(target !== undefined && target.conversation_id !== room ? { target } : {}),
+    });
+    const agentTargets: RoutedRecipient[] = (result.agentTargets
+      ?? result.agents.map((member) => ({ member }))).map(localize);
+    const humanTargets: RoutedRecipient[] = (result.humanTargets
+      ?? result.humans.map((member) => ({ member }))).map(localize);
     const recipients = [...agentTargets, ...humanTargets];
     const fanout: FanoutDelivery[] = [
       ...humanTargets.map(({ member, target }) => ({
@@ -3421,12 +3480,7 @@ export class Daemon {
       ...agentTargets.map(({ member, target }) => ({
         recipient: member.id,
         state: 'queued' as const,
-        ...(target !== undefined
-          ? { target }
-          : (() => {
-              const scoped = this.targetForMember(room, executionRoom, member);
-              return scoped === undefined ? {} : { target: scoped };
-            })()),
+        ...(target !== undefined && { target }),
         payload_snapshot: this.snapshotPayload(
           room,
           message,
@@ -3439,9 +3493,9 @@ export class Daemon {
         hop_count: agentHop ?? (author?.kind === 'agent' ? 1 : 0),
       })),
     ];
-    // harn:assume invalid-qualified-targets-never-fallback ref=qualified-routing-refusal
+    // harn:assume qualified-destination-refusals-are-atomic ref=qualified-destination-refusal
     if (result.qualified_refusal !== undefined) return { result, fanout: [] };
-    // harn:end invalid-qualified-targets-never-fallback
+    // harn:end qualified-destination-refusals-are-atomic
     return { result, fanout };
   }
 
@@ -3685,6 +3739,22 @@ export class Daemon {
   async maybeStartTurn(room: string, memberId: string): Promise<void> {
     let queued = this.store.listDeliveriesForTarget(room, memberId, { state: 'queued' })
       .filter((delivery) => !this.steeringDeliveries.has(delivery.id));
+    const root = this.store.rootRoomId(room);
+    const childWorktree = root === undefined
+      ? undefined
+      : this.store.getWorktreeByConversation(root, room);
+    if (
+      childWorktree !== undefined
+      && (
+        childWorktree.lifecycle !== 'active'
+        || (childWorktree.availability !== 'available' && childWorktree.availability !== 'locked')
+      )
+    ) {
+      for (const delivery of queued) {
+        this.refuseQualifiedDelivery(delivery.room, delivery, 'target worktree is unavailable');
+      }
+      return;
+    }
     // Refuse every stale scoped row first: each validates against its own origin, never itself.
     const invalid = queued.filter((delivery) =>
       delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, delivery.room));
@@ -3734,6 +3804,7 @@ export class Daemon {
     member: Member,
     batch: Delivery[],
     reuseRunMsg?: Message,
+    resumeHeldRun = false,
   ): Promise<void> {
     // harn:assume turns-reuse-one-root-and-append-output-messages ref=run-message-lifecycle
     // Exactly one lifecycle root owns the turn, its input custody, and journal.
@@ -3751,6 +3822,7 @@ export class Daemon {
       model: member.model,
       eventsRef: (messageId) => this.blobs.ref(messageId),
       reuseRunMsgId: reuseRunMsg?.id,
+      ...(resumeHeldRun && { resumeHeldRun: true }),
     });
     // harn:assume only-an-admissible-delivery-becomes-delivering ref=turn-start-with-nothing-admissible
     // Everything in the batch was consumed between selection and admission — the member
@@ -5342,6 +5414,21 @@ export class Daemon {
     targetRoom = room,
   ): void {
     for (const delivery of group) this.store.updateDelivery(room, delivery.id, { state: 'held' });
+    // harn:assume held-recovery-runs-are-inactive-until-release ref=held-run-inactive-transition
+    const run = this.store.getMessage(room, runMsgId);
+    if (run?.kind === 'run' && run.run?.status === 'running') {
+      this.runActivity.delete(`${room}:${runMsgId}`);
+      this.emitMessage(room, this.store.updateMessage(room, runMsgId, {
+        run: {
+          ...run.run,
+          status: 'interrupted',
+          ended_ts: new Date().toISOString(),
+          stalled_since: undefined,
+          error: detail === undefined ? 'held after an ambiguous crash' : `held after an ambiguous crash: ${detail}`,
+        },
+      }));
+    }
+    // harn:end held-recovery-runs-are-inactive-until-release
     this.postSystemMessage(
       room,
       `delivery to @${member.handle} held after an ambiguous crash (turn #${runMsgId}${
@@ -5372,6 +5459,7 @@ export class Daemon {
     runMsg: Message,
     orphanAfter: boolean,
     targetRoom = room,
+    resumeHeldRun = false,
   ): RetryTurnRefusal | undefined {
     const stale = group.filter((delivery) =>
       delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room));
@@ -5398,7 +5486,7 @@ export class Daemon {
       return { reason: 'delivery batch was held by current room brakes', alreadyHeld: true };
     }
     this.inflight.add(eligible.member.id);
-    const turn = this.runTurn(room, targetRoom, eligible.member, runnable, runMsg)
+    const turn = this.runTurn(room, targetRoom, eligible.member, runnable, runMsg, resumeHeldRun)
       .finally(() => this.inflight.delete(eligible.member!.id))
       .then(() => {
         if (orphanAfter) this.orphanLeftoverInteractions(room, eligible.member!.id);
@@ -5542,12 +5630,12 @@ export class Daemon {
     if (delivery.run_msg_id !== undefined) {
       const runMsg = this.store.getMessage(room, delivery.run_msg_id);
       const member = this.store.getMember(targetRoom, delivery.recipient);
-      if (runMsg?.run?.status === 'running' && member?.kind === 'agent') {
+      if (runMsg?.run?.status === 'interrupted' && member?.kind === 'agent') {
         const group = this.store
           .listDeliveries(room, { recipient: member.id, state: 'held' })
           .filter((candidate) => candidate.run_msg_id === runMsg.id);
         for (const candidate of group) this.releasedDeliveries.add(candidate.id);
-        const refusal = this.retryTurn(room, member, group, runMsg, false, targetRoom);
+        const refusal = this.retryTurn(room, member, group, runMsg, false, targetRoom, true);
         if (refusal) {
           for (const candidate of group) this.releasedDeliveries.delete(candidate.id);
           throw new Error(`delivery ${deliveryId} cannot be released: ${refusal.reason}`);
@@ -5849,14 +5937,6 @@ export class Daemon {
   /** The background group projection: store-only, never a Git invocation. */
   registeredWorktrees(room: string): ReturnType<WorktreeManager['registered']> {
     return this.worktrees.registered(room);
-  }
-
-  updateWorktreeAlias(
-    room: string,
-    worktreeId: string,
-    alias: string,
-  ): ReturnType<WorktreeManager['updateAlias']> {
-    return this.worktrees.updateAlias(room, worktreeId, alias);
   }
 
   adoptWorktree(

@@ -927,3 +927,5 @@ verification: >
   available; deterministic restart/local-repair fixtures with unchanged Git
   worktree inventories; and git diff --check. Record exact counts and leave one
   clean implementation commit.
+applied:
+  applied_at: 2026-08-10T16:39:47.419Z

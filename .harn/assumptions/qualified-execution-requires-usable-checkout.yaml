@@ -1,7 +1,7 @@
 id: qualified-execution-requires-usable-checkout
 hash: a-74cab09035ab
 title: Qualified execution requires one usable registered checkout
-state: active
+state: retired
 statement: A persisted qualified delivery may start, recover, retry, or
   redeliver only while its stable repository, worktree, conversation, and member
   identities still match an active registration whose last reconciled
@@ -15,3 +15,4 @@ depends_on:
   - registered-worktree-identities-are-durable
   - delivery-attempt-wal-reconcile
 created_by: native-worktrees-phase5-integration-hardening
+retired_by: worktree-orchestration-correctness-p1

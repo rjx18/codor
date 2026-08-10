@@ -1,0 +1,19 @@
+id: structured-worktree-cli-targets-branches-and-child-rooms
+hash: a-b68a5dcb8ad0
+title: Structured management resolves a branch to its actual child room
+state: active
+statement: >
+  The worktree CLI must create/adopt without a separate alias, select a
+  registered child by exact branch or its deterministic shorthand, and let agent
+  management accept --channel <root> --worktree <branch-or-shorthand> so every
+  lifecycle request is sent to the actual child RoomId. It must preserve literal
+  paths/branches, correlated safe output, direct and hosted transport, and
+  destructive confirmations while never requiring an opaque wt id or printing
+  raw database, credential, native-session, or Git-admin details.
+depends_on:
+  - deterministic-branch-conversations-own-worktree-identity
+  - agent-orchestration-is-repository-scoped
+  - agent-management-correlates-safe-member-results
+  - management-output-is-json-pure-and-safe
+  - management-failures-have-stable-redacted-exits
+created_by: worktree-orchestration-correctness-p1

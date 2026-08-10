@@ -2298,7 +2298,7 @@ const fixtureGit = (cwd: string, args: readonly string[]): string => execFileSyn
   { encoding: 'utf8' },
 );
 describe('Phase 4 worktree and qualified wait CLI', () => {
-  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-command-surface
+  // harn:assume structured-worktree-cli-targets-branches-and-child-rooms ref=branch-worktree-command-surface
   it('registers only the singular worktree list/add/remove family', async () => {
     const program = createProgram();
     const structuredWorktrees = program.commands.find((command) => command.name() === 'worktree');
@@ -2320,7 +2320,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     })).rejects.toMatchObject({ exitCode: 2 });
   });
 
-  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-cli-regression
+  // harn:assume structured-worktree-cli-targets-branches-and-child-rooms ref=branch-worktree-cli-regression
   it('manages disposable Git worktrees through the authenticated REST lifecycle', async () => {
     const fixture = join(dir, 'worktree CLI fixture with spaces');
     const primary = join(fixture, 'primary checkout');
@@ -2370,29 +2370,29 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     expect(JSON.stringify(list)).not.toContain('common_path');
 
     const adoptedResult = await invoke(
-      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', adopted, '--alias', 'adopted-child', '--cwd', primary, '--json',
+      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', adopted, '--cwd', primary, '--json',
     );
     expect(adoptedResult.error).toBeUndefined();
     expect(JSON.parse(adoptedResult.stdout[0]!)).toMatchObject({
-      alias: 'adopted-child', source: 'adopted', branch: 'feature/adopted',
+      alias: 'adopted', source: 'adopted', branch: 'feature/adopted',
     });
 
     const createdResult = await invoke(
       'worktree', 'add', '--channel', 'eng', '--create', '--path', created,
-      '--alias', 'created-child', '--branch', 'feature/created', '--cwd', primary, '--json',
+      '--branch', 'feature/created', '--cwd', primary, '--json',
     );
     expect(createdResult.error).toBeUndefined();
     expect(JSON.parse(createdResult.stdout[0]!)).toMatchObject({
-      alias: 'created-child', source: 'created', branch: 'feature/created',
+      alias: 'created', source: 'created', branch: 'feature/created',
     });
 
     const dirtyAdopted = await invoke(
-      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', dirty, '--alias', 'dirty-child', '--cwd', primary, '--json',
+      'worktree', 'add', '--channel', 'eng', '--adopt', '--path', dirty, '--cwd', primary, '--json',
     );
     expect(dirtyAdopted.error).toBeUndefined();
 
     const unregistered = await invoke(
-      'worktree', 'remove', 'adopted-child', '--channel', 'eng', '--yes', '--json',
+      'worktree', 'remove', 'feature/adopted', '--channel', 'eng', '--yes', '--json',
     );
     expect(unregistered.error).toBeUndefined();
     expect(existsSync(adopted)).toBe(true);
@@ -2400,14 +2400,14 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
 
     writeFileSync(join(dirty, 'uncommitted.txt'), 'dirty\n');
     const dirtyRemoval = await invoke(
-      'worktree', 'remove', 'dirty-child', '--channel', 'eng', '--filesystem', '--yes', '--json',
+      'worktree', 'remove', 'dirty', '--channel', 'eng', '--filesystem', '--yes', '--json',
     );
     expect(dirtyRemoval.error).toMatchObject({ exitCode: 6 });
     expect(dirtyRemoval.stdout).toEqual([]);
     expect(existsSync(dirty)).toBe(true);
 
     const removed = await invoke(
-      'worktree', 'remove', 'created-child', '--channel', 'eng', '--filesystem', '--yes', '--json',
+      'worktree', 'remove', 'created', '--channel', 'eng', '--filesystem', '--yes', '--json',
     );
     expect(removed.error).toBeUndefined();
     expect(existsSync(created)).toBe(false);
@@ -2425,7 +2425,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
       () => undefined,
       (error: unknown) => error,
     );
-    expect(agentAttempt).toMatchObject({ exitCode: 4 });
+    expect(agentAttempt).toBeUndefined();
   });
 
   it('uses the fresh preview identity for consent and refuses mismatched preview ids', async () => {
@@ -2459,7 +2459,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
       const stdout: string[] = [];
       await runCli([
         'node', 'codor', '--data-dir', dir, '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
-        'worktree', 'remove', fixture.selected.id, '--channel', 'eng', '--filesystem',
+        'worktree', 'remove', fixture.selected.branch, '--channel', 'eng', '--filesystem',
       ], {
         stdout: (line) => stdout.push(line),
         stderr: (line) => prompt.push(line),
@@ -2482,7 +2482,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
       prompt.length = 0;
       await expect(runCli([
         'node', 'codor', '--data-dir', dir, '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
-        'worktree', 'remove', fixture.selected.id, '--channel', 'eng', '--filesystem',
+        'worktree', 'remove', fixture.selected.branch, '--channel', 'eng', '--filesystem',
       ], {
         stdout: () => undefined,
         stderr: (line) => prompt.push(line),
@@ -2513,7 +2513,7 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
         ...(authorization !== undefined && { authorization }),
         ...(typeof init?.body === 'string' && { body: JSON.parse(init.body) as unknown }),
       });
-      if (token !== 'operator-token' && token !== 'explicit-token') {
+      if (token !== 'operator-token' && token !== 'explicit-token' && token !== 'agent-token') {
         return new Response(JSON.stringify({ error: 'forbidden: worktree lifecycle is restricted to owners and admins' }), { status: 403 });
       }
       if (init?.method === 'POST') {
@@ -2543,12 +2543,12 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
       await invoke([
         '--url', 'http://127.0.0.1:8137', '--token', 'explicit-token',
         'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/new',
-        '--alias', 'new-child', '--branch', 'feature/new', '--default-roster', '--json',
+        '--branch', 'feature/new', '--default-roster', '--json',
       ], {});
       expect(requests.at(-1)).toMatchObject({
         method: 'POST',
         authorization: 'Bearer explicit-token',
-        body: { path: '/repo/new', alias: 'new-child', branch: 'feature/new', default_roster: true },
+        body: { path: '/repo/new', branch: 'feature/new', default_roster: true },
       });
 
       const beforeRemote = requests.length;
@@ -2561,24 +2561,26 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
         const refusal = await invoke([
           '--url', 'http://127.0.0.1:8137', '--token', token,
           'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/refused',
-          '--alias', 'refused-child', '--branch', 'feature/refused', '--json',
+          '--branch', 'feature/refused', '--json',
         ], {});
         expect(refusal).toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authorization });
       }
-      for (const args of [
-        ['worktree', 'list', '--channel', 'eng', '--json'],
-        ['worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/agent-refused', '--alias', 'agent-refused', '--branch', 'feature/agent-refused', '--json'],
-      ]) {
-        const refusal = await invoke(['--url', 'http://127.0.0.1:8137', '--token', 'agent-token', ...args], {});
-        expect(refusal).toMatchObject({ exitCode: MANAGEMENT_EXIT_CODES.authorization });
-      }
-      expect(successfulMutations).toBe(successfulPosts);
+      expect(await invoke([
+        '--url', 'http://127.0.0.1:8137', '--token', 'agent-token',
+        'worktree', 'list', '--channel', 'eng', '--json',
+      ], {})).toBeUndefined();
+      expect(await invoke([
+        '--url', 'http://127.0.0.1:8137', '--token', 'agent-token',
+        'worktree', 'add', '--channel', 'eng', '--create', '--path', '/repo/agent-created',
+        '--branch', 'feature/agent-created', '--json',
+      ], {})).toBeUndefined();
+      expect(successfulMutations).toBe(successfulPosts + 1);
     } finally {
       fetch.mockRestore();
     }
   });
 
-  // harn:assume qualified-cli-wait-preserves-scoped-peer-identity ref=qualified-post-wait-regression
+  // harn:assume qualified-cli-wait-follows-target-owned-conversation ref=qualified-target-post-wait-regression
   it('post --wait keeps an authoritative foreign peer with an equal local handle', async () => {
     const fixture = join(dir, 'qualified wait fixture');
     const primary = join(fixture, 'primary');
@@ -2592,29 +2594,39 @@ describe('Phase 4 worktree and qualified wait CLI', () => {
     fixtureGit(primary, ['commit', '-qm', 'fixture']);
     fixtureGit(primary, ['worktree', 'add', '-b', 'feature/qualified-wait', child, 'HEAD']);
     daemon.store.updateRoomConfig('eng', { cwd: primary });
-    const target = await daemon.adoptWorktree('eng', { path: child, alias: 'foreign' });
+    const target = await daemon.adoptWorktree('eng', { path: child });
     const origin = credentialedAgent('same-handle');
     const foreign = daemon.spawnMember(target.worktree.conversation_id, {
       harness: 'fake',
       handle: 'same-handle',
       cwd: child,
     });
-    fake.enqueue(
-      { kind: 'complete', final_text: 'origin is still working', delay_ms: 300 },
-      { kind: 'complete', final_text: 'foreign setup remains active', delay_ms: 1_000 },
-    );
-    daemon.postHumanMessage('eng', '@same-handle ~foreign:@same-handle establish the scoped group');
-    await until(() => daemon.store.getMember('eng', origin.member.id)?.state === 'running' ? true : undefined);
-    setTimeout(() => {
-      daemon.postAgentMessage('eng', foreign.id, '~main:@same-handle foreign answer');
-    }, 60);
+    fake.enqueue({ kind: 'complete', final_text: 'origin setup remains active', delay_ms: 2_000 });
+    daemon.postHumanMessage('eng', '@same-handle establish the local wait context');
+    await until(() => daemon.store.getMember('eng', origin.member.id)?.state === 'running'
+      ? true
+      : undefined);
+    fake.enqueue({ kind: 'complete', final_text: 'foreign setup remains active', delay_ms: 300 });
+    daemon.postHumanMessage('eng', '~qualified-wait:@same-handle establish the scoped group');
+    await until(() => daemon.store.getMember(target.worktree.conversation_id, foreign.id)?.state === 'running'
+      ? true
+      : undefined);
+    void (async () => {
+      await until(() => daemon.store.listMessages(target.worktree.conversation_id, { limit: 20 })
+        .some((message) => message.body === '~qualified-wait:@same-handle scoped question')
+        ? true
+        : undefined);
+      daemon.postAgentMessage(target.worktree.conversation_id, foreign.id, '~main:@same-handle foreign answer');
+    })();
 
     output = [];
-    await memberCli(origin.env, 'post', '--wait', '--timeout', '1', '~foreign:@same-handle scoped question');
+    await memberCli(origin.env, 'post', '--wait', '--timeout', '1', '~qualified-wait:@same-handle scoped question');
     expect(output.at(-1)).toBe('~main:@same-handle foreign answer');
-    const posted = daemon.store.listMessages('eng', { limit: 20 }).find((message) =>
-      message.body === '~foreign:@same-handle scoped question');
+    const posted = daemon.store.listMessages(target.worktree.conversation_id, { limit: 20 }).find((message) =>
+      message.body === '~qualified-wait:@same-handle scoped question');
     expect(posted?.mentions.map((mention) => mention.member_id)).toContain(foreign.id);
+    expect(daemon.store.listMessages('eng', { limit: 20 }).some((message) =>
+      message.body === '~qualified-wait:@same-handle scoped question')).toBe(false);
     expect(daemon.store.listDeliveries('eng', { recipient: origin.member.id })
       .some((delivery) => delivery.state === 'consumed')).toBe(true);
     await daemon.settle();
@@ -2636,7 +2648,7 @@ const restWorktreeFixture = () => {
     repository_id: repository.id,
     room: 'eng',
     conversation_id: 'eng',
-    alias: 'stale-child',
+    alias: 'child',
     path: '/repo/stale-child',
     git_admin_id: '/repo/main/.git/worktrees/child',
     primary: false,
@@ -2652,7 +2664,7 @@ const restWorktreeFixture = () => {
   return {
     repository,
     selected,
-    fresh: { ...selected, alias: 'fresh-child', path: '/repo/fresh-child' },
+    fresh: { ...selected, path: '/repo/fresh-child' },
     list: { repository, registered: [selected], discovered: [] },
   };
 };

@@ -10,6 +10,7 @@ import {
   WorktreeListResponseSchema,
   WorktreeRoomKeySchema,
   WorktreeRoutingCatalogSchema,
+  worktreeSelectorFromBranch,
 } from './worktree.js';
 
 const repository = {
@@ -42,7 +43,7 @@ const worktree = {
 };
 
 // harn:assume registered-worktree-identities-are-durable ref=worktree-protocol-regression
-// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-protocol-regression
+// harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-regression
 describe('native worktree protocol', () => {
   it('accepts bounded durable repository and worktree records', () => {
     expect(RepositoryRecordSchema.parse(repository)).toEqual(repository);
@@ -61,11 +62,11 @@ describe('native worktree protocol', () => {
       .toEqual({ repository, worktree, room_key: roomKey });
   });
 
-  it('rejects relative paths, main aliases, malformed ids, and invalid lifecycle values', () => {
+  it('ignores legacy aliases as lifecycle input and rejects malformed ids and values', () => {
     expect(WorktreeAdoptRequestSchema.safeParse({ path: 'relative/repo' }).success).toBe(false);
-    expect(WorktreeCreateRequestSchema.safeParse({
-      alias: '', branch: 'feature', path: '/tmp/target',
-    }).success).toBe(false);
+    expect(WorktreeCreateRequestSchema.parse({
+      alias: 'legacy', branch: 'feature', path: '/tmp/target',
+    })).toEqual({ branch: 'feature', path: '/tmp/target' });
     expect(RegisteredWorktreeSchema.safeParse({ ...worktree, alias: '--not-safe' }).success).toBe(false);
     expect(RegisteredWorktreeSchema.safeParse({ ...worktree, id: 'not-an-ulid' }).success).toBe(false);
     expect(RegisteredWorktreeSchema.safeParse({ ...worktree, alias: 'Main' }).success).toBe(false);
@@ -102,12 +103,10 @@ describe('native worktree protocol', () => {
     expect(WorktreeDiscoveryResponseSchema.parse(response).registered).toHaveLength(1);
   });
 });
-// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end deterministic-branch-conversations-own-worktree-identity
 // harn:end registered-worktree-identities-are-durable
 
 import {
-  WorktreeAliasUpdateRequestSchema,
-  WorktreeAliasUpdateResponseSchema,
   WorktreeRegisteredResponseSchema,
   WorktreeRemovalPreviewResponseSchema,
 } from './worktree.js';
@@ -132,7 +131,7 @@ describe('worktree lifecycle projection protocol', () => {
   });
 
   it('accepts only the literal default-roster opt-in on worktree creation', () => {
-    const base = { alias: 'review-b', branch: 'feature/review-b', path: '/tmp/target' };
+    const base = { branch: 'feature/review-b', path: '/tmp/target' };
     expect(WorktreeCreateRequestSchema.parse(base)).not.toHaveProperty('default_roster');
     expect(WorktreeCreateRequestSchema.parse({ ...base, default_roster: true }).default_roster)
       .toBe(true);
@@ -142,17 +141,11 @@ describe('worktree lifecycle projection protocol', () => {
     }
   });
 
-  it('bounds alias updates to a raw label keyed by the stable route id', () => {
-    expect(WorktreeAliasUpdateRequestSchema.parse({ alias: ' Review Two ' })).toEqual({
-      alias: 'Review Two',
-    });
-    expect(WorktreeAliasUpdateRequestSchema.safeParse({ alias: '' }).success).toBe(false);
-    expect(WorktreeAliasUpdateRequestSchema.safeParse({ alias: 'x'.repeat(129) }).success)
-      .toBe(false);
-    expect(WorktreeAliasUpdateRequestSchema.safeParse({ alias: 'ok', path: '/etc/passwd' }).success)
-      .toBe(false);
-    expect(WorktreeAliasUpdateResponseSchema.parse({ repository, worktree }))
-      .toEqual({ repository, worktree });
+  it('derives one bounded routing selector from the branch', () => {
+    expect(worktreeSelectorFromBranch('feature/Review Two')).toBe('review-two');
+    expect(() => worktreeSelectorFromBranch('main')).toThrow(/usable selector/);
+    expect(WorktreeAdoptRequestSchema.parse({ path: '/tmp/target', alias: 'extra' }))
+      .toEqual({ path: '/tmp/target' });
   });
 
   it('validates removal previews as fresh truthful states with branch preservation', () => {

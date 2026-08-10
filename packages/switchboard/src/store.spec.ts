@@ -70,7 +70,7 @@ describe('registered worktree store lifecycle', () => {
       'child-label',
       'adopted',
     );
-    expect(first.worktree.alias).toBe('child-label');
+    expect(first.worktree.alias).toBe('child');
     expect(first.worktree.conversation_id).toMatch(/^wt-[a-z0-9-]+$/);
     expect(first.worktree.conversation_id).not.toBe('eng');
     expect(store.listRegisteredWorktrees('eng').find((item) => item.primary)?.conversation_id)
@@ -180,7 +180,7 @@ describe('worktree conversation migration and identity', () => {
     expect(store.getMessage('eng', rootMessage.id)).toEqual(rootMessage);
     expect(store.currentSeq('eng')).toBe(rootSeq);
     const migrated = store.getWorktree('eng', registered.worktree.id)!;
-    expect(migrated.conversation_id).toBe(`wt-${registered.worktree.id.toLowerCase()}`);
+    expect(migrated.conversation_id).toBe(registered.worktree.conversation_id);
     expect(store.getRoom(migrated.conversation_id)).toBeDefined();
     expect(store.listMembers(migrated.conversation_id).map((member) => member.id))
       .toEqual(store.listMembers('eng').map((member) => member.id));
@@ -316,7 +316,7 @@ describe('qualified routing store projection', () => {
     expect(JSON.stringify(first)).not.toMatch(/path|branch|git_admin/i);
 
     const refreshed = store.refreshWorktreeObservation('eng', registered.worktree.id, {
-      ...secondary, path: join(dir, 'moved-child'), branch: 'feature/moved-child',
+      ...secondary, path: join(dir, 'moved-child'),
     });
     expect(refreshed.id).toBe(registered.worktree.id);
     expect(store.routingCatalog('eng').targets.find((candidate) => candidate.alias === 'child')?.worktree_id)
@@ -3848,6 +3848,7 @@ const childObs = (name: string, over: Partial<WorktreeObservation> = {}): Worktr
   primary: false,
   availability: 'available',
   locked: false,
+  branch: `feature/${name}`,
   ...over,
 });
 
@@ -3870,7 +3871,7 @@ describe('worktree child metadata follows stable identity', () => {
     const rootBefore = store.getRoom('eng')!;
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
     const child = store.getRoom(worktree.conversation_id)!;
-    expect(child.name).toBe('Engineering · child-label');
+    expect(child.name).toBe('feature/child');
     expect(child.config.cwd).toBe(join(dir, 'child'));
     expect(child.config.starting_agent_handle).toBeUndefined();
     expect(store.getRoom('eng')).toEqual(rootBefore);
@@ -3948,31 +3949,19 @@ describe('worktree child metadata follows stable identity', () => {
       .toMatchObject({ id: alpha.id, lifecycle: 'unregistered' });
   });
 
-  it('updates an active secondary alias without moving any stable identity', () => {
+  it('derives immutable routing identity from the branch', () => {
     openRoom(store);
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
-    store.registerWorktree('eng', repoObs(), mainObs(), childObs('other'), 'other-label', 'created');
-    const renamed = store.updateWorktreeAlias('eng', worktree.id, 'renamed-label', '2026-08-06T00:05:00.000Z');
-    expect(renamed).toMatchObject({
-      id: worktree.id,
-      conversation_id: worktree.conversation_id,
-      path: worktree.path,
-      git_admin_id: worktree.git_admin_id,
-      alias: 'renamed-label',
-    });
-    expect(store.getRoom(worktree.conversation_id)?.name).toBe('Engineering · renamed-label');
-    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'other-label')).toThrow(/already in use/);
-    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'main')).toThrow(/reserved/);
-    const mainRow = store.listRegisteredWorktrees('eng').find((entry) => entry.primary)!;
-    expect(() => store.updateWorktreeAlias('eng', mainRow.id, 'not-main')).toThrow(/active secondary/);
-    store.unregisterWorktree('eng', worktree.id, '2026-08-06T00:05:30.000Z');
-    expect(() => store.updateWorktreeAlias('eng', worktree.id, 'again')).toThrow(/active secondary/);
+    expect(worktree.alias).toBe('child');
+    expect(store.getRoom(worktree.conversation_id)?.name).toBe('feature/child');
     store.close();
     store = new Store(join(dir, 'test.sqlite'));
-    expect(store.getWorktree('eng', worktree.id)?.alias).toBe('renamed-label');
+    expect(store.getWorktree('eng', worktree.id)).toMatchObject({
+      alias: 'child', branch: 'feature/child', conversation_id: worktree.conversation_id,
+    });
   });
 
-  it('preserves child-local configuration through reopen, alias edit, tombstone, and re-adoption', () => {
+  it('preserves child-local configuration through reopen, tombstone, and re-adoption', () => {
     openRoom(store);
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
     const child = worktree.conversation_id;
@@ -4002,11 +3991,6 @@ describe('worktree child metadata follows stable identity', () => {
     store = new Store(join(dir, 'test.sqlite'));
     expect(store.getRoom(child)!.config).toEqual(localConfig);
 
-    // Alias edit: only the display name follows; config is byte-identical.
-    store.updateWorktreeAlias('eng', worktree.id, 'renamed');
-    expect(store.getRoom(child)!.name).toBe('Engineering · renamed');
-    expect(store.getRoom(child)!.config).toEqual(localConfig);
-
     // Tombstone reopen: inactive mapped children keep their room-local state.
     store.unregisterWorktree('eng', worktree.id, '2026-08-06T01:00:00.000Z');
     store.close();
@@ -4019,26 +4003,24 @@ describe('worktree child metadata follows stable identity', () => {
       repoObs(),
       mainObs(),
       { ...childObs('child'), path: join(dir, 'moved-child') },
-      'renamed',
+      'ignored-legacy-selector',
       'adopted',
       '2026-08-06T01:01:00.000Z',
     );
     const readopted = store.getRoom(child)!;
     expect(readopted.config).toEqual({ ...localConfig, cwd: join(dir, 'moved-child') });
-    expect(readopted.name).toBe('Engineering · renamed');
+    expect(readopted.name).toBe('feature/child');
 
     // The root never moved.
     expect(JSON.stringify(store.getRoom('eng'))).toBe(rootBefore);
   });
 
-  it('appends a child change only when an alias update visibly differs', () => {
+  it('does not append a child change when branch metadata is already canonical', () => {
     openRoom(store);
     const { worktree } = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
     const seqBefore = store.currentSeq(worktree.conversation_id);
-    store.updateWorktreeAlias('eng', worktree.id, 'child-label');
+    store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'ignored', 'adopted');
     expect(store.currentSeq(worktree.conversation_id)).toBe(seqBefore);
-    store.updateWorktreeAlias('eng', worktree.id, 'renamed');
-    expect(store.currentSeq(worktree.conversation_id)).toBe(seqBefore + 1);
   });
 });
 // harn:end registered-worktrees-materialize-stable-conversations
@@ -4064,7 +4046,6 @@ describe('root-neutral registration', () => {
     });
     const before = snapshot();
     const first = store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'created');
-    store.updateWorktreeAlias('eng', first.worktree.id, 'renamed');
     store.unregisterWorktree('eng', first.worktree.id);
     store.registerWorktree('eng', repoObs(), mainObs(), childObs('child'), 'child-label', 'adopted');
     store.removeWorktree('eng', first.worktree.id);
@@ -4162,7 +4143,7 @@ describe('child default roster seeding', () => {
 
 // harn:assume qualified-execution-requires-usable-checkout ref=qualified-target-usability-store-regression
 describe('qualified target usability and stable identity', () => {
-  it('keeps accepted identity stable while requiring current aliases for new delivery and usable checkouts', () => {
+  it('keeps accepted branch identity stable while requiring usable checkouts', () => {
     openRoom(store);
     const registered = store.registerWorktree(
       'eng', repoObs(), mainObs(), childObs('child'), 'old-label', 'adopted',
@@ -4175,7 +4156,7 @@ describe('qualified target usability and stable identity', () => {
       worktree_id: registered.worktree.id,
       conversation_id: child,
       member_id: member.id,
-      alias: 'old-label',
+      alias: 'child',
       handle: member.handle,
     } as const;
     const owner = store.getMemberByHandle('eng', 'richard')!;
@@ -4186,11 +4167,9 @@ describe('qualified target usability and stable identity', () => {
       message_id: acceptedMessage.id, recipient: member.id, target: acceptedTarget,
     });
 
-    store.updateWorktreeAlias('eng', registered.worktree.id, 'new-label');
     store.refreshWorktreeObservation('eng', registered.worktree.id, {
       ...childObs('child'),
       path: join(dir, 'moved-child'),
-      branch: 'feature/moved-child',
     });
     expect(store.routingTargetIsActive(acceptedTarget, 'eng')).toBe(true);
 
@@ -4204,7 +4183,7 @@ describe('qualified target usability and stable identity', () => {
     const newMessage = store.postMessage('eng', {
       author: owner.id, kind: 'chat', body: 'new message after alias change',
     });
-    const currentTarget = { ...acceptedTarget, alias: 'new-label' };
+    const currentTarget = { ...acceptedTarget };
     expect(store.createDelivery('eng', {
       message_id: newMessage.id, recipient: member.id, target: currentTarget,
     }).target).toEqual(currentTarget);
@@ -4213,7 +4192,6 @@ describe('qualified target usability and stable identity', () => {
       store.refreshWorktreeObservation('eng', registered.worktree.id, {
         ...childObs('child'),
         path: join(dir, 'moved-child'),
-        branch: 'feature/moved-child',
         availability,
         locked: availability === 'locked',
       });
@@ -4223,7 +4201,6 @@ describe('qualified target usability and stable identity', () => {
       store.refreshWorktreeObservation('eng', registered.worktree.id, {
         ...childObs('child'),
         path: join(dir, 'moved-child'),
-        branch: 'feature/moved-child',
         availability,
         locked: false,
       });

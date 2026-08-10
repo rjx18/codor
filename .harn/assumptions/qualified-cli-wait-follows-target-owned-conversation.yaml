@@ -1,0 +1,16 @@
+id: qualified-cli-wait-follows-target-owned-conversation
+hash: a-415c8fdc1da7
+title: Qualified CLI waits follow the server-selected worktree conversation
+state: active
+statement: >
+  After the server accepts one qualified destination, `post --wait` must switch
+  its observation to that authoritative conversation and complete only on the
+  exact addressed target-owned reply or accepted same-round peer completion;
+  local posts keep their current room, and malformed, stale, mixed, or ambiguous
+  intent refuses before waiting without client-side retargeting or fallback.
+depends_on:
+  - target-worktree-owns-qualified-conversation
+  - qualified-destination-refusals-are-atomic
+  - cli-waits-consume-only-matching-deliveries
+  - same-round-terminal-peers-end-live-waits
+created_by: worktree-orchestration-correctness-p1

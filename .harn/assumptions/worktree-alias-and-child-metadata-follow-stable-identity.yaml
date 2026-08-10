@@ -1,7 +1,7 @@
 id: worktree-alias-and-child-metadata-follow-stable-identity
 hash: a-f236fe5262c8
 title: Alias and child metadata follow stable worktree identity
-state: active
+state: retired
 statement: An active secondary alias may be changed only to a normalized unique
   non-main value and must update that stable child's display name without
   invoking Git or changing WorktreeId, conversation RoomId, path, Git
@@ -16,3 +16,4 @@ depends_on:
   - qualified-member-target-identity-is-durable
   - changelog-covers-every-visible-entity
 created_by: native-worktrees-phase4-functional-group-ui
+retired_by: worktree-orchestration-correctness-p1

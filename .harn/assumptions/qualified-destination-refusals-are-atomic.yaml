@@ -1,0 +1,16 @@
+id: qualified-destination-refusals-are-atomic
+hash: a-a56a65604ff6
+title: Qualified destination selection refuses atomically
+state: active
+statement: >
+  Unknown, malformed, inactive, removed, or ambiguous worktree/member targets,
+  attachments or replies that cannot move safely, and recipient sets spanning a
+  local plus foreign destination or more than one worktree must return one
+  bounded actionable refusal before message-id allocation. They must never fall
+  back to a local/default recipient, partially fan out, create collaboration, or
+  start a session.
+depends_on:
+  - target-worktree-owns-qualified-conversation
+  - default-recipient-fallback-chain
+  - worktree-discovery-never-registers-candidates
+created_by: worktree-orchestration-correctness-p1

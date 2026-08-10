@@ -1,0 +1,19 @@
+id: target-worktree-owns-qualified-conversation
+hash: a-b6c0c0a565c6
+title: One qualified worktree owns the complete accepted conversation
+state: active
+statement: >
+  Before allocating a message, Codor must resolve its full recipient set; when
+  every recipient belongs to exactly one foreign active registered worktree, the
+  message and all deliveries, collaboration, run roots/continuations, journals,
+  interactions, interim/final replies, refs, refusal evidence, and live frames
+  are committed and published only in that worktree's conversation. ~main
+  performs the same transfer to the root conversation, while the source receives
+  no copied transcript or live stream. Local messages remain local, and
+  malformed, mixed local/foreign, or multiple-worktree targets fail before any
+  room write, delivery, or adapter turn.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - child-conversation-state-is-room-isolated
+  - whole-message-delivery
+created_by: worktree-orchestration-correctness-p1

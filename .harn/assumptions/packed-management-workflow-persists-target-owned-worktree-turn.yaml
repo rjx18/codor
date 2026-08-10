@@ -1,0 +1,19 @@
+id: packed-management-workflow-persists-target-owned-worktree-turn
+hash: a-ba536c4afd56
+title: The installed management workflow survives restart with child-owned history
+state: active
+statement: >
+  The clean offline packed-install gate must use both local-socket and explicit
+  loopback transports to create the accepted channel, preset/roster, secondary
+  branch, and child agents, complete one qualified turn wholly inside the child
+  conversation, restart the same daemon, and prove durable branch-selected
+  worktree and target-owned transcript state without printing credentials,
+  private launches, native sessions, Git administrative ids, or mutating a real
+  checkout.
+depends_on:
+  - target-worktree-owns-qualified-conversation
+  - target-worktree-turn-is-local-and-isolated
+  - structured-worktree-cli-targets-branches-and-child-rooms
+  - packed-release-proof-runs-install-runtime
+  - unix-socket-same-protocol
+created_by: worktree-orchestration-correctness-p1

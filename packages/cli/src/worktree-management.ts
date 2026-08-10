@@ -87,7 +87,7 @@ interface SafeParseSchema<T> {
   safeParse(value: unknown): ParseResult<T>;
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-rendering
+// harn:assume structured-worktree-cli-targets-branches-and-child-rooms ref=branch-worktree-management-client
 export function escapeWorktreeHumanCell(value: string): string {
   return [...value].map((character) => {
     const code = character.charCodeAt(0);
@@ -215,7 +215,7 @@ export function renderWorktree(value: WorktreeProjection, json: boolean): string
   if (json) return JSON.stringify(value);
   return registeredHumanRow(value);
 }
-// harn:end structured-worktree-cli-uses-accepted-lifecycle
+// harn:end structured-worktree-cli-targets-branches-and-child-rooms
 
 function apiPath(room: string): string {
   return `/api/rooms/${encodeURIComponent(room)}/worktrees`;
@@ -264,7 +264,7 @@ async function callWorktree<T>(operation: () => Promise<T>): Promise<T> {
   }
 }
 
-// harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-management-client
+// harn:assume structured-worktree-cli-targets-branches-and-child-rooms ref=branch-worktree-management-client
 export async function listWorktrees(
   client: WorktreeRestClient,
   room: string,
@@ -358,15 +358,13 @@ export function resolveWorktreeSelector(
   registered: readonly WorktreeProjection[],
   selector: string,
 ): WorktreeProjection {
-  const exact = registered.find((worktree) => worktree.id === selector);
-  const matches = exact === undefined
-    ? registered.filter((worktree) => worktree.alias === selector)
-    : [exact];
+  const matches = registered.filter((worktree) =>
+    worktree.branch === selector || worktree.alias === selector);
   if (matches.length === 0) {
     throw new ManagementError(MANAGEMENT_EXIT_CODES.notFound, `no such worktree ${escapeWorktreeHumanCell(selector)}`);
   }
   if (matches.length > 1) {
-    throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, `worktree alias ${escapeWorktreeHumanCell(selector)} is ambiguous`);
+    throw new ManagementError(MANAGEMENT_EXIT_CODES.conflict, `worktree selector ${escapeWorktreeHumanCell(selector)} is ambiguous; use the exact branch`);
   }
   const found = matches[0]!;
   if (found.primary) {
@@ -377,7 +375,7 @@ export function resolveWorktreeSelector(
   }
   return found;
 }
-// harn:end structured-worktree-cli-uses-accepted-lifecycle
+// harn:end structured-worktree-cli-targets-branches-and-child-rooms
 
 // harn:assume worktree-cli-removal-requires-previewed-consent ref=worktree-removal-confirmation
 export async function confirmWorktreeRemoval(options: WorktreeRemovalConfirmationOptions): Promise<void> {

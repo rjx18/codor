@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
-import { type Dirent, existsSync, readdirSync, readFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { type Dirent, existsSync, readdirSync, readFileSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 
@@ -60,6 +60,7 @@ import {
   WorktreeRoutingTargetSchema,
   WorktreeRoutingTombstoneSchema,
   WorktreeAliasSchema,
+  worktreeSelectorFromBranch,
   RegisteredWorktreeSchema,
   RepositoryRecordSchema,
 } from '@codor/protocol';
@@ -603,26 +604,17 @@ function migrateRoomReadCursors(db: Database.Database): void {
 }
 // harn:end human-room-read-cursors-are-durable-and-monotonic
 
-// harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-migration
+// harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-store
+export function deterministicWorktreeConversationId(root: string, branch: string): string {
+  const digest = createHash('sha256').update(root).update('\0').update(branch).digest('hex').slice(0, 32);
+  return RoomIdSchema.parse(`wt-${digest}`);
+}
+
 /**
  * Phase 1 rows predate conversation_id. Backfill them without using the normal
  * room-creation path: a child inherits only the root human and reserved system
  * identities through lookup, so no agent roster or transcript is copied.
  */
-function migrationChildConversationId(db: Database.Database, worktreeId: string): string {
-  const stem = `wt-${worktreeId.toLowerCase()}`;
-  let candidate = stem;
-  let suffix = 0;
-  while (true) {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(candidate) as { id: string } | undefined;
-    const owner = db.prepare('SELECT id FROM worktrees WHERE conversation_id = ?').get(candidate) as
-      { id: string } | undefined;
-    if (owner?.id === worktreeId || (room === undefined && owner === undefined)) return candidate;
-    suffix += 1;
-    candidate = `${stem}-${String(suffix)}`;
-  }
-}
-
 function appendMigrationChange(
   db: Database.Database,
   room: string,
@@ -654,13 +646,14 @@ function migrateWorktreeConversations(db: Database.Database): void {
     ).run();
 
     const rows = db.prepare(
-      `SELECT id, room, alias, conversation_id
+      `SELECT id, room, alias, branch, conversation_id
        FROM worktrees WHERE primary_checkout = 0 ORDER BY id`,
-    ).all() as { id: string; room: string; alias: string; conversation_id: string | null }[];
+    ).all() as { id: string; room: string; alias: string; branch: string | null; conversation_id: string | null }[];
     for (const row of rows) {
+      if (row.branch === null || row.branch === '') continue;
       const conversationId = row.conversation_id && row.conversation_id !== ''
         ? row.conversation_id
-        : migrationChildConversationId(db, row.id);
+        : deterministicWorktreeConversationId(row.room, row.branch);
       const child = db.prepare('SELECT id, seq FROM rooms WHERE id = ?').get(conversationId) as
         { id: string; seq: number } | undefined;
       if (child === undefined) {
@@ -669,7 +662,7 @@ function migrateWorktreeConversations(db: Database.Database): void {
         if (!root) throw new Error(`no root room for worktree ${row.id}`);
         db.prepare(
           'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
-        ).run(conversationId, `${root.name} · ${row.alias}`, now, root.config);
+        ).run(conversationId, row.branch, now, root.config);
         appendMigrationChange(db, conversationId, 'room', conversationId);
         const inherited = db.prepare(
           `SELECT id, kind FROM members
@@ -705,7 +698,66 @@ function migrateWorktreeConversations(db: Database.Database): void {
   });
   migrate();
 }
-// harn:end registered-worktrees-materialize-stable-conversations
+// harn:end deterministic-branch-conversations-own-worktree-identity
+
+// harn:assume existing-worktree-records-repair-locally-once ref=local-worktree-record-repair
+function repairWorktreeConversationIds(
+  db: Database.Database,
+  roomDataRoots: readonly string[],
+): void {
+  const rows = db.prepare(
+    `SELECT id, room, conversation_id, branch
+     FROM worktrees
+     WHERE primary_checkout = 0 AND branch IS NOT NULL AND branch != ''
+     ORDER BY id`,
+  ).all() as { id: string; room: string; conversation_id: string; branch: string }[];
+  const repairs = rows
+    .map((row) => ({ ...row, target: deterministicWorktreeConversationId(row.room, row.branch) }))
+    .filter((row) => row.conversation_id !== row.target);
+  if (repairs.length === 0) return;
+
+  const moved: { from: string; to: string }[] = [];
+  try {
+    db.transaction(() => {
+      db.pragma('defer_foreign_keys = ON');
+      for (const repair of repairs) {
+        const collision = db.prepare(
+          'SELECT id FROM worktrees WHERE conversation_id = ? AND id != ?',
+        ).get(repair.target, repair.id) as { id: string } | undefined;
+        if (collision !== undefined || db.prepare('SELECT 1 FROM rooms WHERE id = ?').get(repair.target) !== undefined) {
+          throw new Error(`deterministic worktree conversation already exists: ${repair.target}`);
+        }
+        for (const root of roomDataRoots) {
+          const from = join(root, repair.conversation_id);
+          if (!existsSync(from)) continue;
+          const to = join(root, repair.target);
+          if (existsSync(to)) throw new Error(`worktree room data destination already exists: ${to}`);
+          renameSync(from, to);
+          moved.push({ from, to });
+        }
+
+        const prior = db.prepare('SELECT * FROM rooms WHERE id = ?').get(repair.conversation_id) as RoomRow | undefined;
+        if (prior === undefined) throw new Error(`missing worktree conversation: ${repair.conversation_id}`);
+        db.prepare('INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, ?)')
+          .run(repair.target, repair.branch, prior.created_ts, prior.config, prior.seq);
+        for (const table of ['members', 'messages', 'deliveries', 'collaboration_groups', 'pending_interactions', 'meters', 'mirrored_turns', 'attach_leases'] as const) {
+          db.prepare(`UPDATE ${table} SET room = ? WHERE room = ?`).run(repair.target, repair.conversation_id);
+        }
+        db.prepare('UPDATE changes SET room_id = ? WHERE room_id = ?').run(repair.target, repair.conversation_id);
+        db.prepare('UPDATE room_read_cursors SET room = ? WHERE room = ?').run(repair.target, repair.conversation_id);
+        db.prepare('UPDATE worktrees SET conversation_id = ?, alias = ?, updated_ts = ? WHERE id = ?')
+          .run(repair.target, worktreeSelectorFromBranch(repair.branch), new Date().toISOString(), repair.id);
+        db.prepare('DELETE FROM rooms WHERE id = ?').run(repair.conversation_id);
+      }
+    })();
+  } catch (error) {
+    for (const entry of moved.reverse()) {
+      if (existsSync(entry.to) && !existsSync(entry.from)) renameSync(entry.to, entry.from);
+    }
+    throw error;
+  }
+}
+// harn:end existing-worktree-records-repair-locally-once
 
 // harn:assume approval-deliveries-project-resolution-separately ref=approval-resolution-migration
 function migrateApprovalDeliveryResolution(db: Database.Database): void {
@@ -1813,7 +1865,7 @@ export class AgentPresetReferenceConflictError extends Error {
 export class Store {
   private readonly db: Database.Database;
 
-  constructor(path: string, options: { codexHome?: string } = {}) {
+  constructor(path: string, options: { codexHome?: string; roomDataRoots?: readonly string[] } = {}) {
     this.db = new Database(path);
     try {
       this.db.pragma('journal_mode = WAL');
@@ -1842,6 +1894,7 @@ export class Store {
       migrateMessageActivity(this.db);
       migrateRoomReadCursors(this.db);
       migrateWorktreeConversations(this.db);
+      repairWorktreeConversationIds(this.db, options.roomDataRoots ?? []);
       migrateApprovalDeliveryResolution(this.db);
       migrateDeliveryHopCount(this.db);
       migrateDeliverySteering(this.db);
@@ -1859,7 +1912,7 @@ export class Store {
     }
   }
 
-  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-migration
+  // harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-store
   /** Idempotent open-time reconciliation for children materialized before the
    * canonical projection existed (root config copied verbatim, root cwd, or a
    * leaked starting agent handle). One ordinary child room change is appended
@@ -1869,23 +1922,22 @@ export class Store {
     // Active AND tombstoned mapped children: a durable conversation keeps its
     // truthful metadata through unregister/removal as well.
     const rows = this.db.prepare(
-      `SELECT room, alias, path, conversation_id
+      `SELECT room, branch, path, conversation_id
        FROM worktrees
        WHERE primary_checkout = 0
          AND conversation_id IS NOT NULL AND conversation_id != ''`,
-    ).all() as { room: string; alias: string; path: string; conversation_id: string }[];
+    ).all() as { room: string; branch: string | null; path: string; conversation_id: string }[];
     if (rows.length === 0) return;
     this.db.transaction(() => {
       for (const row of rows) {
-        const rootRoom = this.getRoom(row.room);
+        if (row.branch === null || row.branch === '') continue;
         const childRow = this.db.prepare('SELECT * FROM rooms WHERE id = ?')
           .get(row.conversation_id) as RoomRow | undefined;
-        if (rootRoom === undefined || childRow === undefined) continue;
+        if (childRow === undefined) continue;
         const currentConfig = RoomConfigSchema.parse(JSON.parse(childRow.config) as unknown);
         const patch = this.childMetadataPatch(
           { name: childRow.name, config: currentConfig },
-          rootRoom.name,
-          row.alias,
+          row.branch,
           row.path,
         );
         if (patch === undefined) continue;
@@ -1895,7 +1947,7 @@ export class Store {
       }
     })();
   }
-  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+  // harn:end deterministic-branch-conversations-own-worktree-identity
 
   close(): void {
     this.db.close();
@@ -2042,22 +2094,7 @@ export class Store {
   }
   // harn:end main-and-direct-conversations-stay-compatible
 
-  // harn:assume registered-worktrees-materialize-stable-conversations ref=worktree-conversation-store-schema
-  private newChildConversationId(worktreeId: string): string {
-    const stem = `wt-${worktreeId.toLowerCase()}`;
-    let candidate = stem;
-    let suffix = 0;
-    while (
-      this.db.prepare('SELECT 1 FROM rooms WHERE id = ?').get(candidate) !== undefined
-      || this.db.prepare('SELECT 1 FROM worktrees WHERE conversation_id = ?').get(candidate) !== undefined
-    ) {
-      suffix += 1;
-      candidate = `${stem}-${String(suffix)}`;
-    }
-    return RoomIdSchema.parse(candidate);
-  }
-
-  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-store
+  // harn:assume deterministic-branch-conversations-own-worktree-identity ref=deterministic-worktree-conversation-store
   /** One detached snapshot member insertion shared by channel creation and
    * child registration: the private runtime columns travel with the row and no
    * preset or roster reference is ever persisted. */
@@ -2092,13 +2129,13 @@ export class Store {
    * registered path is the cwd, and a root-only starting agent handle never
    * leaks across. After creation the child's configuration is room-local
    * state that only the narrow patch below may touch. */
-  private childRoomProjection(rootName: string, rootConfig: RoomConfig, alias: string, canonicalPath: string): {
+  private childRoomProjection(branch: string, rootConfig: RoomConfig, canonicalPath: string): {
     name: string;
     config: RoomConfig;
   } {
     const { starting_agent_handle: _rootStartingHandle, ...inherited } = rootConfig;
     return {
-      name: `${rootName} · ${alias}`,
+      name: branch,
       config: RoomConfigSchema.parse({ ...inherited, cwd: canonicalPath }),
     };
   }
@@ -2110,12 +2147,11 @@ export class Store {
    * preserved byte-for-byte. Returns undefined when nothing visibly drifts. */
   private childMetadataPatch(
     existing: { name: string; config: RoomConfig },
-    rootName: string,
-    alias: string,
+    branch: string,
     canonicalPath: string,
     options: { reconcileConfig: boolean } = { reconcileConfig: true },
   ): { name: string; config: RoomConfig } | undefined {
-    const name = `${rootName} · ${alias}`;
+    const name = branch;
     // An alias edit reconciles the display name ONLY; migration/re-adoption
     // additionally patch exactly the canonical cwd and a stale root-only
     // starting handle, preserving every other room-local field byte-for-byte.
@@ -2130,12 +2166,12 @@ export class Store {
     }
     return { name, config };
   }
-  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
+  // harn:end deterministic-branch-conversations-own-worktree-identity
 
   private ensureChildConversation(
     root: string,
     conversationId: string,
-    alias: string,
+    branch: string,
     canonicalPath: string,
     now: string,
   ): void {
@@ -2150,8 +2186,7 @@ export class Store {
       const currentConfig = RoomConfigSchema.parse(JSON.parse(existing.config) as unknown);
       const patch = this.childMetadataPatch(
         { name: existing.name, config: currentConfig },
-        rootRoom.name,
-        alias,
+        branch,
         canonicalPath,
       );
       if (patch !== undefined) {
@@ -2169,7 +2204,7 @@ export class Store {
       }
       return;
     }
-    const projection = this.childRoomProjection(rootRoom.name, rootRoom.config, alias, canonicalPath);
+    const projection = this.childRoomProjection(branch, rootRoom.config, canonicalPath);
     this.db.prepare(
       'INSERT INTO rooms (id, name, created_ts, config, seq) VALUES (?, ?, ?, ?, 0)',
     ).run(conversationId, projection.name, now, JSON.stringify(projection.config));
@@ -2375,13 +2410,29 @@ export class Store {
     repository: RepositoryObservation,
     main: WorktreeObservation,
     secondary: WorktreeObservation,
-    alias: string,
-    source: Exclude<WorktreeSource, 'main'>,
-    now = new Date().toISOString(),
-    initialAgents: readonly InitialAgent[] = [],
+    sourceOrLegacySelector: Exclude<WorktreeSource, 'main'> | string,
+    nowOrSource: string = new Date().toISOString(),
+    initialAgentsOrNow: readonly InitialAgent[] | string = [],
+    legacyInitialAgents: readonly InitialAgent[] = [],
   ): { repository: RepositoryRecord; worktree: RegisteredWorktree; seeded: Member[] } {
     if (!main.primary || secondary.primary) throw new Error('invalid primary/secondary worktree observations');
-    const normalizedAlias = WorktreeAliasSchema.parse(alias);
+    // Direct Store callers predating branch-owned identities supplied an
+    // extra display selector before the source. Treat it only as a branch
+    // observation fallback; no selector is persisted from that argument.
+    const legacyCall = sourceOrLegacySelector !== 'adopted' && sourceOrLegacySelector !== 'created';
+    const source = (legacyCall ? nowOrSource : sourceOrLegacySelector) as Exclude<WorktreeSource, 'main'>;
+    const now = legacyCall
+      ? typeof initialAgentsOrNow === 'string' ? initialAgentsOrNow : new Date().toISOString()
+      : nowOrSource;
+    const initialAgents = legacyCall
+      ? legacyInitialAgents
+      : Array.isArray(initialAgentsOrNow) ? initialAgentsOrNow : [];
+    const branch = secondary.branch ?? (legacyCall ? sourceOrLegacySelector : undefined);
+    if (branch === undefined || branch === '') {
+      throw new Error('a secondary worktree must have a branch');
+    }
+    const normalizedAlias = worktreeSelectorFromBranch(branch);
+    const conversationId = deterministicWorktreeConversationId(room, branch);
     return this.db.transaction(() => {
       if (!this.getRoom(room)) throw new Error(`no such room: ${room}`);
 
@@ -2476,7 +2527,7 @@ export class Store {
           normalizedAlias,
           secondary,
           source,
-          this.newChildConversationId(secondaryId),
+          conversationId,
           now,
           secondaryId,
         );
@@ -2484,9 +2535,11 @@ export class Store {
         secondaryId = existingSecondary.id;
         if (existingSecondary.conversation_id === null || existingSecondary.conversation_id === '') {
           this.db.prepare('UPDATE worktrees SET conversation_id = ? WHERE id = ?').run(
-            this.newChildConversationId(existingSecondary.id),
+            conversationId,
             existingSecondary.id,
           );
+        } else if (existingSecondary.conversation_id !== conversationId) {
+          throw new Error('registered worktree conversation does not match its branch identity');
         }
         this.updateWorktreeRow(existingSecondary.id, secondary, {
           alias: normalizedAlias,
@@ -2505,7 +2558,7 @@ export class Store {
       if (secondaryRow.conversation_id === null || secondaryRow.conversation_id === '') {
         throw new Error(`worktree ${secondaryId} has no conversation mapping`);
       }
-      this.ensureChildConversation(room, secondaryRow.conversation_id, normalizedAlias, secondary.path, now);
+      this.ensureChildConversation(room, secondaryRow.conversation_id, branch, secondary.path, now);
       // harn:assume worktree-child-default-roster-is-an-explicit-snapshot ref=child-default-roster-store
       // Only a brand-new child receives the preflighted detached snapshots,
       // bound to that exact conversation inside this same transaction. Any
@@ -2584,52 +2637,6 @@ export class Store {
       return this.getWorktree(room, worktreeId)!;
     })();
   }
-
-  // harn:assume worktree-alias-and-child-metadata-follow-stable-identity ref=worktree-child-metadata-store
-  /** Identity-preserving alias mutation: one unique non-main label on an
-   * active secondary, the stable child's display name reconciled in the same
-   * transaction, and NO Git invocation. WorktreeId, conversation RoomId, path,
-   * Git administrative identity, branch, transcript, and members never move. */
-  updateWorktreeAlias(
-    room: string,
-    worktreeId: string,
-    alias: string,
-    now = new Date().toISOString(),
-  ): RegisteredWorktree {
-    const normalized = WorktreeAliasSchema.parse(alias);
-    if (normalized === 'main') throw new Error('the main alias is reserved');
-    return this.db.transaction(() => {
-      const existing = this.getWorktree(room, worktreeId);
-      if (existing === undefined || existing.lifecycle !== 'active' || existing.primary) {
-        throw new Error(`only an active secondary worktree can be renamed: ${worktreeId}`);
-      }
-      const collision = this.listWorktrees(room, { repositoryId: existing.repository_id })
-        .find((candidate) => candidate.alias === normalized && candidate.id !== existing.id);
-      if (collision !== undefined) throw new Error(`worktree alias is already in use: ${normalized}`);
-      this.db.prepare('UPDATE worktrees SET alias = ?, updated_ts = ? WHERE id = ?')
-        .run(normalized, now, existing.id);
-      const rootRoom = this.getRoom(room);
-      if (rootRoom === undefined) throw new Error(`no root room: ${room}`);
-      const child = this.getRoom(existing.conversation_id);
-      if (child !== undefined) {
-        // An alias edit touches ONLY the child display name; room-local
-        // configuration is never rewritten from main.
-        const patch = this.childMetadataPatch(
-          { name: child.name, config: child.config },
-          rootRoom.name,
-          normalized,
-          existing.path,
-          { reconcileConfig: false },
-        );
-        if (patch !== undefined) {
-          this.db.prepare('UPDATE rooms SET name = ? WHERE id = ?').run(patch.name, child.id);
-          this.appendChange(child.id, 'room', child.id);
-        }
-      }
-      return this.getWorktree(room, worktreeId)!;
-    })();
-  }
-  // harn:end worktree-alias-and-child-metadata-follow-stable-identity
 
   private insertWorktreeRow(
     repositoryId: string,
@@ -4422,6 +4429,7 @@ export class Store {
       model?: string;
       eventsRef: (messageId: number) => string;
       reuseRunMsgId?: number;
+      resumeHeldRun?: boolean;
     },
   ): AtomicTurnStart | undefined {
     return this.db.transaction(() => {
@@ -4491,19 +4499,38 @@ export class Store {
 
       let runMessage: Message;
       if (opts.reuseRunMsgId !== undefined) {
-        const existing = this.getMessage(room, opts.reuseRunMsgId);
+        let existing = this.getMessage(room, opts.reuseRunMsgId);
+        const mayResumeHeld = opts.resumeHeldRun === true
+          && existing?.kind === 'run'
+          && existing.run?.status === 'interrupted'
+          && admissible.every((delivery) => delivery.state === 'held' && delivery.run_msg_id === existing!.id);
         if (
           !existing?.run ||
           existing.kind !== 'run' ||
           existing.author !== opts.memberId ||
-          existing.run.status !== 'running'
+          (existing.run.status !== 'running' && !mayResumeHeld)
         ) {
           throw new Error(`run #${opts.reuseRunMsgId} is not reusable`);
         }
-        runMessage = existing.run.output_mode === 'messages'
+        // harn:assume held-recovery-runs-are-inactive-until-release ref=held-run-inactive-transition
+        if (mayResumeHeld) {
+          existing = this.updateMessage(room, existing.id, {
+            run: {
+              ...existing.run,
+              status: 'running',
+              ended_ts: undefined,
+              error: undefined,
+              stalled_since: undefined,
+            },
+          }, { activity: 'defer' });
+        }
+        // harn:end held-recovery-runs-are-inactive-until-release
+        if (existing.run === undefined) throw new Error(`run #${opts.reuseRunMsgId} lost its run state`);
+        const reusableRun = existing.run;
+        runMessage = reusableRun.output_mode === 'messages'
           ? existing
           : this.updateMessage(room, existing.id, {
-              run: { ...existing.run, output_mode: 'messages' },
+              run: { ...reusableRun, output_mode: 'messages' },
             }, { activity: 'defer' });
       } else {
         const posted = this.postMessage(room, {

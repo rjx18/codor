@@ -1,7 +1,7 @@
 id: packed-management-workflow-recovers-after-restart
 hash: a-5fb483fef563
 title: The installed management workflow survives one offline daemon restart
-state: active
+state: retired
 statement: The clean packed-install gate must run the installed artifact in a
   digest-pinned Git-capable glibc Node 22 container with networking off and
   isolated data and repository roots; use both the default local socket and an
@@ -28,3 +28,4 @@ depends_on:
   - management-failures-have-stable-redacted-exits
   - unix-socket-same-protocol
 created_by: cli-management-phase5-packaging-integration
+retired_by: worktree-orchestration-correctness-p1

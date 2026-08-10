@@ -1,0 +1,16 @@
+id: repeated-child-agent-add-is-idempotent
+hash: a-c81253ca1420
+title: Repeated child-agent creation is idempotent and conflict-safe
+state: active
+statement: >
+  Adding an agent handle to an active child must return the existing active
+  member without a second spawn when its requested public configuration agrees;
+  an incompatible existing member returns one bounded handle/worktree conflict
+  before native session or database mutation. SQLite diagnostics, credentials,
+  launch argv, and session references must never escape through REST, WebSocket,
+  or CLI output.
+depends_on:
+  - agent-orchestration-is-repository-scoped
+  - agent-management-correlates-safe-member-results
+  - reserved-handles-rejected
+created_by: worktree-orchestration-correctness-p1

@@ -86,12 +86,9 @@ describe('Git repository identity and read-only discovery', () => {
     expect(store.getRepository('eng')).toBeUndefined();
 
     const beforeSeq = store.currentSeq('eng');
-    const adopted = await manager.adopt('eng', repositoryPath, {
-      path: secondaryPath,
-      alias: ' Review / One ',
-    });
+    const adopted = await manager.adopt('eng', repositoryPath, { path: secondaryPath });
     expect(adopted.worktree).toMatchObject({
-      alias: 'review-one',
+      alias: 'one',
       source: 'adopted',
       lifecycle: 'active',
     });
@@ -129,7 +126,7 @@ describe('Git repository identity and read-only discovery', () => {
       .toEqual(expect.arrayContaining([main.id, adopted.worktree.id]));
   });
 
-  it('keeps detached primary and secondary identities stable across refresh and reopen', async () => {
+  it('keeps detached worktrees discoverable but refuses branchless registration', async () => {
     const secondaryPath = join(fixtureRoot, 'detached secondary');
     git(repositoryPath, ['checkout', '--detach', 'HEAD']);
     git(repositoryPath, ['worktree', 'add', '--detach', secondaryPath, 'HEAD']);
@@ -142,37 +139,9 @@ describe('Git repository identity and read-only discovery', () => {
     expect(inspection?.worktrees.find((worktree) => worktree.path === repositoryPath)?.branch).toBeUndefined();
     expect(inspection?.worktrees.find((worktree) => worktree.path === secondaryPath)?.branch).toBeUndefined();
 
-    const adopted = await manager.adopt('eng', repositoryPath, {
-      path: secondaryPath,
-      alias: 'detached-secondary',
-    });
-    const main = store.listRegisteredWorktrees('eng').find((worktree) => worktree.primary)!;
-    const repositoryId = adopted.repository.id;
-    const ids = { main: main.id, secondary: adopted.worktree.id };
-    expect(main.branch).toBeUndefined();
-    expect(adopted.worktree.branch).toBeUndefined();
-    expect(adopted.worktree.conversation_id).toMatch(/^wt-/);
-
-    const refreshed = await manager.list('eng', repositoryPath);
-    expect(refreshed.repository?.id).toBe(repositoryId);
-    expect(refreshed.registered.find((worktree) => worktree.id === ids.main))
-      .toMatchObject({ id: ids.main, primary: true });
-    expect(refreshed.registered.find((worktree) => worktree.id === ids.secondary))
-      .toMatchObject({ id: ids.secondary, primary: false });
-    expect(refreshed.registered.find((worktree) => worktree.id === ids.main)?.branch).toBeUndefined();
-    expect(refreshed.registered.find((worktree) => worktree.id === ids.secondary)?.branch).toBeUndefined();
-
-    store.close();
-    store = new Store(join(fixtureRoot, 'codor.sqlite'));
-    manager = new WorktreeManager(store);
-    const reopened = await manager.list('eng', repositoryPath);
-    expect(reopened.repository?.id).toBe(repositoryId);
-    expect(reopened.registered.map((worktree) => worktree.id))
-      .toEqual(expect.arrayContaining([ids.main, ids.secondary]));
-    expect(reopened.registered.find((worktree) => worktree.id === ids.main)?.branch).toBeUndefined();
-    expect(reopened.registered.find((worktree) => worktree.id === ids.secondary)?.branch).toBeUndefined();
-    expect(reopened.registered.find((worktree) => worktree.id === ids.secondary)?.conversation_id)
-      .toBe(adopted.worktree.conversation_id);
+    await expect(manager.adopt('eng', repositoryPath, { path: secondaryPath }))
+      .rejects.toThrow('detached worktree cannot be adopted');
+    expect(store.listRegisteredWorktrees('eng')).toEqual([]);
   });
 
   it('returns no repository for a non-Git directory', async () => {
@@ -244,7 +213,7 @@ describe('safe creation and conservative removal', () => {
       branch: 'feature/created-one',
       path: target,
     });
-    expect(created.worktree).toMatchObject({ alias: 'review-one', branch: 'feature/created-one' });
+    expect(created.worktree).toMatchObject({ alias: 'created-one', branch: 'feature/created-one' });
     expect(store.listRegisteredWorktrees('eng').filter((item) => item.id === created.worktree.id))
       .toHaveLength(1);
     expect(store.listRegisteredWorktrees('eng').filter((item) => item.path === target)).toHaveLength(1);
@@ -673,7 +642,7 @@ describe('Phase 5 disposable Git fixture safety', () => {
       path: join(fixtureRoot, 'selected created secondary'),
     });
     expect(store.listRegisteredWorktrees('eng').map((worktree) => worktree.alias))
-      .toEqual(['main', 'selected-adopted', 'selected-created']);
+      .toEqual(['main', 'adopted', 'created']);
 
     // Unregister is database-only and does not touch the adopted checkout.
     expect(traced.unregister('eng', adopted.worktree.id).lifecycle).toBe('unregistered');

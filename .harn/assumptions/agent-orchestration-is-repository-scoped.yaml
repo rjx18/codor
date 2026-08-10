@@ -1,0 +1,18 @@
+id: agent-orchestration-is-repository-scoped
+hash: a-c0c597dda6a3
+title: Agent orchestration is restricted to active children in its repository
+state: active
+statement: >
+  An authenticated agent remains bound to its own member credential and ordinary
+  room capabilities, and additionally may list/discover/create/adopt secondary
+  worktrees only in the registered repository containing its home conversation
+  and manage workers only in active secondary conversations under that same
+  root. It may never mutate a root member, cross a repository, unregister/remove
+  a worktree or filesystem checkout, raise policy/permissions, change
+  presets/default rosters, archive channels, or manage roles, devices, keys, or
+  credentials; every denied act fails before mutation.
+depends_on:
+  - agent-member-credentials-stay-secret
+  - roles-gate-human-acts-not-agents
+  - deterministic-branch-conversations-own-worktree-identity
+created_by: worktree-orchestration-correctness-p1

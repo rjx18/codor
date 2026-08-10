@@ -1,0 +1,17 @@
+id: target-owned-qualified-execution-requires-usable-checkout
+hash: a-1f6f39657dfd
+title: Target-owned qualified execution requires one usable checkout
+state: active
+statement: >
+  A target-owned qualified delivery may start, recover, retry, or redeliver only
+  while its stable repository, worktree, conversation, and member identities
+  match an active registration whose last reconciled availability is available
+  or locked; missing, prunable, unregistered, removed, cross-repository, or
+  removed-member targets must settle visibly in that target conversation without
+  adapter execution, local fallback, evidence loss, or resurrection.
+depends_on:
+  - target-worktree-owns-qualified-conversation
+  - qualified-destination-refusals-are-atomic
+  - registered-worktree-identities-are-durable
+  - delivery-attempt-wal-reconcile
+created_by: worktree-orchestration-correctness-p1

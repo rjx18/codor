@@ -105,7 +105,7 @@ export function assertHumanCapability(member: Member, capability: HumanCapabilit
 }
 // harn:end roles-gate-human-acts-not-agents
 
-// harn:assume agent-network-authority-is-narrow ref=agent-capability-matrix
+// harn:assume agent-orchestration-is-repository-scoped ref=repository-scoped-agent-capabilities
 export const AGENT_CAPABILITIES = [
   'read',
   'post',
@@ -133,4 +133,4 @@ export function assertAgentCapability(member: Member, capability: RoomCapability
     throw new Error(`forbidden: agent cannot ${capability.replaceAll('_', ' ')}`);
   }
 }
-// harn:end agent-network-authority-is-narrow
+// harn:end agent-orchestration-is-repository-scoped

@@ -1,7 +1,7 @@
 id: registered-worktrees-materialize-stable-conversations
 hash: a-4378ccf573d8
 title: Registered worktrees materialize stable durable conversations
-state: active
+state: retired
 statement: The first explicit secondary registration must atomically bind the
   primary worktree to the unchanged root room as main and persist one
   collision-safe child RoomId on only that selected secondary, while discovery
@@ -12,3 +12,4 @@ depends_on:
   - registered-worktree-identities-are-durable
   - worktree-discovery-never-registers-candidates
 created_by: native-worktrees-phase2-conversations
+retired_by: worktree-orchestration-correctness-p1

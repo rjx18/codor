@@ -1157,7 +1157,7 @@ defaultRosterManagement
           if (frame.type === 'error') throw new Error(frame.message);
           if (
             frame.type === 'message' &&
-            frame.message.id > lastMessageId &&
+            (frame.message.room !== room || frame.message.id > lastMessageId) &&
             frame.message.author === initial.self &&
             frame.message.body === message
           ) {
@@ -1174,21 +1174,22 @@ defaultRosterManagement
         if (peers.length === 0) throw new Error('post --wait requires at least one addressed member');
         // harn:end qualified-cli-wait-preserves-scoped-peer-identity
         const deadline = Date.now() + options.timeout * 1_000;
+        const replyAfterId = posted.room === room ? posted.id : lastMessageId;
         let registered = false;
         try {
-          await setWait(client, room, initial.self, 'reply', peers, new Date(deadline).toISOString());
-          registered = true;
-          const reply = await waitForOwnDelivery(
-            client,
-            room,
-            await syncRoom(client, room),
-            deadline,
-            (candidate) =>
-              candidate.id > posted.id &&
-              peers.includes(candidate.author) &&
-              candidate.mentions.some((mention) => mention.member_id === initial.self),
-            initial.self,
-          );
+          const qualified = posted.room !== room;
+          if (!qualified) {
+            await setWait(client, room, initial.self, 'reply', peers, new Date(deadline).toISOString());
+            registered = true;
+          }
+          const snapshot = await syncRoom(client, room);
+          const matches = (candidate: Message): boolean =>
+            candidate.id > replyAfterId &&
+            peers.includes(candidate.author) &&
+            candidate.mentions.some((mention) => mention.member_id === initial.self);
+          const reply = qualified
+            ? await waitForOwnDelivery(client, room, snapshot, deadline, matches)
+            : await waitForOwnDelivery(client, room, snapshot, deadline, matches, initial.self);
           if (!reply) {
             out(`TIMEOUT after ${String(options.timeout)}s`);
             return;
@@ -1871,14 +1872,23 @@ defaultRosterManagement
     });
   // harn:assume structured-agent-cli-preserves-flat-lifecycle-and-presets ref=structured-agent-command-surface
   const agentManagement = program.command('agent').description('manage channel agents');
+  // harn:assume structured-worktree-cli-targets-branches-and-child-rooms ref=branch-worktree-management-client
+  const agentRoom = async (channel: string, worktree?: string): Promise<string> => {
+    if (worktree === undefined) return channel;
+    const listed = await listWorktrees(worktreeRestClient, channel);
+    return resolveWorktreeSelector(listed.registered, worktree).conversation_id;
+  };
+  // harn:end structured-worktree-cli-targets-branches-and-child-rooms
   agentManagement
     .command('list')
     .description('list channel agents')
     .requiredOption('--channel <channel>', 'channel id')
+    .option('--worktree <branch-or-selector>', 'target registered worktree')
     .option('--json', 'emit one JSON value')
-    .action(async (options: ChannelOptions & { json?: boolean }) => {
+    .action(async (options: ChannelOptions & { worktree?: string; json?: boolean }) => {
+      const room = await agentRoom(options.channel, options.worktree);
       await withManagementClient(async (client) => {
-        const agents = await listManagedAgents(client, options.channel);
+        const agents = await listManagedAgents(client, room);
         const rendered = renderAgentList(agents, options.json === true);
         if (rendered !== '') out(rendered);
       });
@@ -1889,6 +1899,7 @@ defaultRosterManagement
     .description('add a channel agent')
     .argument('[handle]', 'agent handle; omitted when --preset supplies it')
     .requiredOption('--channel <channel>', 'channel id')
+    .option('--worktree <branch-or-selector>', 'target registered worktree')
     .option('--adapter <adapter>', 'installed public adapter id')
     .option('--preset <preset-id>', 'exact agent preset id')
     .requiredOption('--cwd <path>', 'working directory')
@@ -1901,6 +1912,7 @@ defaultRosterManagement
     .action(async (rawHandle: string | undefined, options: ChannelOptions & {
       adapter?: string;
       preset?: string;
+      worktree?: string;
       cwd: string;
       name?: string;
       purpose?: string;
@@ -1922,9 +1934,10 @@ defaultRosterManagement
         );
       }
       const handle = rawHandle?.replace(/^@/, '');
+      const room = await agentRoom(options.channel, options.worktree);
       await withManagementClient(async (client) => {
         const agent = options.preset !== undefined
-          ? await addManagedPresetAgent(client, options.channel, {
+          ? await addManagedPresetAgent(client, room, {
               preset_id: options.preset,
               ...(handle !== undefined && { handle }),
               cwd: options.cwd,
@@ -1934,7 +1947,7 @@ defaultRosterManagement
               ...(options.name !== undefined && { display_name: options.name }),
               ...(options.purpose !== undefined && { purpose: options.purpose }),
             })
-          : await addManagedAgent(client, options.channel, {
+          : await addManagedAgent(client, room, {
               adapter: options.adapter!,
               handle: handle!,
               cwd: options.cwd,
@@ -1953,6 +1966,7 @@ defaultRosterManagement
     .description('configure an existing channel agent')
     .argument('<agent>', 'agent id or handle')
     .requiredOption('--channel <channel>', 'channel id')
+    .option('--worktree <branch-or-selector>', 'target registered worktree')
     .option('--model <model>', 'model override')
     .option('--clear-model', 'clear the model override')
     .option('--thinking <level>', 'thinking level')
@@ -1965,6 +1979,7 @@ defaultRosterManagement
       thinking?: ThinkingLevel;
       clearThinking?: boolean;
       policy?: Policy;
+      worktree?: string;
       json?: boolean;
     }) => {
       const hasModel = options.model !== undefined;
@@ -1978,9 +1993,10 @@ defaultRosterManagement
       if (!hasModel && !options.clearModel && !hasThinking && !options.clearThinking && options.policy === undefined) {
         throw new ManagementError(MANAGEMENT_EXIT_CODES.invocation, 'agent configure requires a setting change');
       }
+      const room = await agentRoom(options.channel, options.worktree);
       await withManagementClient(async (client) => {
-        const agent = await resolveManagedAgent(client, options.channel, target);
-        const updated = await mutateManagedAgent(client, options.channel, {
+        const agent = await resolveManagedAgent(client, room, target);
+        const updated = await mutateManagedAgent(client, room, {
           act: 'configure',
           member_id: agent.id,
           ...((hasModel || options.clearModel) && { model: options.clearModel ? null : options.model }),
@@ -1997,16 +2013,19 @@ defaultRosterManagement
     .argument('<agent>', 'agent id or handle')
     .argument('<handle>', 'new agent handle')
     .requiredOption('--channel <channel>', 'channel id')
+    .option('--worktree <branch-or-selector>', 'target registered worktree')
     .option('--name <display-name>', 'new display name')
     .option('--json', 'emit one JSON value')
     .action(async (target: string, rawHandle: string, options: ChannelOptions & {
       name?: string;
+      worktree?: string;
       json?: boolean;
     }) => {
       const handle = rawHandle.replace(/^@/, '');
+      const room = await agentRoom(options.channel, options.worktree);
       await withManagementClient(async (client) => {
-        const agent = await resolveManagedAgent(client, options.channel, target);
-        const updated = await mutateManagedAgent(client, options.channel, {
+        const agent = await resolveManagedAgent(client, room, target);
+        const updated = await mutateManagedAgent(client, room, {
           act: 'rename',
           member_id: agent.id,
           handle,
@@ -2022,11 +2041,13 @@ defaultRosterManagement
       .description(`${action} a channel agent`)
       .argument('<agent>', 'agent id or handle')
       .requiredOption('--channel <channel>', 'channel id')
+      .option('--worktree <branch-or-selector>', 'target registered worktree')
       .option('--json', 'emit one JSON value')
-      .action(async (target: string, options: ChannelOptions & { json?: boolean }) => {
+      .action(async (target: string, options: ChannelOptions & { worktree?: string; json?: boolean }) => {
+        const room = await agentRoom(options.channel, options.worktree);
         await withManagementClient(async (client) => {
-          const agent = await resolveManagedAgent(client, options.channel, target);
-          const updated = await mutateManagedAgent(client, options.channel, {
+          const agent = await resolveManagedAgent(client, room, target);
+          const updated = await mutateManagedAgent(client, room, {
             act: action,
             member_id: agent.id,
           });
@@ -2040,12 +2061,14 @@ defaultRosterManagement
     .description('remove a channel agent')
     .argument('<agent>', 'agent id or handle')
     .requiredOption('--channel <channel>', 'channel id')
+    .option('--worktree <branch-or-selector>', 'target registered worktree')
     .option('--yes', 'confirm removal without prompting')
     .option('--json', 'emit one JSON value')
-    .action(async (target: string, options: ChannelOptions & { yes?: boolean; json?: boolean }) => {
+    .action(async (target: string, options: ChannelOptions & { worktree?: string; yes?: boolean; json?: boolean }) => {
       const isTTY = context.isTTY ?? Boolean(process.stdin.isTTY);
+      const room = await agentRoom(options.channel, options.worktree);
       await withManagementClient(async (client) => {
-        const agent = await resolveManagedAgent(client, options.channel, target);
+        const agent = await resolveManagedAgent(client, room, target);
         await confirmAgentRemove({
           label: `@${agent.handle} in channel ${options.channel}`,
           yes: options.yes === true,
@@ -2054,7 +2077,7 @@ defaultRosterManagement
           stderr: err,
           confirm: context.confirm,
         });
-        const removed = await mutateManagedAgent(client, options.channel, {
+        const removed = await mutateManagedAgent(client, room, {
           act: 'remove',
           member_id: agent.id,
         });
@@ -2064,7 +2087,7 @@ defaultRosterManagement
   // harn:end human-facing-surfaces-call-rooms-channels
   // harn:end structured-agent-cli-preserves-flat-lifecycle-and-presets
 
-  // harn:assume structured-worktree-cli-uses-accepted-lifecycle ref=worktree-command-surface
+  // harn:assume structured-worktree-cli-targets-branches-and-child-rooms ref=branch-worktree-command-surface
   const worktreeManagement = program
     .command('worktree')
     .description('manage registered worktrees');
@@ -2087,7 +2110,6 @@ defaultRosterManagement
     .requiredOption('--path <absolute-path>', 'worktree path')
     .option('--adopt', 'adopt one already discovered worktree')
     .option('--create', 'create and register one new worktree')
-    .option('--alias <alias>', 'worktree alias')
     .option('--branch <branch>', 'new local branch')
     .option('--default-roster', 'seed the child from the configured default roster')
     .option('--cwd <path>', 'repository working directory')
@@ -2096,7 +2118,6 @@ defaultRosterManagement
       path: string;
       adopt?: boolean;
       create?: boolean;
-      alias?: string;
       branch?: string;
       defaultRoster?: boolean;
       cwd?: string;
@@ -2116,20 +2137,18 @@ defaultRosterManagement
           '--branch and --default-roster require --create',
         );
       }
-      if (create && (options.alias === undefined || options.branch === undefined)) {
+      if (create && options.branch === undefined) {
         throw new ManagementError(
           MANAGEMENT_EXIT_CODES.invocation,
-          '--create requires --alias and --branch',
+          '--create requires --branch',
         );
       }
       const worktree = adopt
         ? await adoptWorktree(worktreeRestClient, options.channel, {
             path: options.path,
-            ...(options.alias !== undefined && { alias: options.alias }),
           }, options.cwd)
         : await createWorktree(worktreeRestClient, options.channel, {
             path: options.path,
-            alias: options.alias!,
             branch: options.branch!,
             ...(options.defaultRoster === true && { default_roster: true as const }),
           }, options.cwd);
@@ -2140,7 +2159,7 @@ defaultRosterManagement
   worktreeManagement
     .command('remove')
     .description('unregister or remove one secondary worktree')
-    .argument('<worktree>', 'worktree id or alias')
+    .argument('<worktree>', 'exact branch or derived shorthand')
     .requiredOption('--channel <channel>', 'channel id')
     .option('--cwd <path>', 'repository working directory')
     .option('--filesystem', 'remove the clean checkout after preview')
@@ -2247,8 +2266,8 @@ defaultRosterManagement
     '--filesystem enables guarded clean checkout removal after preview.',
     'Examples:',
     '  codor worktree list --channel desk --json',
-    '  codor worktree add --channel desk --create --path <absolute-path> --alias child --branch <branch>',
-    '  codor worktree remove child --channel desk --filesystem --yes --json',
+    '  codor worktree add --channel desk --create --path <absolute-path> --branch <branch>',
+    '  codor worktree remove <branch-or-shorthand> --channel desk --filesystem --yes --json',
   ].join('\n'));
   // harn:end structured-management-help-and-docs-are-complete
 

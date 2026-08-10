@@ -1,7 +1,7 @@
 id: structured-worktree-cli-uses-accepted-lifecycle
 hash: a-f655b3f42f14
 title: Structured worktree CLI uses the accepted conservative lifecycle
-state: active
+state: retired
 statement: The singular worktree CLI must expose only deterministic list,
   explicit create-or-adopt add, and confirmed unregister-or-filesystem remove
   commands through the authenticated accepted REST schemas and daemon lifecycle,
@@ -23,3 +23,4 @@ depends_on:
   - cli-observability-uses-scoped-rest
   - member-env-selects-narrow-cli-identity
 created_by: cli-management-phase4-worktrees-qualified-posting
+retired_by: worktree-orchestration-correctness-p1

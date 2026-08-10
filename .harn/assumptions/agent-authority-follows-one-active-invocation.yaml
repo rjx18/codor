@@ -1,7 +1,7 @@
 id: agent-authority-follows-one-active-invocation
 hash: a-fa2e71d4f6a3
 title: Agent authority follows exactly one durable active invocation
-state: active
+state: retired
 statement: An agent credential must authorize only its home conversation while
   idle and only one effective origin conversation while exactly one durable
   delivering run invokes it cross-worktree; the home selector may map to that
@@ -14,3 +14,4 @@ depends_on:
   - member-env-selects-narrow-cli-identity
   - agent-sync-hydrates-only-own-queued-inbox
 created_by: native-worktrees-phase3-qualified-routing-v3
+retired_by: worktree-orchestration-correctness-p1

@@ -1,7 +1,7 @@
 id: qualified-cli-wait-preserves-scoped-peer-identity
 hash: a-f7a008d5f990
 title: Qualified CLI waits preserve the server-resolved foreign peer
-state: active
+state: retired
 statement: After a successful post containing one or more qualified targets,
   `post --wait` must register every authoritative resolved mentioned member id
   other than self even when that member is absent from the origin roster, then
@@ -18,3 +18,4 @@ depends_on:
   - cli-waits-consume-only-matching-deliveries
   - same-round-terminal-peers-end-live-waits
 created_by: cli-management-phase4-worktrees-qualified-posting
+retired_by: worktree-orchestration-correctness-p1
