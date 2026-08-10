@@ -1,0 +1,77 @@
+id: alpha-0-10-12-browser-gate-fixes
+title: Preserve explicit hosted routes and stabilize the inbox release gate
+notes: >
+  Contained alpha release-gate correction only. Capture the hosted tab's
+  explicit startup room before an optional cached projection can canonicalize
+  the URL, and use that captured intent when authenticated room truth arrives.
+  Keep remembered-room fallback, cached read-only rendering, warm switching,
+  direct mode, and all native-worktree behavior unchanged. Make the Room 17
+  mark-all-read journey tolerate the authoritative inbox clearing between its
+  visibility check and click; do not weaken the resulting empty-inbox assertions
+  or change inbox product behavior. No stable npm release.
+assumptions:
+  create:
+    - id: hosted-explicit-room-survives-cached-bootstrap
+      title: Explicit hosted room intent survives cached bootstrap rendering
+      statement: >
+        On a hosted page load with an explicit room query, the active computer
+        session must capture that room before rendering an optional last-good
+        projection and must use it when authenticated room summaries arrive, so
+        cache canonicalization cannot silently replace the operator's requested
+        room; absent or unauthorized explicit rooms continue through the
+        existing remembered-room fallback.
+      reason: >
+        Cached content may paint before live room discovery and currently
+        rewrites the URL early enough to erase the original navigation intent.
+      depends_on:
+        - hosted-managed-bootstrap-reacts-to-late-readiness
+        - hosted-last-good-room-cache-is-bounded-read-only-projection
+        - hosted-computer-switching-reuses-warm-session
+  reviewed:
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: >
+        Capturing one initial active-room intent changes neither concurrent
+        session ownership nor background connection lifecycle.
+    - id: hosted-managed-bootstrap-reacts-to-late-readiness
+      outcome: unchanged
+      reason: >
+        Cached and live sessions remain reactive; the live public root now
+        honors the original explicit route rather than a cache-written URL.
+    - id: hosted-last-good-room-cache-is-bounded-read-only-projection
+      outcome: unchanged
+      reason: >
+        The cache remains one bounded read-only projection and does not become
+        navigation authority over an explicit URL.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: >
+        Later operator computer and room switches still use their existing
+        persisted warm-session paths.
+    - id: the-inbox-badge-and-panel-are-one-truth
+      outcome: unchanged
+      reason: >
+        The browser correction only removes an actionability race when the same
+        authoritative inbox has already cleared; badge, panel, and empty-state
+        assertions remain tied to one selector.
+anchors:
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Capture the initial active explicit room before cached URL
+        canonicalization.
+  the-inbox-badge-and-panel-are-one-truth:
+    pending-survives-history-trim:
+      action: change
+      reason: Account for the existing Room 17 release regression while preserving its
+        inbox truth assertions.
+files:
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/tests/room17-fixes.e2e.spec.ts
+  - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
+verification: >
+  Run focused computer-session units and exact Room 17/41 Playwright specs, then
+  all web units, production build, release/license audits, Harn diff and staged
+  checks, and git diff checks. Push only origin/alpha, require its GitHub CI to
+  pass, and do not move npm latest.
