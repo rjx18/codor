@@ -49,6 +49,9 @@ assumptions:
     - id: setup-verifies-codor-before-creating-pairing-code
       outcome: unchanged
       reason: Readiness fixtures must report the selected 0.10.13 identity; verification behavior is unchanged.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: The monolithic CLI regression crosses this boundary, but archive behavior and expectations are unchanged.
 anchors:
   installed-or-published-release-artifacts-are-version-immutable:
     replaceable-preinstall-release-audit:
@@ -77,6 +80,10 @@ anchors:
     setup-readiness-and-pairing-regression:
       action: change
       reason: Permit the nested readiness fixture identity update without changing verification behavior.
+  channel-archive-requires-explicit-confirmation:
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Permit the enclosing CLI fixture file update without changing archive behavior.
 files:
   - package.json
   - packages/adapters/acp/package.json
