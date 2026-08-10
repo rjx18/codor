@@ -480,6 +480,58 @@ describe('ComputerSessionManager', () => {
     manager.dispose();
   });
 
+  it('keeps the original explicit room when cached rendering rewrites the URL before live readiness', async () => {
+    const previousUrl = window.location.href;
+    window.history.replaceState(null, '', '/?room=workspace');
+    const h = harness();
+    let resolveRooms!: (rooms: RoomSummary[]) => void;
+    const loadRooms = h.deps.loadRooms;
+    h.deps.loadRooms = async (token, tunnel, signal) => token.endsWith('A')
+      ? new Promise<RoomSummary[]>((resolve) => { resolveRooms = resolve; })
+      : loadRooms(token, tunnel, signal);
+    const cachedRoom = {
+      id: 'eng',
+      name: 'Cached Engineering',
+      created_ts: '2026-08-01T00:00:00.000Z',
+      config: {
+        turn_brake: null,
+        spend_brake_usd: null,
+        stall_minutes: 30,
+        redaction_enabled: true,
+        bridged: false,
+      },
+    };
+    await saveLastGoodRoom({
+      version: 1,
+      computerId: 'A',
+      room: cachedRoom,
+      summaries: [{ ...summary('A', 1), id: 'eng', name: cachedRoom.name }],
+      history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+      savedAt: '2026-08-10T00:00:00.000Z',
+    });
+
+    const manager = new ComputerSessionManager(h.deps);
+    try {
+      await manager.start();
+      expect(manager.renderableActive()).toMatchObject({ id: 'A', room: 'eng', token: '' });
+
+      // This is the early cached ManagedBootstrap canonicalization that used to
+      // erase the operator's requested room before live room discovery landed.
+      window.history.replaceState(null, '', '/?room=eng');
+      resolveRooms([
+        { ...summary('A', 1), id: 'eng', name: 'Engineering' },
+        { ...summary('A', 0), id: 'workspace', name: 'Workspace' },
+      ]);
+      for (let tick = 0; tick < 24 && manager.active()?.room !== 'workspace'; tick += 1) {
+        await Promise.resolve();
+      }
+      expect(manager.active()).toMatchObject({ id: 'A', room: 'workspace', token: 'token-A' });
+    } finally {
+      manager.dispose();
+      window.history.replaceState(null, '', previousUrl);
+    }
+  });
+
   it('refreshes mutable journals only for the active connector with its own token', async () => {
     recovery.refresh.mockReset();
     recovery.refreshHead.mockClear();

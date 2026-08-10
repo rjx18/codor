@@ -75,3 +75,5 @@ verification: >
   all web units, production build, release/license audits, Harn diff and staged
   checks, and git diff checks. Push only origin/alpha, require its GitHub CI to
   pass, and do not move npm latest.
+applied:
+  applied_at: 2026-08-10T13:53:03.516Z

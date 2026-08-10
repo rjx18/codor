@@ -89,13 +89,14 @@ test.describe('inbox relevance', () => {
 
     const clearAll = page.getByTestId('inbox-mark-all');
     if (await clearAll.isVisible()) {
-      await clearAll.click(); // closes the panel
-      await page.getByTestId('inbox-toggle').click();
-      await expect(page.getByTestId('inbox-empty')).toBeVisible();
-      await expect(page.getByTestId('inbox-badge')).toHaveCount(0);
-    } else {
-      await expect(page.getByTestId('inbox-empty')).toBeVisible();
+      // The authoritative inbox may clear between the visibility check and
+      // Playwright's stability wait. A DOM click proves this control without
+      // retrying a button React has truthfully removed in the meantime.
+      await clearAll.evaluate((button: HTMLButtonElement) => button.click()).catch(() => undefined);
     }
+    if (!await page.getByTestId('inbox-panel').isVisible()) await page.getByTestId('inbox-toggle').click();
+    await expect(page.getByTestId('inbox-empty')).toBeVisible();
+    await expect(page.getByTestId('inbox-badge')).toHaveCount(0);
   });
 
   test('every inbox row is a mention of the viewer or an ask/approval for them', async ({ page }) => {

@@ -349,6 +349,7 @@ test.describe('native worktree lifecycle UI', () => {
 
     await page.goto(`${SPA_ORIGIN}/?room=workspace`);
     await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(/(?:\?|&)room=workspace(?:&|$)/);
     await expect(page.getByTestId('worktree-group')).toBeVisible({ timeout: 30_000 });
 
     // Pre-promotion access rides the same tunnel: the bounded Git read

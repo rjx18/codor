@@ -167,12 +167,19 @@ export class ComputerSessionManager {
   private readonly entries = new Map<string, SessionEntry>();
   private readonly listeners = new Set<() => void>();
   private activeId?: string;
+  private startupExplicitRoom?: string;
   private snapshot: ComputerSessionsSnapshot = { computers: [] };
   private disposed = false;
 
   constructor(private readonly deps: ComputerSessionDeps = defaultDeps) {}
 
   async start(): Promise<boolean> {
+    // Capture the navigation intent before an optional cached projection can
+    // render and canonicalize its own room into the URL. Live room discovery
+    // remains authoritative about whether this requested room is valid.
+    this.startupExplicitRoom = typeof window === 'undefined'
+      ? undefined
+      : new URLSearchParams(window.location.search).get('room') ?? undefined;
     const loaded = await this.deps.load();
     if (loaded.materials.length === 0) return false;
     this.activeId = loaded.materials.some((material) => material.computer.id === loaded.activeId)
@@ -481,7 +488,7 @@ export class ComputerSessionManager {
         }
         entry.store.getState().setRoomSummaries(rooms);
         const explicit = entry.material.computer.id === this.activeId
-          ? new URLSearchParams(window.location.search).get('room') ?? undefined
+          ? this.startupExplicitRoom
           : undefined;
         const room = resolveStartupRoom(rooms, {
           explicit,

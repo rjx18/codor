@@ -1,0 +1,16 @@
+id: hosted-explicit-room-survives-cached-bootstrap
+hash: a-af3288387fae
+title: Explicit hosted room intent survives cached bootstrap rendering
+state: active
+statement: >
+  On a hosted page load with an explicit room query, the active computer session
+  must capture that room before rendering an optional last-good projection and
+  must use it when authenticated room summaries arrive, so cache
+  canonicalization cannot silently replace the operator's requested room; absent
+  or unauthorized explicit rooms continue through the existing remembered-room
+  fallback.
+depends_on:
+  - hosted-managed-bootstrap-reacts-to-late-readiness
+  - hosted-last-good-room-cache-is-bounded-read-only-projection
+  - hosted-computer-switching-reuses-warm-session
+created_by: alpha-0-10-12-browser-gate-fixes
