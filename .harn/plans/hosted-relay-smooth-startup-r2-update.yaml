@@ -155,6 +155,11 @@ assumptions:
       reason: The command-surface regression gains update commands, but existing
         failure exit classes, one-line stderr, empty stdout, and credential/URL
         redaction remain unchanged.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: Platform expectation edits cross the enclosing index regression,
+        while archive confirmation, --yes, TTY and JSON handling, stdout purity,
+        and refusal-without-mutation semantics remain unchanged.
     - id: setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable
       outcome: unchanged
       reason: The setup override seam gains update-readiness injections only;
@@ -306,6 +311,11 @@ anchors:
       action: change
       reason: Extend only the asserted command inventory; preserve every
         existing exit classification, redaction, stderr, and stdout assertion.
+  channel-archive-requires-explicit-confirmation:
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Allow the enclosing monolithic index regression to absorb platform
+        expectation edits without changing any archive behavior or assertion.
   setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable:
     tailscale-exec-override-seam:
       action: change
