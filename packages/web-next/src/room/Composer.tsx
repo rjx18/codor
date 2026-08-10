@@ -822,7 +822,6 @@ export function Composer(props: { room: string; token: () => string; connection:
             seededRef.current = true;
             setDraft(event.target.value);
             setHint(undefined);
-            autoGrow();
             requestAnimationFrame(refreshMention);
           }}
           onClick={refreshMention}

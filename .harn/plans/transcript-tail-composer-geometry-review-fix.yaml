@@ -2,14 +2,14 @@ id: transcript-tail-composer-geometry-review-fix
 title: Close the multiline-composer pre-paint tail gap
 notes: >
   Correct the remaining one-frame race in the already accepted transcript
-  geometry contract. Composer growth currently reaches the next animation
-  frame before the transcript owner has reconciled the flex viewport. Keep the
+  geometry contract. Composer growth currently reaches the next animation frame
+  before the transcript owner has reconciled the flex viewport. Keep the
   transcript as the sole scroll owner, defer its response only to the same
   commit's microtask boundary, and never re-pin a reader whose prior distance
   was not explained by the exact composer-height delta. Remove the redundant
-  input-event resize so committed draft state remains the single composer
-  sizing trigger. Do not change transcript history, live delivery, the
-  eight-row cap, or unpinned-reader behavior.
+  input-event resize so committed draft state remains the single composer sizing
+  trigger. Do not change transcript history, live delivery, the eight-row cap,
+  or unpinned-reader behavior.
 assumptions:
   reviewed:
     - id: transcript-tail-follow-has-one-prepaint-owner
@@ -35,7 +35,9 @@ files:
   - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
 verification: >
   Run Harn plan/check/staged/apply, the web unit suite and production build,
-  then the exact Room 36 geometry regression repeatedly and Rooms 36, 40, and
-  41 together. Prove live arrival and multiline composer growth/shrink never
-  expose more than two pixels below a pinned reader, and inspect that an
-  unpinned reader is never re-glued merely because the composer changes.
+  then the exact Room 36 geometry regression repeatedly and Rooms 36, 40, and 41
+  together. Prove live arrival and multiline composer growth/shrink never expose
+  more than two pixels below a pinned reader, and inspect that an unpinned
+  reader is never re-glued merely because the composer changes.
+applied:
+  applied_at: 2026-08-10T19:21:18.869Z

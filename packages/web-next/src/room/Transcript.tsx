@@ -520,6 +520,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       markVisibleRowsRead();
     };
     const observer = new ResizeObserver(reconcileGeometry);
+    let disposed = false;
     const onComposerGeometry = (event: Event): void => {
       const delta = (event as CustomEvent<{ delta?: number }>).detail?.delta ?? 0;
       const distance = node.scrollHeight - node.scrollTop - node.clientHeight;
@@ -527,13 +528,22 @@ export function Transcript(props: { room: string; token: () => string; connectio
       // sibling flex geometry settles. Recover the pre-change pinned truth only
       // when the entire new gap is explained by this exact height delta; an
       // intentionally unpinned reader remains untouched.
-      if (delta > 0 && distance <= delta + 2) pinnedRef.current = true;
-      reconcileGeometry();
+      const shouldFollow = pinnedRef.current || (delta > 0 && distance <= delta + 2);
+      if (!shouldFollow) return;
+      pinnedRef.current = true;
+      // Composer mutates its height from a child layout effect. Finish the
+      // current React commit before reading the resulting sibling flex size,
+      // while staying ahead of the next animation frame and paint.
+      queueMicrotask(() => {
+        if (disposed || scrollerRef.current !== node) return;
+        reconcileGeometry();
+      });
     };
     observer.observe(column);
     observer.observe(node);
     window.addEventListener('codor:composer-geometry', onComposerGeometry);
     return () => {
+      disposed = true;
       observer.disconnect();
       window.removeEventListener('codor:composer-geometry', onComposerGeometry);
     };
