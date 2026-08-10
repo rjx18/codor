@@ -295,6 +295,12 @@ anchors:
     node-path-systemd-regression:
       action: change
       reason: Extend Linux setup/update identity and rollback assertions.
+    node-path-source-probe-regression:
+      action: change
+      reason: Add only the selected runtime-status fixture required by the new identity gate; preserve ephemeral source-to-destination NODE_PATH derivation exactly.
+    node-path-reused-destination-regression:
+      action: change
+      reason: Add only the selected runtime-status fixture required by the new identity gate; preserve reused durable NODE_PATH behavior exactly.
     node-path-launchd-regression:
       action: change
       reason: Extend macOS setup identity assertions without changing NODE_PATH.
