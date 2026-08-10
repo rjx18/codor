@@ -1,0 +1,201 @@
+id: worktree-orchestration-correctness-p1-review-fixes
+title: Correct repository-scoped orchestration and readable branch identities
+notes: >
+  Contained Phase 1 review correction only. Make the already-approved agent
+  orchestration matrix real: an agent may list, discover, create, and adopt a
+  secondary in its own registered repository and may add an idempotent worker
+  only inside an active child conversation. Default-roster creation,
+  unregister/remove, root or cross-repository member mutation, policy
+  escalation, presets, and global administration remain forbidden before any
+  mutation.
+
+  Replace opaque hashed child RoomIds with deterministic readable root-channel
+  plus full-branch slugs, adding a short digest only when normalization,
+  truncation, or collision safety requires it. The exact Git branch remains the
+  room name. Derive routing shorthand from the full branch rather than its leaf,
+  and resolve an exact branch before considering shorthand matches.
+
+  Prove the one-time local repair moves every room-keyed database family and
+  known room directory while preserving repository/worktree/Git identities,
+  fails closed on destination conflicts, and becomes a no-op after reopen. Add
+  an agent-principal integration for the complete allowed/denied matrix and a
+  focused packed installed-CLI proof that bypasses the unrelated updater
+  bootstrap fixture. No UI, relay, deployment, release, compatibility
+  framework, or other feature work belongs here.
+assumptions:
+  retire:
+    - id: deterministic-branch-conversations-own-worktree-identity
+      reason: The original truth required deterministic branch ownership but did
+        not require the durable RoomId itself to remain readable.
+    - id: worktree-creation-registers-only-a-new-secondary
+      reason: The old contract still described a separately supplied alias even
+        though branch-derived identity is now the only accepted model.
+  create:
+    - id: readable-branch-conversations-own-worktree-identity
+      title: Registered branches own readable deterministic child conversations
+      statement: >
+        The root conversation remains main; each explicitly registered
+        secondary gets one stable RoomId formed from a readable slug of the root
+        channel plus the full Git branch, with a short deterministic digest only
+        when lossy normalization, truncation, or collision safety requires it,
+        and its room name is the exact Git branch. The bounded shorthand derives
+        from the full branch and cannot be edited independently; exact-branch
+        selection takes precedence over shorthand. Discovery creates no room,
+        re-adoption restores the same identity, and direct/non-Git channels are
+        unchanged.
+      reason: Worktree conversations must be understandable in diagnostics while
+        remaining filesystem-safe, stable, and collision-safe.
+      depends_on:
+        - registered-worktree-identities-are-durable
+        - worktree-discovery-never-registers-candidates
+        - main-and-direct-conversations-stay-compatible
+    - id: branch-worktree-creation-registers-only-its-result
+      title: Worktree creation derives identity from the new full branch
+      statement: >
+        Creating a worktree must require a valid new local branch and a missing
+        absolute target with an existing safe parent, derive its shorthand and
+        readable child conversation only from the complete branch, verify
+        repository and registry constraints before mutation, create from the
+        freshly resolved primary HEAD without force, and register only the exact
+        secondary rediscovered after Git succeeds. Existing paths, branches,
+        primary targets, conflicting derived identities, and cross-repository
+        identities are refused.
+      reason: Branch identity replaces the obsolete independent alias without
+        weakening Git or persistence safety.
+      depends_on:
+        - repository-primary-identity-is-git-derived
+        - registered-worktree-identities-are-durable
+        - readable-branch-conversations-own-worktree-identity
+        - worktree-git-execution-is-argument-safe
+  reviewed:
+    - id: agent-orchestration-is-repository-scoped
+      outcome: unchanged
+      reason: The approved matrix already states the required allowed and denied
+        acts; this correction makes its routes and regressions match that truth.
+    - id: existing-worktree-records-repair-locally-once
+      outcome: unchanged
+      reason: The repair contract is correct and needs complete regression proof
+        against the new readable deterministic destination.
+    - id: structured-worktree-cli-targets-branches-and-child-rooms
+      outcome: unchanged
+      reason: Branch and shorthand selection remains the CLI contract, with exact
+        branch precedence made explicit in implementation.
+    - id: packed-management-workflow-persists-target-owned-worktree-turn
+      outcome: unchanged
+      reason: The installed management journey remains required; this pass adds a
+        focused proof that does not depend on the unrelated updater fixture.
+    - id: worktree-removal-is-clean-and-branch-preserving
+      outcome: unchanged
+      reason: Unregister and filesystem removal remain operator-only and retain
+        all existing confirmation and branch-preservation behavior.
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Repository and worktree record IDs remain stable even though the
+        branch-derived conversation ID becomes readable.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: Destination transcript ownership is unchanged by the identity and
+        authorization correction.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: Human-authorized default-roster seeding remains an explicit new-child
+        snapshot and stays unavailable to agent principals.
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      outcome: unchanged
+      reason: The later UI lifecycle contract is unaffected; this phase changes no UI.
+anchors:
+  deterministic-branch-conversations-own-worktree-identity:
+    deterministic-worktree-conversation-protocol:
+      action: remove
+      reason: Re-anchor protocol identity to the readable successor.
+    deterministic-worktree-conversation-regression:
+      action: remove
+      reason: Re-anchor identity regressions to the readable successor.
+    deterministic-worktree-conversation-store:
+      action: remove
+      reason: Re-anchor the deterministic ID and store lifecycle to the readable successor.
+    phase5-qualified-integration-regression:
+      action: remove
+      reason: Re-anchor qualified integration identity assertions to the readable successor.
+  readable-branch-conversations-own-worktree-identity:
+    readable-worktree-conversation-protocol:
+      action: change
+      reason: Derive shorthand from the full branch and document readable identity.
+    readable-worktree-conversation-store:
+      action: change
+      reason: Generate stable readable root-plus-full-branch RoomIds with bounded digests.
+    readable-worktree-conversation-regression:
+      action: change
+      reason: Prove readable IDs, full-branch selector distinction, bounds, and stable reopen.
+    phase5-qualified-integration-regression:
+      action: change
+      reason: Keep the qualified integration fixture aligned with readable child identity.
+  worktree-creation-registers-only-a-new-secondary:
+    worktree-create-contract:
+      action: remove
+      reason: Re-anchor creation to branch-derived identity without an alias input.
+    worktree-create-rest:
+      action: remove
+      reason: Re-anchor creation authorization and REST behavior to the successor.
+    worktree-create-regression:
+      action: remove
+      reason: Re-anchor Git creation regressions to the successor.
+    phase5-git-fixture-safety-regression:
+      action: remove
+      reason: Re-anchor the existing fixture safety coverage to the successor.
+  branch-worktree-creation-registers-only-its-result:
+    branch-worktree-create-contract:
+      action: change
+      reason: Keep Git mutation safe while deriving all child identity from the full branch.
+    branch-worktree-create-rest:
+      action: change
+      reason: Permit scoped agent creation but keep roster and destructive paths denied.
+    branch-worktree-create-regression:
+      action: change
+      reason: Prove full-branch selector safety and the agent-principal create path.
+    phase5-git-fixture-safety-regression:
+      action: change
+      reason: Preserve real Git creation and branch-safety coverage.
+  agent-orchestration-is-repository-scoped:
+    repository-scoped-agent-authorization:
+      action: change
+      reason: Route create/adopt through scoped mutation and unregister/remove through destructive authorization.
+    repository-scoped-agent-regression:
+      action: change
+      reason: Prove create plus idempotent child add and every prohibited mutation before side effects.
+  existing-worktree-records-repair-locally-once:
+    local-worktree-record-repair:
+      action: change
+      reason: Repair legacy opaque children to readable deterministic IDs atomically.
+    local-worktree-record-repair-regression:
+      action: change
+      reason: Exercise every room-keyed table, known directory, conflict rollback, and restart no-op.
+  structured-worktree-cli-targets-branches-and-child-rooms:
+    branch-worktree-management-client:
+      action: change
+      reason: Resolve an exact branch before shorthand and retain ambiguity diagnostics.
+    branch-worktree-cli-regression:
+      action: change
+      reason: Prove full-branch selectors and installed child-agent targeting.
+  packed-management-workflow-persists-target-owned-worktree-turn:
+    packed-target-owned-management-workflow:
+      action: change
+      reason: Add an updater-independent installed CLI worktree orchestration proof.
+  worktree-removal-is-clean-and-branch-preserving:
+    worktree-remove-rest:
+      action: change
+      reason: Ensure unregister uses destructive human authorization while preserving removal behavior.
+files:
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/worktrees.ts
+  - packages/switchboard/src/worktrees.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/cli/src/worktree-management.ts
+  - packages/cli/src/worktree-management.spec.ts
+  - packages/cli/src/index.spec.ts
+  - scripts/packed-worktree-proof.sh
