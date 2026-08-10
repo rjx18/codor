@@ -1,14 +1,14 @@
 id: worktree-orchestration-correctness-p1
 title: Target-owned worktree conversations and repository-scoped orchestration
 notes: >
-  Phase 1 only. Reverse the unshipped origin-owned qualified-routing contract:
-  a message whose complete recipient set names exactly one foreign registered
+  Phase 1 only. Reverse the unshipped origin-owned qualified-routing contract: a
+  message whose complete recipient set names exactly one foreign registered
   worktree is committed in that target conversation before any delivery or run
   exists. Its instruction, deliveries, run family, evidence, interactions,
   collaboration state, interim/final output, refusals, references, and live
   frames therefore use the target room's ordinary local transaction and are
-  never copied or streamed into the source transcript. An explicit ~main:
-  target performs the inverse. Reject malformed, mixed local/foreign, and
+  never copied or streamed into the source transcript. An explicit ~main: target
+  performs the inverse. Reject malformed, mixed local/foreign, and
   multi-worktree recipient sets before allocating a message; do not add source
   handoff cards or migrate old transcript rows.
 
@@ -24,13 +24,13 @@ notes: >
 
   Agent principals may list/discover/create/adopt worktrees only inside the Git
   repository containing their registered home conversation and may manage
-  workers only inside active secondary conversations of that same root. They
-  may not mutate the root roster, raise policy/permissions, edit presets or
-  default rosters, archive channels, remove/unregister worktrees, delete Git
-  directories, manage credentials/roles/devices, or cross repositories. The
-  CLI resolves --channel plus --worktree by exact branch or the deterministic
-  branch selector and sends member commands to the actual child room. Repeated
-  creation of the same active handle is idempotent when its requested public
+  workers only inside active secondary conversations of that same root. They may
+  not mutate the root roster, raise policy/permissions, edit presets or default
+  rosters, archive channels, remove/unregister worktrees, delete Git
+  directories, manage credentials/roles/devices, or cross repositories. The CLI
+  resolves --channel plus --worktree by exact branch or the deterministic branch
+  selector and sends member commands to the actual child room. Repeated creation
+  of the same active handle is idempotent when its requested public
   configuration agrees and otherwise returns a bounded actionable conflict,
   never a raw SQLite diagnostic.
 
@@ -47,8 +47,8 @@ assumptions:
   retire:
     - id: cross-worktree-output-stays-in-origin
       reason: Qualified worktree messages now belong wholly to the selected target
-        conversation; keeping their transcript in the caller is the product defect
-        this phase reverses.
+        conversation; keeping their transcript in the caller is the product
+        defect this phase reverses.
     - id: cross-worktree-runtime-stays-target-local
       reason: The target runtime remains isolated, but output is no longer written to
         a separate origin. The successor states the simpler target-local turn.
@@ -62,9 +62,9 @@ assumptions:
       reason: Refusal remains strict, but destination selection must now also reject
         mixed local or multiple-worktree recipient sets before any room write.
     - id: registered-worktrees-materialize-stable-conversations
-      reason: Collision-safe ULID-derived child ids and generated root-plus-alias names
-        are replaced by deterministic root-plus-registration-branch ids and exact
-        branch room names.
+      reason: Collision-safe ULID-derived child ids and generated root-plus-alias
+        names are replaced by deterministic root-plus-registration-branch ids
+        and exact branch room names.
     - id: worktree-alias-and-child-metadata-follow-stable-identity
       reason: Editable independent aliases and generated child names are removed;
         routing selectors and child metadata derive from the Git branch.
@@ -73,14 +73,16 @@ assumptions:
         agents while destructive and global administration stays human-only.
     - id: agent-network-authority-is-narrow
       reason: The old statement forbids every management act; its successor preserves
-        the small room matrix and adds only bounded same-repository orchestration.
+        the small room matrix and adds only bounded same-repository
+        orchestration.
     - id: structured-worktree-cli-uses-accepted-lifecycle
-      reason: The CLI must select worktrees by branch/derived selector, accept an agent
-        principal for safe child orchestration, and stop requiring a separate alias.
+      reason: The CLI must select worktrees by branch/derived selector, accept an
+        agent principal for safe child orchestration, and stop requiring a
+        separate alias.
     - id: packed-management-workflow-recovers-after-restart
       reason: The packed proof explicitly requires origin-only qualified history and
-        the old alias-oriented lifecycle; its successor proves target-owned history
-        and branch-selected child management instead.
+        the old alias-oriented lifecycle; its successor proves target-owned
+        history and branch-selected child management instead.
     - id: qualified-cli-wait-preserves-scoped-peer-identity
       reason: A qualified post no longer waits inside the source transcript; the CLI
         must follow the authoritative target conversation after acceptance.
@@ -91,15 +93,16 @@ assumptions:
     - id: target-worktree-owns-qualified-conversation
       title: One qualified worktree owns the complete accepted conversation
       statement: >
-        Before allocating a message, Codor must resolve its full recipient set; when
-        every recipient belongs to exactly one foreign active registered worktree,
-        the message and all deliveries, collaboration, run roots/continuations,
-        journals, interactions, interim/final replies, refs, refusal evidence, and
-        live frames are committed and published only in that worktree's conversation.
-        ~main performs the same transfer to the root conversation, while the source
-        receives no copied transcript or live stream. Local messages remain local,
-        and malformed, mixed local/foreign, or multiple-worktree targets fail before
-        any room write, delivery, or adapter turn.
+        Before allocating a message, Codor must resolve its full recipient set;
+        when every recipient belongs to exactly one foreign active registered
+        worktree, the message and all deliveries, collaboration, run
+        roots/continuations, journals, interactions, interim/final replies,
+        refs, refusal evidence, and live frames are committed and published only
+        in that worktree's conversation. ~main performs the same transfer to the
+        root conversation, while the source receives no copied transcript or
+        live stream. Local messages remain local, and malformed, mixed
+        local/foreign, or multiple-worktree targets fail before any room write,
+        delivery, or adapter turn.
       reason: A first-class worktree is an independent chat, not a runtime borrowed by
         another channel.
       depends_on:
@@ -110,11 +113,11 @@ assumptions:
       title: A qualified worktree turn uses one target-local transcript and runtime
       statement: >
         Once destination selection commits a qualified message in its target
-        conversation, admission must use that conversation's member row, cwd, native
-        session/session_ref, credential, adapter cache, tasks, wait/usage state,
-        meter, FIFO, journal, and live fanout exactly like an ordinary local turn;
-        equal handles in root and children remain isolated and restart cannot move or
-        duplicate any accepted work.
+        conversation, admission must use that conversation's member row, cwd,
+        native session/session_ref, credential, adapter cache, tasks, wait/usage
+        state, meter, FIFO, journal, and live fanout exactly like an ordinary
+        local turn; equal handles in root and children remain isolated and
+        restart cannot move or duplicate any accepted work.
       reason: Eliminating the split origin/target coordinate makes transcript and
         runtime ownership agree without weakening isolation.
       depends_on:
@@ -125,14 +128,16 @@ assumptions:
     - id: deterministic-branch-conversations-own-worktree-identity
       title: Registered branches deterministically own their child conversations
       statement: >
-        The root conversation remains main; each explicitly registered secondary gets
-        one RoomId deterministically derived from the root RoomId and its branch at
-        registration, and its room name is the exact current Git branch. The bounded
-        shorthand selector is derived from that branch and cannot be independently
-        edited. Discovery creates no room, re-adoption restores the same registered
-        identity, and direct/non-Git channels remain unchanged.
+        The root conversation remains main; each explicitly registered secondary
+        gets one RoomId deterministically derived from the root RoomId and its
+        branch at registration, and its room name is the exact current Git
+        branch. The bounded shorthand selector is derived from that branch and
+        cannot be independently edited. Discovery creates no room, re-adoption
+        restores the same registered identity, and direct/non-Git channels
+        remain unchanged.
       reason: Branches are the user-visible worktree identity and opaque ULID child
-        conversation ids or separately named aliases must not leak into operation.
+        conversation ids or separately named aliases must not leak into
+        operation.
       depends_on:
         - registered-worktree-identities-are-durable
         - worktree-discovery-never-registers-candidates
@@ -140,13 +145,14 @@ assumptions:
     - id: existing-worktree-records-repair-locally-once
       title: Unshipped worktree records repair idempotently without touching Git
       statement: >
-        Startup may perform one bounded local repair of existing secondary records
-        whose child RoomId or room name predates deterministic branch identity: it
-        must transactionally move every room-keyed database reference and the known
-        room-scoped journal/file directories to the deterministic id, keep stable
-        repository/worktree/member/message/run identities and ordering, preserve the
-        Git checkout path and branch byte-for-byte, fail closed on a conflicting
-        destination, and become a no-op on every later restart.
+        Startup may perform one bounded local repair of existing secondary
+        records whose child RoomId or room name predates deterministic branch
+        identity: it must transactionally move every room-keyed database
+        reference and the known room-scoped journal/file directories to the
+        deterministic id, keep stable repository/worktree/member/message/run
+        identities and ordering, preserve the Git checkout path and branch
+        byte-for-byte, fail closed on a conflicting destination, and become a
+        no-op on every later restart.
       reason: Only the records created during unshipped local testing need correction;
         broad compatibility machinery would add risk without product value.
       depends_on:
@@ -156,12 +162,12 @@ assumptions:
     - id: qualified-destination-refusals-are-atomic
       title: Qualified destination selection refuses atomically
       statement: >
-        Unknown, malformed, inactive, removed, or ambiguous worktree/member targets,
-        attachments or replies that cannot move safely, and recipient sets spanning a
-        local plus foreign destination or more than one worktree must return one
-        bounded actionable refusal before message-id allocation. They must never fall
-        back to a local/default recipient, partially fan out, create collaboration,
-        or start a session.
+        Unknown, malformed, inactive, removed, or ambiguous worktree/member
+        targets, attachments or replies that cannot move safely, and recipient
+        sets spanning a local plus foreign destination or more than one worktree
+        must return one bounded actionable refusal before message-id allocation.
+        They must never fall back to a local/default recipient, partially fan
+        out, create collaboration, or start a session.
       reason: A message cannot truthfully own more than one independent worktree
         conversation.
       depends_on:
@@ -171,13 +177,14 @@ assumptions:
     - id: agent-orchestration-is-repository-scoped
       title: Agent orchestration is restricted to active children in its repository
       statement: >
-        An authenticated agent remains bound to its own member credential and ordinary
-        room capabilities, and additionally may list/discover/create/adopt secondary
-        worktrees only in the registered repository containing its home conversation
-        and manage workers only in active secondary conversations under that same
-        root. It may never mutate a root member, cross a repository, unregister/remove
-        a worktree or filesystem checkout, raise policy/permissions, change
-        presets/default rosters, archive channels, or manage roles, devices, keys, or
+        An authenticated agent remains bound to its own member credential and
+        ordinary room capabilities, and additionally may
+        list/discover/create/adopt secondary worktrees only in the registered
+        repository containing its home conversation and manage workers only in
+        active secondary conversations under that same root. It may never mutate
+        a root member, cross a repository, unregister/remove a worktree or
+        filesystem checkout, raise policy/permissions, change presets/default
+        rosters, archive channels, or manage roles, devices, keys, or
         credentials; every denied act fails before mutation.
       reason: Agents need safe orchestration to create isolated workers, not general
         operator authority.
@@ -190,11 +197,12 @@ assumptions:
       statement: >
         The worktree CLI must create/adopt without a separate alias, select a
         registered child by exact branch or its deterministic shorthand, and let
-        agent management accept --channel <root> --worktree <branch-or-shorthand> so
-        every lifecycle request is sent to the actual child RoomId. It must preserve
-        literal paths/branches, correlated safe output, direct and hosted transport,
-        and destructive confirmations while never requiring an opaque wt id or
-        printing raw database, credential, native-session, or Git-admin details.
+        agent management accept --channel <root> --worktree
+        <branch-or-shorthand> so every lifecycle request is sent to the actual
+        child RoomId. It must preserve literal paths/branches, correlated safe
+        output, direct and hosted transport, and destructive confirmations while
+        never requiring an opaque wt id or printing raw database, credential,
+        native-session, or Git-admin details.
       reason: The CLI must expose the branch-centric orchestration workflow rather
         than persistence implementation details.
       depends_on:
@@ -206,12 +214,12 @@ assumptions:
     - id: repeated-child-agent-add-is-idempotent
       title: Repeated child-agent creation is idempotent and conflict-safe
       statement: >
-        Adding an agent handle to an active child must return the existing active
-        member without a second spawn when its requested public configuration agrees;
-        an incompatible existing member returns one bounded handle/worktree conflict
-        before native session or database mutation. SQLite diagnostics, credentials,
-        launch argv, and session references must never escape through REST, WebSocket,
-        or CLI output.
+        Adding an agent handle to an active child must return the existing
+        active member without a second spawn when its requested public
+        configuration agrees; an incompatible existing member returns one
+        bounded handle/worktree conflict before native session or database
+        mutation. SQLite diagnostics, credentials, launch argv, and session
+        references must never escape through REST, WebSocket, or CLI output.
       reason: Orchestration retries must converge instead of failing with persistence
         internals or spawning duplicate paid runtimes.
       depends_on:
@@ -221,12 +229,13 @@ assumptions:
     - id: held-recovery-runs-are-inactive-until-release
       title: Held recovery runs are terminal until an explicit release
       statement: >
-        When crash reconciliation parks an ambiguous delivery, its abandoned run must
-        immediately leave running state and stop contributing active/working status.
-        Boot and ordinary pumping must not revive it. Only release_hold may atomically
-        restore that exact held run and delivery attempt to running immediately before
-        the explicit retry, preserving its root, journal, attempt accounting, and
-        exactly-once evidence; a failed release leaves it inactive and held.
+        When crash reconciliation parks an ambiguous delivery, its abandoned run
+        must immediately leave running state and stop contributing
+        active/working status. Boot and ordinary pumping must not revive it.
+        Only release_hold may atomically restore that exact held run and
+        delivery attempt to running immediately before the explicit retry,
+        preserving its root, journal, attempt accounting, and exactly-once
+        evidence; a failed release leaves it inactive and held.
       reason: A parked crash must not look like live work, while explicit retry must
         continue the same durable attempt boundary.
       depends_on:
@@ -234,15 +243,16 @@ assumptions:
         - turns-reuse-one-root-and-append-output-messages
         - redeliver-interrupts-stranded-run
     - id: packed-management-workflow-persists-target-owned-worktree-turn
-      title: The installed management workflow survives restart with child-owned history
+      title: The installed management workflow survives restart with child-owned
+        history
       statement: >
-        The clean offline packed-install gate must use both local-socket and explicit
-        loopback transports to create the accepted channel, preset/roster, secondary
-        branch, and child agents, complete one qualified turn wholly inside the child
-        conversation, restart the same daemon, and prove durable branch-selected
-        worktree and target-owned transcript state without printing credentials,
-        private launches, native sessions, Git administrative ids, or mutating a real
-        checkout.
+        The clean offline packed-install gate must use both local-socket and
+        explicit loopback transports to create the accepted channel,
+        preset/roster, secondary branch, and child agents, complete one
+        qualified turn wholly inside the child conversation, restart the same
+        daemon, and prove durable branch-selected worktree and target-owned
+        transcript state without printing credentials, private launches, native
+        sessions, Git administrative ids, or mutating a real checkout.
       reason: The release artifact must exercise the corrected end-to-end workflow,
         not merely unit-level destination selection.
       depends_on:
@@ -254,11 +264,12 @@ assumptions:
     - id: qualified-cli-wait-follows-target-owned-conversation
       title: Qualified CLI waits follow the server-selected worktree conversation
       statement: >
-        After the server accepts one qualified destination, `post --wait` must switch
-        its observation to that authoritative conversation and complete only on the
-        exact addressed target-owned reply or accepted same-round peer completion;
-        local posts keep their current room, and malformed, stale, mixed, or ambiguous
-        intent refuses before waiting without client-side retargeting or fallback.
+        After the server accepts one qualified destination, `post --wait` must
+        switch its observation to that authoritative conversation and complete
+        only on the exact addressed target-owned reply or accepted same-round
+        peer completion; local posts keep their current room, and malformed,
+        stale, mixed, or ambiguous intent refuses before waiting without
+        client-side retargeting or fallback.
       reason: A wait cannot observe a response that correctly never streams into the
         source conversation.
       depends_on:
@@ -269,14 +280,15 @@ assumptions:
     - id: target-owned-qualified-execution-requires-usable-checkout
       title: Target-owned qualified execution requires one usable checkout
       statement: >
-        A target-owned qualified delivery may start, recover, retry, or redeliver only
-        while its stable repository, worktree, conversation, and member identities
-        match an active registration whose last reconciled availability is available
-        or locked; missing, prunable, unregistered, removed, cross-repository, or
-        removed-member targets must settle visibly in that target conversation without
-        adapter execution, local fallback, evidence loss, or resurrection.
-      reason: Transcript ownership changes the settlement room, not the checkout safety
-        gate.
+        A target-owned qualified delivery may start, recover, retry, or
+        redeliver only while its stable repository, worktree, conversation, and
+        member identities match an active registration whose last reconciled
+        availability is available or locked; missing, prunable, unregistered,
+        removed, cross-repository, or removed-member targets must settle visibly
+        in that target conversation without adapter execution, local fallback,
+        evidence loss, or resurrection.
+      reason: Transcript ownership changes the settlement room, not the checkout
+        safety gate.
       depends_on:
         - target-worktree-owns-qualified-conversation
         - qualified-destination-refusals-are-atomic
@@ -286,8 +298,8 @@ assumptions:
     - id: qualified-member-target-identity-is-durable
       outcome: unchanged
       reason: Accepted mentions still persist stable worktree, conversation, and
-        member ids; destination selection consumes those ids rather than mutable Git
-        discovery or handle inference.
+        member ids; destination selection consumes those ids rather than mutable
+        Git discovery or handle inference.
     - id: registered-worktree-identities-are-durable
       outcome: unchanged
       reason: Stable repository/worktree ids and lifecycle tombstones remain; only the
@@ -330,7 +342,8 @@ assumptions:
     - id: roles-gate-human-acts-not-agents
       outcome: unchanged
       reason: Human role ranking and every human-only destructive/global capability
-        remain unchanged; the agent matrix gets an explicit repository-scoped path.
+        remain unchanged; the agent matrix gets an explicit repository-scoped
+        path.
     - id: agent-member-credentials-stay-secret
       outcome: unchanged
       reason: Orchestration reuses the calling member principal and never exposes or
@@ -352,8 +365,8 @@ assumptions:
         environment; no operator token is introduced.
     - id: main-and-direct-conversations-stay-compatible
       outcome: unchanged
-      reason: Main retains its existing room and ordinary channels without a registered
-        secondary preserve the selector-less path.
+      reason: Main retains its existing room and ordinary channels without a
+        registered secondary preserve the selector-less path.
     - id: registered-worktree-navigation-is-promotion-gated
       outcome: unchanged
       reason: UI navigation is Phase 2; its current promotion gating and hidden child
@@ -676,7 +689,8 @@ anchors:
     deterministic-worktree-conversation-regression:
       action: change
       reason: Prove deterministic ids across reopen/re-adopt, exact branch room names,
-        selector collisions, discovery neutrality, and direct/main compatibility.
+        selector collisions, discovery neutrality, and direct/main
+        compatibility.
   existing-worktree-records-repair-locally-once:
     local-worktree-record-repair:
       action: change
@@ -757,7 +771,8 @@ anchors:
   registered-worktree-identities-are-durable:
     worktree-protocol-regression:
       action: change
-      reason: Preserve stable repository/worktree records while request input drops aliases.
+      reason: Preserve stable repository/worktree records while request input drops
+        aliases.
     worktree-store-schema:
       action: change
       reason: Add the narrow deterministic-conversation repair bookkeeping without
@@ -802,10 +817,12 @@ anchors:
   worktree-cli-removal-requires-previewed-consent:
     worktree-removal-command-confirmation:
       action: change
-      reason: Resolve by branch/shorthand before the unchanged preview and confirmation.
+      reason: Resolve by branch/shorthand before the unchanged preview and
+        confirmation.
     worktree-removal-confirmation-regression:
       action: change
-      reason: Update selectors while preserving fresh-preview consent and refusal tests.
+      reason: Update selectors while preserving fresh-preview consent and refusal
+        tests.
   structured-management-help-and-docs-are-complete:
     management-help-metadata:
       action: change
@@ -821,7 +838,8 @@ anchors:
   worktree-lifecycle-preserves-existing-state-by-default:
     worktree-lifecycle-daemon-boundary:
       action: change
-      reason: Remove alias input while keeping child creation roster-neutral by default.
+      reason: Remove alias input while keeping child creation roster-neutral by
+        default.
     worktree-root-neutral-regression:
       action: change
       reason: Update branch identity expectations without changing root state.
@@ -898,8 +916,9 @@ files:
   - scripts/packed-install-test.sh
 verification: >
   Run Harn plan/check/apply and staged validation; protocol, switchboard,
-  authorization, store, routing, daemon, server, worktree-manager, and CLI focused
-  tests; complete protocol, switchboard, and CLI suites; recursive affected builds;
-  packed direct/hosted management smoke where already available; deterministic
-  restart/local-repair fixtures with unchanged Git worktree inventories; and git diff
-  --check. Record exact counts and leave one clean implementation commit.
+  authorization, store, routing, daemon, server, worktree-manager, and CLI
+  focused tests; complete protocol, switchboard, and CLI suites; recursive
+  affected builds; packed direct/hosted management smoke where already
+  available; deterministic restart/local-repair fixtures with unchanged Git
+  worktree inventories; and git diff --check. Record exact counts and leave one
+  clean implementation commit.
