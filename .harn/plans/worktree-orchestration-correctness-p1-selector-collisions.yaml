@@ -1,0 +1,44 @@
+id: worktree-orchestration-correctness-p1-selector-collisions
+title: Make lossy branch selectors collision-safe
+notes: >
+  Final contained Phase 1 review correction only. Preserve clean short branch
+  selectors exactly, but append a deterministic short digest whenever deriving
+  the bounded selector lowercases, normalizes, or truncates the full branch.
+  Exact branch selection remains authoritative. Prove slash-versus-dash, case,
+  and long-prefix branches produce distinct selectors and coexist in one
+  registered repository. Update only the installed packed proof's derived
+  shorthand; no UI, relay, migration, routing, authorization, or Phase 2 work.
+assumptions:
+  reviewed:
+    - id: readable-branch-conversations-own-worktree-identity
+      outcome: unchanged
+      reason: The existing truth already requires a digest for lossy or truncated
+        selectors; this correction makes the helper and regressions fulfill it.
+    - id: registered-worktree-identities-are-durable
+      outcome: unchanged
+      reason: Distinct valid branches must continue to register as distinct durable
+        records without changing repository or worktree identity semantics.
+    - id: packed-management-workflow-persists-target-owned-worktree-turn
+      outcome: unchanged
+      reason: The installed journey remains target-owned and now addresses the child
+        through the corrected derived shorthand.
+anchors:
+  readable-branch-conversations-own-worktree-identity:
+    readable-worktree-conversation-regression:
+      action: change
+      reason: Prove safe selectors stay clean while every lossy or truncated variant
+        gains a deterministic distinguishing digest and can coexist.
+  registered-worktree-identities-are-durable:
+    worktree-protocol-regression:
+      action: change
+      reason: The nested protocol regression adds selector collision coverage without
+        changing durable identity shapes.
+  packed-management-workflow-persists-target-owned-worktree-turn:
+    packed-target-owned-management-workflow:
+      action: change
+      reason: Parse and use the corrected derived shorthand in the packed npx journey.
+files:
+  - packages/protocol/src/worktree.ts
+  - packages/protocol/src/worktree.spec.ts
+  - packages/switchboard/src/store.spec.ts
+  - scripts/packed-worktree-proof.sh
