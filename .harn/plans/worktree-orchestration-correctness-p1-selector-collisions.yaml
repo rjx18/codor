@@ -22,6 +22,10 @@ assumptions:
       outcome: unchanged
       reason: The installed journey remains target-owned and now addresses the child
         through the corrected derived shorthand.
+    - id: worktree-discovery-never-registers-candidates
+      outcome: unchanged
+      reason: Discovery remains read-only and registration-neutral; the selector
+        expectation merely crosses its enclosing protocol regression.
 anchors:
   readable-branch-conversations-own-worktree-identity:
     readable-worktree-conversation-regression:
@@ -37,6 +41,10 @@ anchors:
     packed-target-owned-management-workflow:
       action: change
       reason: Parse and use the corrected derived shorthand in the packed npx journey.
+  worktree-discovery-never-registers-candidates:
+    worktree-discovery-regression:
+      action: change
+      reason: Update the nested selector expectation without changing discovery behavior.
 files:
   - packages/protocol/src/worktree.ts
   - packages/protocol/src/worktree.spec.ts
