@@ -1,0 +1,91 @@
+id: worktree-ui-tail-acceptance-fixes
+title: Finish branch-only worktree lifecycle UI and synchronous tail following
+notes: >
+  Correct two release-blocking acceptance gaps without changing the worktree
+  registry, Git lifecycle, relay protocol, or transcript history. The browser
+  must stop asking for or offering editable worktree aliases now that full Git
+  branch identity is authoritative. Composer height changes must synchronously
+  notify the transcript's existing geometry owner so a pinned reader never
+  paints above the tail. Preserve every destructive confirmation, roster choice,
+  draft/error recovery path, unpinned reader position, and mobile behavior.
+assumptions:
+  retire:
+    - id: worktree-lifecycle-ui-is-explicit-and-recoverable
+      reason: Its Create/Find/Rename alias UI contradicts the accepted branch-owned identity contract.
+  create:
+    - id: worktree-lifecycle-ui-follows-branch-identity
+      title: Worktree lifecycle UI uses the Git branch as its only name
+      statement: >
+        Only an authorized human may see lifecycle controls; Find must discover
+        on explicit open and adopt one selected branch without a second name,
+        Create must collect only the new branch, missing absolute target, and
+        optional roster, and Manage must identify the child by exact branch and
+        offer only distinct unregister and preview-gated filesystem removal
+        acts. Errors preserve drafts and selection, removal keeps its fresh
+        safety checks and confirmations, and every surface remains keyboard-,
+        focus-, phone-, direct-, and relay-transport accessible.
+      reason: The shipped branch-owned identity must have one matching lifecycle UI with no obsolete editable display name.
+      depends_on:
+        - readable-branch-conversations-own-worktree-identity
+        - worktree-discovery-never-registers-candidates
+        - branch-worktree-creation-registers-only-its-result
+        - worktree-removal-is-clean-and-branch-preserving
+        - registered-worktree-navigation-is-promotion-gated
+  reviewed:
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: fixed
+      reason: Composer height changes currently expose one painted frame above the tail before the observer corrects it.
+    - id: readable-branch-conversations-own-worktree-identity
+      outcome: unchanged
+      reason: The server already ignores compatibility aliases and derives identity from the exact full branch.
+    - id: worktree-child-default-roster-is-an-explicit-snapshot
+      outcome: unchanged
+      reason: Create retains the same explicit optional roster choice and child-only semantics.
+    - id: child-files-voice-and-keys-are-isolated
+      outcome: unchanged
+      reason: Lifecycle UI corrections do not change child key, file, voice, or room ownership.
+    - id: native-worktree-rail-is-axe-valid
+      outcome: unchanged
+      reason: The rail list ownership, contrast, focus, and accessible status semantics remain unchanged.
+anchors:
+  worktree-lifecycle-ui-is-explicit-and-recoverable:
+    worktree-lifecycle-dialogs:
+      action: change
+      reason: Remove create/adopt alias fields and the child rename act while preserving unregister/removal.
+    worktree-lifecycle-unit-regression:
+      action: change
+      reason: Replace alias-oriented component expectations with branch-only lifecycle coverage.
+    worktree-lifecycle-browser-regression:
+      action: change
+      reason: Exercise branch-owned adoption, creation, management, roster, and removal end to end.
+  worktree-lifecycle-ui-follows-branch-identity:
+    worktree-lifecycle-dialogs:
+      action: change
+      reason: The replacement lifecycle contract owns the simplified dialogs.
+    worktree-lifecycle-unit-regression:
+      action: change
+      reason: The replacement contract owns branch-only component coverage.
+    worktree-lifecycle-browser-regression:
+      action: change
+      reason: The replacement contract owns the lifecycle browser journey.
+  transcript-tail-follow-has-one-prepaint-owner:
+    transcript-prepaint-geometry:
+      action: change
+      reason: Reconcile a synchronous composer geometry signal in the existing transcript owner.
+    transcript-prepaint-geometry-regression:
+      action: change
+      reason: Keep the frame-by-frame pinned-tail assertion as the browser acceptance gate.
+files:
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+  - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
+verification: >
+  Run Harn plan/check/staged/apply, focused WorktreeGroup units, all web units,
+  the production/PWA build, Rooms 36, 40, and 41, then the complete isolated
+  browser suite before resuming the alpha release. Prove create/adopt send no
+  alias, no rename control remains, every row/dialog displays the exact branch,
+  destructive lifecycle behavior is unchanged, and the pinned tail stays within
+  two pixels through multiline composer growth and shrink.
