@@ -1,0 +1,149 @@
+id: worktree-delivery-composer-p1-rail-menu
+title: Compact worktree rows and replace Manage modal with an anchored menu
+notes: >
+  Implement only Phase 1 of the approved worktree delivery/composer polish
+  plan. Each registered child remains nested under its public root and uses its
+  exact Git branch as the sole visible name. Collapse the row to one line:
+  branch glyph plus branch while idle, the existing animated green dots in the
+  glyph slot while working, the existing unread badge, and an adjacent
+  three-dot management trigger in a reserved column. Remove the normal visible
+  connection dot and all second-line status presentation while retaining
+  truthful state in accessible names/titles. Replace only the child Manage
+  modal with an anchored dropdown whose unregister and preview-gated removal
+  confirmations/errors remain inside the dropdown. Create and Find dialogs,
+  routing, registration, Git safety, authorization, transport, database, and
+  protocol behavior remain unchanged.
+assumptions:
+  retire:
+    - id: worktree-rail-uses-branch-only-compact-status
+      reason: Its requirement to visibly represent ordinary connection/activity
+        state conflicts with the approved one-line row and removal of the green
+        connection marker.
+  create:
+    - id: worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
+      title: Worktree rows are one line and working replaces the branch glyph
+      statement: >
+        Every active secondary must remain a direct nested row whose only
+        visible name is its exact Git branch; idle rows show a branch glyph,
+        working rows replace that glyph with compact animated green dots, and
+        ordinary connection state consumes no visible marker or second line.
+        Unread state and exceptional truth remain available without obscuring
+        the branch, and an authorized adjacent three-dot trigger owns a
+        keyboard- and phone-accessible dropdown for distinct unregister and
+        fresh-preview-gated filesystem removal confirmations without a modal.
+      reason: The shipped row duplicates activity, spends space on a useless
+        connected dot, and lets an absolutely positioned Manage label overlap
+        long branches.
+      depends_on:
+        - worktree-conversation-status-is-live-and-independent
+        - native-worktree-rail-is-axe-valid
+        - worktree-lifecycle-ui-follows-branch-identity
+        - registered-worktree-navigation-is-promotion-gated
+  reviewed:
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Every child remains subscribed and derives the same isolated
+        readiness, working, attention, unread, and Git state; only ordinary
+        visible status chrome is removed.
+    - id: native-worktree-rail-is-axe-valid
+      outcome: unchanged
+      reason: Direct ul/li ownership, the adjacent authorized control, AA label
+        contrast, focus, and phone operability remain required.
+    - id: worktree-lifecycle-ui-follows-branch-identity
+      outcome: fixed
+      reason: The same two lifecycle acts, safety preview, confirmations, and
+        errors move from an oversized modal into the requested anchored menu.
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: Promotion, nesting, selection, stable URLs, and fallback behavior
+        are untouched.
+    - id: worktree-child-conversations-stay-nested-and-isolated
+      outcome: unchanged
+      reason: Root, child, and sibling transcripts and summaries remain keyed
+        by their exact existing conversation identities.
+anchors:
+  worktree-rail-uses-branch-only-compact-status:
+    worktree-branch-status-row:
+      action: change
+      reason: Replace the two-line indicators with the one-line glyph/dots row.
+    worktree-branch-status-unit-regression:
+      action: change
+      reason: Assert idle and working glyph replacement and no normal green dot.
+    worktree-branch-status-style:
+      action: change
+      reason: Reserve the menu column and remove second-line status geometry.
+    worktree-branch-status-browser-regression:
+      action: change
+      reason: Exercise one-line idle/working state in the real nested rail.
+  worktree-rail-is-one-line-and-working-replaces-the-branch-glyph:
+    worktree-one-line-row:
+      action: change
+      reason: Own the new row and menu composition.
+    worktree-one-line-unit-regression:
+      action: change
+      reason: Cover glyph replacement, exact branch, unread, and menu states.
+    worktree-one-line-style:
+      action: change
+      reason: Own collision-free desktop and phone geometry.
+    worktree-one-line-browser-regression:
+      action: change
+      reason: Cover the accepted journey and accessibility in Chromium.
+  worktree-lifecycle-ui-follows-branch-identity:
+    worktree-lifecycle-dialogs:
+      action: change
+      reason: Remove only the child modal and retain its acts inside the menu.
+    worktree-lifecycle-unit-regression:
+      action: change
+      reason: Move lifecycle confirmation/error coverage to the menu.
+    worktree-lifecycle-browser-regression:
+      action: change
+      reason: Prove unregister and safe removal without a dialog.
+  registered-worktree-navigation-is-promotion-gated:
+    worktree-group-navigation:
+      action: change
+      reason: Child row composition changes inside the existing projection.
+    worktree-group-unit-regression:
+      action: change
+      reason: Update the existing nested navigation component expectations.
+    worktree-group-browser-regression:
+      action: change
+      reason: Keep selection and exact links green with the new row.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-conversation-status-model:
+      action: change
+      reason: Preserve the derivation while projecting working into the icon slot.
+    worktree-status-browser-regression:
+      action: change
+      reason: Verify recovery state does not remove or duplicate child rows.
+  native-worktree-rail-is-axe-valid:
+    worktree-rail-dom-semantics:
+      action: change
+      reason: The adjacent Manage control becomes an adjacent menu trigger.
+    worktree-rail-browser-a11y:
+      action: change
+      reason: Exercise list/menu semantics and focus in both themes and on phone.
+  worktree-child-conversations-stay-nested-and-isolated:
+    worktree-nested-row-navigation:
+      action: change
+      reason: Keep the link isolated while its adjacent presentation changes.
+    worktree-nested-row-unit-regression:
+      action: change
+      reason: Preserve two-child isolation in the updated component suite.
+    worktree-nested-row-browser-regression:
+      action: change
+      reason: Preserve nested-only rendering and transcript isolation.
+files:
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
+verification: >
+  Check and clean-lock this plan before source edits. Run focused WorktreeGroup
+  units, all web units, the production/PWA build, exact Rooms 40 and 41, desktop
+  and 390px light/dark Axe, Harn working/staged checks and apply, and git diff
+  checks. Prove exact branch-only naming, branch-glyph idle, dots-glyph working,
+  no visible connection dot or status line, no overlap, dropdown Escape/outside
+  close with focus return, and unchanged unregister/removal safety. Create one
+  implementation commit and do not start Phase 2, push, deploy, or publish.
