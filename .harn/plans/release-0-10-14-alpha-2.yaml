@@ -1,0 +1,133 @@
+id: release-0-10-14-alpha-2
+title: Publish computer and transcript polish as alpha 0.10.14-alpha.2
+notes: >
+  Advance the reviewed alpha tree from 0.10.14-alpha.1 to the unique
+  0.10.14-alpha.2 release identity. Change no runtime behavior, package
+  composition, install behavior, workflow policy, release permissions, npm
+  latest tag, or production deployment. Push the release commit only to the
+  curated alpha branch; after alpha CI passes, push signed
+  v0.10.14-alpha.2 so the existing release workflow publishes npm dist-tag
+  alpha and a GitHub prerelease. This release contains the worktree rail and
+  menu polish, computer avatar rail, composer geometry fix, destination-bound
+  history refresh, and visible-boundary transcript grouping correction.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: installed-or-published-release-artifacts-are-version-immutable
+      outcome: unchanged
+      reason: Published alpha.1 bytes remain immutable, so this release uses the
+        unused 0.10.14-alpha.2 identity.
+    - id: release-candidate-requires-publishable-install-tarball
+      outcome: unchanged
+      reason: Existing exact-candidate and packed-install proofs remain mandatory.
+    - id: github-tags-publish-numbered-semver-alpha-or-stable-release
+      outcome: unchanged
+      reason: The existing alpha-contained signed-tag workflow remains the only
+        publisher and retains npm OIDC provenance.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: Only the common version advances; bundled runtime composition is
+        unchanged.
+    - id: public-npx-install-is-primary-install
+      outcome: unchanged
+      reason: Operators can install this candidate through the public npm alpha tag.
+    - id: vscode-copilot-bridge-is-manual-local-and-credential-private
+      outcome: unchanged
+      reason: The companion VSIX remains manual and credential-private; only its
+        release identity advances.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: ACP behavior is unchanged; clientInfo reports the common
+        0.10.14-alpha.2 identity.
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: Recursive build, serialized tests, browser tests, audits, and install
+        proofs remain mandatory.
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: The dry-run snapshot changes only its expected common release identity.
+    - id: platform-services-propagate-destination-pnpm-node-path
+      outcome: unchanged
+      reason: Linux and macOS service fixtures change only their selected release
+        identity.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Private service rendering and lifecycle behavior are unchanged.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: Readiness fixtures report 0.10.14-alpha.2; verification behavior is
+        unchanged.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: The monolithic CLI regression crosses this boundary, but archive
+        behavior and expectations are unchanged.
+anchors:
+  installed-or-published-release-artifacts-are-version-immutable:
+    replaceable-preinstall-release-audit:
+      action: change
+      reason: Advance the exact immutable release candidate to 0.10.14-alpha.2.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Advance only ACP initialize clientInfo to 0.10.14-alpha.2.
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-regression:
+      action: change
+      reason: Advance only the expected release identity in the dry-run snapshot.
+  platform-services-propagate-destination-pnpm-node-path:
+    node-path-systemd-regression:
+      action: change
+      reason: Advance only the Linux selected-runtime fixture identity.
+    node-path-launchd-regression:
+      action: change
+      reason: Advance only the macOS selected-runtime fixture identity.
+  setup-preserves-private-platform-service:
+    setup-platform-service-regression:
+      action: change
+      reason: Permit the nested platform fixture identity update without changing
+        behavior.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: Permit the nested readiness fixture identity update without changing
+        behavior.
+  channel-archive-requires-explicit-confirmation:
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Permit the enclosing CLI fixture update without changing archive
+        behavior.
+files:
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/copilot/vscode-extension/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/cli/src/index.spec.ts
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - scripts/release-audit.mjs
+  - website/package.json
+verification: >
+  Verify every tracked non-legacy package manifest is exactly
+  0.10.14-alpha.2 and the explicit legacy manifests remain exempt. Run
+  recursive build, serialized workspace tests, complete browser suite,
+  release/license audits, deployment decision tests, artifact build and
+  inspection, and packed npx proof. Run Harn and diff checks. Push only to
+  origin/alpha, require alpha CI green, create and push signed tag
+  v0.10.14-alpha.2, require the release workflow green, then verify npm alpha,
+  GitHub prerelease assets and checksums, public npx metadata, and install the
+  exact alpha on this machine. Do not move npm latest, push main, or deploy
+  production.
