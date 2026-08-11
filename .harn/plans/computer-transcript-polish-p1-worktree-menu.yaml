@@ -1,0 +1,126 @@
+id: computer-transcript-polish-p1-worktree-menu
+title: Viewport-safe worktree action menu
+notes: >
+  Implement only Phase 1 of the computer transcript polish plan on the clean
+  8f6c70d base. Move the existing child management menu to a body portal and
+  position it with fixed geometry that remains inside the viewport on desktop,
+  short-height, and phone layouts. Preserve the menu's existing lifecycle
+  actions, preview and confirmation states, focus restoration, keyboard and
+  outside-click behavior, and accessibility. Do not change worktree lifecycle,
+  authorization, Git, routing, transport, database, or protocol behavior.
+assumptions:
+  create:
+    - id: worktree-child-menu-is-portal-and-viewport-bounded
+      title: Worktree child menus escape the rail and stay inside the viewport
+      statement: >
+        An authorized child worktree management menu must render outside the
+        clipped rail container, use fixed geometry anchored to its three-dot
+        trigger, and clamp or flip itself so its complete bounding box remains
+        within the current viewport on desktop, short-height, and 390px phone
+        layouts. Tall menu content may scroll internally. Portal placement and
+        repositioning must preserve the existing menu actions, focus return,
+        Escape/outside close, lifecycle confirmations, and light/dark Axe
+        semantics without creating another scroll owner or changing behavior.
+      reason: >
+        The rail intentionally clips its contents and the existing absolute menu
+        is therefore cut off at the rail boundary; positioning the same menu at
+        the document body is the smallest presentation correction.
+      depends_on:
+        - worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
+        - native-worktree-rail-is-axe-valid
+        - worktree-lifecycle-ui-follows-branch-identity
+  reviewed:
+    - id: worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
+      outcome: unchanged
+      reason: The existing one-line branch row, working dots, unread badge, and
+        adjacent trigger remain unchanged apart from menu placement.
+    - id: native-worktree-rail-is-axe-valid
+      outcome: unchanged
+      reason: The ul/li ownership, accessible trigger, menu semantics, theme contrast,
+        and phone targets remain required.
+    - id: worktree-lifecycle-ui-follows-branch-identity
+      outcome: unchanged
+      reason: Unregister, preview-gated removal, confirmations, errors, and focus
+        behavior remain the same acts.
+    - id: worktree-child-conversations-stay-nested-and-isolated
+      outcome: unchanged
+      reason: Portal presentation does not alter child conversation identity, nesting,
+        selection, or transcript isolation.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: The menu does not change subscriptions or per-child status derivation.
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: Promotion, ordering, selection, URLs, and fallback behavior remain
+        outside this presentation phase.
+anchors:
+  worktree-child-menu-is-portal-and-viewport-bounded:
+    worktree-menu-portal-positioning:
+      action: change
+      reason: Own the body portal, trigger anchoring, fixed position calculation, and
+        viewport clamp/flip logic.
+    worktree-menu-viewport-unit-regression:
+      action: change
+      reason: Prove the menu remains portal-rendered and its positioning state is
+        recalculated without changing lifecycle actions.
+    worktree-menu-viewport-browser-regression:
+      action: change
+      reason: Prove desktop, short-height, and 390px bounding boxes, internal
+        scrolling, close behavior, and focus return in Chromium.
+  worktree-rail-is-one-line-and-working-replaces-the-branch-glyph:
+    worktree-one-line-row:
+      action: change
+      reason: Pass the existing trigger anchor into the portal menu without changing
+        the row's branch-only presentation.
+    worktree-one-line-unit-regression:
+      action: change
+      reason: Retain unit coverage for the adjacent trigger and menu lifecycle while
+        the menu is portaled.
+    worktree-one-line-style:
+      action: change
+      reason: Replace rail-relative absolute positioning with fixed portal geometry
+        and viewport-safe sizing.
+    worktree-one-line-browser-regression:
+      action: change
+      reason: Extend the existing rail journey with viewport geometry and clipping
+        assertions.
+  native-worktree-rail-is-axe-valid:
+    worktree-rail-dom-semantics:
+      action: change
+      reason: Keep the menu trigger controls and body-portal menu in a valid
+        accessible relationship.
+    worktree-rail-browser-a11y:
+      action: change
+      reason: Run Axe against the nested rail and the portaled open menu in both
+        themes.
+  worktree-lifecycle-ui-follows-branch-identity:
+    worktree-lifecycle-dialogs:
+      action: change
+      reason: Preserve the existing menu lifecycle state machine while moving its DOM
+        outside the rail.
+    worktree-lifecycle-unit-regression:
+      action: change
+      reason: Keep confirmation, preview, error, retry, and focus behavior covered by
+        component tests.
+    worktree-lifecycle-browser-regression:
+      action: change
+      reason: Keep unregister/removal journeys and phone Escape/focus behavior covered
+        after portaling.
+files:
+  - packages/web-next/src/room/WorktreeGroup.tsx
+  - packages/web-next/src/room/WorktreeGroup.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
+verification: >
+  Before editing, run harn find for every reviewed assumption and declared file,
+  check and clean-lock this plan from the exact 8f6c70d base. Run focused
+  WorktreeGroup units, all web-next units, the production/PWA build, Rooms 40
+  and 41, desktop/short/390px viewport assertions, and light/dark Axe coverage.
+  Run harn find --changed, harn check, harn apply, harn check --staged, and git
+  diff --check. Stage only this plan, the five declared files, and generated
+  assumption truth; create exactly one implementation commit and leave the
+  worktree clean. Do not start Phase 2, push, deploy, publish, or alter
+  lifecycle, relay, server, database, or protocol behavior.
+applied:
+  applied_at: 2026-08-11T12:04:23.126Z

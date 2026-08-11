@@ -300,6 +300,7 @@ test.describe('native worktree group navigation', () => {
   });
 
   // harn:assume worktree-rail-is-one-line-and-working-replaces-the-branch-glyph ref=worktree-one-line-browser-regression
+  // harn:assume worktree-child-menu-is-portal-and-viewport-bounded ref=worktree-menu-viewport-browser-regression
   test('fits the 390px channel surface and keeps the dropdown focus-safe', async ({ page }) => {
     const childId = await reviewChildId(page);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -329,6 +330,19 @@ test.describe('native worktree group navigation', () => {
     await trigger.click();
     const menu = page.getByTestId(`worktree-menu-${childId}`);
     await expect(menu).toBeVisible();
+    const assertMenuInViewport = async (): Promise<void> => {
+      const box = await menu.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual((await page.evaluate(() => innerWidth)));
+      expect(box!.y + box!.height).toBeLessThanOrEqual((await page.evaluate(() => innerHeight)));
+      expect(await menu.evaluate((element) => ({
+        position: getComputedStyle(element).position,
+        inBody: element.parentElement === document.body,
+      }))).toEqual({ position: 'fixed', inBody: true });
+    };
+    await assertMenuInViewport();
     await expect(menu.locator(':focus')).toHaveCount(1);
     await page.keyboard.press('Escape');
     await expect(menu).toHaveCount(0);
@@ -337,10 +351,33 @@ test.describe('native worktree group navigation', () => {
     // Outside pointerdown closes the same popup and restores focus.
     await trigger.click();
     await expect(menu).toBeVisible();
-    await menu.locator('xpath=ancestor::section[@data-testid="worktree-group"]')
-      .locator('.nx-wt-group-label').click();
+    await assertMenuInViewport();
+    await page.getByTestId('worktree-group').locator('.nx-wt-group-label').click();
     await expect(menu).toHaveCount(0);
     await expect(trigger).toBeFocused();
+
+    // The same fixed menu flips/clamps in a short desktop viewport, not just
+    // on the phone rail. The menu remains the only scroll owner for its body.
+    await page.setViewportSize({ width: 1440, height: 240 });
+    await trigger.click();
+    await expect(menu).toBeVisible();
+    await assertMenuInViewport();
+    const shortGeometry = await menu.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      maxHeight: getComputedStyle(element).maxHeight,
+    }));
+    expect(shortGeometry.clientHeight).toBeLessThanOrEqual(224);
+    expect(shortGeometry.scrollHeight).toBeGreaterThanOrEqual(shortGeometry.clientHeight);
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+
+    // Restore a normal desktop viewport and prove the portal remains bounded.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await trigger.click();
+    await expect(menu).toBeVisible();
+    await assertMenuInViewport();
+    await page.keyboard.press('Escape');
   });
   // harn:end worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
 });
@@ -376,9 +413,13 @@ test.describe('native worktree rail accessibility', () => {
 
     const trigger = group.getByTestId(/worktree-menu-trigger-/).first();
     await trigger.click();
-    const menu = group.locator('[role="menu"]');
+    const menu = page.locator('[role="menu"][data-testid^="worktree-menu-"]').first();
     await expect(menu).toBeVisible();
-    const { violations } = await new AxeBuilder({ page }).include('[data-testid="worktree-group"]').analyze();
+    const menuTestId = await menu.getAttribute('data-testid');
+    expect(menuTestId).toBeTruthy();
+    const { violations } = await new AxeBuilder({ page })
+      .include(`[data-testid="${menuTestId}"]`)
+      .analyze();
     expect(violations.map((violation) => violation.id), 'open dropdown').toEqual([]);
   });
 });

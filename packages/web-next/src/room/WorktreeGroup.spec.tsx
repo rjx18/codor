@@ -342,6 +342,26 @@ describe('native worktree rail accessibility structure', () => {
 
 // harn:assume worktree-lifecycle-ui-follows-branch-identity ref=worktree-lifecycle-unit-regression
 describe('worktree lifecycle dialogs', () => {
+  // harn:assume worktree-child-menu-is-portal-and-viewport-bounded ref=worktree-menu-viewport-unit-regression
+  it('portals the child menu without changing its menu semantics', async () => {
+    await mount(
+      <WorktreeChildMenu
+        root="eng"
+        token={() => 'token'}
+        child={ALPHA}
+        onClose={() => undefined}
+        onChanged={() => undefined}
+        onRemoved={() => undefined}
+      />,
+    );
+    const menu = byTestId(`worktree-menu-${ALPHA.id}`);
+    expect(menu).not.toBeNull();
+    expect(host.querySelector(`[data-testid="worktree-menu-${ALPHA.id}"]`)).toBeNull();
+    expect(menu?.parentElement).toBe(document.body);
+    expect(menu?.getAttribute('role')).toBe('menu');
+    expect(menu?.textContent).toContain(ALPHA.branch);
+  });
+
   it('discovers only after Find opens and requires one selected candidate', async () => {
     expect(api.discoverWorktrees).not.toHaveBeenCalled();
     api.discoverWorktrees.mockResolvedValue({

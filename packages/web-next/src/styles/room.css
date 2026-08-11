@@ -3884,15 +3884,15 @@
   color: var(--c-ink);
 }
 
+/* harn:assume worktree-child-menu-is-portal-and-viewport-bounded ref=worktree-menu-portal-positioning */
 .nx-wt-menu {
-  position: absolute;
+  position: fixed;
   z-index: 30;
-  top: calc(100% - 2px);
-  inset-inline-end: 4px;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: min(300px, calc(100vw - 24px));
+  width: min(300px, calc(100vw - 16px));
   max-height: min(70vh, 420px);
   padding: 10px;
   overflow-y: auto;
@@ -3973,8 +3973,7 @@
 @media (max-width: 719px) {
   .nx-wt-row { padding-left: 10px; }
   .nx-wt-menu {
-    inset-inline-end: 4px;
-    width: min(300px, calc(100vw - 32px));
+    width: min(300px, calc(100vw - 16px));
   }
 }
 /* harn:end worktree-rail-is-one-line-and-working-replaces-the-branch-glyph */

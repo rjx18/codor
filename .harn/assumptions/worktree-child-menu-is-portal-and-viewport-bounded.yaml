@@ -1,0 +1,18 @@
+id: worktree-child-menu-is-portal-and-viewport-bounded
+hash: a-ce33a5173db9
+title: Worktree child menus escape the rail and stay inside the viewport
+state: active
+statement: >
+  An authorized child worktree management menu must render outside the clipped
+  rail container, use fixed geometry anchored to its three-dot trigger, and
+  clamp or flip itself so its complete bounding box remains within the current
+  viewport on desktop, short-height, and 390px phone layouts. Tall menu content
+  may scroll internally. Portal placement and repositioning must preserve the
+  existing menu actions, focus return, Escape/outside close, lifecycle
+  confirmations, and light/dark Axe semantics without creating another scroll
+  owner or changing behavior.
+depends_on:
+  - worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
+  - native-worktree-rail-is-axe-valid
+  - worktree-lifecycle-ui-follows-branch-identity
+created_by: computer-transcript-polish-p1-worktree-menu

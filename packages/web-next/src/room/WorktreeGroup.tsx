@@ -5,7 +5,8 @@
 // discovery lives behind the explicit Find dialog.
 import type { RegisteredWorktree, WorktreeDiscoveryCandidate, WorktreeRemovalPreviewResponse } from '@codor/protocol';
 import { GitBranch, MoreVertical, Plus, RefreshCw, Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
   adoptWorktree,
@@ -263,6 +264,7 @@ export function WorktreeGroupSection(props: {
                     root={props.root}
                     token={props.token}
                     child={worktree}
+                    anchor={triggerRefs.current[worktree.id]}
                     onClose={() => closeMenu(worktree.id)}
                     onChanged={() => {
                       props.onChildChanged?.();
@@ -487,12 +489,14 @@ export function WorktreeFindDialog(props: {
   );
 }
 
+// harn:assume worktree-child-menu-is-portal-and-viewport-bounded ref=worktree-menu-portal-positioning
 /** One child's deliberate acts stay in a small anchored menu. Filesystem
  * removal still requires a fresh preview and a second explicit confirmation. */
 export function WorktreeChildMenu(props: {
   root: string;
   token: () => string;
   child: RegisteredWorktree;
+  anchor?: HTMLButtonElement | null;
   onClose: () => void;
   onChanged: () => void;
   onRemoved: () => void;
@@ -508,13 +512,68 @@ export function WorktreeChildMenu(props: {
   const [previewError, setPreviewError] = useState<string>();
   const [removeState, setRemoveState] = useState<DialogState>('idle');
   const previewGeneration = useRef(0);
+  const [position, setPosition] = useState<{ top: number; left: number; maxHeight: number }>();
+
+  const updatePosition = useCallback((): void => {
+    const menu = menuRef.current;
+    const anchor = props.anchor
+      ?? document.querySelector<HTMLButtonElement>(`[data-testid="worktree-menu-trigger-${child.id}"]`);
+    if (menu === null || anchor === null) {
+      setPosition(undefined);
+      return;
+    }
+    const viewportWidth = Math.max(document.documentElement.clientWidth, window.innerWidth);
+    const viewportHeight = Math.max(document.documentElement.clientHeight, window.innerHeight);
+    const gutter = 8;
+    const anchorBox = anchor.getBoundingClientRect();
+    const menuBox = menu.getBoundingClientRect();
+    const maxHeight = Math.max(0, viewportHeight - gutter * 2);
+    const menuHeight = Math.min(menuBox.height, maxHeight);
+    const menuWidth = Math.min(menuBox.width || 300, Math.max(0, viewportWidth - gutter * 2));
+    const maxLeft = Math.max(gutter, viewportWidth - menuWidth - gutter);
+    const left = Math.min(
+      Math.max(gutter, anchorBox.right - menuWidth),
+      maxLeft,
+    );
+    const maxTop = Math.max(gutter, viewportHeight - menuHeight - gutter);
+    const below = anchorBox.bottom + gutter;
+    const above = anchorBox.top - menuHeight - gutter;
+    const preferredTop = below + menuHeight <= viewportHeight - gutter
+      ? below
+      : above >= gutter
+        ? above
+        : maxTop;
+    const top = Math.min(Math.max(gutter, preferredTop), maxTop);
+    setPosition({
+      top: Math.round(top),
+      left: Math.round(left),
+      maxHeight: Math.floor(maxHeight),
+    });
+  }, [child.id, props.anchor]);
+
+  useLayoutEffect(() => {
+    updatePosition();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updatePosition);
+    if (observer !== undefined) {
+      if (menuRef.current !== null) observer.observe(menuRef.current);
+      if (props.anchor !== undefined && props.anchor !== null) observer.observe(props.anchor);
+    }
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [mode, preview, previewError, updatePosition]);
 
   const closeAndRestoreFocus = useCallback((): void => {
     props.onClose();
     const restore = (): void => {
-      document.querySelector<HTMLButtonElement>(
-        `[data-testid="worktree-menu-trigger-${child.id}"]`,
-      )?.focus();
+      (props.anchor
+        ?? document.querySelector<HTMLButtonElement>(
+          `[data-testid="worktree-menu-trigger-${child.id}"]`,
+        ))?.focus();
     };
     requestAnimationFrame(() => {
       restore();
@@ -564,7 +623,7 @@ export function WorktreeChildMenu(props: {
   useEffect(() => {
     const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
     first?.focus();
-  }, [mode, preview, previewError]);
+  }, [mode, position, preview, previewError]);
 
   const unregisterSelected = (): void => {
     setUnregisterState('busy');
@@ -590,7 +649,7 @@ export function WorktreeChildMenu(props: {
   const previewReady = preview?.state === 'clean';
   const menuLabel = `Manage worktree ${child.branch ?? 'detached'}`;
 
-  return (
+  const menu = (
     <div
       ref={menuRef}
       id={`worktree-menu-${child.id}`}
@@ -598,6 +657,13 @@ export function WorktreeChildMenu(props: {
       role="menu"
       aria-label={menuLabel}
       data-testid={`worktree-menu-${child.id}`}
+      style={{
+        top: position?.top,
+        left: position?.left,
+        maxHeight: position?.maxHeight,
+        visibility: (props.anchor ?? document.querySelector(`[data-testid="worktree-menu-trigger-${child.id}"]`)) !== null
+          && position === undefined ? 'hidden' : undefined,
+      }}
     >
       <div className="nx-wt-menu-head" role="presentation">
         <strong>{child.branch ?? 'Detached HEAD'}</strong>
@@ -719,6 +785,8 @@ export function WorktreeChildMenu(props: {
       )}
     </div>
   );
+  // harn:end worktree-child-menu-is-portal-and-viewport-bounded
+  return typeof document === 'undefined' ? menu : createPortal(menu, document.body);
 }
 // Keep the old local export name source-compatible for focused consumers; it
 // now renders the anchored menu rather than a modal.
