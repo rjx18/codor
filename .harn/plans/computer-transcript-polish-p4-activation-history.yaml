@@ -1,0 +1,98 @@
+id: computer-transcript-polish-p4-activation-history
+title: Revalidate destination history when activating a managed computer
+notes: >
+  Implement only Phase 4 of the approved computer/transcript polish plan. After
+  a successful managed computer activation, start one non-blocking combined
+  transcript-history head refresh for that computer's selected public room,
+  using the destination computer's concrete store, token, room, and identity
+  captured before the asynchronous request. Reuse the existing per-store,
+  per-room deduplicated history controller and its stable-identity merge. Keep
+  switching immediate, every healthy tunnel and app connector warm, inactive
+  rooms at zero-history subscription, and direct mode unchanged. Do not remount
+  or key the room UI, add a second scroll owner, reconnect transport, hydrate
+  other rooms/computers, or change relay, protocol, pagination, or unitization.
+assumptions:
+  create:
+    - id: managed-computer-activation-revalidates-destination-history
+      title: Managed computer activation revalidates destination-owned history
+      statement: >
+        Every successful deliberate managed-computer activation must start one
+        non-blocking combined-history head refresh for the activated computer's
+        selected public room using that computer's captured client store and
+        token, so finalized evidence missed while the session was inactive is
+        merged exactly once without writing into another computer, blocking the
+        switch, remounting the room, hydrating inactive rooms, or reconnecting a
+        healthy transport.
+      reason: A warm inactive connector has no resume edge when selected, so its
+        finalized page-owned evidence otherwise remains stale until reload.
+      depends_on:
+        - hosted-computer-switching-reuses-warm-session
+        - missed-terminal-history-refreshes-through-combined-head
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Activation still persists and mounts the already-warm destination
+        session immediately without replacing or closing any session.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: The existing bounded head controller remains the sole refresh and
+        stable-identity merge implementation.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Activation uses only combined history and never requests a
+        finalized run journal or legacy message page.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: The destination source store and token are captured before the
+        async boundary so same-named rooms cannot cross computer ownership.
+    - id: hosted-background-rooms-hydrate-metadata-until-promoted
+      outcome: unchanged
+      reason: Only the activated public room refreshes; inactive computers and
+        their background rooms remain zero-history live subscriptions.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Activation does not dial, reconnect, replace, or close any tunnel
+        or app socket.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: History merges through the existing store and Transcript remains
+        mounted as the only scroll and tail-follow owner.
+anchors:
+  hosted-computer-switching-reuses-warm-session:
+    warm-computer-activation:
+      action: change
+      reason: Start the captured destination history refresh after the existing
+        successful in-place activation is published.
+  managed-computer-activation-revalidates-destination-history:
+    destination-history-activation-refresh:
+      action: change
+      reason: Own the capture and non-blocking refresh invocation.
+    destination-history-activation-regression:
+      action: change
+      reason: Prove store/token/room ownership, immediate switching, and
+        repeated-activation deduplication through the existing controller seam.
+    destination-history-activation-browser-regression:
+      action: change
+      reason: Prove same-room A/B finalization appears once on return without a
+        reload, transport handshake, app-socket replacement, or B contamination.
+files:
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: >
+  Check and clean-lock this plan before source edits. Run focused computer
+  session units, all web units, the production/PWA build, and the complete Room
+  34 multi-computer browser suite. The unit regression must control unresolved
+  A/B refreshes and prove each call receives its own concrete store, captured
+  token, selected public room, and immediate activation result while the
+  existing controller owns request deduplication. The browser regression must
+  finalize A while same-room B is selected, switch to A, observe the final
+  response exactly once, switch away and back without duplication, and prove no
+  document reload, new relay handshake, app-socket replacement, or B transcript
+  contamination. Run Harn working/staged checks and apply plus git diff checks.
+  Create one implementation commit. If the exact browser regression still fails
+  after the destination refresh, stop for review instead of remounting/keying
+  the room UI or adding another scroll owner. Do not implement any other phase,
+  push, deploy, publish, or update a host.
