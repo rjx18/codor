@@ -1,0 +1,111 @@
+id: github-release-semver-alpha-tags
+title: Publish numbered SemVer alpha tags without moving latest
+notes: >
+  The release artifacts and package manifests support SemVer prereleases, but
+  the tag gate still accepts stable vX.Y.Z tags only. Replace that stale
+  release policy with an explicit two-shape contract: stable vX.Y.Z tags from
+  main publish latest, while numbered vX.Y.Z-alpha.N tags from the curated
+  alpha branch publish alpha. Keep all ancestry, uniqueness, OIDC, immutable
+  asset, checksum, and manual VSIX requirements unchanged.
+assumptions:
+  retire:
+    - id: github-tags-publish-one-immutable-alpha-or-stable-release
+      reason: >
+        Its claim that alpha releases consume bare three-part versions conflicts
+        with the approved repeatable SemVer alpha numbering.
+  create:
+    - id: github-tags-publish-numbered-semver-alpha-or-stable-release
+      title: Eligible GitHub tags publish one immutable numbered alpha or stable release
+      statement: >
+        A pushed stable vX.Y.Z tag may publish only from a commit contained in
+        main, while a pushed numbered vX.Y.Z-alpha.N tag may publish only from a
+        commit not in main but contained in the curated alpha branch. The tag
+        text must exactly match every common release manifest version, the
+        version must be absent from npm and GitHub Releases, and the complete
+        release gate and exact artifact checksums must pass on a GitHub-hosted
+        runner in the protected release environment. Stable publication uses
+        npm dist-tag latest and a normal GitHub Release; alpha publication uses
+        npm dist-tag alpha and a GitHub prerelease; every other tag shape or
+        ancestry fails closed. Each SemVer version carries an immutable TGZ,
+        manually installed VSIX, and SHA256SUMS, and the job grants only
+        contents write plus OIDC id-token write. The staged npm manifest must
+        identify https://github.com/rjx18/codor exactly, and neither workflow
+        nor Codor runtime stores an npm token or automatically installs or
+        Marketplace-publishes the extension.
+      reason: >
+        Multiple immutable alpha candidates must be publishable before the one
+        eventual stable release without moving npm latest or reusing versions.
+      depends_on:
+        - verified-commit-installers-are-sha-addressed-and-ephemeral
+        - installed-or-published-release-artifacts-are-version-immutable
+        - release-candidate-requires-publishable-install-tarball
+        - packed-release-proof-runs-install-runtime
+  reviewed:
+    - id: official-codor-update-is-cooperatively-bounded-and-platform-truthful
+      outcome: unchanged
+      reason: The update transaction still rejects prerelease candidates.
+    - id: installed-or-published-release-artifacts-are-version-immutable
+      outcome: unchanged
+      reason: Every numbered alpha and stable version remains immutable after publication.
+    - id: vscode-copilot-bridge-is-manual-local-and-credential-private
+      outcome: unchanged
+      reason: The VSIX remains a manual, credential-free release asset.
+anchors:
+  github-tags-publish-one-immutable-alpha-or-stable-release:
+    github-tag-release-workflow:
+      action: remove
+      reason: Replace the stable-only tag validator and old release policy anchor.
+    github-release-runbook:
+      action: remove
+      reason: Replace bare alpha version guidance with numbered SemVer alpha guidance.
+    copilot-release-asset-install-doc:
+      action: remove
+      reason: Move the unchanged manual VSIX guidance to the successor release policy.
+    public-package-repository-regression:
+      action: remove
+      reason: Move the unchanged repository regression to the successor release policy.
+    public-package-repository-identity:
+      action: remove
+      reason: Move the unchanged npm identity to the successor release policy.
+    github-release-policy-audit:
+      action: remove
+      reason: Replace the old static policy assertions.
+  github-tags-publish-numbered-semver-alpha-or-stable-release:
+    github-tag-release-workflow:
+      action: change
+      reason: Accept only stable or numbered alpha tags and bind each shape to the correct ancestry and dist-tag.
+    github-release-runbook:
+      action: change
+      reason: Document repeatable numbered alpha releases and stable promotion.
+    copilot-release-asset-install-doc:
+      action: change
+      reason: Preserve manual exact-version VSIX installation under the successor policy.
+    public-package-repository-regression:
+      action: change
+      reason: Preserve the exact repository regression under the successor policy.
+    public-package-repository-identity:
+      action: change
+      reason: Preserve exact npm repository identity under the successor policy.
+    github-release-policy-audit:
+      action: change
+      reason: Assert both accepted tag shapes and their fail-closed ancestry mapping.
+  installed-or-published-release-artifacts-are-version-immutable:
+    replaceable-preinstall-release-audit:
+      action: change
+      reason: Keep the release audit coupled to unique immutable SemVer versions.
+  vscode-copilot-bridge-is-manual-local-and-credential-private:
+    vscode-copilot-manual-install-doc:
+      action: change
+      reason: The nested manual-install boundary is retained while its release-policy marker changes.
+files:
+  - .github/workflows/release.yml
+  - MANUAL-VERIFY.md
+  - packages/adapters/copilot/vscode-extension/README.md
+  - packages/cli/src/artifact.ts
+  - packages/cli/src/artifact.spec.ts
+  - scripts/release-audit.mjs
+verification: >
+  Run the release audit, license audit, YAML parse, relevant artifact test, Harn
+  working/staged checks, and the complete alpha CI/release gates. Confirm a
+  numbered alpha tag publishes npm alpha and a GitHub prerelease while npm
+  latest remains unchanged.
