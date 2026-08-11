@@ -1,0 +1,25 @@
+id: release-prerelease-semver-artifact-test
+title: Accept valid prerelease versions in the bundled artifact regression
+notes: >
+  The public artifact already stages exact workspace versions, but its test-only
+  matcher accepts stable x.y.z strings only. Permit a valid SemVer prerelease
+  suffix so alpha artifacts remain covered without changing artifact contents,
+  dependency resolution, publication policy, or runtime behavior.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: The exact bundled runtime and dependency closure remain unchanged;
+        only the test accepts the prerelease version already staged by the builder.
+anchors:
+  public-package-bundles-complete-codor-runtime:
+    artifact-runtime-regression:
+      action: change
+      reason: Extend the version assertion to accept a valid SemVer prerelease suffix.
+files:
+  - packages/cli/src/artifact.spec.ts
+verification: >
+  Run the focused artifact test, the complete CLI suite, release audits, Harn
+  checks, and then rerun the complete release gate from the committed candidate.
