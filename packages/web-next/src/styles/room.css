@@ -3526,14 +3526,34 @@
 }
 .nx-computer-avatar:disabled { opacity: 0.55; cursor: not-allowed; }
 .nx-computer-avatar-glyph { font-size: 20px; line-height: 1; }
-.nx-computer-avatar-status {
-  position: absolute; left: 1px; bottom: 1px; width: 9px; height: 9px;
-  border: 2px solid var(--c-surface); border-radius: var(--r-full); background: var(--c-faded);
+.nx-computer-avatar-tooltip {
+  position: absolute;
+  z-index: 20;
+  left: calc(100% + 8px);
+  top: 50%;
+  max-width: min(260px, calc(100vw - 24px));
+  padding: 5px 8px;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-ink);
+  color: var(--c-surface);
+  font: var(--t-caption-strong);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-50%) translateX(-4px);
+  transition: opacity 100ms ease, transform 100ms ease, visibility 100ms ease;
 }
-.nx-computer-avatar-status.is-connected { background: var(--c-live); }
-.nx-computer-avatar-status.is-reconnecting { background: var(--c-warn); animation: nx-computer-pulse 1.1s ease-in-out infinite; }
-.nx-computer-avatar-status.is-repair { background: var(--c-error); }
-@keyframes nx-computer-pulse { 50% { opacity: 0.35; transform: scale(0.72); } }
+.nx-computer-avatar:hover .nx-computer-avatar-tooltip,
+.nx-computer-avatar:focus .nx-computer-avatar-tooltip,
+.nx-computer-avatar:focus-visible .nx-computer-avatar-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-50%);
+}
 .nx-computer-avatar-badge {
   position: absolute;
   display: grid;
@@ -3654,6 +3674,16 @@
   }
   .nx-computer-switcher.is-mobile-strip .nx-computer-avatar-list { flex-direction: row; }
   .nx-computer-switcher.is-mobile-strip .nx-computer-add { flex: none; }
+  .nx-computer-switcher.is-mobile-strip .nx-computer-avatar-tooltip {
+    left: 50%;
+    top: calc(100% + 8px);
+    transform: translateX(-50%) translateY(-4px);
+  }
+  .nx-computer-switcher.is-mobile-strip .nx-computer-avatar:hover .nx-computer-avatar-tooltip,
+  .nx-computer-switcher.is-mobile-strip .nx-computer-avatar:focus .nx-computer-avatar-tooltip,
+  .nx-computer-switcher.is-mobile-strip .nx-computer-avatar:focus-visible .nx-computer-avatar-tooltip {
+    transform: translateX(-50%);
+  }
   .nx-computer-choice { min-height: 62px; }
   .nx-computer-choice-actions { gap: 4px; }
   .nx-computer-pair-command { align-items: flex-start; flex-wrap: wrap; }

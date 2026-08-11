@@ -4,7 +4,7 @@ import { SESSION_COPY, SESSION_REPAIR_HINT, SESSION_TERMINAL_COPY, type SessionC
 import { forgetRelayPairing } from '../runtime/crypto.js';
 import { relayActive } from '../runtime/relay-mode.js';
 import { computerSessions, type ComputerSessionsSnapshot } from '../app/computer-sessions.js';
-import { ComputerChoice } from '../room/ComputerChoice.js';
+import { ComputerChoice, removeComputerAppearance } from '../room/ComputerChoice.js';
 
 export type RecoveryState = Exclude<SessionConnectionState, 'online'>;
 
@@ -19,6 +19,7 @@ async function repair(onComputerSwitch?: () => void | Promise<void>): Promise<vo
   const manager = computerSessions();
   const activeId = manager?.getSnapshot().activeId;
   if (manager && activeId) {
+    removeComputerAppearance(activeId);
     const keptMounted = await manager.forget(activeId);
     if (keptMounted && manager.active()) {
       await onComputerSwitch?.();

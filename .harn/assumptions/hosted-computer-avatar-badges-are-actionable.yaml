@@ -1,0 +1,16 @@
+id: hosted-computer-avatar-badges-are-actionable
+hash: a-12b2065afe24
+title: Hosted computer avatars show only independent actionable badges
+state: active
+statement: >
+  Each hosted computer avatar must show only independent actionable activity
+  badges: total unread messages at the top-right, and working channel plus
+  attention/error channel counts together at the bottom-right; every zero count
+  is hidden, the green and red counts may coexist, and a generic
+  connection-status dot is not presented as activity or a badge. The underlying
+  connected/reconnecting/repair truth remains available to accessible state and
+  recovery choices.
+depends_on:
+  - hosted-computer-avatar-rail-is-local-and-accessible
+  - hosted-background-computer-activity-is-visible
+created_by: computer-transcript-polish-p2-review-fixes

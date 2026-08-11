@@ -88,6 +88,11 @@ describe('ComputerSwitcher avatar rail', () => {
     expect(host!.querySelector('[data-testid="computer-avatar-unread-B"]')?.textContent).toBe('2');
     expect(host!.querySelector('[data-testid="computer-avatar-working-B"]')?.textContent).toBe('1');
     expect(host!.querySelector('[data-testid="computer-avatar-attention-B"]')?.textContent).toBe('2');
+    expect(host!.querySelector('[data-testid="computer-avatar-unread-A"]')).toBeNull();
+    expect(host!.querySelector('[data-testid="computer-avatar-working-A"]')).toBeNull();
+    expect(host!.querySelector('[data-testid="computer-avatar-attention-A"]')).toBeNull();
+    expect(host!.querySelector('.nx-computer-avatar-status')).toBeNull();
+    expect(host!.querySelector('[data-testid="computer-current"] .nx-computer-avatar-tooltip')?.textContent).toBe('Desk');
     const active = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
     expect(active.getAttribute('aria-label')).toContain('Desk, Active, Connected');
     expect(host!.querySelector('[data-testid="computer-avatar-C"]')?.getAttribute('aria-label')).toContain('Repair required');
@@ -142,7 +147,12 @@ describe('ComputerSwitcher avatar rail', () => {
 
     await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     await openCustomize();
+    await act(async () => {
+      (document.querySelector('[data-testid="computer-glyph-🐈"]') as HTMLButtonElement).click();
+    });
+    expect(JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}')).toHaveProperty('A');
     await act(async () => { (document.querySelector('[data-testid="computer-forget-A"]') as HTMLButtonElement).click(); });
     expect(harness.manager!.forget).toHaveBeenCalledWith('A');
+    expect(JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}')).not.toHaveProperty('A');
   });
 });

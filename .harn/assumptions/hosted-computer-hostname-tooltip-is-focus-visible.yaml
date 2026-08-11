@@ -1,0 +1,13 @@
+id: hosted-computer-hostname-tooltip-is-focus-visible
+hash: a-f83d688cc2d5
+title: Hosted computer identity is visible on hover and keyboard focus
+state: active
+statement: >
+  Every hosted computer avatar must expose its full sanitized hostname in a
+  rendered browser tooltip on pointer hover and keyboard focus, in addition to
+  its truthful accessible name, so keyboard and pointer users can identify a
+  computer without relying on a native title hint alone.
+depends_on:
+  - hosted-computer-avatar-rail-is-local-and-accessible
+  - hosted-generated-computer-label-follows-authenticated-hostname
+created_by: computer-transcript-polish-p2-review-fixes

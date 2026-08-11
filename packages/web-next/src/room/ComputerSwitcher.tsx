@@ -24,6 +24,7 @@ import {
   COMPUTER_GLYPHS,
   computerAppearance,
   ComputerChoice,
+  removeComputerAppearance,
   readComputerAppearances,
   writeComputerAppearances,
   type ComputerAppearance,
@@ -90,15 +91,6 @@ export function ComputerSwitcher({ mobile = false }: { mobile?: boolean } = {}):
   const saveAppearance = (computerId: string, appearance: ComputerAppearance): void => {
     setAppearances((current) => {
       const next = { ...current, [computerId]: appearance };
-      writeComputerAppearances(next);
-      return next;
-    });
-  };
-
-  const removeAppearance = (computerId: string): void => {
-    setAppearances((current) => {
-      const next = { ...current };
-      delete next[computerId];
       writeComputerAppearances(next);
       return next;
     });
@@ -335,7 +327,8 @@ export function ComputerSwitcher({ mobile = false }: { mobile?: boolean } = {}):
               variant="quiet"
               data-testid={`computer-forget-${customizingComputer.id}`}
               onClick={() => {
-                removeAppearance(customizingComputer.id);
+                removeComputerAppearance(customizingComputer.id);
+                setAppearances(readComputerAppearances());
                 void manager.forget(customizingComputer.id).then((keptMounted) => {
                   closeCustomization();
                   if (!keptMounted) window.location.assign('/');

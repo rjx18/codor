@@ -1,0 +1,156 @@
+id: computer-transcript-polish-p2-review-fixes
+title: Actionable computer badges, focus tooltips, and appearance cleanup
+notes: >
+  Apply only the contained Phase 2 review corrections on top of the accepted
+  avatar-rail commit e2aa09d. Remove the generic connection-status dot from
+  avatar activity presentation so only independent unread, working, and
+  attention/error badges remain, with zero counts hidden. Render the full
+  sanitized hostname in a real tooltip on hover and keyboard focus while
+  retaining the accessible name. Purge browser-local appearance metadata for
+  every forgotten computer, including the recovery-card forget path, without
+  changing pairing, session, relay, protocol, or direct-mode behavior.
+assumptions:
+  create:
+    - id: hosted-computer-avatar-badges-are-actionable
+      title: Hosted computer avatars show only independent actionable badges
+      statement: >
+        Each hosted computer avatar must show only independent actionable
+        activity badges: total unread messages at the top-right, and working
+        channel plus attention/error channel counts together at the
+        bottom-right; every zero count is hidden, the green and red counts may
+        coexist, and a generic connection-status dot is not presented as
+        activity or a badge. The underlying connected/reconnecting/repair truth
+        remains available to accessible state and recovery choices.
+      reason: A generic connection dot is not actionable activity and makes an
+        otherwise idle rail look busy; the three counts must remain
+        independently honest for background computers.
+      depends_on:
+        - hosted-computer-avatar-rail-is-local-and-accessible
+        - hosted-background-computer-activity-is-visible
+    - id: hosted-computer-hostname-tooltip-is-focus-visible
+      title: Hosted computer identity is visible on hover and keyboard focus
+      statement: >
+        Every hosted computer avatar must expose its full sanitized hostname in
+        a rendered browser tooltip on pointer hover and keyboard focus, in
+        addition to its truthful accessible name, so keyboard and pointer users
+        can identify a computer without relying on a native title hint alone.
+      reason: Native title hints are inconsistent for keyboard focus and do not
+        provide a reliable visible identity affordance.
+      depends_on:
+        - hosted-computer-avatar-rail-is-local-and-accessible
+        - hosted-generated-computer-label-follows-authenticated-hostname
+    - id: computer-appearance-is-purged-on-forget
+      title: Forgotten computer appearance metadata is removed everywhere
+      statement: >
+        Browser-local appearance metadata keyed by a paired computer ID must be
+        removed whenever that computer is forgotten, whether Forget is invoked
+        from the avatar customization dialog or the hosted recovery card, while
+        metadata for every remaining computer is preserved; a later pairing may
+        safely receive the default appearance.
+      reason: Retaining an unpaired computer's icon and color leaks stale local
+        identity into future pairings and makes Forget incomplete.
+      depends_on:
+        - hosted-computer-avatar-rail-is-local-and-accessible
+        - hosted-offline-recovery-offers-other-computers
+        - hosted-computer-sessions-keep-state-isolated
+  reviewed:
+    - id: hosted-computer-avatar-rail-is-local-and-accessible
+      outcome: unchanged
+      reason: The hosted-only rail, warm sessions, local metadata boundary, and
+        Add/rename/Forget/recovery behavior remain the same; this pass narrows
+        its presentation details and closes cleanup gaps.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Forget still delegates to the existing per-computer session manager;
+        this correction only removes the matching browser-local appearance
+        entry.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Avatar activation and warm switching are untouched.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Existing summary counts remain the sole source for unread, working, and
+        attention badges; only their avatar presentation is corrected.
+    - id: hosted-generated-computer-label-follows-authenticated-hostname
+      outcome: unchanged
+      reason: Authenticated sanitized labels and explicit renames remain unchanged;
+        the rendered tooltip uses the same label already exposed to the avatar.
+    - id: hosted-offline-recovery-offers-other-computers
+      outcome: unchanged
+      reason: Recovery still offers warm alternate computers and invokes the same
+        manager forget path; it now also clears local appearance metadata.
+    - id: hosted-add-computer-explains-pairing-code-source
+      outcome: unchanged
+      reason: Add Computer copy, expiry, relay, and PairingCodeInput behavior are
+        outside this review correction.
+    - id: hosted-preset-state-follows-only-the-active-computer
+      outcome: unchanged
+      reason: Preset and roster state are unrelated to this presentation cleanup.
+anchors:
+  hosted-computer-avatar-rail-is-local-and-accessible:
+    computer-avatar-rail-presentation:
+      action: change
+      reason: Remove the generic connection dot while retaining the shared avatar
+        status semantics and active treatment.
+    computer-avatar-rail-customization:
+      action: change
+      reason: Clear local appearance metadata through the normal Forget action.
+    computer-avatar-rail-accessibility-regression:
+      action: change
+      reason: Add zero/coexisting badge and visible focus-tooltip coverage.
+    computer-avatar-rail-phone-regression:
+      action: change
+      reason: Keep the corrected avatar presentation and tooltip usable on phone.
+  hosted-computer-avatar-badges-are-actionable:
+    avatar-badge-presentation:
+      action: change
+      reason: Render only independent unread, working, and attention badges with zero
+        suppression and no generic connection dot.
+    avatar-badge-regression:
+      action: change
+      reason: Prove zero badges are absent and green/red badges coexist honestly.
+  hosted-computer-hostname-tooltip-is-focus-visible:
+    hostname-tooltip-presentation:
+      action: change
+      reason: Add a real rendered tooltip on hover and keyboard focus.
+    hostname-tooltip-regression:
+      action: change
+      reason: Prove the full label is visible on focus as well as pointer hover.
+  computer-appearance-is-purged-on-forget:
+    appearance-forget-cleanup:
+      action: change
+      reason: Centralize browser-local appearance removal by computer ID.
+    appearance-forget-recovery-regression:
+      action: change
+      reason: Prove both customization and recovery-driven Forget preserve only
+        remaining computers' metadata.
+  hosted-offline-recovery-offers-other-computers:
+    multi-computer-recovery-exit:
+      action: change
+      reason: Clear the forgotten computer's local appearance before recovery
+        delegates to the existing session manager.
+files:
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/room/ComputerSwitcher.tsx
+  - packages/web-next/src/surfaces/RecoveryCard.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/room/ComputerChoice.spec.tsx
+  - packages/web-next/src/room/ComputerSwitcher.spec.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room35-startup-recovery.e2e.spec.ts
+  - packages/web-next/tests/room36-computer-ui.e2e.spec.ts
+verification: >
+  Run harn find and inspect the existing avatar, activity, label, isolation, and
+  recovery assumptions before locking this plan from clean e2aa09d. Run focused
+  ComputerChoice, ComputerSwitcher, RecoveryOverlay, session, and storage units,
+  all web-next units, the production/PWA build, and Rooms 34, 35, and 36 on
+  desktop and phone. Cover zero badges, simultaneous working/attention badges,
+  hover and keyboard-focus tooltips, context-menu/Shift+F10 accessibility, and
+  appearance cleanup from both customization Forget and recovery Forget. Run
+  harn find --changed, harn check, harn apply, harn check --staged, and git diff
+  --check, then create exactly one review-fix commit. Do not change pairing,
+  session, relay, protocol, server, direct-mode, deployment, or release
+  behavior.
+applied:
+  applied_at: 2026-08-11T13:16:32.390Z

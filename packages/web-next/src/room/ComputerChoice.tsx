@@ -55,6 +55,16 @@ export function writeComputerAppearances(appearances: Record<string, ComputerApp
   }
 }
 
+// harn:assume computer-appearance-is-purged-on-forget ref=appearance-forget-cleanup
+export function removeComputerAppearance(id: string): void {
+  const current = readComputerAppearances();
+  if (!(id in current)) return;
+  const next = { ...current };
+  delete next[id];
+  writeComputerAppearances(next);
+}
+// harn:end computer-appearance-is-purged-on-forget
+
 export function defaultComputerAppearance(id: string): ComputerAppearance {
   let hash = 0;
   for (const character of id) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
@@ -177,6 +187,8 @@ export function ComputerChoice({
   const attention = attentionCount(computer);
 
   if (variant === 'avatar') {
+    // harn:assume hosted-computer-avatar-badges-are-actionable ref=avatar-badge-presentation
+    // harn:assume hosted-computer-hostname-tooltip-is-focus-visible ref=hostname-tooltip-presentation
     const avatarStyle = {
       '--nx-computer-avatar-color': appearance?.color ?? '#4f46e5',
     } as CSSProperties;
@@ -202,12 +214,14 @@ export function ComputerChoice({
         onPointerLeave={onPointerLeave}
       >
         <span className="nx-computer-avatar-glyph" aria-hidden="true">{appearance?.glyph ?? '🖥️'}</span>
-        <span className={`nx-computer-avatar-status is-${status.tone}`} aria-hidden="true" />
         <AvatarBadge kind="unread" count={computer.unread} computer={computer} />
         <AvatarBadge kind="working" count={computer.working} computer={computer} />
         <AvatarBadge kind="attention" count={attention} computer={computer} />
+        <span className="nx-computer-avatar-tooltip" role="tooltip">{computer.label}</span>
       </button>
     );
+    // harn:end hosted-computer-hostname-tooltip-is-focus-visible
+    // harn:end hosted-computer-avatar-badges-are-actionable
   }
 
   return (

@@ -4,17 +4,32 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const connection = vi.hoisted(() => ({ state: 'agent-offline' as string, downMs: 10_000 }));
-const sessions = vi.hoisted(() => ({ managed: true }));
+const sessions = vi.hoisted(() => ({
+  managed: true,
+  manager: {
+    subscribe: vi.fn(() => () => undefined),
+    getSnapshot: vi.fn(() => ({ activeId: undefined as string | undefined, computers: [] as Array<Record<string, unknown>> })),
+    forget: vi.fn(async () => true),
+    active: vi.fn(() => true),
+  },
+}));
 vi.mock('../app/use-connection-state.js', () => ({ useConnectionState: () => connection }));
-vi.mock('../app/computer-sessions.js', () => ({ computerSessions: () => sessions.managed ? {} : undefined }));
+vi.mock('../app/computer-sessions.js', () => ({ computerSessions: () => sessions.managed ? sessions.manager : undefined }));
+vi.mock('../runtime/crypto.js', () => ({ forgetRelayPairing: vi.fn() }));
 
 import { resetClientStoreForTest, useClientStore } from '../app/store.js';
+import { writeComputerAppearances } from '../room/ComputerChoice.js';
+import { RecoveryCard } from './RecoveryCard.js';
 import { RecoveryOverlay } from './RecoveryOverlay.js';
 
 afterEach(() => {
   sessions.managed = true;
+  sessions.manager.getSnapshot.mockReturnValue({ activeId: undefined, computers: [] });
+  sessions.manager.forget.mockClear();
+  sessions.manager.active.mockClear();
   resetClientStoreForTest();
   document.body.innerHTML = '';
+  window.localStorage.clear();
 });
 
 function hydrateCachedUnit(): void {
@@ -86,5 +101,33 @@ describe('RecoveryOverlay readable reconnect', () => {
     await act(async () => { root.unmount(); });
     delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
+
+  // harn:assume computer-appearance-is-purged-on-forget ref=appearance-forget-recovery-regression
+  it('purges the active computer appearance when recovery drives Forget', async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    sessions.manager.getSnapshot.mockReturnValue({
+      activeId: 'A',
+      computers: [
+        { id: 'A', label: 'Desk', active: true, ready: true, connected: false, authRefused: false, unread: 0, attention: false, working: 0 },
+        { id: 'B', label: 'Laptop', active: false, ready: true, connected: true, authRefused: false, unread: 0, attention: false, working: 0 },
+      ],
+    });
+    writeComputerAppearances({
+      A: { glyph: '🐈', color: '#0f766e' },
+      B: { glyph: '🚀', color: '#15803d' },
+    });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<RecoveryCard state="pairing-dead" presentation="fullscreen" />); });
+    await act(async () => { (host.querySelector('[data-testid="recovery-repair"]') as HTMLButtonElement).click(); });
+    expect(sessions.manager.forget).toHaveBeenCalledWith('A');
+    expect(JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}')).toEqual({
+      B: { glyph: '🚀', color: '#15803d' },
+    });
+    await act(async () => { root.unmount(); });
+    delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+  });
+  // harn:end computer-appearance-is-purged-on-forget
 });
 // harn:end readable-reconnecting-room-never-admits-mutation

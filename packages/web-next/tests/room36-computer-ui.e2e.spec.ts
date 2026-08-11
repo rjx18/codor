@@ -50,9 +50,15 @@ test.describe('computer switcher UI', () => {
     expect(railBox!.x + railBox!.width).toBeLessThanOrEqual(390);
     const railA11y = await new AxeBuilder({ page }).include('[data-testid="computer-switcher"]').analyze();
     expect(railA11y.violations).toEqual([]);
+    const current = page.getByTestId('computer-current');
+    await current.focus();
+    await expect(current.locator('[role="tooltip"]')).toHaveText('codor-host-a');
+    await expect(current.locator('[role="tooltip"]')).toBeVisible();
+    await current.hover();
+    await expect(current.locator('[role="tooltip"]')).toBeVisible();
+    await expect(current.locator('.nx-computer-avatar-status')).toHaveCount(0);
 
     // Shift+F10, right-click, and long-press are all browser-local entry points.
-    const current = page.getByTestId('computer-current');
     await current.focus();
     await page.keyboard.press('Shift+F10');
     const customize = page.getByTestId('computer-customize-modal');

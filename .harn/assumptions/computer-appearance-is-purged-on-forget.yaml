@@ -1,0 +1,15 @@
+id: computer-appearance-is-purged-on-forget
+hash: a-4274a9b1018a
+title: Forgotten computer appearance metadata is removed everywhere
+state: active
+statement: >
+  Browser-local appearance metadata keyed by a paired computer ID must be
+  removed whenever that computer is forgotten, whether Forget is invoked from
+  the avatar customization dialog or the hosted recovery card, while metadata
+  for every remaining computer is preserved; a later pairing may safely receive
+  the default appearance.
+depends_on:
+  - hosted-computer-avatar-rail-is-local-and-accessible
+  - hosted-offline-recovery-offers-other-computers
+  - hosted-computer-sessions-keep-state-isolated
+created_by: computer-transcript-polish-p2-review-fixes

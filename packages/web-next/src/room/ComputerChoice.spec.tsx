@@ -52,4 +52,31 @@ describe('ComputerChoice status and activity presentation', () => {
     expect(html).toContain('aria-label="Desk, Repair required, 3 unread, Needs attention, 2 working"');
     expect(html).toContain('data-testid="computer-connection-A"');
   });
+
+  // harn:assume hosted-computer-avatar-badges-are-actionable ref=avatar-badge-regression
+  // harn:assume hosted-computer-hostname-tooltip-is-focus-visible ref=hostname-tooltip-regression
+  it('renders avatar activity as independent badges without a generic connection dot', () => {
+    const html = renderToStaticMarkup(
+      <ComputerChoice
+        computer={computer({ id: 'B', label: 'Laptop', connected: true, unread: 2, working: 1, attention: true })}
+        variant="avatar"
+        testid="avatar"
+        onSelect={() => undefined}
+      />,
+    );
+    expect(html).toContain('data-testid="computer-avatar-unread-B"');
+    expect(html).toContain('data-testid="computer-avatar-working-B"');
+    expect(html).toContain('data-testid="computer-avatar-attention-B"');
+    expect(html).not.toContain('nx-computer-avatar-status');
+    expect(html).toContain('class="nx-computer-avatar-tooltip" role="tooltip">Laptop</span>');
+
+    const idle = renderToStaticMarkup(
+      <ComputerChoice computer={computer({ id: 'C', label: 'Idle', connected: true })} variant="avatar" onSelect={() => undefined} />,
+    );
+    expect(idle).not.toContain('computer-avatar-unread-C');
+    expect(idle).not.toContain('computer-avatar-working-C');
+    expect(idle).not.toContain('computer-avatar-attention-C');
+  });
+  // harn:end hosted-computer-hostname-tooltip-is-focus-visible
+  // harn:end hosted-computer-avatar-badges-are-actionable
 });
