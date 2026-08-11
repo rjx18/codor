@@ -29,6 +29,89 @@ import { MiniWaveform } from './MiniWaveform.js';
 
 const MAX_ROWS = 8;
 
+const COMPOSER_MEASURE_PROPERTIES = [
+  'box-sizing',
+  'font-family',
+  'font-size',
+  'font-style',
+  'font-variant',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'text-indent',
+  'text-transform',
+  'padding-top',
+  'padding-right',
+  'padding-bottom',
+  'padding-left',
+  'border-top-width',
+  'border-top-style',
+  'border-right-width',
+  'border-right-style',
+  'border-bottom-width',
+  'border-bottom-style',
+  'border-left-width',
+  'border-left-style',
+  'white-space',
+  'overflow-wrap',
+  'word-break',
+  'tab-size',
+] as const;
+
+type ComposerMeasureNode = Pick<
+  HTMLTextAreaElement,
+  'value' | 'style' | 'scrollHeight' | 'getBoundingClientRect'
+>;
+type ComposerMeasureStyle = Pick<
+  CSSStyleDeclaration,
+  | 'lineHeight'
+  | 'paddingTop'
+  | 'paddingBottom'
+  | 'borderTopWidth'
+  | 'borderBottomWidth'
+  | 'boxSizing'
+  | 'getPropertyValue'
+>;
+
+// harn:assume composer-autogrow-measures-offscreen-before-live-height ref=offscreen-composer-measurement
+/** Measure on the inert mirror, then perform the live textarea's sole height
+ * write. The explicit style argument keeps the geometry contract unit-testable
+ * without approximating a browser layout engine. */
+export function resizeComposerTextarea(
+  node: ComposerMeasureNode,
+  mirror: ComposerMeasureNode,
+  style: ComposerMeasureStyle,
+): { previousHeight: string; nextHeight: string } {
+  const previousHeight = node.style.height;
+  for (const property of COMPOSER_MEASURE_PROPERTIES) {
+    mirror.style.setProperty(property, style.getPropertyValue(property));
+  }
+  const width = node.getBoundingClientRect().width;
+  mirror.style.width = `${Math.max(0, width)}px`;
+  mirror.value = node.value;
+  // Temporary sizing belongs exclusively to the invisible mirror. Zero makes
+  // shrink measurement honest after a prior multiline value.
+  mirror.style.height = '0px';
+
+  const line = Number.parseFloat(style.lineHeight) || 24;
+  const padding = Number.parseFloat(style.paddingTop) + Number.parseFloat(style.paddingBottom);
+  const border = Number.parseFloat(style.borderTopWidth) + Number.parseFloat(style.borderBottomWidth);
+  const safePadding = Number.isFinite(padding) ? padding : 0;
+  const safeBorder = Number.isFinite(border) ? border : 0;
+  const borderBox = style.boxSizing === 'border-box';
+  const naturalHeight = borderBox
+    ? mirror.scrollHeight + safeBorder
+    : Math.max(0, mirror.scrollHeight - safePadding);
+  // A zero-height empty textarea may report padding-only scrollHeight. Keep
+  // the browser's rows=1 floor without changing the mirrored value.
+  const minimumHeight = line + (borderBox ? safePadding + safeBorder : 0);
+  const cap = Math.round(line * MAX_ROWS + (borderBox ? safePadding + safeBorder : 0));
+  const nextHeight = `${Math.min(Math.max(naturalHeight, minimumHeight), cap)}px`;
+  node.style.height = nextHeight;
+  return { previousHeight, nextHeight };
+}
+// harn:end composer-autogrow-measures-offscreen-before-live-height
+
 /** Transcript quote buttons talk to the composer through this event. */
 export const QUOTE_EVENT = 'nx-quote';
 export interface QuoteRequest { text: string; replyTo: number }
@@ -179,6 +262,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   const [pending, setPending] = useState<UploadedAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
+  const measureRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const seededRef = useRef(false);
   const pendingCaretRef = useRef<number>();
@@ -431,18 +515,13 @@ export function Composer(props: { room: string; token: () => string; connection:
 
   const autoGrow = (): void => {
     const node = areaRef.current;
-    if (!node) return;
-    const previousHeight = node.style.height;
-    node.style.height = 'auto';
-    const style = getComputedStyle(node);
-    const line = parseFloat(style.lineHeight) || 24;
-    // The cap is a HEIGHT, and height here includes the box's own vertical
-    // padding. Capping at `line * 8` alone left the eighth row clipped by
-    // exactly that padding — eight rows of text never fit in an "eight row" box.
-    const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
-    const cap = Math.round(line * MAX_ROWS + (Number.isFinite(padding) ? padding : 0));
-    const nextHeight = `${Math.min(node.scrollHeight, cap)}px`;
-    node.style.height = nextHeight;
+    const mirror = measureRef.current;
+    if (!node || !mirror) return;
+    const { previousHeight, nextHeight } = resizeComposerTextarea(
+      node,
+      mirror,
+      getComputedStyle(node),
+    );
     // The transcript remains the sole geometry owner. This synchronous signal
     // only tells it that its viewport changed, so a pinned reader is corrected
     // before the browser can paint the composer-induced gap.
@@ -866,6 +945,14 @@ export function Composer(props: { room: string; token: () => string; connection:
             ))}
           </ul>
         )}
+        <textarea
+          ref={measureRef}
+          className="nx-composer-input nx-composer-measure"
+          aria-hidden="true"
+          tabIndex={-1}
+          rows={1}
+          readOnly
+        />
         <textarea
           ref={areaRef}
           className="nx-composer-input"

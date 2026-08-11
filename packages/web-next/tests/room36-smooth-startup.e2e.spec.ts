@@ -220,38 +220,91 @@ test.describe('hosted smooth startup budgets', () => {
 
 // harn:assume transcript-tail-follow-has-one-prepaint-owner ref=transcript-prepaint-geometry-regression
 test('direct and hosted transcript geometry keeps one pre-paint tail owner', async ({ page }) => {
-  await page.goto('/?room=eng&token=next-e2e-token');
-  await expect(page.getByTestId('timeline')).toBeVisible();
-  const timeline = page.getByTestId('timeline');
-  await expect.poll(() => timeline.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight)).toBeLessThan(4);
-  const sampleTail = async (): Promise<void> => page.evaluate(() => {
+  test.setTimeout(120_000);
+  const sampleTail = async (key: string): Promise<void> => page.evaluate((sampleKey) => {
     const samples: number[] = [];
-    (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps = samples;
-    let remaining = 20;
+    const runtime = window as unknown as { __tailFrameGaps: Record<string, number[]> };
+    runtime.__tailFrameGaps ??= {};
+    runtime.__tailFrameGaps[sampleKey] = samples;
+    let remaining = 24;
     const sample = (): void => {
       const node = document.querySelector<HTMLElement>('[data-testid="timeline"]');
       if (node) samples.push(node.scrollHeight - node.scrollTop - node.clientHeight);
       remaining -= 1;
-      if (remaining > 0) requestAnimationFrame(() => setTimeout(sample, 0));
+      if (remaining > 0) requestAnimationFrame(sample);
     };
-    requestAnimationFrame(() => setTimeout(sample, 0));
-  });
-  await sampleTail();
-  await control('/live-chat', { room: 'eng', body: 'prepaint geometry live arrival', route: false });
-  await page.waitForTimeout(600);
-  const liveGaps = await page.evaluate(() => (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps);
+    requestAnimationFrame(sample);
+  }, key);
+  const finishSample = async (key: string): Promise<number[]> => {
+    await page.waitForTimeout(500);
+    return page.evaluate((sampleKey) => (
+      (window as unknown as { __tailFrameGaps: Record<string, number[]> }).__tailFrameGaps[sampleKey] ?? []
+    ), key);
+  };
 
-  await sampleTail();
-  const input = page.getByTestId('composer-input');
-  await input.fill('one\ntwo\nthree\nfour\nfive\nsix');
-  await input.fill('one');
-  await page.waitForTimeout(600);
-  const composerGaps = await page.evaluate(() => (window as unknown as { __tailFrameGaps: number[] }).__tailFrameGaps);
-  console.info('[tail-frame-gaps]', JSON.stringify({ liveGaps, composerGaps }));
-  expect(liveGaps.length).toBeGreaterThan(10);
-  expect(composerGaps.length).toBeGreaterThan(10);
-  expect(Math.max(...liveGaps)).toBeLessThanOrEqual(2);
-  expect(Math.max(...composerGaps)).toBeLessThanOrEqual(2);
+  for (const viewport of [
+    { label: 'desktop', width: 1280, height: 800 },
+    { label: 'phone', width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/?room=eng&token=next-e2e-token');
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    const timeline = page.getByTestId('timeline');
+    const input = page.getByTestId('composer-input');
+    await expect.poll(() => timeline.evaluate((node) => node.scrollHeight - node.scrollTop - node.clientHeight))
+      .toBeLessThan(4);
+
+    const frameGroups: Record<string, number[]> = {};
+    await sampleTail(`${viewport.label}-ordinary`);
+    await input.fill('');
+    await input.pressSequentially('ordinary characters', { delay: 4 });
+    frameGroups.ordinary = await finishSample(`${viewport.label}-ordinary`);
+
+    await sampleTail(`${viewport.label}-newlines`);
+    await input.fill('one\ntwo\nthree\nfour\nfive\nsix');
+    frameGroups.newlines = await finishSample(`${viewport.label}-newlines`);
+
+    await sampleTail(`${viewport.label}-shrink`);
+    await input.fill('one');
+    frameGroups.shrink = await finishSample(`${viewport.label}-shrink`);
+
+    await sampleTail(`${viewport.label}-paste`);
+    // fill() models a single paste-sized replacement without the timing noise
+    // of typing each character; wrapping and the eight-row clamp are real.
+    await input.fill('pasted wrapped content '.repeat(90));
+    frameGroups.paste = await finishSample(`${viewport.label}-paste`);
+
+    for (const [action, samples] of Object.entries(frameGroups)) {
+      expect(samples.length, `${viewport.label} ${action} frame samples`).toBeGreaterThan(10);
+      expect(Math.max(...samples), `${viewport.label} ${action} bottom gap`).toBeLessThanOrEqual(2);
+      expect(Math.min(...samples), `${viewport.label} ${action} bottom overshoot`).toBeGreaterThanOrEqual(-1);
+    }
+
+    await input.fill('one');
+    const anchor = await timeline.evaluate((node) => {
+      node.scrollTop = Math.max(0, node.scrollHeight - node.clientHeight - 220);
+      node.dispatchEvent(new Event('scroll'));
+      const viewportBox = node.getBoundingClientRect();
+      const row = [...node.querySelectorAll<HTMLElement>('[data-transcript-unit]')]
+        .find((candidate) => candidate.getBoundingClientRect().bottom > viewportBox.top);
+      if (!row?.dataset.transcriptUnit) throw new Error('missing visible transcript anchor');
+      return {
+        unit: row.dataset.transcriptUnit,
+        offset: row.getBoundingClientRect().top - viewportBox.top,
+        gap: node.scrollHeight - node.scrollTop - node.clientHeight,
+      };
+    });
+    expect(anchor.gap).toBeGreaterThanOrEqual(120);
+    await input.fill('one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine');
+    await input.fill('one');
+    await page.waitForTimeout(200);
+    const restoredOffset = await page.locator(`[data-transcript-unit="${anchor.unit}"]`).evaluate((row) =>
+      row.getBoundingClientRect().top
+      - document.querySelector('[data-testid="timeline"]')!.getBoundingClientRect().top);
+    expect(Math.abs(restoredOffset - anchor.offset), `${viewport.label} unpinned anchor movement`)
+      .toBeLessThanOrEqual(2);
+    console.info('[composer-geometry]', JSON.stringify({ viewport, frameGroups, anchor, restoredOffset }));
+  }
 
   const directResources = await page.evaluate(() => performance.getEntriesByType('resource').map((entry) => ({
     name: entry.name,
