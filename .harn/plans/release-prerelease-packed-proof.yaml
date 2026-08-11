@@ -1,0 +1,61 @@
+id: release-prerelease-packed-proof
+title: Keep alpha packed proofs separate from stable-only update convergence
+notes: >
+  The packed release proof correctly builds and installs prerelease artifacts,
+  but its updater transaction assumes the candidate is npm latest. Codor update
+  intentionally follows the stable latest tag. Keep the complete updater
+  transaction mandatory for stable candidates and skip only that stable-only
+  subjourney for prereleases while retaining every packed install/runtime gate.
+assumptions:
+  retire:
+    - id: packed-update-bootstrap-crosses-real-candidate-transaction
+      reason: Its unconditional candidate-update statement is false for alpha
+        packages because the official updater deliberately follows npm latest.
+  create:
+    - id: packed-release-proof-matches-stable-update-policy
+      title: Packed release proof updates stable candidates and installs prereleases
+      statement: >
+        The clean local-TGZ release proof must build, install, audit, boot, and
+        exercise every stable or prerelease candidate; when the candidate is a
+        stable version it must additionally invoke the real public npx update
+        command against a controlled previous durable runtime and prove official
+        registry lookup, acquisition, runtime swap, service generation, and
+        authenticated readiness, while prerelease candidates must not be routed
+        through that stable-latest updater path.
+      reason: >
+        The proof must mirror the product policy: alpha packages are explicitly
+        installed, while codor update advances through npm latest.
+      depends_on:
+        - official-codor-update-is-cooperatively-bounded-and-platform-truthful
+        - packed-release-proof-runs-install-runtime
+        - packed-local-tgz-npx-proof-runs-fresh-default-audit
+  reviewed:
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: Every candidate still completes the packed install, daemon, browser,
+        CLI, API, offline, and teardown journey.
+    - id: packed-local-tgz-npx-proof-runs-fresh-default-audit
+      outcome: unchanged
+      reason: Prerelease and stable local-TGZ installs retain the default audit.
+anchors:
+  packed-update-bootstrap-crosses-real-candidate-transaction:
+    packed-update-transaction-proof:
+      action: remove
+      reason: Replace the unconditional stable-update subjourney contract.
+  packed-release-proof-matches-stable-update-policy:
+    packed-update-policy-proof:
+      action: change
+      reason: Run the update transaction only when the packed candidate is stable.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: Add the prerelease branch inside the complete packed proof.
+  packed-local-tgz-npx-proof-runs-fresh-default-audit:
+    packed-npx-fresh-default-audit-proof:
+      action: change
+      reason: Preserve the audited local-TGZ path around the conditional update proof.
+files:
+  - scripts/packed-install-test.sh
+verification: >
+  Run the packed proof for 0.10.14-alpha.1, release and license audits, Harn
+  checks, and diff checks. The full release workflow repeats all gates.
