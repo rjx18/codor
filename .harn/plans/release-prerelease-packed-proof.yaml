@@ -37,6 +37,10 @@ assumptions:
     - id: packed-local-tgz-npx-proof-runs-fresh-default-audit
       outcome: unchanged
       reason: Prerelease and stable local-TGZ installs retain the default audit.
+    - id: packed-management-workflow-persists-target-owned-worktree-turn
+      outcome: unchanged
+      reason: The later packed worktree management journey remains mandatory and
+        unchanged; it shares the enclosing shell proof with this conditional.
 anchors:
   packed-update-bootstrap-crosses-real-candidate-transaction:
     packed-update-transaction-proof:
@@ -54,6 +58,10 @@ anchors:
     packed-npx-fresh-default-audit-proof:
       action: change
       reason: Preserve the audited local-TGZ path around the conditional update proof.
+  packed-management-workflow-persists-target-owned-worktree-turn:
+    packed-target-owned-management-workflow:
+      action: change
+      reason: Authorize the unchanged later journey inside the edited packed script.
 files:
   - scripts/packed-install-test.sh
 verification: >
