@@ -11,8 +11,8 @@ assumptions:
   reviewed:
     - id: public-package-bundles-complete-codor-runtime
       outcome: unchanged
-      reason: The exact bundled runtime and dependency closure remain unchanged;
-        only the test accepts the prerelease version already staged by the builder.
+      reason: The exact bundled runtime and dependency closure remain unchanged; only
+        the test accepts the prerelease version already staged by the builder.
 anchors:
   public-package-bundles-complete-codor-runtime:
     artifact-runtime-regression:
@@ -23,3 +23,5 @@ files:
 verification: >
   Run the focused artifact test, the complete CLI suite, release audits, Harn
   checks, and then rerun the complete release gate from the committed candidate.
+applied:
+  applied_at: 2026-08-11T08:58:05.217Z

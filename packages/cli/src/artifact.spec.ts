@@ -162,7 +162,9 @@ describe('built public artifact', () => {
   it('stages exact manifests, the complete web build, and service resources', () => {
     const { manifest } = buildArtifact({ repoRoot, outDir });
     for (const name of EXPECTED_CLOSURE) {
-      expect(manifest.dependencies?.[name]).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(manifest.dependencies?.[name]).toMatch(
+        /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/,
+      );
       expect(readFileSync(join(outDir, 'node_modules', name, 'package.json'), 'utf8'))
         .not.toContain('workspace:');
     }
