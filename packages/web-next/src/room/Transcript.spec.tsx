@@ -8,10 +8,66 @@ import {
   continuationTrailingText,
   continuationVisibleMessages,
   deliveryIndicator,
+  groupHistoricalPresentationUnits,
+  groupAdjacentToolOnlyLiveMessages,
   messageReadSeq,
   qualifiedAuthorLabel,
   resolveRunningSince,
 } from './Transcript.js';
+
+// harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-regression
+describe('cross-output historical tool presentation', () => {
+  const tool = (rootId: number, outputId: number, index: number) => ({
+    kind: 'tool' as const,
+    root_message_id: rootId,
+    output_message_id: outputId,
+    event_indices: [index],
+  });
+  const prose = (rootId: number, outputId: number, index: number) => ({
+    kind: 'prose' as const,
+    root_message_id: rootId,
+    output_message_id: outputId,
+    event_indices: [index],
+  });
+
+  it('merges adjacent same-root tools across output and page identities', () => {
+    expect(groupHistoricalPresentationUnits([
+      tool(1, 1, 1), tool(1, 2, 2), tool(1, 2, 3), tool(1, 3, 4),
+    ])).toEqual([[
+      tool(1, 1, 1), tool(1, 2, 2), tool(1, 2, 3), tool(1, 3, 4),
+    ]]);
+  });
+
+  it('stops at prose, messages, settled evidence, and another root', () => {
+    const messageUnit = { kind: 'message' as const, message_id: 9 };
+    const settled = {
+      kind: 'settled_tail' as const,
+      root_message_id: 1,
+      output_message_id: 3,
+      event_indices: [],
+    };
+    expect(groupHistoricalPresentationUnits([
+      tool(1, 1, 1), prose(1, 1, 2), tool(1, 2, 3), messageUnit,
+      tool(1, 3, 4), settled, tool(2, 4, 5), tool(1, 5, 6),
+    ]).map((group) => group.map((unit) => unit.kind))).toEqual([
+      ['tool', 'prose'], ['tool'], ['message'], ['tool', 'settled_tail'], ['tool'], ['tool'],
+    ]);
+  });
+});
+
+describe('cross-output live tool presentation', () => {
+  it('merges only adjacent tool-only outputs from one root', () => {
+    const first = root(1, 'messages', 'running');
+    const second = { ...root(2, undefined, 'running'), run_parent_id: 1 };
+    const separator = chat(3);
+    const third = { ...root(4, undefined, 'running'), run_parent_id: 1 };
+    expect(groupAdjacentToolOnlyLiveMessages(
+      [first, second, separator, third],
+      new Set([1, 2, 4]),
+    ).map((group) => group.map((message) => message.id))).toEqual([[1, 2], [3], [4]]);
+  });
+});
+// harn:end tool-only-evidence-batches-across-invisible-output-boundaries
 import { transcriptMessages } from './transcript-order.js';
 
 const TS = '2026-07-18T00:00:00.000Z';

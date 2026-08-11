@@ -1,20 +1,21 @@
 id: worktree-delivery-composer-p2-correctness
-title: Message-owned held retry, exact-mention send, cache revalidation, and visual tool batching
+title: Message-owned held retry, exact-mention send, cache revalidation, and
+  visual tool batching
 notes: >
-  Implement only Phase 2 of the approved worktree delivery/composer polish
-  plan. Move ordinary held-delivery recovery from the global banner onto the
-  exact originating human message and expose only evidence-preserving
-  release_hold there. On desktop, an exact trailing local or qualified mention
-  sends on the first Enter while partial tokens retain autocomplete and mobile
-  Enter remains a newline. Treat a persisted last-good combined-history head as
-  readable but stale until the authenticated current computer and tunnel
-  generation successfully revalidate it; deduplicate/retry current-store head
-  requests and retain newer live rows throughout. In browser presentation only,
-  merge adjacent tool-only evidence belonging to one run root across permanent
-  output rows and loaded-page boundaries, preserve every unit/message anchor,
-  and stop at any visible prose, message, compaction, settled status, or
-  different root. Server unitization, delivery persistence/actions, routing,
-  relay/tunnel generations, and protocol shapes remain unchanged.
+  Implement only Phase 2 of the approved worktree delivery/composer polish plan.
+  Move ordinary held-delivery recovery from the global banner onto the exact
+  originating human message and expose only evidence-preserving release_hold
+  there. On desktop, an exact trailing local or qualified mention sends on the
+  first Enter while partial tokens retain autocomplete and mobile Enter remains
+  a newline. Treat a persisted last-good combined-history head as readable but
+  stale until the authenticated current computer and tunnel generation
+  successfully revalidate it; deduplicate/retry current-store head requests and
+  retain newer live rows throughout. In browser presentation only, merge
+  adjacent tool-only evidence belonging to one run root across permanent output
+  rows and loaded-page boundaries, preserve every unit/message anchor, and stop
+  at any visible prose, message, compaction, settled status, or different root.
+  Server unitization, delivery persistence/actions, routing, relay/tunnel
+  generations, and protocol shapes remain unchanged.
 assumptions:
   create:
     - id: held-delivery-recovery-stays-on-origin-message
@@ -41,8 +42,8 @@ assumptions:
         ambiguous tokens retain keyboard completion, mobile Enter remains a
         newline, parser/server refusal preserves the draft, and successful
         submission clears only after its own echoed message.
-      reason: The completion popover currently consumes Enter even after the typed token
-        already exactly names its intended recipient.
+      reason: The completion popover currently consumes Enter even after the typed
+        token already exactly names its intended recipient.
       depends_on:
         - composer-enter-uses-live-draft-state
         - qualified-completion-lists-registered-targets-only
@@ -51,14 +52,16 @@ assumptions:
       title: A persisted transcript head stays stale until authenticated revalidation
       statement: >
         A hosted last-good transcript projection may render read-only while
-        disconnected but must remain marked as requiring head revalidation
-        until the owning computer's current authenticated tunnel generation
+        disconnected but must remain marked as requiring head revalidation until
+        the owning computer's current authenticated tunnel generation
         successfully refreshes the combined-history head; readiness and resume
-        signals deduplicate the correct source-store/token request, failures stay
-        retryable, and reconciliation retains newer live rows and previously
-        rendered evidence without importing another computer's same-named room.
-      reason: Hydrating the cache as initialized lets normal ensure logic accept an old
-        head, while the one fire-and-forget replacement refresh can fail or race.
+        signals deduplicate the correct source-store/token request, failures
+        stay retryable, and reconciliation retains newer live rows and
+        previously rendered evidence without importing another computer's
+        same-named room.
+      reason: Hydrating the cache as initialized lets normal ensure logic accept an
+        old head, while the one fire-and-forget replacement refresh can fail or
+        race.
       depends_on:
         - hosted-last-good-room-cache-is-bounded-read-only-projection
         - missed-terminal-history-refreshes-through-combined-head
@@ -84,47 +87,49 @@ assumptions:
     - id: agent-delivery-lifecycle-streams-v2
       outcome: unchanged
       reason: Existing live queued/delivering/consumed/held transitions remain the
-        source of truth; only the held browser projection moves onto its message.
+        source of truth; only the held browser projection moves onto its
+        message.
     - id: held-recovery-runs-are-inactive-until-release
       outcome: unchanged
-      reason: Inline retry invokes the existing release_hold act and neither revives nor
-        creates work through any other path.
+      reason: Inline retry invokes the existing release_hold act and neither revives
+        nor creates work through any other path.
     - id: active-turn-steering-is-ordered-and-durable
       outcome: unchanged
-      reason: Existing steered and delivered ticks remain unchanged beside the added held
-        affordance.
+      reason: Existing steered and delivered ticks remain unchanged beside the added
+        held affordance.
     - id: composer-enter-uses-live-draft-state
       outcome: fixed
-      reason: Keydown still reads the live value/caret but now distinguishes a complete
-        exact token from a partial completion query before consuming Enter.
+      reason: Keydown still reads the live value/caret but now distinguishes a
+        complete exact token from a partial completion query before consuming
+        Enter.
     - id: qualified-completion-lists-registered-targets-only
       outcome: unchanged
       reason: The same bounded catalog defines exact qualified tokens and suggestions;
         routing and refusal behavior do not change.
     - id: hosted-last-good-room-cache-is-bounded-read-only-projection
       outcome: fixed
-      reason: Persisted content stays bounded, isolated, and readable, but is no longer
-        mistaken for a successfully authenticated current head.
+      reason: Persisted content stays bounded, isolated, and readable, but is no
+        longer mistaken for a successfully authenticated current head.
     - id: hosted-explicit-room-survives-cached-bootstrap
       outcome: unchanged
       reason: Explicit room intent, cached bootstrap selection, and authoritative live
         room discovery remain unchanged.
     - id: readable-reconnecting-room-never-admits-mutation
       outcome: unchanged
-      reason: Cached/retained rows remain readable while all mutations stay blocked until
-        current server evidence restores readiness.
+      reason: Cached/retained rows remain readable while all mutations stay blocked
+        until current server evidence restores readiness.
     - id: missed-terminal-history-refreshes-through-combined-head
       outcome: fixed
-      reason: Its retryable deduplicated head controller now also owns explicit stale-cache
-        revalidation without any finalized journal fallback.
+      reason: Its retryable deduplicated head controller now also owns explicit
+        stale-cache revalidation without any finalized journal fallback.
     - id: finalized-browser-history-is-combined-page-owned
       outcome: unchanged
-      reason: Revalidated combined pages remain the sole finalized-history authority in
-        direct and hosted stores.
+      reason: Revalidated combined pages remain the sole finalized-history authority
+        in direct and hosted stores.
     - id: hosted-computer-sessions-keep-state-isolated
       outcome: unchanged
-      reason: Every revalidation captures one concrete source store and that computer's
-        current token across awaits.
+      reason: Every revalidation captures one concrete source store and that
+        computer's current token across awaits.
     - id: hosted-app-streams-follow-tunnel-generations
       outcome: unchanged
       reason: Existing current-generation readiness/resume callbacks trigger recovery;
@@ -145,8 +150,8 @@ anchors:
   held-recovery-runs-are-inactive-until-release:
     held-run-inactive-regression:
       action: change
-      reason: Prove reload-held retry uses release_hold once and preserves inactive state
-        until that explicit act.
+      reason: Prove reload-held retry uses release_hold once and preserves inactive
+        state until that explicit act.
   held-delivery-recovery-stays-on-origin-message:
     message-owned-held-recovery:
       action: change
@@ -156,11 +161,13 @@ anchors:
       reason: Keep the error compact, readable, dismissible, and accessible.
     message-owned-held-recovery-regression:
       action: change
-      reason: Cover multiple held recipients, reload, one release, and automatic clearing.
+      reason: Cover multiple held recipients, reload, one release, and automatic
+        clearing.
   composer-enter-uses-live-draft-state:
     composer-live-mention-keydown:
       action: change
-      reason: Give exact trailing tokens send precedence while retaining live-value reads.
+      reason: Give exact trailing tokens send precedence while retaining live-value
+        reads.
   qualified-completion-lists-registered-targets-only:
     qualified-composer-completion-regression:
       action: change
@@ -171,24 +178,30 @@ anchors:
       reason: Own the desktop exact-token precedence decision.
     exact-trailing-mention-regression:
       action: change
-      reason: Cover local/qualified exact send, partial completion, drafts, mobile, and echo.
+      reason: Cover local/qualified exact send, partial completion, drafts, mobile,
+        and echo.
   hosted-last-good-room-cache-is-bounded-read-only-projection:
     hosted-last-good-room-lifecycle:
       action: change
-      reason: Hydrate cached history as readable but requiring authenticated head proof.
+      reason: Hydrate cached history as readable but requiring authenticated head
+        proof.
     hosted-last-good-room-regression:
       action: change
-      reason: Prove stale cache survives failure and ceases to be stale only after success.
+      reason: Prove stale cache survives failure and ceases to be stale only after
+        success.
   missed-terminal-history-refreshes-through-combined-head:
     combined-history-head-refresh:
       action: change
-      reason: Let ensure retry an explicitly stale initialized head via the existing dedupe.
+      reason: Let ensure retry an explicitly stale initialized head via the existing
+        dedupe.
     combined-history-head-regression:
       action: change
-      reason: Prove failure/retry/live-row preservation and independent same-room stores.
+      reason: Prove failure/retry/live-row preservation and independent same-room
+        stores.
     combined-history-resume:
       action: change
-      reason: Trigger retry from current connector readiness/resume with the owning token.
+      reason: Trigger retry from current connector readiness/resume with the owning
+        token.
   hosted-computer-sessions-keep-state-isolated:
     per-computer-session-state:
       action: change
@@ -203,13 +216,16 @@ anchors:
   cached-transcript-head-stays-stale-until-revalidated:
     cached-history-revalidation-state:
       action: change
-      reason: Record whether an initialized rendered head still requires authentication.
+      reason: Record whether an initialized rendered head still requires
+        authentication.
     cached-history-revalidation-lifecycle:
       action: change
-      reason: Retry through current computer readiness/resume and clear only on success.
+      reason: Retry through current computer readiness/resume and clear only on
+        success.
     cached-history-revalidation-regression:
       action: change
-      reason: Cover hard-refresh stale head, delayed readiness, failure/retry, and isolation.
+      reason: Cover hard-refresh stale head, delayed readiness, failure/retry, and
+        isolation.
   historical-transcript-pages-match-output-scoped-rendering:
     output-scoped-history-unitization-regression:
       action: keep
@@ -228,7 +244,8 @@ anchors:
       reason: Own adjacency classification and aggregate rendering across output rows.
     cross-output-tool-batch-regression:
       action: change
-      reason: Cover output/page boundaries, anchors, live parity, and visible separators.
+      reason: Cover output/page boundaries, anchors, live parity, and visible
+        separators.
 files:
   - packages/web-next/src/app/store.ts
   - packages/web-next/src/app/computer-sessions.ts
@@ -253,13 +270,16 @@ files:
   - packages/web-next/tests/room41-native-worktree-lifecycle.e2e.spec.ts
 verification: >
   Check and clean-lock this plan before source edits. Run focused Composer,
-  Transcript, transcript-history, last-good-room, computer-session, and connector
-  units; all web units; production/PWA build; exact Rooms 2, 21, 33, 34, 40,
-  and 41 plus reboot-held, stale-cache, and cross-output/page tool fixtures;
-  desktop and 390px light/dark Axe; Harn working/staged checks and apply; and git
-  diff checks. Prove one release_hold per selected held recipient with no banner
-  or fresh redelivery, exact first-Enter local/qualified send with draft safety,
-  current-computer stale-head retry retaining newer live rows, and one visual
-  tool batch with every anchor preserved and visible separators honored. Create
-  one implementation commit; do not change server unitization, protocol,
-  routing, relay generations, delivery persistence, push, deployment, or release.
+  Transcript, transcript-history, last-good-room, computer-session, and
+  connector units; all web units; production/PWA build; exact Rooms 2, 21, 33,
+  34, 40, and 41 plus reboot-held, stale-cache, and cross-output/page tool
+  fixtures; desktop and 390px light/dark Axe; Harn working/staged checks and
+  apply; and git diff checks. Prove one release_hold per selected held recipient
+  with no banner or fresh redelivery, exact first-Enter local/qualified send
+  with draft safety, current-computer stale-head retry retaining newer live
+  rows, and one visual tool batch with every anchor preserved and visible
+  separators honored. Create one implementation commit; do not change server
+  unitization, protocol, routing, relay generations, delivery persistence, push,
+  deployment, or release.
+applied:
+  applied_at: 2026-08-11T08:24:40.053Z

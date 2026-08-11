@@ -1,13 +1,13 @@
 import type { Message, RoomInboxItem } from '@codor/protocol';
-import { Inbox as InboxIcon, PauseCircle, Search, X } from 'lucide-react';
+import { Inbox as InboxIcon, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { searchMessages } from '@runtime/api.js';
 import type { Connection } from '@runtime/ws.js';
 
-import { heldDeliveries, roomSlice, useClientStore } from '../app/store.js';
+import { roomSlice, useClientStore } from '../app/store.js';
 import { clockTime } from '../primitives/identity.js';
-import { Button, IconButton, Modal } from '../primitives/primitives.js';
+import { IconButton, Modal } from '../primitives/primitives.js';
 import { revealTranscriptTarget } from './transcript-history.js';
 
 const EMPTY_INBOX_ITEMS: RoomInboxItem[] = [];
@@ -31,50 +31,6 @@ export async function jumpToMessage(room: string, id: number, token: () => strin
     }
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
   }
-}
-
-// ── Hold banner: parked deliveries wait above the transcript ──────────────
-
-export function HoldBanner(props: { room: string; connection: Connection }) {
-  const inbox = useClientStore((state) => roomSlice(state, props.room).inbox);
-  const members = useClientStore((state) => roomSlice(state, props.room).members);
-  const messages = useClientStore((state) => roomSlice(state, props.room).messages);
-  const held = useMemo(() => heldDeliveries(inbox), [inbox]);
-  if (held.length === 0) return null;
-
-  return (
-    <div className="nx-holds" data-testid="hold-banner">
-      {held.map((delivery) => {
-        const recipient = members[delivery.recipient];
-        const message = messages[delivery.message_id];
-        return (
-          <div key={delivery.id} className="nx-hold">
-            <PauseCircle size={16} aria-hidden="true" />
-            <span className="nx-hold-text">
-              Held for <strong>@{recipient?.handle ?? '…'}</strong>
-              {message !== undefined ? ` — “${(message.body.split('\n', 1)[0] ?? '').slice(0, 80)}”` : ''}
-            </span>
-            <span className="nx-hold-actions">
-              <Button
-                variant="secondary"
-                data-testid={`hold-${delivery.id}-release`}
-                onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
-              >
-                Release
-              </Button>
-              <Button
-                variant="quiet"
-                data-testid={`hold-${delivery.id}-redeliver`}
-                onClick={() => props.connection.act({ act: 'redeliver', delivery_id: delivery.id })}
-              >
-                Redeliver
-              </Button>
-            </span>
-          </div>
-        );
-      })}
-    </div>
-  );
 }
 
 // ── Inbox: the badge and the panel share one selector ─────────────────────

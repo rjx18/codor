@@ -1,0 +1,18 @@
+id: cached-transcript-head-stays-stale-until-revalidated
+hash: a-4315b6bd68d4
+title: A persisted transcript head stays stale until authenticated revalidation
+state: active
+statement: >
+  A hosted last-good transcript projection may render read-only while
+  disconnected but must remain marked as requiring head revalidation until the
+  owning computer's current authenticated tunnel generation successfully
+  refreshes the combined-history head; readiness and resume signals deduplicate
+  the correct source-store/token request, failures stay retryable, and
+  reconciliation retains newer live rows and previously rendered evidence
+  without importing another computer's same-named room.
+depends_on:
+  - hosted-last-good-room-cache-is-bounded-read-only-projection
+  - missed-terminal-history-refreshes-through-combined-head
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-app-streams-follow-tunnel-generations
+created_by: worktree-delivery-composer-p2-correctness

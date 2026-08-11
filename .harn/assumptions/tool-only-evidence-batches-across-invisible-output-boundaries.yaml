@@ -1,0 +1,17 @@
+id: tool-only-evidence-batches-across-invisible-output-boundaries
+hash: a-8d2003a19faf
+title: Tool-only evidence batches across invisible output boundaries
+state: active
+statement: >
+  Browser presentation must coalesce adjacent tool-only units from the same run
+  root into one aggregate even when they cross permanent output rows or a
+  loaded-page boundary, while retaining every stable unit, output-message, root,
+  permalink, search, and scroll anchor and stopping at any visibly rendered
+  prose, ordinary message, compaction marker, settled tail/status, or different
+  run root; immutable server unitization and evidence ownership remain
+  output-scoped.
+depends_on:
+  - historical-transcript-pages-match-output-scoped-rendering
+  - finalized-browser-history-is-combined-page-owned
+  - live-runs-settle-beside-paged-history-once
+created_by: worktree-delivery-composer-p2-correctness

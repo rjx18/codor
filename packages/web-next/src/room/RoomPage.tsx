@@ -32,7 +32,7 @@ import { ComputerSwitcher } from './ComputerSwitcher.js';
 import { compactCount, memberAccent, relativeTime } from '../primitives/identity.js';
 import { Composer } from './Composer.js';
 import { CreateChannelDialog } from './CreateChannel.js';
-import { HoldBanner, InboxControl, SearchOverlay } from './panels.js';
+import { InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 import { costProvenanceLabel } from './spend-label.js';
 import { SettingsPage } from '../surfaces/SettingsPage.js';
@@ -651,7 +651,6 @@ function ChatPanel(props: {
           </div>
           <IconButton icon={MoreVertical} label="Channel details" data-testid="mobile-kebab" onClick={props.mobile.onContext} />
         </header>
-        <HoldBanner room={props.room} connection={props.connection} />
         <Transcript room={props.room} token={props.token} connection={props.connection} />
         <Composer room={props.room} token={props.token} connection={props.connection} />
       </main>
@@ -685,7 +684,6 @@ function ChatPanel(props: {
           <IconButton icon={Share2} label="Open ledger graph" onClick={() => { window.location.href = `/ledger?room=${props.room}`; }} />
         </div>
       </header>
-      <HoldBanner room={props.room} connection={props.connection} />
       <Transcript room={props.room} token={props.token} connection={props.connection} />
       <Composer room={props.room} token={props.token} connection={props.connection} />
       {searching && <SearchOverlay room={props.room} token={props.token} onClose={() => setSearching(false)} />}

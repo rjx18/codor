@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   deleteLastGoodRoom,
+  hydrateLastGoodRoom,
   loadLastGoodRoom,
   saveLastGoodRoom,
   snapshotLastGoodRoom,
   type LastGoodRoomSnapshot,
   type LastGoodRoomStorage,
 } from './last-good-room.js';
-import { createClientStore } from '../app/store.js';
+import { createClientStore, roomSlice } from '../app/store.js';
 
 const snapshot = (computerId: string, room: string): LastGoodRoomSnapshot => ({
   version: 1,
@@ -143,6 +144,17 @@ describe('hosted last-good room cache', () => {
     expect(Object.values(projected?.history.messages ?? {}).every((message) => (
       message.attachments === undefined && message.voice === undefined
     ))).toBe(true);
+
+    const restored = createClientStore();
+    hydrateLastGoodRoom(restored, projected!);
+    expect(roomSlice(restored.getState(), room.id).transcriptHistory).toMatchObject({
+      initialized: true,
+      headNeedsRevalidation: true,
+      failed: false,
+      coldMessageIds: Object.fromEntries(
+        Array.from({ length: 20 }, (_, index) => [index + 6, true]),
+      ),
+    });
   });
 });
 // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection

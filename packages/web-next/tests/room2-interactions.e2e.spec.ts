@@ -98,6 +98,21 @@ test.describe('composer addressing', () => {
     await expect(page.locator('.nx-prose', { hasText: 'On it — summarizing now.' })).toBeVisible();
   });
 
+  // harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
+  test('an exact trailing local mention sends on the first Enter', async ({ page }) => {
+    await openRoom(page);
+    const input = page.getByTestId('composer-input');
+    await expect(input).toHaveValue(/@\w+ /);
+    // @scout is the fixture's already-running agent, so this exercises the
+    // composer without consuming a queued FakeAdapter turn from another spec.
+    await input.fill('send this now @scout');
+    await expect(page.getByTestId('mention-popover')).toBeVisible();
+    await input.press('Enter');
+    await expect(page.locator('.nx-prose', { hasText: 'send this now @scout' })).toBeVisible();
+    await expect(input).not.toHaveValue('send this now @scout');
+  });
+  // harn:end exact-trailing-mentions-send-before-completion
+
   // harn:assume composer-enter-uses-live-draft-state ref=composer-live-mention-direct-regression
   test('Enter submits the live completed draft even when the mention picker is one frame stale', async ({ page }) => {
     await openRoom(page);
@@ -406,15 +421,27 @@ test.describe('typing chip spacing', () => {
 // harn:end agent-activity-bar-keeps-a-visible-gap-above-the-composer
 
 test.describe('holds', () => {
-  test('the banner names the held delivery and Release runs it', async ({ page }) => {
+  // harn:assume held-delivery-recovery-stays-on-origin-message ref=message-owned-held-recovery-regression
+  test('the original message owns held recovery across reload and release resumes it', async ({ page }) => {
     await enqueue([{ kind: 'complete', final_text: 'Keys rotated.' }]);
     await openRoom(page);
-    const banner = page.getByTestId('hold-banner');
-    await expect(banner).toContainText('Held for @fable');
-    await banner.locator('button', { hasText: 'Release' }).click();
-    await expect(banner).toBeHidden();
+    const message = page.locator('.nx-turn', { hasText: 'parked: rotate the API keys' });
+    await expect(message).toBeVisible();
+    await expect(page.getByTestId('hold-banner')).toHaveCount(0);
+    await expect(message.locator('[data-testid$="-held"]')).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    const restored = page.locator('.nx-turn', { hasText: 'parked: rotate the API keys' });
+    await restored.locator('[data-testid$="-held"]').click();
+    const recovery = restored.locator('[data-testid$="-held-recovery"]');
+    await expect(recovery).toContainText('Delivery to @fable stopped after reconnecting');
+    await expect(recovery).not.toContainText('Redeliver');
+    await recovery.getByRole('button', { name: 'Retry delivery' }).click();
+    await expect(restored.locator('[data-testid$="-held"]')).toBeHidden();
     await expect(page.locator('.nx-prose', { hasText: 'Keys rotated.' })).toBeVisible();
   });
+  // harn:end held-delivery-recovery-stays-on-origin-message
 });
 
 test.describe('asks', () => {

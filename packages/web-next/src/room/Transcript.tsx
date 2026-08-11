@@ -8,7 +8,7 @@ import type {
   TranscriptHistoryUnit,
   WireEvent,
 } from '@codor/protocol';
-import { ArrowDown, AudioLines, Bot, Check, CheckCheck, ChevronRight, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
+import { ArrowDown, AudioLines, Bot, Check, CheckCheck, ChevronRight, CircleAlert, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -54,6 +54,7 @@ import {
   indexedEventsForUnit,
   loadOlderTranscriptHistory,
   refreshTranscriptHistoryHead,
+  revealTranscriptTarget,
   transcriptUnitKey,
 } from './transcript-history.js';
 
@@ -160,9 +161,13 @@ export function Transcript(props: { room: string; token: () => string; connectio
 
   useEffect(() => activateRunJournalRoom(props.room), [props.room]);
   useEffect(() => {
-    if (!hydrated) return;
+    // A persisted last-good page is intentionally readable before connection,
+    // but it is not current truth. Wait for this source store's current server
+    // evidence and token, then let the shared head controller deduplicate the
+    // authenticated revalidation with resume/settlement signals.
+    if (!hydrated || !connected) return;
     void ensureTranscriptHistory(useClientStore, props.room, props.token);
-  }, [hydrated, props.room, props.token]);
+  }, [connected, hydrated, props.room, props.token]);
 
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -179,6 +184,20 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const inbox = slice.inbox;
+  const heldMessageIds = useMemo(() => [...new Set(Object.values(inbox)
+    .filter((delivery) => delivery.state === 'held')
+    .map((delivery) => delivery.message_id))], [inbox]);
+  const heldTargetRequestsRef = useRef(new Set<number>());
+  useEffect(() => {
+    if (!connected || !history.initialized) return;
+    for (const id of heldMessageIds) {
+      if (messages[id] !== undefined || history.messages[id] !== undefined
+        || heldTargetRequestsRef.current.has(id)) continue;
+      heldTargetRequestsRef.current.add(id);
+      void revealTranscriptTarget(useClientStore, props.room, id, props.token)
+        .finally(() => heldTargetRequestsRef.current.delete(id));
+    }
+  }, [connected, heldMessageIds, history.initialized, history.messages, messages, props.room, props.token]);
   const ordered = useMemo(() => transcriptMessages(messages), [messages]);
   // Support state owns actionability; transcript messages stay the exact
   // contiguous history window and never absorb old correctness outliers.
@@ -314,8 +333,44 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // Combined pages own every cold finalized unit. The legacy renderer is kept
   // only for current live material, so it can never trigger a cold finalized
   // journal read.
-  const entries = useMemo(() => buildTimelineEntries(liveVisible, new Map()), [liveVisible]);
   const journalVersion = useRunJournalVersion();
+  const liveToolOnlyOutputs = useMemo(() => {
+    const selected = new Set<number>();
+    for (const message of liveVisible) {
+      if (message.kind !== 'run') continue;
+      const rootId = message.run_parent_id ?? message.id;
+      const root = messages[rootId]
+        ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+      if (root?.run?.status === 'failed' || root?.run?.status === 'interrupted') continue;
+      const outputMessages = message.run_parent_id !== undefined
+        || root?.run?.output_mode === 'messages';
+      const merged = mergeRunEvents(
+        getRunJournal(props.room, rootId),
+        slice.runEvents[rootId] ?? { events: [], dropped_count: 0 },
+      );
+      const targeted = outputMessages
+        ? merged.filter(({ event }) => {
+            const target = event.type === 'run.item'
+              || event.type === 'timeline'
+              || event.type === 'run.completed'
+              ? event.output_message_id
+              : undefined;
+            return (target ?? rootId) === message.id;
+          })
+        : merged;
+      const segments = segmentTimeline(presentRunTimeline(targeted));
+      if (segments.length === 0 || !segments.every((segment) => segment.kind === 'tools')) continue;
+      if (root?.run?.status !== 'running') {
+        const finalText = outputMessages
+          ? message.body
+          : message.run?.final_text ?? message.body;
+        if (finalText.length > 0 || (root?.run?.error ?? '').length > 0) continue;
+      }
+      selected.add(message.id);
+    }
+    return selected;
+  }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
+  const entries = useMemo(() => buildTimelineEntries(liveVisible, new Map()), [liveVisible]);
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
     initialBarrier.current = { room: props.room, ready: false };
@@ -773,6 +828,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
             room: props.room, token: props.token, connection: props.connection,
             canPin, canDelete, canRetry,
             preservedRoots: preservedSettledRoots,
+            liveToolOnlyOutputs,
           })}
           {/* harn:end finalized-browser-history-is-combined-page-owned */}
           {transcriptReady && detachedInteractions.length > 0 && (
@@ -867,6 +923,7 @@ function TurnBlock(props: {
   deliveries: Record<string, Delivery>;
   members: Record<string, Member>;
   preserveJournal?: boolean;
+  liveFamilyMessages?: Message[];
   historical?: {
     units: { unit: TranscriptHistoryUnit; events: TranscriptHistoryIndexedEvent[] }[];
     root: Message | undefined;
@@ -875,6 +932,12 @@ function TurnBlock(props: {
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
+  const held = Object.values(props.deliveries).filter(
+    (delivery) => delivery.message_id === message.id
+      && delivery.state === 'held'
+      && props.members[delivery.recipient]?.kind === 'agent',
+  );
+  const [heldOpen, setHeldOpen] = useState(false);
   const historicalId = props.historical?.targetIds[0];
   const articleUnit = props.historical?.units.length === 1
     && props.historical.units[0]?.unit.kind === 'message'
@@ -882,6 +945,9 @@ function TurnBlock(props: {
     : undefined;
   const historyTargets = props.historical?.targetIds.slice(1).map((id) => (
     <span key={id} id={String(id)} aria-hidden="true" />
+  ));
+  const liveTargets = props.liveFamilyMessages?.slice(1).map((target) => (
+    <span key={target.id} id={String(target.id)} aria-hidden="true" />
   ));
   // A message that @-mentions the viewer is highlighted so it stands out.
   const mentionsMe = props.viewerId !== undefined
@@ -968,6 +1034,7 @@ function TurnBlock(props: {
       className={`nx-turn ${props.grouped ? 'is-grouped' : ''} ${props.mine ? 'is-mine' : ''} ${message.pinned === true ? 'is-pinned' : ''} ${mentionsMe ? 'is-mentioned' : ''}`}
     >
       {historyTargets}
+      {liveTargets}
       {!props.grouped && !isMobile && (
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
       )}
@@ -989,7 +1056,13 @@ function TurnBlock(props: {
               <Pin size={12} className="nx-pin-glyph" aria-label="Pinned" data-testid={`msg-${message.id}-pinned`} />
             )}
             {author?.kind === 'human' && (
-              <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />
+              <SeenTicks
+                message={message}
+                deliveries={props.deliveries}
+                members={props.members}
+                heldOpen={heldOpen}
+                onHeldToggle={() => setHeldOpen((open) => !open)}
+              />
             )}
             <span className="nx-turn-spacer" />
             <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
@@ -1044,6 +1117,7 @@ function TurnBlock(props: {
                 root: props.historical.root,
               }}
               preserveJournal={props.preserveJournal}
+              liveFamilyMessages={props.liveFamilyMessages}
             />
           : message.kind === 'ask' || message.kind === 'approval'
             ? <AskCardView message={message} connection={props.connection} />
@@ -1053,6 +1127,35 @@ function TurnBlock(props: {
         {message.attachments !== undefined && message.attachments.length > 0 && (
           <MessageAttachments room={props.room} token={props.token} attachments={message.attachments} />
         )}
+        {/* harn:assume held-delivery-recovery-stays-on-origin-message ref=message-owned-held-recovery */}
+        {heldOpen && held.length > 0 && (
+          <div className="nx-held-recovery" data-testid={`msg-${message.id}-held-recovery`}>
+            {held.map((delivery) => (
+              <div key={delivery.id} className="nx-held-recovery-row" data-testid={`hold-${delivery.id}`}>
+                <span>
+                  Delivery to <strong>@{props.members[delivery.recipient]?.handle ?? '…'}</strong>
+                  {' '}stopped after reconnecting
+                </span>
+                <Button
+                  variant="secondary"
+                  data-testid={`hold-${delivery.id}-release`}
+                  onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
+                >
+                  Retry delivery
+                </Button>
+                <button
+                  type="button"
+                  className="nx-iconbtn is-quiet"
+                  aria-label={`Dismiss delivery error for @${props.members[delivery.recipient]?.handle ?? 'recipient'}`}
+                  onClick={() => setHeldOpen(false)}
+                >
+                  <X size={13} aria-hidden="true" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {/* harn:end held-delivery-recovery-stays-on-origin-message */}
       </div>
     </article>
   );
@@ -1211,6 +1314,8 @@ function SeenTicks(props: {
   message: Message;
   deliveries: Record<string, Delivery>;
   members: Record<string, Member>;
+  heldOpen: boolean;
+  onHeldToggle: () => void;
 }) {
   const relevant = Object.values(props.deliveries).filter(
     (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent',
@@ -1218,15 +1323,30 @@ function SeenTicks(props: {
   if (relevant.length === 0) return null;
   // delivering means the turn already carries the payload — the agent has it.
   const indicator = deliveryIndicator(relevant);
+  const held = relevant.filter((delivery) => delivery.state === 'held');
   return (
-    <span
-      className={`nx-seen ${indicator.seen ? 'is-seen' : ''}`}
-      title={indicator.title}
-      data-testid={`msg-${props.message.id}-seen`}
-      data-seen={indicator.seen}
-      data-delivery-disposition={indicator.disposition}
-    >
-      {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
+    <span className="nx-delivery-state">
+      <span
+        className={`nx-seen ${indicator.seen ? 'is-seen' : ''}`}
+        title={indicator.title}
+        data-testid={`msg-${props.message.id}-seen`}
+        data-seen={indicator.seen}
+        data-delivery-disposition={indicator.disposition}
+      >
+        {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
+      </span>
+      {held.length > 0 && (
+        <button
+          type="button"
+          className="nx-held-trigger"
+          aria-label={`${String(held.length)} held ${held.length === 1 ? 'delivery' : 'deliveries'}`}
+          aria-expanded={props.heldOpen}
+          data-testid={`msg-${props.message.id}-held`}
+          onClick={props.onHeldToggle}
+        >
+          <CircleAlert size={13} aria-hidden="true" />
+        </button>
+      )}
     </span>
   );
 }
@@ -1461,6 +1581,7 @@ function RunContent(props: {
     root: Message | undefined;
   };
   preserveJournal?: boolean;
+  liveFamilyMessages?: Message[];
 }) {
   const rootId = props.message.run_parent_id ?? props.message.id;
   const storedRoot = useClientStore((state) => {
@@ -1480,8 +1601,12 @@ function RunContent(props: {
       .join(',');
   });
   const rootRun = root?.run ?? props.message.run;
-  const outputMessages = props.message.run_parent_id !== undefined
+  const outputMessages = props.liveFamilyMessages !== undefined
+    || props.message.run_parent_id !== undefined
     || rootRun?.output_mode === 'messages';
+  const liveOutputIds = props.liveFamilyMessages === undefined
+    ? undefined
+    : new Set(props.liveFamilyMessages.map((message) => message.id));
   const live = useClientStore(
     (state) => roomSlice(state, props.room).runEvents[rootId],
   );
@@ -1514,7 +1639,7 @@ function RunContent(props: {
             || event.type === 'run.completed'
             ? event.output_message_id
             : undefined;
-          return (target ?? rootId) === props.message.id;
+          return liveOutputIds?.has(target ?? rootId) ?? (target ?? rootId) === props.message.id;
         })
       : merged;
     return presentRunTimeline(targeted);
@@ -1522,7 +1647,7 @@ function RunContent(props: {
     // here; `live` is a fresh object per streamed frame, so it stays keyed on
     // counts to avoid re-presenting an unchanged list on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [journalEvents, live?.events.length, live?.dropped_count, outputMessages, props.historical, props.message.id, rootId, version]);
+  }, [journalEvents, live?.events.length, live?.dropped_count, liveOutputIds, outputMessages, props.historical, props.message.id, rootId, version]);
   // harn:assume live-runs-settle-beside-paged-history-once ref=live-history-settlement-renderer
   const historicalSegments = useMemo(() => props.historical?.units.map((selected) => ({
     ...selected,
@@ -1761,6 +1886,7 @@ interface TimelineCtx {
   canDelete: boolean;
   canRetry: boolean;
   preservedRoots?: ReadonlySet<number>;
+  liveToolOnlyOutputs?: ReadonlySet<number>;
 }
 
 function renderHistoricalTimeline(
@@ -1777,28 +1903,23 @@ function renderHistoricalTimeline(
   let previousAuthor: string | undefined;
   let previousTs = Number.NEGATIVE_INFINITY;
 
-  for (let index = 0; index < history.units.length;) {
-    const unit = history.units[index]!;
+  const presentationGroups = groupHistoricalPresentationUnits(history.units);
+  for (const groupedUnits of presentationGroups) {
+    const unit = groupedUnits[0]!;
     const message = unit.kind === 'message'
       ? history.messages[unit.message_id]
       : history.messages[unit.output_message_id];
     if (message === undefined || !visibleIds.has(message.id)) {
-      index += 1;
       continue;
     }
-    const groupedUnits = [unit];
-    if (unit.kind !== 'message') {
-      while (index + groupedUnits.length < history.units.length) {
-        const candidate = history.units[index + groupedUnits.length]!;
-        if (candidate.kind === 'message' || candidate.output_message_id !== unit.output_message_id) break;
-        groupedUnits.push(candidate);
-      }
-    }
     const root = unit.kind === 'message' ? undefined : history.messages[unit.root_message_id];
-    const outputId = message.id;
-    const firstOutput = !anchoredOutputs.has(outputId);
+    const outputIds = groupedUnits.flatMap((selected) => selected.kind === 'message'
+      ? [selected.message_id]
+      : [selected.output_message_id]);
+    const firstOutput = outputIds.some((outputId) => !anchoredOutputs.has(outputId));
     const targetIds: number[] = [];
-    if (firstOutput) {
+    for (const outputId of outputIds) {
+      if (anchoredOutputs.has(outputId)) continue;
       anchoredOutputs.add(outputId);
       targetIds.push(outputId);
     }
@@ -1849,10 +1970,38 @@ function renderHistoricalTimeline(
     );
     previousAuthor = message.kind === 'system' ? undefined : message.author;
     previousTs = ts;
-    index += groupedUnits.length;
   }
   return out;
 }
+
+// harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-presentation
+export function groupHistoricalPresentationUnits(
+  units: readonly TranscriptHistoryUnit[],
+): TranscriptHistoryUnit[][] {
+  const groups: TranscriptHistoryUnit[][] = [];
+  for (let index = 0; index < units.length;) {
+    const first = units[index]!;
+    const group = [first];
+    if (first.kind !== 'message') {
+      while (index + group.length < units.length) {
+        const candidate = units[index + group.length]!;
+        if (candidate.kind === 'message' || candidate.output_message_id !== first.output_message_id) break;
+        group.push(candidate);
+      }
+      if (group.every((unit) => unit.kind === 'tool')) {
+        while (index + group.length < units.length) {
+          const candidate = units[index + group.length]!;
+          if (candidate.kind !== 'tool' || candidate.root_message_id !== first.root_message_id) break;
+          group.push(candidate);
+        }
+      }
+    }
+    groups.push(group);
+    index += group.length;
+  }
+  return groups;
+}
+// harn:end tool-only-evidence-batches-across-invisible-output-boundaries
 
 function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[] {
   const out: ReactNode[] = [];
@@ -1900,6 +2049,10 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
       prevAuthor = entry.message.author;
     } else {
       const message = entry.message;
+      const liveFamilyMessages = message.kind === 'run'
+        && ctx.liveToolOnlyOutputs?.has(message.id) === true
+        ? collectAdjacentToolOnlyLiveMessages(entries, index, ctx.liveToolOnlyOutputs)
+        : [message];
       // A failed/interrupted run that produced no prose renders as a quiet status
       // marker. Grouped under a neighbouring turn by the same author it loses its
       // header and #id entirely and reads as deleted (codex #516: that is how run
@@ -1930,16 +2083,65 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
           canRetry={ctx.canRetry}
           viewerId={ctx.selfId}
           viewerHandle={ctx.selfHandle}
+          liveFamilyMessages={liveFamilyMessages.length > 1 ? liveFamilyMessages : undefined}
           preserveJournal={message.kind === 'run'
             && ctx.preservedRoots?.has(message.run_parent_id ?? message.id)}
         />,
       );
       prevAuthor = message.kind === 'system' ? undefined : message.author;
       prevTs = entry.ts;
-      index += 1;
+      index += liveFamilyMessages.length;
     }
   }
   return out;
+}
+
+export function groupAdjacentToolOnlyLiveMessages(
+  messages: readonly Message[],
+  toolOnlyOutputIds: ReadonlySet<number>,
+): Message[][] {
+  const groups: Message[][] = [];
+  for (let index = 0; index < messages.length;) {
+    const first = messages[index]!;
+    const rootId = first.kind === 'run' ? first.run_parent_id ?? first.id : undefined;
+    const group = [first];
+    if (rootId !== undefined && toolOnlyOutputIds.has(first.id)) {
+      while (index + group.length < messages.length) {
+        const candidate = messages[index + group.length]!;
+        if (
+          candidate.kind !== 'run'
+          || (candidate.run_parent_id ?? candidate.id) !== rootId
+          || !toolOnlyOutputIds.has(candidate.id)
+        ) break;
+        group.push(candidate);
+      }
+    }
+    groups.push(group);
+    index += group.length;
+  }
+  return groups;
+}
+
+function collectAdjacentToolOnlyLiveMessages(
+  entries: readonly TimelineEntry[],
+  start: number,
+  toolOnlyOutputIds: ReadonlySet<number>,
+): Message[] {
+  const messages: Message[] = [];
+  for (let index = start; index < entries.length; index += 1) {
+    const entry = entries[index]!;
+    if (entry.kind !== 'turn') break;
+    const candidate = entry.message;
+    const first = messages[0];
+    if (
+      candidate.kind !== 'run'
+      || !toolOnlyOutputIds.has(candidate.id)
+      || (first !== undefined
+        && (candidate.run_parent_id ?? candidate.id) !== (first.run_parent_id ?? first.id))
+    ) break;
+    messages.push(candidate);
+  }
+  return messages;
 }
 
 /** One contiguous stretch of a finalized run's segments, with its header and

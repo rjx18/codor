@@ -76,6 +76,7 @@ const page = (
 
 const emptyHistory = (): TranscriptHistoryState => ({
   initialized: false,
+  headNeedsRevalidation: false,
   legacyFallback: false,
   loadingHead: false,
   loadingCursor: undefined,
@@ -141,6 +142,39 @@ describe('combined transcript target walking', () => {
 
 // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-head-regression
 describe('combined transcript head recovery', () => {
+  // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-regression
+  it('revalidates an initialized cached head, preserves it on failure, and clears stale only on success', async () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('same');
+    store.getState().updateTranscriptHistory('same', (history) => ({
+      ...mergeTranscriptPages(history, [page([messageUnit(1)], [message(1)], null, false)], 'head'),
+      headNeedsRevalidation: true,
+      coldMessageIds: { 1: true },
+    }));
+    api.fetch.mockRejectedValueOnce(new Error('offline'));
+
+    expect(await ensureTranscriptHistory(store, 'same', () => 'token')).toBe(false);
+    expect(roomSlice(store.getState(), 'same').transcriptHistory).toMatchObject({
+      initialized: true,
+      headNeedsRevalidation: true,
+      failed: true,
+      units: [messageUnit(1)],
+    });
+
+    store.getState().applyFrame({ type: 'message', seq: 3, message: message(3) });
+    expect(roomSlice(store.getState(), 'same').transcriptHistory.coldMessageIds)
+      .toEqual({ 1: true });
+    api.fetch.mockResolvedValueOnce(page([messageUnit(2)], [message(2)], null, false));
+    expect(await ensureTranscriptHistory(store, 'same', () => 'token')).toBe(true);
+    expect(roomSlice(store.getState(), 'same').transcriptHistory).toMatchObject({
+      initialized: true,
+      headNeedsRevalidation: false,
+      failed: false,
+    });
+    expect(roomSlice(store.getState(), 'same').messages[3]).toBeDefined();
+  });
+  // harn:end cached-transcript-head-stays-stale-until-revalidated
+
   it('keeps a failed initial head uninitialized and retries it honestly', async () => {
     const store = createClientStore();
     store.getState().setActiveRoom('same');

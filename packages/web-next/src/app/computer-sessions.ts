@@ -519,7 +519,6 @@ export class ComputerSessionManager {
         // remembered room regardless of which conversation gets selected later.
         entry.publicRoot = room;
         rememberRoom(room, entry.material.computer.id);
-        const replacingCache = entry.cachedConnector !== undefined;
         entry.connector = this.deps.makeConnector({
           room,
           token,
@@ -551,16 +550,6 @@ export class ComputerSessionManager {
           expose: false,
         });
         entry.cachedConnector = undefined;
-        if (replacingCache) {
-          void refreshTranscriptHistoryHead(entry.store, room, () => entry.token).then((refreshed) => {
-            if (!refreshed || entry.disposed) return;
-            refreshMutableRunJournals(
-              room,
-              () => entry.token,
-              finalizedTranscriptRoots(entry.store, room),
-            );
-          });
-        }
         entry.resolveReady();
         if (entry.material.computer.id === this.activeId) this.applyActiveRuntime();
         this.publish();

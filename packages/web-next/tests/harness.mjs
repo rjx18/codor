@@ -819,6 +819,50 @@ const seedTerminalFamily = (shape, status, gap = 0) => {
   return { room: roomId, root: root.id, result: result.id, status };
 };
 
+// Two adjacent output-scoped tool batches deliberately straddle the newest
+// twenty-unit page boundary: the continuation plus nineteen later chats are
+// the head, while the root tool unit arrives on the first older-page request.
+const seedCrossOutputTools = () => {
+  const roomId = createContinuationRoom();
+  const agent = daemon.store.getMemberByHandle(roomId, 'continuator');
+  const ts = new Date().toISOString();
+  const ref = 'runs/cross-output-tools.jsonl';
+  const root = daemon.store.postMessage(roomId, {
+    author: agent.id,
+    kind: 'run',
+    body: '',
+    run: {
+      status: 'completed', started_ts: ts, ended_ts: ts, tool_calls: 2,
+      events_ref: ref, output_mode: 'messages',
+    },
+  });
+  const output = daemon.store.postMessage(roomId, {
+    author: agent.id, kind: 'run', body: '', run_parent_id: root.id,
+  });
+  const toolPair = (target, prefix) => [
+    { type: 'run.item', item_type: 'tool_call', output_message_id: target,
+      payload: { call_id: `${prefix}-read`, tool: 'Read', title: `Read ${prefix}`, input: { file_path: `src/${prefix}.ts` } }, ts },
+    { type: 'run.item', item_type: 'tool_result', output_message_id: target,
+      payload: { call_id: `${prefix}-read`, status: 'ok', output_text: `${prefix} read` }, ts },
+  ];
+  for (const event of [
+    ...toolPair(root.id, 'root'),
+    ...toolPair(output.id, 'output'),
+    { type: 'run.completed', status: 'completed', output_message_id: output.id, ts },
+  ]) daemon.blobs.append(roomId, ref, event);
+  daemon.store.updateMessage(roomId, root.id, {
+    run: { ...root.run, result_message_id: output.id },
+  });
+  for (let index = 0; index < 19; index += 1) {
+    daemon.store.postMessage(roomId, {
+      author: daemon.ownerOf(roomId).id,
+      kind: 'chat',
+      body: `newer boundary filler ${String(index + 1)}\nsecond line\nthird line`,
+    });
+  }
+  return { room: roomId, root: root.id, output: output.id };
+};
+
 /**
  * A LIVE family the spec drives step by step, so ownership changes are observed
  * rather than posed: start a running root, then interleave human rows and
@@ -1626,6 +1670,9 @@ createServer((req, res) => {
           Number(body.gap ?? 0),
         );
       }
+      if (url.pathname === '/seed-cross-output-tools') {
+        payload = seedCrossOutputTools();
+      }
       if (url.pathname === '/continuation-room') {
         // Handed out empty, so the spec can be watching before the rows land.
         payload = { room: createContinuationRoom() };
@@ -1706,6 +1753,15 @@ createServer((req, res) => {
               lifecycle: worktree.lifecycle,
               conversation_id: worktree.conversation_id,
             })),
+        };
+      }
+      if (url.pathname === '/room-message-count') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const room = String(body.room ?? '');
+        const text = String(body.body ?? '');
+        payload = {
+          count: daemon.store.listMessages(room, { limit: 500 })
+            .filter((message) => message.body === text).length,
         };
       }
       if (url.pathname === '/run-progress') {

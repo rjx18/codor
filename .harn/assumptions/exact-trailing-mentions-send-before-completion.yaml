@@ -1,0 +1,16 @@
+id: exact-trailing-mentions-send-before-completion
+hash: a-7300c4dfcb53
+title: Exact trailing mentions send before autocomplete completion
+state: active
+statement: >
+  On desktop, when the live textarea caret is at the end of an exact registered
+  local @handle or complete qualified ~selector:@handle token, the first
+  unmodified Enter must submit that unchanged draft; partial or ambiguous tokens
+  retain keyboard completion, mobile Enter remains a newline, parser/server
+  refusal preserves the draft, and successful submission clears only after its
+  own echoed message.
+depends_on:
+  - composer-enter-uses-live-draft-state
+  - qualified-completion-lists-registered-targets-only
+  - echo-driven-composer-clearing
+created_by: worktree-delivery-composer-p2-correctness

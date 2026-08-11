@@ -118,6 +118,7 @@ export function mergeTranscriptPages(
   return {
     ...current,
     initialized: true,
+    ...(mode === 'head' && { headNeedsRevalidation: false }),
     legacyFallback: false,
     failed: false,
     loadingHead: false,
@@ -242,6 +243,7 @@ function refreshTranscriptHistoryHeadFrom(
         update(store, room, (history) => ({
           ...history,
           initialized: true,
+          headNeedsRevalidation: false,
           legacyFallback: true,
           loadingHead: false,
           loadingCursor: undefined,
@@ -277,7 +279,7 @@ function ensureTranscriptHistoryFrom(
   token: () => string,
 ): Promise<boolean> {
   const history = historyOf(store, room);
-  if (history.initialized) return Promise.resolve(true);
+  if (history.initialized && !history.headNeedsRevalidation) return Promise.resolve(true);
   if (history.coldMessageIds === undefined) {
     const coldMessageIds = Object.fromEntries(
       Object.keys(roomSlice(store.getState(), room).messages).map((id) => [Number(id), true as const]),

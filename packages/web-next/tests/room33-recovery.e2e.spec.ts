@@ -66,6 +66,28 @@ const appOpens = (page: Page): Promise<number> => page.evaluate(() =>
 const relayDials = (page: Page): Promise<number> => page.evaluate(() =>
   (window as unknown as { __relaySessionDials: number }).__relaySessionDials);
 
+const cachedBodies = (page: Page): Promise<string[]> => page.evaluate(async () => await new Promise((resolve, reject) => {
+  const request = indexedDB.open('codor-last-good-room-v1');
+  request.onerror = () => reject(request.error);
+  request.onsuccess = () => {
+    const database = request.result;
+    if (!database.objectStoreNames.contains('rooms')) {
+      database.close();
+      resolve([]);
+      return;
+    }
+    const all = database.transaction('rooms', 'readonly').objectStore('rooms').getAll();
+    all.onerror = () => reject(all.error);
+    all.onsuccess = () => {
+      const bodies = (all.result as Array<{ history?: { messages?: Record<string, { body?: string }> } }>)
+        .flatMap((snapshot) => Object.values(snapshot.history?.messages ?? {}))
+        .flatMap((message) => message.body === undefined ? [] : [message.body]);
+      database.close();
+      resolve(bodies);
+    };
+  };
+}));
+
 /** Shorten the recovery timings AFTER the session is live (grace < extended, never
  *  inverted), so the short grace never pre-empts the initial connect. */
 async function fastRecovery(page: Page, extendedMs: number): Promise<void> {
@@ -77,6 +99,35 @@ async function fastRecovery(page: Page, extendedMs: number): Promise<void> {
 }
 
 test.describe('recovery journey', () => {
+  // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-regression
+  test('a hard refresh reads the cached head then reconciles newer host truth without duplicates', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    await control('/live-chat', { room: 'eng', body: 'cached head before outage', route: false });
+    await expect(page.getByTestId('timeline')).toContainText('cached head before outage');
+    // A live fanout row is intentionally outside the immutable combined page
+    // until the next head read. Reload once while healthy so this exact row is
+    // part of the bounded last-good projection we are about to exercise.
+    await page.reload();
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId('timeline')).toContainText('cached head before outage');
+    await expect.poll(() => cachedBodies(page)).toContain('cached head before outage');
+
+    await control('/relay-down');
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 15_000 });
+    await control('/live-chat', { room: 'eng', body: 'new host row while browser was away', route: false });
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toContainText('cached head before outage', { timeout: 20_000 });
+    await expect(page.getByTestId('timeline')).not.toContainText('new host row while browser was away');
+
+    await control('/relay-up');
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId('timeline')).toContainText('new host row while browser was away');
+    await expect(page.locator('.nx-prose', { hasText: 'cached head before outage' })).toHaveCount(1);
+    await expect(page.locator('.nx-prose', { hasText: 'new host row while browser was away' })).toHaveCount(1);
+  });
+  // harn:end cached-transcript-head-stays-stale-until-revalidated
+
   test('when the host returns, the app recovers with NO reload (connector stayed mounted)', async ({ page }) => {
     test.setTimeout(120_000);
     await pairLive(page);
@@ -152,14 +203,14 @@ test.describe('recovery journey', () => {
 
     await page.getByTestId('room-link-workspace').click();
     await expect(page.getByTestId('timeline')).toBeVisible();
-    await expect(page.getByTestId(`worktree-connection-${child!.id}`)).toHaveAttribute('aria-label', 'Connected');
+    await expect(page.getByTestId(`worktree-link-${child!.id}`)).toHaveAttribute('aria-label', /Connected/);
     await control('/relay-replace-host');
 
     await expect.poll(() => relayDials(page), { timeout: 30_000 }).toBe(beforeDials + 1);
     await expect.poll(() => appOpens(page), { timeout: 30_000 }).toBe(beforeApps + 1);
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    await expect(page.getByTestId(`worktree-connection-${child!.id}`)).toHaveAttribute(
-      'aria-label', 'Connected', { timeout: 30_000 },
+    await expect(page.getByTestId(`worktree-link-${child!.id}`)).toHaveAttribute(
+      'aria-label', /Connected/, { timeout: 30_000 },
     );
     expect(await noReload(page)).toBe(true);
 

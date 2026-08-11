@@ -1,0 +1,16 @@
+id: held-delivery-recovery-stays-on-origin-message
+hash: a-fea8ceec0ccb
+title: Held delivery recovery stays on the originating message
+state: active
+statement: >
+  Each held agent delivery must remain projected on its originating human
+  message after live updates and reload, with a compact per-recipient error
+  affordance whose only ordinary retry action is release_hold; retrying one
+  recipient preserves that attempt's root, journal, and accounting, never
+  creates a fresh redelivery, and the affordance clears only when that delivery
+  leaves held state while unrelated held recipients remain independently
+  actionable.
+depends_on:
+  - agent-delivery-lifecycle-streams-v2
+  - held-recovery-runs-are-inactive-until-release
+created_by: worktree-delivery-composer-p2-correctness

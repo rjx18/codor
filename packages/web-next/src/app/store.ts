@@ -28,6 +28,9 @@ export const HISTORY_PAGE_SIZE = 20;
 export interface TranscriptHistoryState {
   /** A successful head response, including an honestly empty one, has landed. */
   initialized: boolean;
+  /** A persisted readable projection has not yet been proven by this
+   * authenticated browser session. */
+  headNeedsRevalidation: boolean;
   /** The mounted host predates the combined transcript-history endpoint. */
   legacyFallback: boolean;
   loadingHead: boolean;
@@ -50,6 +53,7 @@ export interface TranscriptHistoryState {
 
 const EMPTY_TRANSCRIPT_HISTORY: TranscriptHistoryState = {
   initialized: false,
+  headNeedsRevalidation: false,
   legacyFallback: false,
   loadingHead: false,
   loadingCursor: undefined,
@@ -550,7 +554,16 @@ export function createClientStore(): ClientStore {
           transcriptHistory: {
             ...freshTranscriptHistory(),
             initialized: true,
+            // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-state
+            headNeedsRevalidation: true,
+            // harn:end cached-transcript-head-stays-stale-until-revalidated
             failed: false,
+            // Only rows already represented by the persisted page are cold
+            // duplicates. A newer message arriving from current live hydration
+            // must remain visible while head revalidation is retrying.
+            coldMessageIds: Object.fromEntries(
+              Object.keys(history.messages).map((id) => [Number(id), true as const]),
+            ),
             messages: { ...history.messages },
             journals: { ...history.journals },
             units: [...history.units],

@@ -42,6 +42,26 @@ test.beforeAll(async () => {
   ids = await control<SeedIds>('/seed-runs', { count: 180 });
 });
 
+// harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-regression
+test('adjacent tool-only outputs become one batch after an older page crosses their boundary', async ({ page }) => {
+  const fixture = await control<{ room: string; root: number; output: number }>('/seed-cross-output-tools');
+  const journalRequests: string[] = [];
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.includes('/runs/')) journalRequests.push(path);
+  });
+  await page.goto(`/?room=${fixture.room}&token=next-e2e-token`);
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Inspect Read/ })).toBeVisible();
+
+  await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = 0; });
+  await expect(page.getByRole('button', { name: /Ran 2 tools/ })).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(`[id="${fixture.root}"]`)).toHaveCount(1);
+  await expect(page.locator(`[id="${fixture.output}"]`)).toHaveCount(1);
+  expect(journalRequests).toEqual([]);
+});
+// harn:end tool-only-evidence-batches-across-invisible-output-boundaries
+
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-browser-regression
 test.describe('large-room hydration', () => {
   test('journal requests stay bounded and deduplicated, and the live run is never starved', async ({ page }) => {

@@ -96,6 +96,27 @@ export function insertQualifiedMentionText(
 }
 // harn:end qualified-completion-lists-registered-targets-only
 
+// harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-keydown
+export function exactQualifiedMention(
+  query: QualifiedMentionQuery | undefined,
+  candidates: readonly QualifiedCompletion[],
+): boolean {
+  if (query === undefined) return false;
+  return candidates.some(({ target, member }) =>
+    target.alias.toLowerCase() === query.aliasQuery.toLowerCase()
+    && member.handle.toLowerCase() === query.handleQuery.toLowerCase());
+}
+
+export function exactLocalMention(
+  query: { query: string } | undefined,
+  candidates: readonly Member[],
+): boolean {
+  if (query === undefined) return false;
+  return candidates.some((member) =>
+    member.handle.toLowerCase() === query.query.toLowerCase());
+}
+// harn:end exact-trailing-mentions-send-before-completion
+
 /** The spoken-message body: mention prefix (omitted when unaddressed — never a
  *  dangling `@`), then the plain newline-joined transcript. No marker glyphs —
  *  the voice-ness rides the message's `voice` metadata, rendered as a card. */
@@ -142,7 +163,14 @@ export function Composer(props: { room: string; token: () => string; connection:
   const pendingCaretRef = useRef<number>();
   const [routingCatalog, setRoutingCatalog] = useState<WorktreeRoutingCatalog>();
   const [qualifiedMention, setQualifiedMention] = useState<QualifiedMentionQuery>();
-  const [pendingSend, setPendingSend] = useState<{ body: string; afterId: number; errorCount: number }>();
+  const [pendingSend, setPendingSend] = useState<{
+    body: string;
+    targetRoom: string;
+    knownMessageKeys: Set<string>;
+    authorId: string | undefined;
+    errorCount: number;
+  }>();
+  const roomSlices = useClientStore((state) => state.rooms);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [takes, setTakes] = useState<DictationTake[]>([]);
@@ -238,11 +266,13 @@ export function Composer(props: { room: string; token: () => string; connection:
   // frame arrives. A lifecycle race therefore remains visible and retryable.
   useEffect(() => {
     if (pendingSend === undefined) return;
-    const committed = Object.values(slice.messages).some((message) =>
-      message.id > pendingSend.afterId
-      && message.author === slice.selfMemberId
-      && message.kind === 'chat'
-      && message.body === pendingSend.body);
+    const committed = Object.entries(roomSlices).some(([roomId, roomState]) =>
+      roomId === pendingSend.targetRoom
+      && Object.values(roomState.messages).some((message) =>
+        !pendingSend.knownMessageKeys.has(`${roomId}:${String(message.id)}`)
+        && (message.author === pendingSend.authorId || pendingSend.targetRoom !== props.room)
+        && message.kind === 'chat'
+        && message.body === pendingSend.body));
     if (committed) {
       setPendingSend(undefined);
       if ((areaRef.current?.value ?? draft) === pendingSend.body) {
@@ -260,7 +290,7 @@ export function Composer(props: { room: string; token: () => string; connection:
       setHint(slice.errors.at(-1) ?? 'Message was refused');
       setPendingSend(undefined);
     }
-  }, [draft, pendingSend, slice.errors, slice.messages, slice.selfMemberId]);
+  }, [draft, pendingSend, props.room, roomSlices, slice.errors]);
   // harn:end invalid-qualified-targets-never-fallback
 
   // Until the operator edits, the seeded draft follows hydration as the latest
@@ -696,12 +726,22 @@ export function Composer(props: { room: string; token: () => string; connection:
       );
       return;
     }
+    const targetRoom = parsed.qualified?.[0]?.target?.conversation_id ?? props.room;
+    const knownMessageKeys = new Set(Object.entries(useClientStore.getState().rooms).flatMap(
+      ([roomId, roomState]) => Object.keys(roomState.messages)
+        .map((id) => `${roomId}:${id}`),
+    ));
+    setPendingSend({
+      body,
+      targetRoom,
+      knownMessageKeys,
+      authorId: slice.selfMemberId,
+      errorCount: slice.errors.length,
+    });
     props.connection.post(body, {
       ...(replyTo !== undefined && { replyTo }),
       ...(pending.length > 0 && { attachments: pending.map((attachment) => attachment.id) }),
     });
-    const afterId = Math.max(0, ...Object.keys(slice.messages).map(Number));
-    setPendingSend({ body, afterId, errorCount: slice.errors.length });
     setHint(undefined);
   };
 
@@ -845,6 +885,9 @@ export function Composer(props: { room: string; token: () => string; connection:
             const liveQualifiedMentionables = liveQualified === undefined || routingCatalog === undefined
               ? []
               : qualifiedCompletionCandidates(routingCatalog, liveQualified);
+            const sendIntent = event.key === 'Enter'
+              && !event.shiftKey
+              && !event.nativeEvent.isComposing;
             if (liveQualified && liveQualifiedMentionables.length > 0) {
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                 event.preventDefault();
@@ -854,7 +897,10 @@ export function Composer(props: { room: string; token: () => string; connection:
                 });
                 return;
               }
-              if (event.key === 'Enter' || event.key === 'Tab') {
+              if ((event.key === 'Enter' && !(sendIntent && exactQualifiedMention(
+                liveQualified,
+                liveQualifiedMentionables,
+              ))) || event.key === 'Tab') {
                 event.preventDefault();
                 insertQualifiedMention(
                   liveQualifiedMentionables[highlighted] ?? liveQualifiedMentionables[0]!,
@@ -885,7 +931,10 @@ export function Composer(props: { room: string; token: () => string; connection:
                 });
                 return;
               }
-              if (event.key === 'Enter' || event.key === 'Tab') {
+              if ((event.key === 'Enter' && !(sendIntent && exactLocalMention(
+                liveMention,
+                liveMentionables,
+              ))) || event.key === 'Tab') {
                 event.preventDefault();
                 const member = liveMentionables[highlighted] ?? liveMentionables[0]!;
                 const value = event.currentTarget.value;
@@ -902,7 +951,7 @@ export function Composer(props: { room: string; token: () => string; connection:
                 return;
               }
             }
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+            if (sendIntent) {
               event.preventDefault();
               send();
             }

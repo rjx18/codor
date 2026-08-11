@@ -5,10 +5,54 @@ import { describe, expect, it } from 'vitest';
 import {
   composeVoiceBody,
   deriveVoiceRecipientHandle,
+  exactLocalMention,
+  exactQualifiedMention,
   insertQualifiedMentionText,
   qualifiedCompletionCandidates,
   qualifiedMentionQuery,
 } from './Composer.js';
+
+// harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
+describe('exact trailing mention precedence', () => {
+  const member = {
+    id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
+    handle: 'sol',
+    display_name: 'Sol',
+    kind: 'agent' as const,
+    state: 'idle' as const,
+    custody: 'owned' as const,
+    conventions_sent: true,
+    misaddressed: false,
+    roster_stale: false,
+  };
+
+  it('recognizes only a complete local handle', () => {
+    expect(exactLocalMention({ query: 'sol' }, [member])).toBe(true);
+    expect(exactLocalMention({ query: 'so' }, [member])).toBe(false);
+  });
+
+  it('recognizes only a complete qualified selector and handle', () => {
+    const routingMember = { member_id: member.id, handle: member.handle, kind: member.kind };
+    const candidate = {
+      target: {
+        worktree_id: '01J00000000000000000000001',
+        conversation_id: 'wt-review',
+        alias: 'review',
+        primary: false,
+        lifecycle: 'active' as const,
+        members: [routingMember],
+      },
+      member: routingMember,
+    };
+    expect(exactQualifiedMention({ start: 0, aliasQuery: 'review', handleQuery: 'sol' }, [candidate]))
+      .toBe(true);
+    expect(exactQualifiedMention({ start: 0, aliasQuery: 'rev', handleQuery: 'sol' }, [candidate]))
+      .toBe(false);
+    expect(exactQualifiedMention({ start: 0, aliasQuery: 'review', handleQuery: 'so' }, [candidate]))
+      .toBe(false);
+  });
+});
+// harn:end exact-trailing-mentions-send-before-completion
 
 describe('composeVoiceBody', () => {
   it('prefixes the recipient mention before the plain transcript — no marker glyphs', () => {
