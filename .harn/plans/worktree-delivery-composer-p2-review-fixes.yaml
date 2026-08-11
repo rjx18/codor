@@ -4,12 +4,12 @@ notes: >
   Apply only the contained Phase 2 review corrections. While a post awaits its
   commit echo, subscribe the Composer only to the selected destination room's
   message map and clear the draft only for a new message authored by that
-  destination room's authenticated self member. Keep all other room activity
-  out of the active Composer render path. Make release_hold one-shot at the
-  action boundary until the held delivery changes state or the server reports
-  an error; show that error inline and re-enable the same evidence-preserving
-  retry. Routing, protocol, delivery persistence, server history, relay, and
-  other Phase 2 behavior remain unchanged.
+  destination room's authenticated self member. Keep all other room activity out
+  of the active Composer render path. Make release_hold one-shot at the action
+  boundary until the held delivery changes state or the server reports an error;
+  show that error inline and re-enable the same evidence-preserving retry.
+  Routing, protocol, delivery persistence, server history, relay, and other
+  Phase 2 behavior remain unchanged.
 assumptions:
   create:
     - id: pending-composer-echo-is-destination-and-self-bound
@@ -43,8 +43,8 @@ assumptions:
   reviewed:
     - id: exact-trailing-mentions-send-before-completion
       outcome: unchanged
-      reason: Exact-token Enter precedence and successful own-echo clearing remain
-        the contract; the echo is now bound to its correct destination identity.
+      reason: Exact-token Enter precedence and successful own-echo clearing remain the
+        contract; the echo is now bound to its correct destination identity.
     - id: target-worktree-owns-qualified-conversation
       outcome: unchanged
       reason: The destination room remains the sole owner and publisher of the
@@ -92,7 +92,8 @@ anchors:
   held-delivery-release-is-one-shot-and-recoverable:
     one-shot-held-release:
       action: change
-      reason: Own synchronous duplicate suppression, disabled state, and error recovery.
+      reason: Own synchronous duplicate suppression, disabled state, and error
+        recovery.
     one-shot-held-release-regression:
       action: change
       reason: Cover delayed duplicate activation and failed release re-enable behavior.
@@ -105,13 +106,15 @@ files:
   - packages/web-next/tests/room2-interactions.e2e.spec.ts
   - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
 verification: >
-  Check and clean-lock this review plan before source edits. Run focused Composer
-  and Transcript units, all web units, production/PWA build, and affected Rooms
-  2 and 40 browser suites. Prove a pending composer ignores background-room
-  activity and same-body posts by a different destination author, while its own
-  destination echo clears once. Prove two synchronous Retry activations emit one
-  release_hold, the control disables while pending, and a failed release shows
-  the existing error and re-enables retry. Run Harn working/staged checks and
-  apply, git diff checks, and create one implementation commit. Do not change
-  routing, protocol, delivery storage, server history, relay, deployment, or
-  release behavior.
+  Check and clean-lock this review plan before source edits. Run focused
+  Composer and Transcript units, all web units, production/PWA build, and
+  affected Rooms 2 and 40 browser suites. Prove a pending composer ignores
+  background-room activity and same-body posts by a different destination
+  author, while its own destination echo clears once. Prove two synchronous
+  Retry activations emit one release_hold, the control disables while pending,
+  and a failed release shows the existing error and re-enables retry. Run Harn
+  working/staged checks and apply, git diff checks, and create one
+  implementation commit. Do not change routing, protocol, delivery storage,
+  server history, relay, deployment, or release behavior.
+applied:
+  applied_at: 2026-08-11T08:40:06.234Z

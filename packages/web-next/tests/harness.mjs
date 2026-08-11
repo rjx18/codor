@@ -112,6 +112,28 @@ const daemon = new Daemon({
   executableOnPath: (executable) => acpPresent.has(executable),
 });
 
+// Browser-only action seam: exercise duplicate suppression, pending disabled
+// state, and visible server refusal without changing release_hold production
+// semantics or the wire shape.
+const releaseHold = daemon.releaseHold.bind(daemon);
+let releaseHoldAttempts = 0;
+let releaseHoldDelayMs = 0;
+let failNextReleaseHold = false;
+daemon.releaseHold = (room, deliveryId) => {
+  releaseHoldAttempts += 1;
+  if (failNextReleaseHold) {
+    failNextReleaseHold = false;
+    throw new Error('fixture held delivery release failed');
+  }
+  if (releaseHoldDelayMs > 0) {
+    const delay = releaseHoldDelayMs;
+    releaseHoldDelayMs = 0;
+    setTimeout(() => releaseHold(room, deliveryId), delay);
+    return;
+  }
+  releaseHold(room, deliveryId);
+};
+
 // Phase 2 fixture: these are individual presets only. The browser tests never
 // read the default roster, so this seed cannot accidentally exercise Phase 3.
 // Wait for the asynchronous thinky catalog before creating its model-bound preset;
@@ -1436,6 +1458,16 @@ createServer((req, res) => {
       if (url.pathname === '/fail-reset') {
         fake.failNextReset('fixture native retirement failed');
         payload = { ok: true };
+      }
+      if (url.pathname === '/release-hold-fixture') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        if (body.resetAttempts === true) releaseHoldAttempts = 0;
+        failNextReleaseHold = body.failNext === true;
+        releaseHoldDelayMs = Number.isFinite(body.delayMs) ? Math.max(0, body.delayMs) : 0;
+        payload = { attempts: releaseHoldAttempts };
+      }
+      if (url.pathname === '/release-hold-stats') {
+        payload = { attempts: releaseHoldAttempts };
       }
       if (url.pathname === '/tasks-reset') {
         // Restore the full seeded checklist + session so each browser test is isolated.

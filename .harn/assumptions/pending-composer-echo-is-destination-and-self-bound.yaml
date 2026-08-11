@@ -1,0 +1,15 @@
+id: pending-composer-echo-is-destination-and-self-bound
+hash: a-f18f9e0bd687
+title: Pending composer echoes are destination- and self-bound
+state: active
+statement: >
+  While one composer submission is pending, the browser must observe only that
+  submission's destination message map and clear the unchanged draft only after
+  a newly committed chat authored by the authenticated self member of that
+  destination has the exact submitted body, so unrelated rooms or another
+  target-room author cannot rerender or falsely settle the active composer.
+depends_on:
+  - exact-trailing-mentions-send-before-completion
+  - target-worktree-owns-qualified-conversation
+  - hosted-computer-sessions-keep-state-isolated
+created_by: worktree-delivery-composer-p2-review-fixes

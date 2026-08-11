@@ -1,0 +1,14 @@
+id: held-delivery-release-is-one-shot-and-recoverable
+hash: a-bbea46aa1765
+title: Held delivery release is one-shot and recoverable
+state: active
+statement: >
+  An inline held-delivery retry must emit at most one release_hold action while
+  its result is pending, disable repeat activation during that interval, clear
+  pending state when the delivery leaves held, and on a server error retain the
+  original evidence, show the error inline, and re-enable retry without creating
+  a fresh delivery.
+depends_on:
+  - held-delivery-recovery-stays-on-origin-message
+  - held-recovery-runs-are-inactive-until-release
+created_by: worktree-delivery-composer-p2-review-fixes

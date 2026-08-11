@@ -7,6 +7,16 @@ const ROOM = '/?room=eng&token=next-e2e-token';
 const FIXTURES = '/?room=fixtures&token=next-e2e-token';
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
+async function control<T = unknown>(path: string, body: unknown = {}): Promise<T> {
+  const response = await fetch(`${CONTROL}${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`control ${path} failed: ${response.status}`);
+  return (await response.json()) as T;
+}
+
 async function enqueue(turns: unknown[]): Promise<void> {
   const res = await fetch(`${CONTROL}/enqueue`, {
     method: 'POST',
@@ -437,9 +447,31 @@ test.describe('holds', () => {
     const recovery = restored.locator('[data-testid$="-held-recovery"]');
     await expect(recovery).toContainText('Delivery to @fable stopped after reconnecting');
     await expect(recovery).not.toContainText('Redeliver');
-    await recovery.getByRole('button', { name: 'Retry delivery' }).click();
+    // harn:assume held-delivery-release-is-one-shot-and-recoverable ref=one-shot-held-release-regression
+    await control('/release-hold-fixture', { resetAttempts: true, failNext: true });
+    const retry = recovery.getByTestId(/-release$/);
+    await retry.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+    await expect.poll(async () => (await control<{ attempts: number }>('/release-hold-stats')).attempts)
+      .toBe(1);
+    await expect(recovery.getByRole('alert')).toContainText('fixture held delivery release failed');
+    await expect(retry).toBeEnabled();
+    await expect(retry).toHaveText('Retry delivery');
+
+    await control('/release-hold-fixture', { delayMs: 300 });
+    await retry.evaluate((button: HTMLButtonElement) => {
+      button.click();
+      button.click();
+    });
+    await expect(retry).toBeDisabled();
+    await expect(retry).toHaveText('Retrying…');
+    await expect.poll(async () => (await control<{ attempts: number }>('/release-hold-stats')).attempts)
+      .toBe(2);
     await expect(restored.locator('[data-testid$="-held"]')).toBeHidden();
     await expect(page.locator('.nx-prose', { hasText: 'Keys rotated.' })).toBeVisible();
+    // harn:end held-delivery-release-is-one-shot-and-recoverable
   });
   // harn:end held-delivery-recovery-stays-on-origin-message
 });

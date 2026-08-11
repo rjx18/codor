@@ -7,9 +7,11 @@ import {
   deriveVoiceRecipientHandle,
   exactLocalMention,
   exactQualifiedMention,
+  hasOwnPendingComposerEcho,
   insertQualifiedMentionText,
   qualifiedCompletionCandidates,
   qualifiedMentionQuery,
+  selectPendingDestinationMessages,
 } from './Composer.js';
 
 // harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
@@ -53,6 +55,58 @@ describe('exact trailing mention precedence', () => {
   });
 });
 // harn:end exact-trailing-mentions-send-before-completion
+
+// harn:assume pending-composer-echo-is-destination-and-self-bound ref=destination-self-echo-regression
+describe('pending composer echo ownership', () => {
+  const message = (id: number, author: string, body = 'same qualified body') => ({
+    id,
+    room: 'wt-review',
+    author,
+    kind: 'chat' as const,
+    body,
+    mentions: [],
+    refs: [],
+    ledger_refs: [],
+    ts: '2026-08-11T00:00:00.000Z',
+    seq: id,
+  });
+
+  it('settles only for a new exact-body echo from the destination self member', () => {
+    const pending = {
+      body: 'same qualified body',
+      knownMessageIds: new Set([1]),
+      authorId: 'owner-review',
+    };
+    expect(hasOwnPendingComposerEcho({ 1: message(1, 'owner-review') }, pending)).toBe(false);
+    expect(hasOwnPendingComposerEcho({ 2: message(2, 'reviewer') }, pending)).toBe(false);
+    expect(hasOwnPendingComposerEcho({ 2: message(2, 'owner-review', 'different body') }, pending))
+      .toBe(false);
+    expect(hasOwnPendingComposerEcho({ 2: message(2, 'owner-review') }, pending)).toBe(true);
+    expect(hasOwnPendingComposerEcho({ 2: message(2, 'owner-review') }, { ...pending, authorId: undefined }))
+      .toBe(false);
+  });
+
+  it('selects only the destination message map across background-room churn', () => {
+    const destination = { 7: message(7, 'owner-review') };
+    const before = {
+      rooms: {
+        root: { messages: {} },
+        'wt-review': { messages: destination },
+        'wt-plan': { messages: {} },
+      },
+    };
+    const afterBackgroundActivity = {
+      rooms: {
+        ...before.rooms,
+        'wt-plan': { messages: { 8: message(8, 'planner', 'background update') } },
+      },
+    };
+    expect(selectPendingDestinationMessages(before, 'wt-review')).toBe(destination);
+    expect(selectPendingDestinationMessages(afterBackgroundActivity, 'wt-review')).toBe(destination);
+    expect(selectPendingDestinationMessages(afterBackgroundActivity, undefined)).toBeUndefined();
+  });
+});
+// harn:end pending-composer-echo-is-destination-and-self-bound
 
 describe('composeVoiceBody', () => {
   it('prefixes the recipient mention before the plain transcript — no marker glyphs', () => {

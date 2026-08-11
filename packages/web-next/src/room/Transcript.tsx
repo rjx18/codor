@@ -822,11 +822,15 @@ export function Transcript(props: { room: string; token: () => string; connectio
             members, selfId, selfHandle, inbox,
             room: props.room, token: props.token, connection: props.connection,
             canPin, canDelete, canRetry,
+            actionErrorCount: slice.errorRefs.act ?? 0,
+            actionError: slice.errors.at(-1),
           })}
           {transcriptReady && renderTimeline(entries, {
             members, selfId, selfHandle, inbox,
             room: props.room, token: props.token, connection: props.connection,
             canPin, canDelete, canRetry,
+            actionErrorCount: slice.errorRefs.act ?? 0,
+            actionError: slice.errors.at(-1),
             preservedRoots: preservedSettledRoots,
             liveToolOnlyOutputs,
           })}
@@ -838,6 +842,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
                 members, selfId, selfHandle, inbox,
                 room: props.room, token: props.token, connection: props.connection,
                 canPin, canDelete, canRetry,
+                actionErrorCount: slice.errorRefs.act ?? 0,
+                actionError: slice.errors.at(-1),
               })}
             </section>
           )}
@@ -924,6 +930,8 @@ function TurnBlock(props: {
   members: Record<string, Member>;
   preserveJournal?: boolean;
   liveFamilyMessages?: Message[];
+  actionErrorCount: number;
+  actionError: string | undefined;
   historical?: {
     units: { unit: TranscriptHistoryUnit; events: TranscriptHistoryIndexedEvent[] }[];
     root: Message | undefined;
@@ -938,6 +946,47 @@ function TurnBlock(props: {
       && props.members[delivery.recipient]?.kind === 'agent',
   );
   const [heldOpen, setHeldOpen] = useState(false);
+  // harn:assume held-delivery-release-is-one-shot-and-recoverable ref=one-shot-held-release
+  const heldReleasePendingRef = useRef(new Set<string>());
+  const [heldReleaseAttempts, setHeldReleaseAttempts] = useState<Record<string, {
+    errorCount: number;
+    error?: string;
+  }>>({});
+  const heldIds = held.map((delivery) => delivery.id).sort().join(',');
+  useEffect(() => {
+    const retained = new Set(held.map((delivery) => delivery.id));
+    setHeldReleaseAttempts((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [deliveryId, attempt] of Object.entries(current)) {
+        if (!retained.has(deliveryId)) {
+          heldReleasePendingRef.current.delete(deliveryId);
+          delete next[deliveryId];
+          changed = true;
+          continue;
+        }
+        if (attempt.error === undefined && props.actionErrorCount > attempt.errorCount) {
+          heldReleasePendingRef.current.delete(deliveryId);
+          next[deliveryId] = {
+            errorCount: props.actionErrorCount,
+            error: props.actionError ?? 'Could not retry delivery',
+          };
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [heldIds, props.actionError, props.actionErrorCount]);
+  const releaseHeld = (deliveryId: string): void => {
+    if (heldReleasePendingRef.current.has(deliveryId)) return;
+    heldReleasePendingRef.current.add(deliveryId);
+    setHeldReleaseAttempts((current) => ({
+      ...current,
+      [deliveryId]: { errorCount: props.actionErrorCount },
+    }));
+    props.connection.act({ act: 'release_hold', delivery_id: deliveryId });
+  };
+  // harn:end held-delivery-release-is-one-shot-and-recoverable
   const historicalId = props.historical?.targetIds[0];
   const articleUnit = props.historical?.units.length === 1
     && props.historical.units[0]?.unit.kind === 'message'
@@ -1139,9 +1188,14 @@ function TurnBlock(props: {
                 <Button
                   variant="secondary"
                   data-testid={`hold-${delivery.id}-release`}
-                  onClick={() => props.connection.act({ act: 'release_hold', delivery_id: delivery.id })}
+                  disabled={heldReleaseAttempts[delivery.id] !== undefined
+                    && heldReleaseAttempts[delivery.id]?.error === undefined}
+                  onClick={() => releaseHeld(delivery.id)}
                 >
-                  Retry delivery
+                  {heldReleaseAttempts[delivery.id] !== undefined
+                    && heldReleaseAttempts[delivery.id]?.error === undefined
+                    ? 'Retrying…'
+                    : 'Retry delivery'}
                 </Button>
                 <button
                   type="button"
@@ -1151,6 +1205,11 @@ function TurnBlock(props: {
                 >
                   <X size={13} aria-hidden="true" />
                 </button>
+                {heldReleaseAttempts[delivery.id]?.error !== undefined && (
+                  <span className="nx-held-recovery-error" role="alert">
+                    {heldReleaseAttempts[delivery.id]!.error}
+                  </span>
+                )}
               </div>
             ))}
           </div>
@@ -1885,6 +1944,8 @@ interface TimelineCtx {
   canPin: boolean;
   canDelete: boolean;
   canRetry: boolean;
+  actionErrorCount: number;
+  actionError: string | undefined;
   preservedRoots?: ReadonlySet<number>;
   liveToolOnlyOutputs?: ReadonlySet<number>;
 }
@@ -1956,6 +2017,8 @@ function renderHistoricalTimeline(
         canPin={ctx.canPin}
         canDelete={ctx.canDelete}
         canRetry={ctx.canRetry}
+        actionErrorCount={ctx.actionErrorCount}
+        actionError={ctx.actionError}
         viewerId={ctx.selfId}
         viewerHandle={ctx.selfHandle}
         historical={{
@@ -2081,6 +2144,8 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
           canPin={ctx.canPin}
           canDelete={ctx.canDelete}
           canRetry={ctx.canRetry}
+          actionErrorCount={ctx.actionErrorCount}
+          actionError={ctx.actionError}
           viewerId={ctx.selfId}
           viewerHandle={ctx.selfHandle}
           liveFamilyMessages={liveFamilyMessages.length > 1 ? liveFamilyMessages : undefined}

@@ -1,4 +1,4 @@
-import { parseBody, type Member, type WorktreeRoutingCatalog, type WorktreeRoutingMember, type WorktreeRoutingTarget } from '@codor/protocol';
+import { parseBody, type Member, type Message, type WorktreeRoutingCatalog, type WorktreeRoutingMember, type WorktreeRoutingTarget } from '@codor/protocol';
 import { ArrowUp, AtSign, Mic, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -117,6 +117,27 @@ export function exactLocalMention(
 }
 // harn:end exact-trailing-mentions-send-before-completion
 
+// harn:assume pending-composer-echo-is-destination-and-self-bound ref=destination-self-echo-observation
+export function hasOwnPendingComposerEcho(
+  messages: Readonly<Record<number, Message>> | undefined,
+  pending: { body: string; knownMessageIds: ReadonlySet<number>; authorId: string | undefined },
+): boolean {
+  if (messages === undefined || pending.authorId === undefined) return false;
+  return Object.values(messages).some((message) =>
+    !pending.knownMessageIds.has(message.id)
+    && message.author === pending.authorId
+    && message.kind === 'chat'
+    && message.body === pending.body);
+}
+
+export function selectPendingDestinationMessages(
+  state: { rooms: Record<string, { messages: Record<number, Message> }> },
+  targetRoom: string | undefined,
+): Record<number, Message> | undefined {
+  return targetRoom === undefined ? undefined : state.rooms[targetRoom]?.messages;
+}
+// harn:end pending-composer-echo-is-destination-and-self-bound
+
 /** The spoken-message body: mention prefix (omitted when unaddressed — never a
  *  dangling `@`), then the plain newline-joined transcript. No marker glyphs —
  *  the voice-ness rides the message's `voice` metadata, rendered as a card. */
@@ -166,11 +187,15 @@ export function Composer(props: { room: string; token: () => string; connection:
   const [pendingSend, setPendingSend] = useState<{
     body: string;
     targetRoom: string;
-    knownMessageKeys: Set<string>;
+    knownMessageIds: Set<number>;
     authorId: string | undefined;
     errorCount: number;
   }>();
-  const roomSlices = useClientStore((state) => state.rooms);
+  // The selector closes over one pending destination and returns only its
+  // message-map identity. Member/inbox churn there, and every update in every
+  // other room, therefore leaves the active composer alone while typing.
+  const pendingDestinationMessages = useClientStore((state) =>
+    selectPendingDestinationMessages(state, pendingSend?.targetRoom));
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [takes, setTakes] = useState<DictationTake[]>([]);
@@ -266,13 +291,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   // frame arrives. A lifecycle race therefore remains visible and retryable.
   useEffect(() => {
     if (pendingSend === undefined) return;
-    const committed = Object.entries(roomSlices).some(([roomId, roomState]) =>
-      roomId === pendingSend.targetRoom
-      && Object.values(roomState.messages).some((message) =>
-        !pendingSend.knownMessageKeys.has(`${roomId}:${String(message.id)}`)
-        && (message.author === pendingSend.authorId || pendingSend.targetRoom !== props.room)
-        && message.kind === 'chat'
-        && message.body === pendingSend.body));
+    const committed = hasOwnPendingComposerEcho(pendingDestinationMessages, pendingSend);
     if (committed) {
       setPendingSend(undefined);
       if ((areaRef.current?.value ?? draft) === pendingSend.body) {
@@ -290,7 +309,7 @@ export function Composer(props: { room: string; token: () => string; connection:
       setHint(slice.errors.at(-1) ?? 'Message was refused');
       setPendingSend(undefined);
     }
-  }, [draft, pendingSend, props.room, roomSlices, slice.errors]);
+  }, [draft, pendingDestinationMessages, pendingSend, slice.errors]);
   // harn:end invalid-qualified-targets-never-fallback
 
   // Until the operator edits, the seeded draft follows hydration as the latest
@@ -727,15 +746,15 @@ export function Composer(props: { room: string; token: () => string; connection:
       return;
     }
     const targetRoom = parsed.qualified?.[0]?.target?.conversation_id ?? props.room;
-    const knownMessageKeys = new Set(Object.entries(useClientStore.getState().rooms).flatMap(
-      ([roomId, roomState]) => Object.keys(roomState.messages)
-        .map((id) => `${roomId}:${id}`),
-    ));
+    const targetSlice = roomSlice(useClientStore.getState(), targetRoom);
     setPendingSend({
       body,
       targetRoom,
-      knownMessageKeys,
-      authorId: slice.selfMemberId,
+      knownMessageIds: new Set(Object.keys(targetSlice.messages).map(Number)),
+      // Multiplexed child subscriptions carry their own addressed `self`, so a
+      // qualified echo is matched against the browser identity in that room —
+      // never merely against identical prose from its agent.
+      authorId: targetSlice.selfMemberId,
       errorCount: slice.errors.length,
     });
     props.connection.post(body, {
