@@ -1,23 +1,23 @@
 id: worktree-delivery-composer-p1-rail-menu
 title: Compact worktree rows and replace Manage modal with an anchored menu
 notes: >
-  Implement only Phase 1 of the approved worktree delivery/composer polish
-  plan. Each registered child remains nested under its public root and uses its
-  exact Git branch as the sole visible name. Collapse the row to one line:
-  branch glyph plus branch while idle, the existing animated green dots in the
-  glyph slot while working, the existing unread badge, and an adjacent
-  three-dot management trigger in a reserved column. Remove the normal visible
-  connection dot and all second-line status presentation while retaining
-  truthful state in accessible names/titles. Replace only the child Manage
-  modal with an anchored dropdown whose unregister and preview-gated removal
-  confirmations/errors remain inside the dropdown. Create and Find dialogs,
-  routing, registration, Git safety, authorization, transport, database, and
-  protocol behavior remain unchanged.
+  Implement only Phase 1 of the approved worktree delivery/composer polish plan.
+  Each registered child remains nested under its public root and uses its exact
+  Git branch as the sole visible name. Collapse the row to one line: branch
+  glyph plus branch while idle, the existing animated green dots in the glyph
+  slot while working, the existing unread badge, and an adjacent three-dot
+  management trigger in a reserved column. Remove the normal visible connection
+  dot and all second-line status presentation while retaining truthful state in
+  accessible names/titles. Replace only the child Manage modal with an anchored
+  dropdown whose unregister and preview-gated removal confirmations/errors
+  remain inside the dropdown. Create and Find dialogs, routing, registration,
+  Git safety, authorization, transport, database, and protocol behavior remain
+  unchanged.
 assumptions:
   retire:
     - id: worktree-rail-uses-branch-only-compact-status
-      reason: Its requirement to visibly represent ordinary connection/activity
-        state conflicts with the approved one-line row and removal of the green
+      reason: Its requirement to visibly represent ordinary connection/activity state
+        conflicts with the approved one-line row and removal of the green
         connection marker.
   create:
     - id: worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
@@ -31,9 +31,9 @@ assumptions:
         the branch, and an authorized adjacent three-dot trigger owns a
         keyboard- and phone-accessible dropdown for distinct unregister and
         fresh-preview-gated filesystem removal confirmations without a modal.
-      reason: The shipped row duplicates activity, spends space on a useless
-        connected dot, and lets an absolutely positioned Manage label overlap
-        long branches.
+      reason: The shipped row duplicates activity, spends space on a useless connected
+        dot, and lets an absolutely positioned Manage label overlap long
+        branches.
       depends_on:
         - worktree-conversation-status-is-live-and-independent
         - native-worktree-rail-is-axe-valid
@@ -42,25 +42,25 @@ assumptions:
   reviewed:
     - id: worktree-conversation-status-is-live-and-independent
       outcome: unchanged
-      reason: Every child remains subscribed and derives the same isolated
-        readiness, working, attention, unread, and Git state; only ordinary
-        visible status chrome is removed.
+      reason: Every child remains subscribed and derives the same isolated readiness,
+        working, attention, unread, and Git state; only ordinary visible status
+        chrome is removed.
     - id: native-worktree-rail-is-axe-valid
       outcome: unchanged
       reason: Direct ul/li ownership, the adjacent authorized control, AA label
         contrast, focus, and phone operability remain required.
     - id: worktree-lifecycle-ui-follows-branch-identity
       outcome: fixed
-      reason: The same two lifecycle acts, safety preview, confirmations, and
-        errors move from an oversized modal into the requested anchored menu.
+      reason: The same two lifecycle acts, safety preview, confirmations, and errors
+        move from an oversized modal into the requested anchored menu.
     - id: registered-worktree-navigation-is-promotion-gated
       outcome: unchanged
-      reason: Promotion, nesting, selection, stable URLs, and fallback behavior
-        are untouched.
+      reason: Promotion, nesting, selection, stable URLs, and fallback behavior are
+        untouched.
     - id: worktree-child-conversations-stay-nested-and-isolated
       outcome: unchanged
-      reason: Root, child, and sibling transcripts and summaries remain keyed
-        by their exact existing conversation identities.
+      reason: Root, child, and sibling transcripts and summaries remain keyed by their
+        exact existing conversation identities.
 anchors:
   worktree-rail-uses-branch-only-compact-status:
     worktree-branch-status-row:
@@ -147,3 +147,5 @@ verification: >
   no visible connection dot or status line, no overlap, dropdown Escape/outside
   close with focus return, and unchanged unregister/removal safety. Create one
   implementation commit and do not start Phase 2, push, deploy, or publish.
+applied:
+  applied_at: 2026-08-11T07:38:50.645Z

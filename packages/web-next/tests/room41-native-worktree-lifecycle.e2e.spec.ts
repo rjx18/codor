@@ -237,13 +237,13 @@ test.describe('native worktree lifecycle UI', () => {
     const urlBefore = page.url();
     const membersBefore = await childMembers(page, child.conversation_id);
 
-    await page.getByTestId(`worktree-manage-${child.id}`).click();
-    await expect(page.getByTestId('worktree-child-dialog')).toContainText('feature/review');
+    await page.getByTestId(`worktree-menu-trigger-${child.id}`).click();
+    await expect(page.getByTestId(`worktree-menu-${child.id}`)).toContainText('feature/review');
     await expect(page.getByTestId('worktree-rename-input')).toHaveCount(0);
     await expect(page.getByTestId('worktree-unregister-open')).toBeVisible();
     await expect(page.getByTestId('worktree-remove-open')).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByTestId('worktree-child-dialog')).toHaveCount(0);
+    await expect(page.getByTestId(`worktree-menu-${child.id}`)).toHaveCount(0);
 
     // Opening management is read-only until a deliberate lifecycle act.
     await expect(page.getByTestId(`worktree-link-${child.id}`)).toContainText('feature/review');
@@ -274,11 +274,11 @@ test.describe('native worktree lifecycle UI', () => {
     expect(doomed).toBeDefined();
 
     await page.getByTestId(`worktree-link-${doomed!.id}`).click();
-    await page.getByTestId(`worktree-manage-${doomed!.id}`).click();
-    await expect(page.getByTestId('worktree-preview-state')).toContainText(/Clean/, { timeout: 15_000 });
+    await page.getByTestId(`worktree-menu-trigger-${doomed!.id}`).click();
     await page.getByTestId('worktree-remove-open').click();
+    await expect(page.getByTestId('worktree-preview-state')).toContainText(/Clean/, { timeout: 15_000 });
     await page.getByTestId('worktree-remove-submit').click();
-    await expect(page.getByTestId('worktree-child-dialog')).toHaveCount(0);
+    await expect(page.getByTestId(`worktree-menu-${doomed!.id}`)).toHaveCount(0);
 
     // Removed: the row is gone, the selector fell back to main, the branch survived.
     await expect(page.getByTestId(`worktree-link-${doomed!.id}`)).toHaveCount(0);
@@ -289,10 +289,10 @@ test.describe('native worktree lifecycle UI', () => {
     // Unregister of the adopted child is a separate, non-destructive act.
     const adopted = (await registered('wtops')).find((worktree) => !worktree.primary);
     expect(adopted).toBeDefined();
-    await page.getByTestId(`worktree-manage-${adopted!.id}`).click();
+    await page.getByTestId(`worktree-menu-trigger-${adopted!.id}`).click();
     await page.getByTestId('worktree-unregister-open').click();
     await page.getByTestId('worktree-unregister-submit').click();
-    await expect(page.getByTestId('worktree-child-dialog')).toHaveCount(0);
+    await expect(page.getByTestId(`worktree-menu-${adopted!.id}`)).toHaveCount(0);
     await expect(page.getByTestId('worktree-group')).toHaveCount(0);
   });
 
@@ -301,10 +301,12 @@ test.describe('native worktree lifecycle UI', () => {
     try {
       await openRoom(page, `/?room=workspace&token=${TOKEN}`);
       const child = await selectChild(page, 'workspace', 'feature/review');
-      await page.getByTestId(`worktree-manage-${child.id}`).click();
+      await page.getByTestId(`worktree-menu-trigger-${child.id}`).click();
+      await page.getByTestId('worktree-remove-open').click();
       await expect(page.getByTestId('worktree-preview-state')).toContainText(/dirty/, { timeout: 15_000 });
       await expect(page.getByTestId('worktree-preview-state')).toContainText('branch is always preserved');
-      await expect(page.getByTestId('worktree-remove-open')).toBeDisabled();
+      await expect(page.getByTestId('worktree-remove-submit')).toHaveCount(0);
+      await expect(page.getByTestId('worktree-remove-cancel')).toBeVisible();
       await page.keyboard.press('Escape');
     } finally {
       await page.request.post(`${CONTROL}/wt-clean`);

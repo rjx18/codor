@@ -4,7 +4,7 @@
 // never surfaces discovered, unregistered, or removed records. All Git
 // discovery lives behind the explicit Find dialog.
 import type { RegisteredWorktree, WorktreeDiscoveryCandidate, WorktreeRemovalPreviewResponse } from '@codor/protocol';
-import { GitBranch, Plus, RefreshCw, Search } from 'lucide-react';
+import { GitBranch, MoreVertical, Plus, RefreshCw, Search } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -90,11 +90,9 @@ export function useWorktreeGroup(root: string, token: () => string): WorktreeGro
 // harn:assume worktree-conversation-status-is-live-and-independent ref=worktree-conversation-status-model
 // harn:assume worktree-child-conversations-stay-nested-and-isolated ref=worktree-nested-row-navigation
 // harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-row
-/** Per-row status: CONNECTION (the connector's current-generation exact-room
- * readiness) is rendered on its own, never collapsed into ACTIVITY
- * (working/attention from the room's own recipient-scoped support and members,
- * Git availability from the registered record) or the unread badge — one state
- * can never mask another. */
+// harn:assume worktree-rail-is-one-line-and-working-replaces-the-branch-glyph ref=worktree-one-line-row
+/** Per-row status remains truthful in the accessible name/title while the
+ * compact row spends its icon slot only on the branch/working affordance. */
 function ChildRow(props: {
   root: string;
   worktree: RegisteredWorktree;
@@ -115,19 +113,25 @@ function ChildRow(props: {
       : props.readiness === 'offline'
         ? 'Unavailable'
         : 'Not subscribed';
-  const activity = working
-    ? 'Working'
-    : attention
-      ? 'Needs attention'
-      : gitUnavailable
-        ? 'Checkout unavailable'
-        : undefined;
+  const activityLabels = [
+    ...(working ? ['Working'] : []),
+    ...(attention ? ['Needs attention'] : []),
+    ...(gitUnavailable ? ['Checkout unavailable'] : []),
+  ];
   const displayName = props.worktree.branch ?? 'Detached HEAD';
+  const accessibleState = [
+    connection,
+    ...activityLabels,
+    ...(unread > 0 ? [`${String(unread)} unread`] : []),
+  ].join(', ');
+  const accessibleLabel = `${displayName}; ${accessibleState}`;
   return (
     <a
       className={`nx-row nx-wt-row ${props.selected ? 'is-active' : ''}`}
       href={roomUrl(props.root, props.worktree.id)}
       aria-current={props.selected ? 'page' : undefined}
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
       data-testid={`worktree-link-${props.worktree.id}`}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey) return;
@@ -135,46 +139,27 @@ function ChildRow(props: {
         props.onSelect();
       }}
     >
-      <GitBranch size={15} aria-hidden="true" className="nx-wt-row-icon" />
-      <span className="nx-row-main">
-        <span className="nx-row-top">
-          <span className="nx-row-name" data-testid={`worktree-branch-${props.worktree.id}`} title={displayName}>
-            {displayName}
+      <span className="nx-wt-row-icon" aria-hidden="true">
+        {working ? (
+          <span className="nx-wt-working-dots" data-testid={`worktree-working-${props.worktree.id}`}>
+            <span /><span /><span />
           </span>
-        </span>
-        <span className="nx-row-bottom">
-          {activity !== undefined && (
-            <span
-              className={`nx-wt-activity ${attention ? 'is-error' : ''}`}
-              role="img"
-              aria-label={activity}
-              title={activity}
-              data-testid={`worktree-status-${props.worktree.id}`}
-            >
-              {working
-                ? <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
-                : <span className="nx-wt-activity-dot" aria-hidden="true" />}
-            </span>
-          )}
-          <span
-            className={`nx-wt-conn is-${props.readiness}`}
-            role="img"
-            aria-label={connection}
-            title={connection}
-            data-testid={`worktree-connection-${props.worktree.id}`}
-          >
-            <span className="nx-wt-conn-dot" aria-hidden="true" />
-          </span>
-          {unread > 0 && (
-            <span className="nx-unread" data-testid={`worktree-unread-${props.worktree.id}`}>
-              {unread > 99 ? '99+' : unread}
-            </span>
-          )}
-        </span>
+        ) : (
+          <GitBranch size={15} />
+        )}
       </span>
+      <span className="nx-row-name" data-testid={`worktree-branch-${props.worktree.id}`}>
+        {displayName}
+      </span>
+      {unread > 0 && (
+        <span className="nx-unread" data-testid={`worktree-unread-${props.worktree.id}`}>
+          {unread > 99 ? '99+' : unread}
+        </span>
+      )}
     </a>
   );
 }
+// harn:end worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
 // harn:end worktree-rail-uses-branch-only-compact-status
 // harn:end worktree-child-conversations-stay-nested-and-isolated
 // harn:end worktree-conversation-status-is-live-and-independent
@@ -189,9 +174,26 @@ export function WorktreeGroupSection(props: {
   readiness: (conversation: string) => 'connecting' | 'connected' | 'offline' | 'unsubscribed';
   canManage: boolean;
   onSelect: (worktreeId: string) => void;
-  onOpenDialog: (dialog: 'create' | 'find' | { child: RegisteredWorktree }) => void;
+  onOpenDialog: (dialog: 'create' | 'find') => void;
+  onChildChanged?: () => void;
+  onChildRemoved?: (worktreeId: string) => void;
 }) {
   const { group } = props;
+  const [openMenuId, setOpenMenuId] = useState<string>();
+  const triggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const closeMenu = useCallback((worktreeId: string): void => {
+    setOpenMenuId((current) => current === worktreeId ? undefined : current);
+    const restoreFocus = (): void => {
+      const trigger = document.querySelector<HTMLButtonElement>(
+        `[data-testid="worktree-menu-trigger-${worktreeId}"]`,
+      );
+      trigger?.focus();
+    };
+    restoreFocus();
+    // An outside pointer event can apply its default focus after this handler;
+    // restore once more after that browser default has settled.
+    globalThis.setTimeout(restoreFocus, 50);
+  }, []);
   // The readiness strings below are computed during THIS render from the
   // connector, so the section subscribes to the store's current-generation
   // live evidence: a room's own sync_complete (or a socket replacement
@@ -239,15 +241,40 @@ export function WorktreeGroupSection(props: {
               onSelect={() => props.onSelect(worktree.id)}
             />
             {props.canManage && (
-              <button
-                type="button"
-                className="nx-wt-manage"
-                aria-label={`Manage worktree ${worktree.branch ?? 'Detached HEAD'}`}
-                data-testid={`worktree-manage-${worktree.id}`}
-                onClick={() => props.onOpenDialog({ child: worktree })}
-              >
-                Manage
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="nx-iconbtn nx-wt-menu-trigger"
+                  aria-label={`Manage worktree ${worktree.branch ?? 'Detached HEAD'}`}
+                  title={`Manage worktree ${worktree.branch ?? 'Detached HEAD'}`}
+                  data-testid={`worktree-menu-trigger-${worktree.id}`}
+                  aria-haspopup="menu"
+                  aria-expanded={openMenuId === worktree.id}
+                  aria-controls={`worktree-menu-${worktree.id}`}
+                  ref={(element) => { triggerRefs.current[worktree.id] = element; }}
+                  onClick={() => {
+                    setOpenMenuId((current) => current === worktree.id ? undefined : worktree.id);
+                  }}
+                >
+                  <MoreVertical aria-hidden="true" size={17} strokeWidth={1.75} />
+                </button>
+                {openMenuId === worktree.id && (
+                  <WorktreeChildMenu
+                    root={props.root}
+                    token={props.token}
+                    child={worktree}
+                    onClose={() => closeMenu(worktree.id)}
+                    onChanged={() => {
+                      props.onChildChanged?.();
+                      closeMenu(worktree.id);
+                    }}
+                    onRemoved={() => {
+                      props.onChildRemoved?.(worktree.id);
+                      closeMenu(worktree.id);
+                    }}
+                  />
+                )}
+              </>
             )}
           </li>
         ))}
@@ -460,9 +487,9 @@ export function WorktreeFindDialog(props: {
   );
 }
 
-/** One child's deliberate acts: DB-only unregister and preview-gated
- * filesystem removal whose destructive step repeats every check. */
-export function WorktreeChildDialog(props: {
+/** One child's deliberate acts stay in a small anchored menu. Filesystem
+ * removal still requires a fresh preview and a second explicit confirmation. */
+export function WorktreeChildMenu(props: {
   root: string;
   token: () => string;
   child: RegisteredWorktree;
@@ -471,18 +498,35 @@ export function WorktreeChildDialog(props: {
   onRemoved: () => void;
 }) {
   const { child } = props;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const tokenRef = useRef(props.token);
+  tokenRef.current = props.token;
+  const [mode, setMode] = useState<'actions' | 'unregister' | 'remove'>('actions');
   const [unregisterConfirm, setUnregisterConfirm] = useState(false);
   const [unregisterState, setUnregisterState] = useState<DialogState>('idle');
   const [preview, setPreview] = useState<WorktreeRemovalPreviewResponse>();
   const [previewError, setPreviewError] = useState<string>();
-  const [removeConfirm, setRemoveConfirm] = useState(false);
   const [removeState, setRemoveState] = useState<DialogState>('idle');
   const previewGeneration = useRef(0);
+
+  const closeAndRestoreFocus = useCallback((): void => {
+    props.onClose();
+    const restore = (): void => {
+      document.querySelector<HTMLButtonElement>(
+        `[data-testid="worktree-menu-trigger-${child.id}"]`,
+      )?.focus();
+    };
+    requestAnimationFrame(() => {
+      restore();
+      globalThis.setTimeout(restore, 50);
+    });
+  }, [child.id, props.onClose]);
 
   const loadPreview = useCallback((): void => {
     const current = ++previewGeneration.current;
     setPreviewError(undefined);
-    void previewWorktreeRemoval(props.root, child.id, { token: props.token() }).then((result) => {
+    setPreview(undefined);
+    void previewWorktreeRemoval(props.root, child.id, { token: tokenRef.current() }).then((result) => {
       if (current !== previewGeneration.current) return;
       setPreview(result);
     }).catch((failure: unknown) => {
@@ -490,13 +534,41 @@ export function WorktreeChildDialog(props: {
       setPreview(undefined);
       setPreviewError(failure instanceof Error ? failure.message : String(failure));
     });
-  }, [props.root, props.token, child.id]);
+  }, [props.root, child.id]);
 
-  useEffect(() => { loadPreview(); }, [loadPreview]);
+  useEffect(() => {
+    const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    first?.focus();
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        // Keep the opener as the active element after the browser would
+        // otherwise move focus to the outside click target.
+        event.preventDefault();
+        closeAndRestoreFocus();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeAndRestoreFocus();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [closeAndRestoreFocus]);
+
+  useEffect(() => {
+    const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    first?.focus();
+  }, [mode, preview, previewError]);
 
   const unregisterSelected = (): void => {
     setUnregisterState('busy');
-    void unregisterWorktree(props.root, child.id, { token: props.token() }).then(() => {
+    void unregisterWorktree(props.root, child.id, { token: tokenRef.current() }).then(() => {
       props.onChanged();
       props.onClose();
     }).catch((failure: unknown) => {
@@ -506,72 +578,105 @@ export function WorktreeChildDialog(props: {
 
   const removeSelected = (): void => {
     setRemoveState('busy');
-    void removeWorktree(props.root, child.id, { token: props.token() }).then(() => {
+    void removeWorktree(props.root, child.id, { token: tokenRef.current() }).then(() => {
       props.onRemoved();
       props.onClose();
     }).catch((failure: unknown) => {
       setRemoveState({ error: failure instanceof Error ? failure.message : String(failure) });
-      setRemoveConfirm(false);
       loadPreview();
     });
   };
 
   const previewReady = preview?.state === 'clean';
+  const menuLabel = `Manage worktree ${child.branch ?? 'detached'}`;
 
   return (
-    <Modal label={`Manage worktree ${child.branch ?? 'detached'}`} testid="worktree-child-dialog" onClose={props.onClose} structured>
-      <div className="nx-wt-dialog">
-        <header className="nx-wt-dialog-head">
-          <h2>Worktree {child.branch ?? 'detached'}</h2>
-          <p className="nx-field-note">Managed by stable id, never by path.</p>
-        </header>
-
-        <section className="nx-wt-dialog-section" aria-label="Unregister worktree">
-          <h3>Unregister</h3>
-          <p className="nx-field-note">
-            Removes the registration only — the checkout, its branch, and the child transcript stay
-            exactly as they are.
+    <div
+      ref={menuRef}
+      id={`worktree-menu-${child.id}`}
+      className="nx-wt-menu"
+      role="menu"
+      aria-label={menuLabel}
+      data-testid={`worktree-menu-${child.id}`}
+    >
+      <div className="nx-wt-menu-head" role="presentation">
+        <strong>{child.branch ?? 'Detached HEAD'}</strong>
+        <span className="nx-wt-menu-note">Managed by stable id</span>
+      </div>
+      {mode === 'actions' && (
+        <div className="nx-wt-menu-actions" role="group" aria-label="Worktree actions">
+          <button
+            type="button"
+            role="menuitem"
+            className="nx-wt-menu-item"
+            data-testid="worktree-unregister-open"
+            onClick={() => {
+              setMode('unregister');
+              setUnregisterConfirm(true);
+              setUnregisterState('idle');
+            }}
+          >
+            Unregister
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="nx-wt-menu-item"
+            data-testid="worktree-remove-open"
+            onClick={() => {
+              setMode('remove');
+              setRemoveState('idle');
+              loadPreview();
+            }}
+          >
+            Remove from disk
+          </button>
+        </div>
+      )}
+      {mode === 'unregister' && unregisterConfirm && (
+        <div className="nx-wt-menu-confirm" role="group" aria-label="Confirm unregister" data-testid="worktree-unregister-confirm">
+          <p className="nx-wt-menu-copy">
+            Remove the registration only. The checkout, branch, and child transcript stay unchanged.
           </p>
           {dialogError(unregisterState) !== undefined && (
-            <p className="nx-wt-dialog-error" role="alert" data-testid="worktree-unregister-error">
+            <p className="nx-wt-menu-error" role="alert" data-testid="worktree-unregister-error">
               {dialogError(unregisterState)}
             </p>
           )}
-          {!unregisterConfirm ? (
-            <Button
-              variant="quiet"
+          <div className="nx-wt-menu-buttons">
+            <button
               type="button"
-              data-testid="worktree-unregister-open"
-              onClick={() => setUnregisterConfirm(true)}
+              role="menuitem"
+              className="nx-wt-menu-item is-danger"
+              data-testid="worktree-unregister-submit"
+              disabled={unregisterState === 'busy'}
+              onClick={unregisterSelected}
             >
-              Unregister…
-            </Button>
-          ) : (
-            <div className="nx-wt-confirm" data-testid="worktree-unregister-confirm">
-              <Button
-                type="button"
-                data-testid="worktree-unregister-submit"
-                disabled={unregisterState === 'busy'}
-                onClick={unregisterSelected}
-              >
-                {unregisterState === 'busy' ? 'Unregistering…' : 'Confirm unregister'}
-              </Button>
-              <Button variant="quiet" type="button" onClick={() => setUnregisterConfirm(false)}>Cancel</Button>
-            </div>
-          )}
-        </section>
-
-        <section className="nx-wt-dialog-section" aria-label="Remove worktree files">
-          <h3>Remove from disk</h3>
+              {unregisterState === 'busy' ? 'Unregistering…' : 'Confirm unregister'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="nx-wt-menu-item"
+              onClick={() => { setMode('actions'); setUnregisterConfirm(false); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+      {mode === 'remove' && (
+        <div className="nx-wt-menu-confirm" role="group" aria-label="Confirm removal" data-testid="worktree-remove-confirm">
+          <p className="nx-wt-menu-copy">Check the current checkout before removing its files.</p>
           {preview === undefined && previewError === undefined && (
-            <p className="nx-field-note" role="status" data-testid="worktree-preview-loading">
+            <p className="nx-wt-menu-copy" role="status" data-testid="worktree-preview-loading">
               Checking worktree state…
             </p>
           )}
           {previewError !== undefined && (
-            <div className="nx-wt-dialog-error" role="alert" data-testid="worktree-preview-error">
+            <div className="nx-wt-menu-error" role="alert" data-testid="worktree-preview-error">
               <span>{previewError}</span>
-              <Button variant="quiet" type="button" data-testid="worktree-preview-retry" onClick={loadPreview}>Retry</Button>
+              <button type="button" role="menuitem" className="nx-wt-menu-item" data-testid="worktree-preview-retry" onClick={loadPreview}>Retry</button>
             </div>
           )}
           {preview !== undefined && (
@@ -583,36 +688,39 @@ export function WorktreeChildDialog(props: {
             </p>
           )}
           {dialogError(removeState) !== undefined && (
-            <p className="nx-wt-dialog-error" role="alert" data-testid="worktree-remove-error">
+            <p className="nx-wt-menu-error" role="alert" data-testid="worktree-remove-error">
               {dialogError(removeState)}
             </p>
           )}
-          {!removeConfirm ? (
-            <Button
-              variant="quiet"
-              type="button"
-              data-testid="worktree-remove-open"
-              disabled={!previewReady}
-              onClick={() => setRemoveConfirm(true)}
-            >
-              Remove files…
-            </Button>
-          ) : (
-            <div className="nx-wt-confirm" data-testid="worktree-remove-confirm">
-              <Button
+          <div className="nx-wt-menu-buttons">
+            {previewReady && (
+              <button
                 type="button"
+                role="menuitem"
+                className="nx-wt-menu-item is-danger"
                 data-testid="worktree-remove-submit"
                 disabled={removeState === 'busy'}
                 onClick={removeSelected}
               >
-                {removeState === 'busy' ? 'Removing…' : 'Delete files — branch is preserved'}
-              </Button>
-              <Button variant="quiet" type="button" onClick={() => setRemoveConfirm(false)}>Cancel</Button>
-            </div>
-          )}
-        </section>
-      </div>
-    </Modal>
+                {removeState === 'busy' ? 'Removing…' : 'Remove files — branch preserved'}
+              </button>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              className="nx-wt-menu-item"
+              data-testid="worktree-remove-cancel"
+              onClick={() => { setMode('actions'); }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+// Keep the old local export name source-compatible for focused consumers; it
+// now renders the anchored menu rather than a modal.
+export const WorktreeChildDialog = WorktreeChildMenu;
 // harn:end worktree-lifecycle-ui-follows-branch-identity

@@ -3800,45 +3800,173 @@
    harn:end registered-worktree-navigation-is-promotion-gated */
 
 /* harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-style */
-/* The row keeps full status truth in its accessible name and tooltip while its
-   visible rail footprint stays a small marker. */
-.nx-wt-activity {
-  display: inline-flex;
+/* harn:assume worktree-rail-is-one-line-and-working-replaces-the-branch-glyph ref=worktree-one-line-style */
+/* The child link and its action trigger occupy fixed sibling columns. Status
+   truth remains in the link's accessible name/title; ordinary rows spend no
+   visible space on a connection/status line. */
+.nx-wt-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
-  flex: 1;
   min-width: 0;
-  min-height: 18px;
 }
 
-.nx-wt-activity-dot,
-.nx-wt-conn-dot {
-  display: inline-block;
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: var(--r-full);
-  background: var(--c-faded);
+.nx-wt-row {
+  grid-column: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 4px 0 12px;
+  gap: 10px;
 }
 
-.nx-wt-activity.is-error .nx-wt-activity-dot { background: var(--c-error-text); }
-
-.nx-wt-conn {
+.nx-wt-row-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 16px;
-  min-height: 18px;
+  width: 18px;
+  height: 18px;
+  color: var(--c-ink-dim, #7a7f8a);
 }
 
-.nx-wt-conn.is-connected .nx-wt-conn-dot { background: var(--c-live-text); }
+.nx-wt-working-dots {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 18px;
+  height: 18px;
+}
 
-.nx-wt-conn.is-connecting .nx-wt-conn-dot {
-  background: var(--c-warn-text);
+.nx-wt-working-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--c-live-text);
   animation: nx-dot 1.2s var(--m-ease) infinite;
 }
 
-.nx-wt-conn.is-offline .nx-wt-conn-dot { background: var(--c-error-text); }
+.nx-wt-working-dots > span:nth-child(2) { animation-delay: 0.15s; }
+.nx-wt-working-dots > span:nth-child(3) { animation-delay: 0.3s; }
 
-.nx-wt-conn.is-unsubscribed .nx-wt-conn-dot { background: var(--c-faded); }
+.nx-wt-row .nx-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nx-wt-menu-trigger {
+  grid-column: 2;
+  justify-self: end;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.nx-wt-menu-trigger:hover,
+.nx-wt-menu-trigger:focus-visible {
+  background: var(--c-muted);
+  color: var(--c-ink);
+}
+
+.nx-wt-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% - 2px);
+  inset-inline-end: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(300px, calc(100vw - 24px));
+  max-height: min(70vh, 420px);
+  padding: 10px;
+  overflow-y: auto;
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-panel);
+  background: var(--c-surface);
+  box-shadow: var(--e-panel);
+}
+
+.nx-wt-menu-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 2px 4px 4px;
+}
+
+.nx-wt-menu-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--t-ui-strong, 600 13px/1.3 system-ui);
+}
+
+.nx-wt-menu-note,
+.nx-wt-menu-copy,
+.nx-wt-preview {
+  color: var(--c-secondary);
+  font: var(--t-note, 12px/1.4 system-ui);
+}
+
+.nx-wt-menu-copy,
+.nx-wt-preview { margin: 0; overflow-wrap: anywhere; }
+
+.nx-wt-menu-actions,
+.nx-wt-menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nx-wt-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 40px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--c-ink);
+  font: var(--t-ui, 13px/1.3 system-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.nx-wt-menu-item:hover,
+.nx-wt-menu-item:focus-visible { background: var(--c-muted); }
+
+.nx-wt-menu-item.is-danger { color: var(--c-error-text); }
+.nx-wt-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.nx-wt-menu-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  color: var(--c-danger, #b4433a);
+  font: var(--t-note, 12px/1.4 system-ui);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nx-wt-working-dots > span { animation: none; }
+}
+
+@media (max-width: 719px) {
+  .nx-wt-row { padding-left: 10px; }
+  .nx-wt-menu {
+    inset-inline-end: 4px;
+    width: min(300px, calc(100vw - 32px));
+  }
+}
+/* harn:end worktree-rail-is-one-line-and-working-replaces-the-branch-glyph */
 /* harn:end worktree-rail-uses-branch-only-compact-status */

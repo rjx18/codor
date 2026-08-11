@@ -1,0 +1,19 @@
+id: worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
+hash: a-a4fb9455e290
+title: Worktree rows are one line and working replaces the branch glyph
+state: active
+statement: >
+  Every active secondary must remain a direct nested row whose only visible name
+  is its exact Git branch; idle rows show a branch glyph, working rows replace
+  that glyph with compact animated green dots, and ordinary connection state
+  consumes no visible marker or second line. Unread state and exceptional truth
+  remain available without obscuring the branch, and an authorized adjacent
+  three-dot trigger owns a keyboard- and phone-accessible dropdown for distinct
+  unregister and fresh-preview-gated filesystem removal confirmations without a
+  modal.
+depends_on:
+  - worktree-conversation-status-is-live-and-independent
+  - native-worktree-rail-is-axe-valid
+  - worktree-lifecycle-ui-follows-branch-identity
+  - registered-worktree-navigation-is-promotion-gated
+created_by: worktree-delivery-composer-p1-rail-menu

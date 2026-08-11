@@ -22,12 +22,10 @@ import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
 import { roleAtLeast, roomSlice, useClientStore } from '../app/store.js';
 import {
   useWorktreeGroup,
-  WorktreeChildDialog,
   WorktreeCreateDialog,
   WorktreeFindDialog,
   WorktreeGroupSection,
 } from './WorktreeGroup.js';
-import type { RegisteredWorktree } from '@codor/protocol';
 import { ContextPanel } from './ContextPanel.js';
 import { Chip, IconButton, Eyebrow, Modal, StatusPill } from '../primitives/primitives.js';
 import { ComputerSwitcher } from './ComputerSwitcher.js';
@@ -248,9 +246,7 @@ function MountedRoomPage(props: {
   }, [connection, manager, root]);
 
   // Lifecycle dialogs: one at a time, drafts preserved inside each dialog.
-  const [worktreeDialog, setWorktreeDialog] = useState<
-    'create' | 'find' | { child: RegisteredWorktree } | undefined
-  >();
+  const [worktreeDialog, setWorktreeDialog] = useState<'create' | 'find' | undefined>();
   const selfRole = useClientStore((state) => {
     const slice = roomSlice(state, root);
     return slice.selfMemberId !== undefined
@@ -303,19 +299,6 @@ function MountedRoomPage(props: {
           }}
         />
       )}
-      {typeof worktreeDialog === 'object' && worktreeDialog !== undefined && (
-        <WorktreeChildDialog
-          root={root}
-          token={token}
-          child={worktreeDialog.child}
-          onClose={() => setWorktreeDialog(undefined)}
-          onChanged={() => void group.refresh()}
-          onRemoved={() => {
-            if (selectedWorktree === worktreeDialog.child.id) selectWorktree(undefined);
-            void group.refresh();
-          }}
-        />
-      )}
     </>
   );
 
@@ -350,6 +333,11 @@ function MountedRoomPage(props: {
               setSurface('room');
             }}
             onOpenWorktreeDialog={setWorktreeDialog}
+            onChildChanged={() => void group.refresh()}
+            onChildRemoved={(worktreeId) => {
+              if (selectedWorktree === worktreeId) selectWorktree(undefined);
+              void group.refresh();
+            }}
           />
         ) : (
           <ChatPanel
@@ -386,6 +374,11 @@ function MountedRoomPage(props: {
         readiness={(conversation) => connection.roomReadiness(conversation)}
         onSelectWorktree={selectWorktree}
         onOpenWorktreeDialog={setWorktreeDialog}
+        onChildChanged={() => void group.refresh()}
+        onChildRemoved={(worktreeId) => {
+          if (selectedWorktree === worktreeId) selectWorktree(undefined);
+          void group.refresh();
+        }}
       />
       <ChatPanel
         room={room}
@@ -435,7 +428,9 @@ function ChannelRail(props: {
   };
   readiness?: (conversation: string) => 'connecting' | 'connected' | 'offline' | 'unsubscribed';
   onSelectWorktree?: (worktreeId: string | undefined) => void;
-  onOpenWorktreeDialog?: (dialog: 'create' | 'find' | { child: RegisteredWorktree }) => void;
+  onOpenWorktreeDialog?: (dialog: 'create' | 'find') => void;
+  onChildChanged?: () => void;
+  onChildRemoved?: (worktreeId: string) => void;
 }) {
   const [creating, setCreating] = useState(false);
   const summaries = useRoomSummaries(props.token);
@@ -573,6 +568,8 @@ function ChannelRail(props: {
                   canManage={props.group.canManage}
                   onSelect={props.onSelectWorktree}
                   onOpenDialog={props.onOpenWorktreeDialog}
+                  onChildChanged={props.onChildChanged}
+                  onChildRemoved={props.onChildRemoved}
                 />
               )}
             </li>

@@ -1,7 +1,7 @@
 id: worktree-rail-uses-branch-only-compact-status
 hash: a-51e95c357ece
 title: Worktree rows show exact branches and compact accessible status
-state: active
+state: retired
 statement: Each visible secondary row must use its exact Git branch as the sole
   visible worktree name and represent connection and activity state with compact
   indicators rather than visible Live/connecting/offline or working/attention
@@ -12,3 +12,4 @@ depends_on:
   - native-worktree-rail-is-axe-valid
   - registered-worktree-navigation-is-promotion-gated
 created_by: worktree-orchestration-correctness-p2-nested-ui
+retired_by: worktree-delivery-composer-p1-rail-menu

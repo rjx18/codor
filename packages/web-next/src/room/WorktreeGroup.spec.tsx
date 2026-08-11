@@ -22,7 +22,7 @@ vi.mock('@runtime/api.js', () => api);
 const { resetClientStoreForTest, roomSlice, useClientStore } = await import('../app/store.js');
 const {
   useWorktreeGroup,
-  WorktreeChildDialog,
+  WorktreeChildMenu,
   WorktreeCreateDialog,
   WorktreeFindDialog,
   WorktreeGroupSection,
@@ -186,8 +186,8 @@ describe('worktree group state and navigation', () => {
     expect(byTestId(`worktree-link-${BRAVO.id}`)?.getAttribute('aria-current')).toBeNull();
     expect(byTestId(`worktree-branch-${ALPHA.id}`)?.textContent).toBe(ALPHA.branch);
     expect(byTestId(`worktree-branch-${ALPHA.id}`)?.textContent).not.toBe(ALPHA.alias);
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('');
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connected');
+    expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('aria-label'))
+      .toContain(`${ALPHA.branch}; Connected`);
     // Copied/new-tab hrefs carry BOTH the public root and the stable child id.
     expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('href'))
       .toBe(`/?room=eng&worktree=${encodeURIComponent(ALPHA.id)}`);
@@ -196,7 +196,7 @@ describe('worktree group state and navigation', () => {
     // Role gating: no mutation controls for members.
     expect(byTestId('worktree-create-open')).toBeNull();
     expect(byTestId('worktree-find-open')).toBeNull();
-    expect(byTestId(`worktree-manage-${ALPHA.id}`)).toBeNull();
+    expect(byTestId(`worktree-menu-trigger-${ALPHA.id}`)).toBeNull();
 
     await click(byTestId(`worktree-link-${BRAVO.id}`));
     expect(selected).toEqual([BRAVO.id]);
@@ -204,7 +204,8 @@ describe('worktree group state and navigation', () => {
   // harn:end worktree-child-conversations-stay-nested-and-isolated
 
   // harn:assume worktree-rail-uses-branch-only-compact-status ref=worktree-branch-status-unit-regression
-  it('shows connection independently of working, availability, and unread', async () => {
+  // harn:assume worktree-rail-is-one-line-and-working-replaces-the-branch-glyph ref=worktree-one-line-unit-regression
+  it('shows one-line branch/working state while keeping connection truth accessible', async () => {
     const missing = { ...BRAVO, availability: 'missing' as const };
     const group = {
       registered: [MAIN, ALPHA, missing],
@@ -240,21 +241,23 @@ describe('worktree group state and navigation', () => {
         onOpenDialog={() => undefined}
       />,
     );
-    // Activity and connection are separate accessible indicators: one never
-    // masks the other or spends a narrow row on status prose.
-    expect(byTestId(`worktree-status-${ALPHA.id}`)?.textContent).toBe('');
-    expect(byTestId(`worktree-status-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Working');
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.textContent).toBe('');
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Unavailable');
+    const alphaLink = byTestId(`worktree-link-${ALPHA.id}`)!;
+    expect(byTestId(`worktree-working-${ALPHA.id}`)?.textContent).toBe('');
+    expect(alphaLink.getAttribute('aria-label')).toBe(
+      `${ALPHA.branch}; Unavailable, Working, 3 unread`,
+    );
     expect(byTestId(`worktree-unread-${ALPHA.id}`)?.textContent).toBe('3');
-    expect(byTestId(`worktree-status-${BRAVO.id}`)?.textContent).toBe('');
-    expect(byTestId(`worktree-status-${BRAVO.id}`)?.getAttribute('aria-label')).toBe('Checkout unavailable');
-    expect(byTestId(`worktree-connection-${BRAVO.id}`)?.textContent).toBe('');
-    expect(byTestId(`worktree-connection-${BRAVO.id}`)?.getAttribute('aria-label')).toBe('Connecting');
+    expect(byTestId(`worktree-working-${BRAVO.id}`)).toBeNull();
+    expect(byTestId(`worktree-link-${BRAVO.id}`)?.getAttribute('aria-label')).toBe(
+      `${BRAVO.branch}; Connecting, Checkout unavailable`,
+    );
+    expect(byTestId(`worktree-connection-${ALPHA.id}`)).toBeNull();
+    expect(byTestId(`worktree-status-${ALPHA.id}`)).toBeNull();
     expect(byTestId('worktree-group')?.textContent).not.toContain('Live');
     expect(byTestId('worktree-create-open')).not.toBeNull();
     expect(byTestId('worktree-find-open')).not.toBeNull();
   });
+  // harn:end worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
   // harn:end worktree-rail-uses-branch-only-compact-status
 
   it('re-renders a row when current-generation live evidence lands in the store', async () => {
@@ -279,24 +282,27 @@ describe('worktree group state and navigation', () => {
         onOpenDialog={() => undefined}
       />,
     );
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connecting');
+    expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('aria-label'))
+      .toContain(`${ALPHA.branch}; Connecting`);
     await act(async () => {
       useClientStore.getState().markRoomLive(ALPHA.conversation_id);
       await Promise.resolve();
     });
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connected');
+    expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('aria-label'))
+      .toContain(`${ALPHA.branch}; Connected`);
     await act(async () => {
       useClientStore.getState().markRoomsConnecting([ALPHA.conversation_id]);
       await Promise.resolve();
     });
-    expect(byTestId(`worktree-connection-${ALPHA.id}`)?.getAttribute('aria-label')).toBe('Connecting');
+    expect(byTestId(`worktree-link-${ALPHA.id}`)?.getAttribute('aria-label'))
+      .toContain(`${ALPHA.branch}; Connecting`);
   });
 });
 // harn:end registered-worktree-navigation-is-promotion-gated
 
 // harn:assume native-worktree-rail-is-axe-valid ref=worktree-rail-unit-regression
 describe('native worktree rail accessibility structure', () => {
-  it('uses direct list rows with a link and adjacent manage control', async () => {
+  it('uses direct list rows with a link and adjacent menu trigger', async () => {
     const group = {
       registered: [MAIN, ALPHA, BRAVO],
       children: [ALPHA, BRAVO],
@@ -326,6 +332,9 @@ describe('native worktree rail accessibility structure', () => {
       expect(row.querySelector('li')).toBeNull();
       expect(Array.from(row.children).map((child) => child.tagName)).toEqual(['A', 'BUTTON']);
     }
+    const trigger = byTestId(`worktree-menu-trigger-${ALPHA.id}`)! as HTMLButtonElement;
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+    expect(trigger.getAttribute('aria-label')).toBe(`Manage worktree ${ALPHA.branch}`);
     expect(groupElement.querySelector('.nx-wt-group-label')?.textContent).toBe('Worktrees');
   });
 });
@@ -418,7 +427,7 @@ describe('worktree lifecycle dialogs', () => {
       repository, worktree: ALPHA, state: 'dirty', branch_preserved: true, detail: 'untracked files',
     });
     await mount(
-      <WorktreeChildDialog
+      <WorktreeChildMenu
         root="eng"
         token={() => 'token'}
         child={ALPHA}
@@ -428,21 +437,25 @@ describe('worktree lifecycle dialogs', () => {
       />,
     );
     await flush();
+    expect(api.previewWorktreeRemoval).not.toHaveBeenCalled();
+    await click(byTestId('worktree-remove-open'));
+    await flush();
     expect(byTestId('worktree-preview-state')?.textContent).toContain('dirty');
     expect(byTestId('worktree-preview-state')?.textContent).toContain('branch is always preserved');
-    expect((byTestId('worktree-remove-open') as HTMLButtonElement).disabled).toBe(true);
+    expect(byTestId('worktree-remove-submit')).toBeNull();
 
     // A clean preview enables the destructive step; the act itself still
     // requires the second explicit confirmation.
     await act(async () => { root?.unmount(); });
     root = undefined;
+    api.previewWorktreeRemoval.mockClear();
     api.previewWorktreeRemoval.mockResolvedValue({
       repository, worktree: ALPHA, state: 'clean', branch_preserved: true,
     });
     const removed: string[] = [];
     api.removeWorktree.mockResolvedValue({ repository, worktree: { ...ALPHA, lifecycle: 'removed' } });
     await mount(
-      <WorktreeChildDialog
+      <WorktreeChildMenu
         root="eng"
         token={() => 'token'}
         child={ALPHA}
@@ -452,8 +465,9 @@ describe('worktree lifecycle dialogs', () => {
       />,
     );
     await flush();
-    expect((byTestId('worktree-remove-open') as HTMLButtonElement).disabled).toBe(false);
+    expect(api.previewWorktreeRemoval).not.toHaveBeenCalled();
     await click(byTestId('worktree-remove-open'));
+    await flush();
     expect(api.removeWorktree).not.toHaveBeenCalled();
     await click(byTestId('worktree-remove-submit'));
     await flush();
@@ -466,7 +480,7 @@ describe('worktree lifecycle dialogs', () => {
       repository, worktree: ALPHA, state: 'clean', branch_preserved: true,
     });
     await mount(
-      <WorktreeChildDialog
+      <WorktreeChildMenu
         root="eng"
         token={() => 'token'}
         child={ALPHA}
@@ -476,12 +490,54 @@ describe('worktree lifecycle dialogs', () => {
       />,
     );
     await flush();
-    expect(byTestId('worktree-child-dialog')?.textContent).toContain(ALPHA.branch);
+    expect(byTestId(`worktree-menu-${ALPHA.id}`)?.textContent).toContain(ALPHA.branch);
     expect(byTestId('worktree-rename-input')).toBeNull();
     expect(byTestId('worktree-unregister-open')).not.toBeNull();
     expect(byTestId('worktree-remove-open')).not.toBeNull();
     expect(api.updateWorktreeAlias).not.toHaveBeenCalled();
-    expect(byTestId('worktree-child-dialog')).not.toBeNull();
+    expect(byTestId(`worktree-menu-${ALPHA.id}`)).not.toBeNull();
+  });
+
+  it('keeps lifecycle errors inside the menu and retries a failed removal preview', async () => {
+    api.unregisterWorktree.mockRejectedValueOnce(new Error('registration is busy'));
+    await mount(
+      <WorktreeChildMenu
+        root="eng"
+        token={() => 'token'}
+        child={ALPHA}
+        onClose={() => undefined}
+        onChanged={() => undefined}
+        onRemoved={() => undefined}
+      />,
+    );
+    await click(byTestId('worktree-unregister-open'));
+    await click(byTestId('worktree-unregister-submit'));
+    await flush();
+    expect(byTestId('worktree-unregister-error')?.textContent).toContain('registration is busy');
+    expect(byTestId(`worktree-menu-${ALPHA.id}`)).not.toBeNull();
+
+    await act(async () => { root?.unmount(); });
+    root = undefined;
+    api.previewWorktreeRemoval.mockRejectedValueOnce(new Error('preview unavailable'));
+    api.previewWorktreeRemoval.mockResolvedValueOnce({
+      repository, worktree: ALPHA, state: 'clean', branch_preserved: true,
+    });
+    await mount(
+      <WorktreeChildMenu
+        root="eng"
+        token={() => 'token'}
+        child={ALPHA}
+        onClose={() => undefined}
+        onChanged={() => undefined}
+        onRemoved={() => undefined}
+      />,
+    );
+    await click(byTestId('worktree-remove-open'));
+    await flush();
+    expect(byTestId('worktree-preview-error')?.textContent).toContain('preview unavailable');
+    await click(byTestId('worktree-preview-retry'));
+    await flush();
+    expect(byTestId('worktree-preview-state')?.textContent).toContain('Clean');
   });
 });
 // harn:end worktree-lifecycle-ui-follows-branch-identity

@@ -158,10 +158,12 @@ test.describe('native worktree group navigation', () => {
       expect(await page.getByTestId(`worktree-branch-${child.id}`).textContent()).toBe(child.branch);
       expect(await page.getByTestId(`worktree-branch-${child.id}`).textContent()).not.toBe(child.alias);
       await expect(page.getByTestId(`worktree-unread-${child.id}`)).toBeVisible();
-      await expect(page.getByTestId(`worktree-connection-${child.id}`)).toHaveAttribute(
+      await expect(page.getByTestId(`worktree-link-${child.id}`)).toHaveAttribute(
         'aria-label',
-        /Connected|Connecting|Unavailable|Not subscribed/,
+        new RegExp(`${child.branch}; (Connected|Connecting|Unavailable|Not subscribed)`),
       );
+      await expect(page.getByTestId(`worktree-connection-${child.id}`)).toHaveCount(0);
+      await expect(page.getByTestId(`worktree-status-${child.id}`)).toHaveCount(0);
       await expect(page.getByTestId(`room-link-${child.conversation_id}`)).toHaveCount(0);
     }
     await expect(page.getByTestId('worktree-group')).not.toContainText('Live');
@@ -227,11 +229,11 @@ test.describe('native worktree group navigation', () => {
 
     // The hidden child hydrates on the multiplexed socket: connection settles
     // on its OWN sync_complete, independent of activity or unread state.
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute(
-      'aria-label', /Connected|Connecting/,
+    await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute(
+      'aria-label', /feature\/review; (Connected|Connecting)/,
     );
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute(
-      'aria-label', 'Connected', { timeout: 15_000 },
+    await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute(
+      'aria-label', /feature\/review; Connected/, { timeout: 15_000 },
     );
 
     // Offline (operator park drives the same disconnected state): the group
@@ -243,7 +245,9 @@ test.describe('native worktree group navigation', () => {
     await expect(page.getByTestId('connection')).toHaveText(/Reconnecting/, { timeout: 15_000 });
     await expect(page.getByTestId(`worktree-link-${childId}`)).toBeVisible();
     await expect(page.getByTestId(`worktree-unread-${childId}`)).toBeVisible();
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute('aria-label', 'Unavailable');
+    await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute(
+      'aria-label', /feature\/review; Unavailable/,
+    );
 
     // Reconnect replaces the generation: the child must re-prove itself with a
     // fresh sync_complete before it reads live again.
@@ -251,8 +255,8 @@ test.describe('native worktree group navigation', () => {
       (window as unknown as { __codor: { reconnect(): void } }).__codor.reconnect();
     });
     await expect(page.getByTestId('connection')).toHaveText(/Connected/, { timeout: 20_000 });
-    await expect(page.getByTestId(`worktree-connection-${childId}`)).toHaveAttribute(
-      'aria-label', 'Connected', { timeout: 20_000 },
+    await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute(
+      'aria-label', /feature\/review; Connected/, { timeout: 20_000 },
     );
   });
   // harn:end worktree-rail-uses-branch-only-compact-status
@@ -271,7 +275,8 @@ test.describe('native worktree group navigation', () => {
     expect(proof.git).toBe(false);
   });
 
-  test('fits the 390px channel surface and keeps focus behavior in dialogs', async ({ page }) => {
+  // harn:assume worktree-rail-is-one-line-and-working-replaces-the-branch-glyph ref=worktree-one-line-browser-regression
+  test('fits the 390px channel surface and keeps the dropdown focus-safe', async ({ page }) => {
     const childId = await reviewChildId(page);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/?room=workspace&token=${TOKEN}`);
@@ -287,16 +292,33 @@ test.describe('native worktree group navigation', () => {
     await page.getByTestId(`worktree-link-${childId}`).click();
     await expect(page.getByTestId('timeline')).toContainText('review notes live in the child conversation');
 
-    // Focus enters the manage dialog and Escape returns it to the opener.
+    // The reserved action cell never overlaps the exact-branch link.
     await page.getByTestId('mobile-back').click();
-    await page.getByTestId(`worktree-manage-${childId}`).click();
-    const dialog = page.getByTestId('worktree-child-dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator(':focus')).toHaveCount(1);
+    const row = page.getByTestId(`worktree-link-${childId}`);
+    const trigger = page.getByTestId(`worktree-menu-trigger-${childId}`);
+    const [rowBox, triggerBox] = await Promise.all([row.boundingBox(), trigger.boundingBox()]);
+    expect(rowBox).not.toBeNull();
+    expect(triggerBox).not.toBeNull();
+    expect(rowBox!.x + rowBox!.width).toBeLessThanOrEqual(triggerBox!.x + 1);
+
+    // Focus enters the anchored dropdown and Escape returns it to the opener.
+    await trigger.click();
+    const menu = page.getByTestId(`worktree-menu-${childId}`);
+    await expect(menu).toBeVisible();
+    await expect(menu.locator(':focus')).toHaveCount(1);
     await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
-    await expect(page.getByTestId(`worktree-manage-${childId}`)).toBeFocused();
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    // Outside pointerdown closes the same popup and restores focus.
+    await trigger.click();
+    await expect(menu).toBeVisible();
+    await menu.locator('xpath=ancestor::section[@data-testid="worktree-group"]')
+      .locator('.nx-wt-group-label').click();
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   });
+  // harn:end worktree-rail-is-one-line-and-working-replaces-the-branch-glyph
 });
 // harn:end worktree-conversation-status-is-live-and-independent
 // harn:end registered-worktree-navigation-is-promotion-gated
@@ -318,11 +340,8 @@ test.describe('native worktree rail accessibility', () => {
     expect(shape.directTags.every((tag) => tag === 'LI')).toBe(true);
     expect(shape.nestedListItems).toBe(0);
     expect(shape.rowChildren.every((children) => children.includes('A'))).toBe(true);
-    const connectionLabels = await group.locator('[data-testid^="worktree-connection-"]').evaluateAll(
-      (elements) => elements.map((element) => element.getAttribute('aria-label')),
-    );
-    expect(connectionLabels.length).toBeGreaterThan(0);
-    expect(connectionLabels.every((label) => label !== null && label !== 'Live')).toBe(true);
+    expect(await group.locator('[data-testid^="worktree-connection-"]').count()).toBe(0);
+    expect(await group.locator('[data-testid^="worktree-status-"]').count()).toBe(0);
     await expect(group).not.toContainText('Live');
 
     for (const theme of ['light', 'dark']) {
@@ -330,6 +349,13 @@ test.describe('native worktree rail accessibility', () => {
       const { violations } = await new AxeBuilder({ page }).include('[data-testid="worktree-group"]').analyze();
       expect(violations.map((violation) => violation.id), theme).toEqual([]);
     }
+
+    const trigger = group.getByTestId(/worktree-menu-trigger-/).first();
+    await trigger.click();
+    const menu = group.locator('[role="menu"]');
+    await expect(menu).toBeVisible();
+    const { violations } = await new AxeBuilder({ page }).include('[data-testid="worktree-group"]').analyze();
+    expect(violations.map((violation) => violation.id), 'open dropdown').toEqual([]);
   });
 });
 // harn:end native-worktree-rail-is-axe-valid
