@@ -1,0 +1,90 @@
+id: hosted-cached-sync-replay-stability
+title: Keep hosted cached socket snapshots out of the live transcript tail
+notes: >
+  Fix the hosted-only cache/revalidation race that can briefly append an older
+  socket-hydrated row below the newest combined-history unit and then remove it
+  when authenticated head revalidation lands. When a room is displaying a
+  persisted head that still needs revalidation, classify every message in the
+  subscription's atomic opening snapshot as cold context before publishing
+  sync_complete. Do not classify later message frames as cold. Keep combined
+  pages authoritative for finalized order, keep the existing cache useful
+  while disconnected, and keep Transcript as the sole scroll owner. Add no new
+  reconnect, remount, scroll, timer, or cache mechanism.
+assumptions:
+  create:
+    - id: hosted-cached-sync-snapshot-stays-cold-until-head-revalidation
+      title: Hosted cached sync snapshots stay cold until head revalidation
+      statement: >
+        When a hosted room is rendering a persisted transcript head that still
+        requires authenticated revalidation, every message delivered in that
+        subscription generation's atomic opening snapshot must be classified as
+        cold before sync_complete publishes the snapshot, while later message
+        frames remain live, so socket replay cannot appear temporarily beneath
+        the newest page-owned transcript unit or move a pinned reader during
+        revalidation.
+      reason: >
+        The cached duplicate set currently contains only cached message ids and
+        misses additional rows replayed by the opening socket snapshot.
+      depends_on:
+        - cached-transcript-head-stays-stale-until-revalidated
+        - finalized-browser-history-is-combined-page-owned
+        - transcript-tail-follow-has-one-prepaint-owner
+  reviewed:
+    - id: cached-transcript-head-stays-stale-until-revalidated
+      outcome: unchanged
+      reason: The persisted head remains readable but stale until the same authenticated head refresh succeeds.
+    - id: hosted-last-good-room-cache-is-bounded-read-only-projection
+      outcome: unchanged
+      reason: Cache contents, limits, persistence, isolation, and deletion do not change.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Combined pages remain the sole authority for finalized membership and ordering.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: Newer frames for already materialized ids still update records by sequence only.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: Transcript keeps its existing sole geometry owner; the fix removes a false DOM insertion instead of adding scroll correction.
+    - id: composer-autogrow-measures-offscreen-before-live-height
+      outcome: unchanged
+      reason: Offscreen textarea measurement remains unchanged and is exercised in hosted mode.
+anchors:
+  hosted-cached-sync-snapshot-stays-cold-until-head-revalidation:
+    cached-sync-cold-classification:
+      action: change
+      reason: Atomically union opening-snapshot ids into cold context before publishing sync_complete.
+    cached-sync-cold-classification-regression:
+      action: change
+      reason: Prove cached snapshot rows are cold, later deltas stay live, and rooms remain isolated.
+    hosted-cache-replay-browser-regression:
+      action: change
+      reason: Prove no stale row flashes below the tail and no hosted composer/revalidation scroll jump occurs.
+  transcript-tail-follow-has-one-prepaint-owner:
+    transcript-prepaint-geometry:
+      action: keep
+      reason: Do not alter the existing transcript geometry owner.
+    transcript-prepaint-geometry-regression:
+      action: change
+      reason: Extend frame-level geometry evidence to the hosted cached reconnect path.
+  hosted-last-good-room-cache-is-bounded-read-only-projection:
+    hosted-last-good-room-regression:
+      action: change
+      reason: Extend the existing cached-reload browser journey with replay and geometry assertions.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+verification: >
+  Clean-lock before source edits. Run focused store units, all web units,
+  production/PWA build, and the complete Room 36 browser suite. The store
+  regression must start from a cached stale head, atomically commit an opening
+  snapshot containing an id absent from that cache, prove it is cold before any
+  render-visible state is published, then prove a post-sync message is not
+  cold. The browser regression must observe every transcript unit and every
+  animation-frame bottom gap through hosted cached reconnect, authenticated
+  head revalidation, ordinary typing, multiline grow, and shrink; no older row
+  may ever appear after the newest unit, a pinned gap remains within 0-2px, and
+  an intentionally unpinned anchor remains fixed. Run Harn working/staged/apply
+  and git diff checks, then make one implementation commit. Do not change direct
+  mode, cache storage format, transcript renderer ordering, relay generations,
+  reconnection, release versions, publishing, or deployment.
