@@ -1147,6 +1147,16 @@
   color: var(--c-ink);
 }
 .nx-composer-input::placeholder { color: var(--c-faded); }
+.nx-composer-measure {
+  position: fixed;
+  top: 0;
+  left: -10000px;
+  z-index: -1;
+  visibility: hidden;
+  pointer-events: none;
+  flex: none;
+  overflow: hidden;
+}
 
 /* ── Attachments: pending tray in the composer, rendered files in the turn ── */
 /* The pending tray is a floating surface too, so staged files read as held

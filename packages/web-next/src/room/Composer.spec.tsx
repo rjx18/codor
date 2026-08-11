@@ -11,8 +11,133 @@ import {
   insertQualifiedMentionText,
   qualifiedCompletionCandidates,
   qualifiedMentionQuery,
+  resizeComposerTextarea,
   selectPendingDestinationMessages,
 } from './Composer.js';
+
+// harn:assume composer-autogrow-measures-offscreen-before-live-height ref=offscreen-composer-measurement-regression
+describe('offscreen composer measurement', () => {
+  function fixture(options: {
+    value?: string;
+    previousHeight?: string;
+    scrollHeight?: number;
+    width?: number;
+    lineHeight?: string;
+    boxSizing?: string;
+  } = {}) {
+    const visibleWrites: string[] = [];
+    const mirrorWrites: string[] = [];
+    const mirroredProperties = new Map<string, string>();
+    let visibleHeight = options.previousHeight ?? '36px';
+    let mirrorHeight = 'unset';
+    let mirrorWidth = '';
+    const visibleStyle = {
+      get height() { return visibleHeight; },
+      set height(value: string) { visibleHeight = value; visibleWrites.push(value); },
+    } as CSSStyleDeclaration;
+    const mirrorStyle = {
+      get height() { return mirrorHeight; },
+      set height(value: string) { mirrorHeight = value; mirrorWrites.push(value); },
+      get width() { return mirrorWidth; },
+      set width(value: string) { mirrorWidth = value; },
+      setProperty(name: string, value: string) { mirroredProperties.set(name, value); },
+    } as CSSStyleDeclaration;
+    const visible = {
+      value: options.value ?? 'one\ntwo\nthree',
+      style: visibleStyle,
+      scrollHeight: 0,
+      getBoundingClientRect: () => ({ width: options.width ?? 320 } as DOMRect),
+    };
+    const mirror = {
+      value: '',
+      style: mirrorStyle,
+      scrollHeight: options.scrollHeight ?? 84,
+      getBoundingClientRect: () => ({ width: options.width ?? 320 } as DOMRect),
+    };
+    const computedValues = new Map<string, string>([
+      ['box-sizing', options.boxSizing ?? 'border-box'],
+      ['font-family', 'Inter'],
+      ['font-size', '16px'],
+      ['line-height', options.lineHeight ?? '24px'],
+      ['padding-top', '6px'],
+      ['padding-bottom', '6px'],
+      ['border-top-width', '1px'],
+      ['border-bottom-width', '1px'],
+      ['white-space', 'pre-wrap'],
+      ['overflow-wrap', 'break-word'],
+    ]);
+    const computed = {
+      lineHeight: computedValues.get('line-height')!,
+      paddingTop: computedValues.get('padding-top')!,
+      paddingBottom: computedValues.get('padding-bottom')!,
+      borderTopWidth: computedValues.get('border-top-width')!,
+      borderBottomWidth: computedValues.get('border-bottom-width')!,
+      boxSizing: computedValues.get('box-sizing')!,
+      getPropertyValue: (name: string) => computedValues.get(name) ?? '',
+    };
+    return {
+      visible,
+      mirror,
+      computed,
+      visibleWrites,
+      mirrorWrites,
+      mirroredProperties,
+      visibleHeight: () => visibleHeight,
+      mirrorHeight: () => mirrorHeight,
+      mirrorWidth: () => mirrorWidth,
+    };
+  }
+
+  it('copies wrapping geometry to the mirror and writes only the final live pixel height', () => {
+    const sample = fixture();
+    const result = resizeComposerTextarea(sample.visible, sample.mirror, sample.computed);
+
+    expect(result).toEqual({ previousHeight: '36px', nextHeight: '86px' });
+    expect(sample.visibleWrites).toEqual(['86px']);
+    expect(sample.visibleWrites).not.toContain('auto');
+    expect(sample.visibleWrites).not.toContain('0px');
+    expect(sample.mirrorWrites).toEqual(['0px']);
+    expect(sample.mirror.value).toBe(sample.visible.value);
+    expect(sample.mirrorWidth()).toBe('320px');
+    expect(Object.fromEntries(sample.mirroredProperties)).toMatchObject({
+      'box-sizing': 'border-box',
+      'font-family': 'Inter',
+      'font-size': '16px',
+      'line-height': '24px',
+      'white-space': 'pre-wrap',
+      'overflow-wrap': 'break-word',
+    });
+  });
+
+  it('grows, shrinks, resets empty content, and preserves the eight-row cap', () => {
+    const sample = fixture({ scrollHeight: 120 });
+    resizeComposerTextarea(sample.visible, sample.mirror, sample.computed);
+    expect(sample.visibleHeight()).toBe('122px');
+
+    sample.mirror.scrollHeight = 36;
+    sample.visible.value = 'short';
+    resizeComposerTextarea(sample.visible, sample.mirror, sample.computed);
+    expect(sample.visibleHeight()).toBe('38px');
+
+    sample.mirror.scrollHeight = 30;
+    sample.visible.value = '';
+    resizeComposerTextarea(sample.visible, sample.mirror, sample.computed);
+    expect(sample.visibleHeight()).toBe('38px');
+
+    sample.mirror.scrollHeight = 600;
+    sample.visible.value = 'pasted wrapped content '.repeat(80);
+    resizeComposerTextarea(sample.visible, sample.mirror, sample.computed);
+    expect(sample.visibleHeight()).toBe('206px');
+    expect(sample.visibleWrites.every((height) => /^\d+px$/.test(height))).toBe(true);
+  });
+
+  it('converts mirror scroll height to the live content box when required', () => {
+    const sample = fixture({ boxSizing: 'content-box', scrollHeight: 84 });
+    resizeComposerTextarea(sample.visible, sample.mirror, sample.computed);
+    expect(sample.visibleHeight()).toBe('72px');
+  });
+});
+// harn:end composer-autogrow-measures-offscreen-before-live-height
 
 // harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
 describe('exact trailing mention precedence', () => {

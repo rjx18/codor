@@ -1,0 +1,16 @@
+id: composer-autogrow-measures-offscreen-before-live-height
+hash: a-05efaea15cc1
+title: Composer autogrow measures offscreen before changing live geometry
+state: active
+statement: >
+  Every composer grow or shrink measurement must use an inert offscreen textarea
+  mirror with the live textarea's value, width, typography, wrapping, padding,
+  border, and box sizing, clamp that measurement to the existing eight-row cap,
+  and write exactly one final pixel height to the visible textarea without ever
+  applying auto or a temporary collapsed height there, so composer measurement
+  cannot move the transcript before its sole geometry owner reconciles the final
+  change.
+depends_on:
+  - transcript-tail-follow-has-one-prepaint-owner
+  - desktop-composer-groups-attach-and-send-bottom-right
+created_by: computer-transcript-polish-p3-composer-geometry
