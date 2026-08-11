@@ -8,6 +8,7 @@ import {
   continuationTrailingText,
   continuationVisibleMessages,
   deliveryIndicator,
+  groupVisibleTranscriptRows,
   groupHistoricalPresentationUnits,
   groupAdjacentToolOnlyLiveMessages,
   messageReadSeq,
@@ -68,6 +69,41 @@ describe('cross-output live tool presentation', () => {
   });
 });
 // harn:end tool-only-evidence-batches-across-invisible-output-boundaries
+
+// harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-unit-regression
+describe('visible transcript grouping', () => {
+  const row = (author: string, ts: number, visible = true, boundary = false) => ({
+    author, ts, visible, boundary,
+  });
+
+  it('resets at compaction and ignores the hidden continuation that follows it', () => {
+    expect(groupVisibleTranscriptRows([
+      row('agent', 1),
+      row('agent', 2, true, true), // visible compaction boundary
+      row('agent', 3, false), // evidence-free continuation
+      row('agent', 4),
+    ])).toEqual([false, false, false, false]);
+  });
+
+  it('does not let an evidence-free row break the previous visible turn', () => {
+    expect(groupVisibleTranscriptRows([
+      row('agent', 1),
+      row('agent', 2, false),
+      row('agent', 3),
+    ])).toEqual([false, false, true]);
+  });
+
+  it('keeps ordinary visible same-author turns grouped but resets at status', () => {
+    expect(groupVisibleTranscriptRows([
+      row('agent', 1),
+      row('agent', 2),
+      row('agent', 3, true, true), // terminal status boundary
+      row('agent', 4),
+    ])).toEqual([false, true, false, false]);
+  });
+});
+// harn:end visible-transcript-grouping-ignores-hidden-boundaries
+
 import { transcriptMessages } from './transcript-order.js';
 
 const TS = '2026-07-18T00:00:00.000Z';

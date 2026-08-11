@@ -66,6 +66,55 @@ const READ_DWELL_MS = 300;
 const READ_MIN_VISIBLE_PX = 48;
 const SEGMENT_CACHE_ROOMS = 3;
 
+// harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-state-machine
+export interface TranscriptGroupingRow {
+  author: string;
+  ts: number;
+  visible: boolean;
+  boundary?: boolean;
+}
+
+interface TranscriptGroupingState {
+  author: string;
+  ts: number;
+}
+
+function transcriptGroupingMatches(
+  previous: TranscriptGroupingState | undefined,
+  row: TranscriptGroupingRow,
+): boolean {
+  return row.visible
+    && row.boundary !== true
+    && previous?.author === row.author
+    && Number.isFinite(row.ts)
+    && Number.isFinite(previous.ts)
+    && row.ts - previous.ts < GROUP_WINDOW_MS;
+}
+
+function advanceTranscriptGrouping(
+  previous: TranscriptGroupingState | undefined,
+  row: TranscriptGroupingRow,
+): TranscriptGroupingState | undefined {
+  // A row that paints no evidence is not a turn boundary. Leave the last
+  // genuinely visible turn in place so the hidden row cannot affect the next
+  // visible row in either direction.
+  if (!row.visible) return previous;
+  if (row.boundary === true) return undefined;
+  return { author: row.author, ts: row.ts };
+}
+
+export function groupVisibleTranscriptRows(
+  rows: readonly TranscriptGroupingRow[],
+): boolean[] {
+  let previous: TranscriptGroupingState | undefined;
+  return rows.map((row) => {
+    const grouped = transcriptGroupingMatches(previous, row);
+    previous = advanceTranscriptGrouping(previous, row);
+    return grouped;
+  });
+}
+// harn:end visible-transcript-grouping-ignores-hidden-boundaries
+
 interface HistoryRestore {
   room: string;
   anchorUnit: string;
@@ -367,6 +416,43 @@ export function Transcript(props: { room: string; token: () => string; connectio
         if (finalText.length > 0 || (root?.run?.error ?? '').length > 0) continue;
       }
       selected.add(message.id);
+    }
+    return selected;
+  }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
+  const liveRenderableRuns = useMemo(() => {
+    const selected = new Set<number>();
+    for (const message of liveVisible) {
+      if (message.kind !== 'run') continue;
+      const rootId = message.run_parent_id ?? message.id;
+      const root = messages[rootId]
+        ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+      if (root?.run?.status !== 'running') {
+        selected.add(message.id);
+        continue;
+      }
+      const outputMessages = message.run_parent_id !== undefined
+        || root.run.output_mode === 'messages';
+      const merged = mergeRunEvents(
+        getRunJournal(props.room, rootId),
+        slice.runEvents[rootId] ?? { events: [], dropped_count: 0 },
+      );
+      const targeted = outputMessages
+        ? merged.filter(({ event }) => {
+            const target = event.type === 'run.item'
+              || event.type === 'timeline'
+              || event.type === 'run.completed'
+              ? event.output_message_id
+              : undefined;
+            return (target ?? rootId) === message.id;
+          })
+        : merged;
+      const segments = segmentTimeline(presentRunTimeline(targeted));
+      const finalText = outputMessages
+        ? message.body
+        : message.run?.final_text ?? message.body;
+      // This mirrors RunContent's evidence-free condition without changing the
+      // existing `.is-evidence-free` CSS contract or its permanent row anchor.
+      if (segments.length > 0 || finalText.length > 0) selected.add(message.id);
     }
     return selected;
   }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
@@ -833,6 +919,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
             actionError: slice.errors.at(-1),
             preservedRoots: preservedSettledRoots,
             liveToolOnlyOutputs,
+            liveRenderableRuns,
           })}
           {/* harn:end finalized-browser-history-is-combined-page-owned */}
           {transcriptReady && detachedInteractions.length > 0 && (
@@ -1948,8 +2035,36 @@ interface TimelineCtx {
   actionError: string | undefined;
   preservedRoots?: ReadonlySet<number>;
   liveToolOnlyOutputs?: ReadonlySet<number>;
+  liveRenderableRuns?: ReadonlySet<number>;
 }
 
+function historicalGroupingPresentation(
+  history: TranscriptHistoryState,
+  groupedUnits: readonly TranscriptHistoryUnit[],
+  message: Message,
+  root: Message | undefined,
+): { visible: boolean; boundary: boolean } {
+  if (message.kind !== 'run') {
+    return {
+      visible: true,
+      boundary: message.kind === 'system' || message.ack === true,
+    };
+  }
+  const segments = groupedUnits.flatMap((selected) => selected.kind === 'message'
+    ? []
+    : segmentTimeline(presentRunTimeline(indexedEventsForUnit(history, selected))));
+  const status = root?.run?.status ?? message.run?.status;
+  return {
+    // A settled tail owns final text, failure evidence, and its status marker;
+    // other run units must carry actual journal evidence to paint a row.
+    visible: segments.length > 0 || groupedUnits.some((selected) => selected.kind === 'settled_tail'),
+    boundary: segments.some((segment) => segment.kind === 'compaction')
+      || status === 'failed'
+      || status === 'interrupted',
+  };
+}
+
+// harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=historical-transcript-grouping-callsite
 function renderHistoricalTimeline(
   history: TranscriptHistoryState,
   ctx: TimelineCtx,
@@ -1974,6 +2089,8 @@ function renderHistoricalTimeline(
       continue;
     }
     const root = unit.kind === 'message' ? undefined : history.messages[unit.root_message_id];
+    const presentation = historicalGroupingPresentation(history, groupedUnits, message, root);
+    if (!presentation.visible) continue;
     const outputIds = groupedUnits.flatMap((selected) => selected.kind === 'message'
       ? [selected.message_id]
       : [selected.output_message_id]);
@@ -1995,13 +2112,17 @@ function renderHistoricalTimeline(
     const ts = transcriptTime(message);
     const standaloneRun = message.kind === 'run'
       && (root?.run?.status === 'failed' || root?.run?.status === 'interrupted');
-    const grouped = !standaloneRun && (!firstOutput || (
-      previousAuthor === message.author
-      && message.kind !== 'system'
-      && Number.isFinite(ts)
-      && Number.isFinite(previousTs)
-      && ts - previousTs < GROUP_WINDOW_MS
-    ));
+    const groupingRow = {
+      author: message.author,
+      ts,
+      visible: presentation.visible,
+      boundary: presentation.boundary,
+    } satisfies TranscriptGroupingRow;
+    const previous = previousAuthor === undefined
+      ? undefined
+      : { author: previousAuthor, ts: previousTs };
+    const grouped = !standaloneRun && !presentation.boundary
+      && (!firstOutput || transcriptGroupingMatches(previous, groupingRow));
     out.push(
       <TurnBlock
         key={groupedUnits.map(transcriptUnitKey).join('|')}
@@ -2031,11 +2152,13 @@ function renderHistoricalTimeline(
         }}
       />,
     );
-    previousAuthor = message.kind === 'system' ? undefined : message.author;
-    previousTs = ts;
+    const nextGrouping = advanceTranscriptGrouping(previous, groupingRow);
+    previousAuthor = nextGrouping?.author;
+    previousTs = nextGrouping?.ts ?? Number.NEGATIVE_INFINITY;
   }
   return out;
 }
+// harn:end visible-transcript-grouping-ignores-hidden-boundaries
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-presentation
 export function groupHistoricalPresentationUnits(
@@ -2066,13 +2189,13 @@ export function groupHistoricalPresentationUnits(
 }
 // harn:end tool-only-evidence-batches-across-invisible-output-boundaries
 
+// harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=live-transcript-grouping-callsite
 function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[] {
   const out: ReactNode[] = [];
   // A split run yields several stretches sharing one message id; only the first
   // carries the DOM id + permalink target so ids stay unique and #id resolves.
   const anchoredRunIds = new Set<number>();
-  let prevAuthor: string | undefined;
-  let prevTs = Number.NEGATIVE_INFINITY;
+  let previousGrouping: TranscriptGroupingState | undefined;
   let index = 0;
   while (index < entries.length) {
     const entry = entries[index]!;
@@ -2089,7 +2212,6 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
         if (next?.kind !== 'runseg' || next.message.id !== runId) break;
         segments.push(next.segment);
         isLastStretch = next.isLast;
-        prevTs = next.ts;
         index += 1;
       }
       const anchored = !anchoredRunIds.has(runId);
@@ -2109,7 +2231,17 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
           diffs={storedDiffs}
         />,
       );
-      prevAuthor = entry.message.author;
+      const lastTs = entries[index - 1]?.kind === 'runseg'
+        ? entries[index - 1]!.ts
+        : entry.ts;
+      previousGrouping = advanceTranscriptGrouping(previousGrouping, {
+        author: entry.message.author,
+        ts: lastTs,
+        visible: true,
+        boundary: segments.some((segment) => segment.kind === 'compaction')
+          || (isLastStretch
+            && (entry.message.run?.status === 'failed' || entry.message.run?.status === 'interrupted')),
+      });
     } else {
       const message = entry.message;
       const liveFamilyMessages = message.kind === 'run'
@@ -2123,12 +2255,19 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
       // permalink, status and error evidence. Ordering is untouched.
       const standaloneRun = message.kind === 'run'
         && (message.run?.status === 'failed' || message.run?.status === 'interrupted');
-      const grouped = !standaloneRun
-        && prevAuthor !== undefined
-        && prevAuthor === message.author
-        && message.kind !== 'system'
-        && Number.isFinite(entry.ts) && Number.isFinite(prevTs)
-        && entry.ts - prevTs < GROUP_WINDOW_MS;
+      const visible = message.kind !== 'run'
+        || ctx.liveRenderableRuns === undefined
+        || ctx.liveRenderableRuns.has(message.id);
+      const boundary = message.kind === 'system'
+        || message.ack === true
+        || standaloneRun;
+      const groupingRow = {
+        author: message.author,
+        ts: entry.ts,
+        visible,
+        boundary,
+      } satisfies TranscriptGroupingRow;
+      const grouped = !boundary && transcriptGroupingMatches(previousGrouping, groupingRow);
       out.push(
         <TurnBlock
           key={`turn-${message.id}`}
@@ -2153,13 +2292,13 @@ function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[]
             && ctx.preservedRoots?.has(message.run_parent_id ?? message.id)}
         />,
       );
-      prevAuthor = message.kind === 'system' ? undefined : message.author;
-      prevTs = entry.ts;
+      previousGrouping = advanceTranscriptGrouping(previousGrouping, groupingRow);
       index += liveFamilyMessages.length;
     }
   }
   return out;
 }
+// harn:end visible-transcript-grouping-ignores-hidden-boundaries
 
 export function groupAdjacentToolOnlyLiveMessages(
   messages: readonly Message[],

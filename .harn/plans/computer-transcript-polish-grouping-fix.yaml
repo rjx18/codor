@@ -1,0 +1,102 @@
+id: computer-transcript-polish-grouping-fix
+title: Visible-turn transcript grouping across compaction and hidden rows
+notes: >
+  Implement the contained renderer-only transcript grouping correction on the
+  accepted integrated tree 8b457ee5f79ec883807b8f839c2c5246f7a39864. Compute
+  same-author header suppression from the previous genuinely rendered visible
+  turn in both the live timeline and finalized combined-history timeline. A
+  compaction, system row, or terminal status is a visible boundary that resets
+  grouping; an evidence-free continuation remains governed by the existing CSS
+  visibility rule and neither renders evidence nor advances grouping state.
+  Preserve ordinary adjacent visible same-author grouping, server unitization,
+  history pagination, message/evidence ownership, and all transport behavior.
+assumptions:
+  create:
+    - id: visible-transcript-grouping-ignores-hidden-boundaries
+      title: Transcript grouping follows visible turns and resets at visible
+        boundaries
+      statement: >
+        The browser transcript derives same-author header suppression from the
+        previous genuinely rendered visible turn, not from raw message or
+        output-row adjacency. Evidence-free continuation rows remain under the
+        existing CSS hiding contract and do not alter that previous-visible-turn
+        state. A rendered compaction marker, system row, or terminal status
+        resets grouping, while consecutive visible same-author turns inside the
+        grouping window continue to collapse their repeated header in both live
+        and finalized combined-history presentation.
+      reason: >
+        Raw renderer iteration state currently advances across rows that later
+        paint no evidence and across visible compaction/status boundaries, so a
+        subsequent same-author turn can lose its header and appear orphaned. The
+        correction belongs in presentation state only; server unitization,
+        pagination, and CSS remain the source of evidence and visibility truth.
+      depends_on:
+        - continuation-writer-follows-journaled-output-ownership
+        - historical-transcript-pages-match-output-scoped-rendering
+        - finalized-browser-history-is-combined-page-owned
+        - live-runs-settle-beside-paged-history-once
+        - web-compaction-markers-upgrade-in-place
+  reviewed:
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Message ownership, continuation visibility, and durable ordering are
+        untouched.
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: Combined-history units, message projection, and pagination remain
+        unchanged.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized rendering still consumes only the existing combined-history
+        page.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: Live/finalized settlement and journal refresh behavior are untouched.
+    - id: web-compaction-markers-upgrade-in-place
+      outcome: unchanged
+      reason: Compaction reduction and marker rendering remain unchanged; only
+        grouping state observes the marker as a boundary.
+    - id: tool-only-evidence-batches-across-invisible-output-boundaries
+      outcome: unchanged
+      reason: Tool batching, stable anchors, and visible-separator rules remain
+        unchanged.
+anchors:
+  visible-transcript-grouping-ignores-hidden-boundaries:
+    transcript-grouping-state-machine:
+      action: change
+      reason: Track only the previous visible turn and reset after compaction, system,
+        or terminal-status boundaries.
+    live-transcript-grouping-callsite:
+      action: change
+      reason: Apply the visible-turn state to live rows without changing the existing
+        evidence-free CSS behavior.
+    historical-transcript-grouping-callsite:
+      action: change
+      reason: Apply the same state to finalized combined-history rows and skip
+        no-evidence rows without changing page membership.
+    transcript-grouping-unit-regression:
+      action: change
+      reason: Pin hidden-row neutrality, compaction/status reset, and ordinary
+        consecutive grouping.
+    transcript-grouping-browser-regression:
+      action: change
+      reason: Prove a live evidence-free row does not orphan the next visible
+        same-author continuation while preserving the existing browser grouping
+        journey.
+files:
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/room25-run-family.e2e.spec.ts
+verification: >
+  Before editing, verify the exact clean
+  8b457ee5f79ec883807b8f839c2c5246f7a39864 base and check/clean-lock this plan.
+  Run focused Transcript and run-timeline units, all web-next units, the
+  production/PWA build, and the smallest Room 25 browser reproduction covering
+  the hidden live row plus existing finalized grouping/evidence behavior. Run
+  harn find --changed, harn check, harn apply, harn check --staged, and git diff
+  --check. Stage only this plan, the two renderer/unit files, the focused
+  browser regression, and generated assumption truth; create exactly one
+  implementation commit. Do not change server unitization, history pagination,
+  CSS hiding, protocol, relay, deployment, or release state.
+applied:
+  applied_at: 2026-08-11T15:37:46.787Z

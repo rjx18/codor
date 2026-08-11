@@ -1,0 +1,20 @@
+id: visible-transcript-grouping-ignores-hidden-boundaries
+hash: a-f7132a29635d
+title: Transcript grouping follows visible turns and resets at visible boundaries
+state: active
+statement: >
+  The browser transcript derives same-author header suppression from the
+  previous genuinely rendered visible turn, not from raw message or output-row
+  adjacency. Evidence-free continuation rows remain under the existing CSS
+  hiding contract and do not alter that previous-visible-turn state. A rendered
+  compaction marker, system row, or terminal status resets grouping, while
+  consecutive visible same-author turns inside the grouping window continue to
+  collapse their repeated header in both live and finalized combined-history
+  presentation.
+depends_on:
+  - continuation-writer-follows-journaled-output-ownership
+  - historical-transcript-pages-match-output-scoped-rendering
+  - finalized-browser-history-is-combined-page-owned
+  - live-runs-settle-beside-paged-history-once
+  - web-compaction-markers-upgrade-in-place
+created_by: computer-transcript-polish-grouping-fix

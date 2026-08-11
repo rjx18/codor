@@ -201,6 +201,31 @@ test.describe('live run family ownership', () => {
     await expect(root.getByTestId('tool-batch')).toHaveCount(1);
   });
 
+  // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-browser-regression
+  test('an evidence-free row does not orphan the next visible same-author continuation', async ({ page }) => {
+    const live = await control<Live>('/live-family', { handle: 'continuator' });
+    await openRoom(page, live.room);
+    const root = page.locator(`[data-testid="run-${String(live.root)}"]`);
+
+    await expect(page.getByTestId('typing-continuator')).toBeVisible();
+    await expect(root).toBeHidden();
+
+    // The hidden root has no visible turn state to contribute. This same-author
+    // continuation must keep its own header instead of appearing indented under
+    // the CSS-hidden root.
+    const continuation = await step(
+      live.room,
+      'continuator',
+      'continue',
+      'Visible continuation after an evidence-free root.',
+    );
+    const continuationRow = page.locator(`[data-testid="run-${String(continuation.id)}"]`);
+    await expect(continuationRow).toBeVisible();
+    await expect(continuationRow).not.toHaveClass(/is-grouped/);
+    await expect(continuationRow.locator('.nx-turn-meta')).toHaveCount(1);
+  });
+  // harn:end visible-transcript-grouping-ignores-hidden-boundaries
+
   test('interruption preserves evidence and leaves one marker after it', async ({ page }) => {
     const live = await control<Live>('/live-family', { handle: 'continuator' });
     await openRoom(page, live.room);
