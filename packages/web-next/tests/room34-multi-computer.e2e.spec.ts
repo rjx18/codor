@@ -236,13 +236,11 @@ test.describe('multi-computer pairing', () => {
 
     // A no-change round trip stays stable: B never receives A's result, A
     // renders it once, and neither warm transport opens again.
-    await page.getByTestId('computer-current').click();
-    await menuItem(page, 'codor-host-b').getByRole('button').first().click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
+    await computerButton(page, 'codor-host-b').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
     await expect(page.getByTestId('timeline')).not.toContainText(activationFinal);
-    await page.getByTestId('computer-current').click();
-    await menuItem(page, 'codor-host-a').getByRole('button').first().click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await computerButton(page, 'codor-host-a').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
     await expect(page.getByTestId('timeline').getByText(activationFinal, { exact: true })).toHaveCount(1);
     expect(await page.evaluate(() => ({
       ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
