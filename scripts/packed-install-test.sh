@@ -77,7 +77,9 @@ docker run --rm -i \
     grep -Fq "[dry-run] wait for Codor pairing status" <<<"$PACKAGED_DRY_RUN"
     PACKAGED_WARM_DRY_RUN="$(npx --yes --package="$TARBALL" codor install --dry-run)"
     [[ "$PACKAGED_WARM_DRY_RUN" == "$PACKAGED_DRY_RUN" ]]
-    # harn:assume packed-update-bootstrap-crosses-real-candidate-transaction ref=packed-update-transaction-proof
+    CANDIDATE_VERSION="$(node -p "require('/proof/install/node_modules/@richhardry/codor/package.json').version")"
+    # harn:assume packed-release-proof-matches-stable-update-policy ref=packed-update-policy-proof
+    if [[ "$CANDIDATE_VERSION" != *-* ]]; then
     # Prove the first updater release through the real public npx command, not
     # only --help. A controlled npm shim preserves production argv and registry
     # validation while installing this exact local candidate TGZ; fake user
@@ -91,7 +93,6 @@ docker run --rm -i \
     printf "operator-token\n" >"$UPDATE_HOME/.config/codor/token"
     chmod 600 "$UPDATE_HOME/.config/codor/token"
     cp -a /proof/install "$UPDATE_DATA/runtime"
-    CANDIDATE_VERSION="$(node -p "require('/proof/install/node_modules/@richhardry/codor/package.json').version")"
     PREVIOUS_VERSION="$(node -e "const [a,b,c]=process.argv[1].split('.').map(Number); console.log([a,b,Math.max(0,c-1)].join('.'))" "$CANDIDATE_VERSION")"
     node -e "const fs=require('fs'); const p=process.argv[1]; const v=JSON.parse(fs.readFileSync(p)); v.version=process.argv[2]; fs.writeFileSync(p, JSON.stringify(v))" \
       "$UPDATE_DATA/runtime/node_modules/@richhardry/codor/package.json" "$PREVIOUS_VERSION"
@@ -174,7 +175,10 @@ UPDATE_SERVER
     grep -Fq "install --prefix" "$UPDATE_NPM_LOG"
     kill "$(cat "$UPDATE_DATA/service.pid")"
     wait "$(cat "$UPDATE_DATA/service.pid")" 2>/dev/null || true
-    # harn:end packed-update-bootstrap-crosses-real-candidate-transaction
+    else
+      printf 'packed prerelease %s correctly skips the stable-latest updater transaction\n' "$CANDIDATE_VERSION"
+    fi
+    # harn:end packed-release-proof-matches-stable-update-policy
     # harn:end packed-local-tgz-npx-proof-runs-fresh-default-audit
     # Durability: the install copies a durable runtime, and the rendered service
     # ExecStart references that ~/.codor/runtime copy, never the ephemeral npx

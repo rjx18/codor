@@ -1,0 +1,17 @@
+id: packed-release-proof-matches-stable-update-policy
+hash: a-a1e94ac9aecd
+title: Packed release proof updates stable candidates and installs prereleases
+state: active
+statement: >
+  The clean local-TGZ release proof must build, install, audit, boot, and
+  exercise every stable or prerelease candidate; when the candidate is a stable
+  version it must additionally invoke the real public npx update command against
+  a controlled previous durable runtime and prove official registry lookup,
+  acquisition, runtime swap, service generation, and authenticated readiness,
+  while prerelease candidates must not be routed through that stable-latest
+  updater path.
+depends_on:
+  - official-codor-update-is-cooperatively-bounded-and-platform-truthful
+  - packed-release-proof-runs-install-runtime
+  - packed-local-tgz-npx-proof-runs-fresh-default-audit
+created_by: release-prerelease-packed-proof

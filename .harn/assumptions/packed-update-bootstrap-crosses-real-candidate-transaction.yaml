@@ -1,7 +1,7 @@
 id: packed-update-bootstrap-crosses-real-candidate-transaction
 hash: a-6ae9cf361f70
 title: Packed npx proof performs a previous-runtime official update transaction
-state: active
+state: retired
 statement: >
   The clean local-TGZ release proof must invoke the real public `npx --yes
   --package=<packed-candidate> codor update` command against a controlled
@@ -14,3 +14,4 @@ depends_on:
   - packed-release-proof-runs-install-runtime
   - packed-local-tgz-npx-proof-runs-fresh-default-audit
 created_by: hosted-relay-smooth-startup-r2-transaction-review-fixes
+retired_by: release-prerelease-packed-proof

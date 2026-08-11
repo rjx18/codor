@@ -9,8 +9,8 @@ notes: >
 assumptions:
   retire:
     - id: packed-update-bootstrap-crosses-real-candidate-transaction
-      reason: Its unconditional candidate-update statement is false for alpha
-        packages because the official updater deliberately follows npm latest.
+      reason: Its unconditional candidate-update statement is false for alpha packages
+        because the official updater deliberately follows npm latest.
   create:
     - id: packed-release-proof-matches-stable-update-policy
       title: Packed release proof updates stable candidates and installs prereleases
@@ -67,3 +67,5 @@ files:
 verification: >
   Run the packed proof for 0.10.14-alpha.1, release and license audits, Harn
   checks, and diff checks. The full release workflow repeats all gates.
+applied:
+  applied_at: 2026-08-11T09:17:07.709Z
