@@ -1,22 +1,22 @@
 id: release-0-10-14-alpha-1
 title: Publish worktree delivery and transcript fixes as alpha 0.10.14-alpha.1
 notes: >
-  Advance the reviewed alpha tree from 0.10.13 to the unique 0.10.14-alpha.1 release
-  identity. Change no runtime behavior, package composition, install behavior,
-  workflow policy, release permissions, or npm latest tag. Push the release
-  commit only to the curated alpha branch; after alpha CI passes, push signed
-  v0.10.14-alpha.1 so the existing release workflow publishes npm dist-tag alpha and a
-  GitHub prerelease. This release contains compact worktree management, inline
-  held-delivery recovery, exact trailing-mention sends, hosted cached-head
-  reconciliation, and coherent cross-output tool batching.
+  Advance the reviewed alpha tree from 0.10.13 to the unique 0.10.14-alpha.1
+  release identity. Change no runtime behavior, package composition, install
+  behavior, workflow policy, release permissions, or npm latest tag. Push the
+  release commit only to the curated alpha branch; after alpha CI passes, push
+  signed v0.10.14-alpha.1 so the existing release workflow publishes npm
+  dist-tag alpha and a GitHub prerelease. This release contains compact worktree
+  management, inline held-delivery recovery, exact trailing-mention sends,
+  hosted cached-head reconciliation, and coherent cross-output tool batching.
 assumptions:
   retire: []
   create: []
   reviewed:
     - id: installed-or-published-release-artifacts-are-version-immutable
       outcome: unchanged
-      reason: Published 0.10.13 bytes remain immutable, so this alpha uses the
-        unused 0.10.14-alpha.1 identity.
+      reason: Published 0.10.13 bytes remain immutable, so this alpha uses the unused
+        0.10.14-alpha.1 identity.
     - id: release-candidate-requires-publishable-install-tarball
       outcome: unchanged
       reason: Existing exact-candidate and packed-install proofs remain mandatory.
@@ -26,7 +26,8 @@ assumptions:
         publisher and retains npm OIDC provenance.
     - id: public-package-bundles-complete-codor-runtime
       outcome: unchanged
-      reason: Only the common version advances; bundled runtime composition is unchanged.
+      reason: Only the common version advances; bundled runtime composition is
+        unchanged.
     - id: public-npx-install-is-primary-install
       outcome: unchanged
       reason: Operators can install this candidate through the public npm alpha tag.
@@ -36,7 +37,8 @@ assumptions:
         release identity advances.
     - id: acp-v1-events-and-capabilities-are-negotiated
       outcome: unchanged
-      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.14-alpha.1 identity.
+      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.14-alpha.1
+        identity.
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
       reason: Recursive build, serialized tests, browser tests, audits, and install
@@ -46,13 +48,15 @@ assumptions:
       reason: The dry-run snapshot changes only its expected common release identity.
     - id: platform-services-propagate-destination-pnpm-node-path
       outcome: unchanged
-      reason: Linux and macOS service fixtures change only their selected release identity.
+      reason: Linux and macOS service fixtures change only their selected release
+        identity.
     - id: setup-preserves-private-platform-service
       outcome: unchanged
       reason: Private service rendering and lifecycle behavior are unchanged.
     - id: setup-verifies-codor-before-creating-pairing-code
       outcome: unchanged
-      reason: Readiness fixtures report 0.10.14-alpha.1; verification behavior is unchanged.
+      reason: Readiness fixtures report 0.10.14-alpha.1; verification behavior is
+        unchanged.
     - id: channel-archive-requires-explicit-confirmation
       outcome: unchanged
       reason: The monolithic CLI regression crosses this boundary, but archive
@@ -80,15 +84,18 @@ anchors:
   setup-preserves-private-platform-service:
     setup-platform-service-regression:
       action: change
-      reason: Permit the nested platform fixture identity update without changing behavior.
+      reason: Permit the nested platform fixture identity update without changing
+        behavior.
   setup-verifies-codor-before-creating-pairing-code:
     setup-readiness-and-pairing-regression:
       action: change
-      reason: Permit the nested readiness fixture identity update without changing behavior.
+      reason: Permit the nested readiness fixture identity update without changing
+        behavior.
   channel-archive-requires-explicit-confirmation:
     channel-archive-confirmation-regression:
       action: change
-      reason: Permit the enclosing CLI fixture update without changing archive behavior.
+      reason: Permit the enclosing CLI fixture update without changing archive
+        behavior.
 files:
   - package.json
   - packages/adapters/acp/package.json
@@ -113,11 +120,14 @@ files:
   - scripts/release-audit.mjs
   - website/package.json
 verification: >
-  Verify every tracked non-legacy package manifest is exactly 0.10.14-alpha.1 and the
-  explicit legacy manifests remain exempt. Run recursive build, serialized
-  workspace tests, complete browser suite, release/license audits, deployment
-  decision tests, artifact build/inspection, and packed npx proof. Run Harn and
-  diff checks. Push only to origin/alpha, require alpha CI green, create and push
-  signed tag v0.10.14-alpha.1, require the release workflow green, then verify npm alpha,
-  GitHub prerelease assets/checksums, public npx metadata, and the deployed web
-  app. Do not move npm latest or push this release commit to main.
+  Verify every tracked non-legacy package manifest is exactly 0.10.14-alpha.1
+  and the explicit legacy manifests remain exempt. Run recursive build,
+  serialized workspace tests, complete browser suite, release/license audits,
+  deployment decision tests, artifact build/inspection, and packed npx proof.
+  Run Harn and diff checks. Push only to origin/alpha, require alpha CI green,
+  create and push signed tag v0.10.14-alpha.1, require the release workflow
+  green, then verify npm alpha, GitHub prerelease assets/checksums, public npx
+  metadata, and the deployed web app. Do not move npm latest or push this
+  release commit to main.
+applied:
+  applied_at: 2026-08-11T08:54:36.073Z
