@@ -1,0 +1,85 @@
+id: computer-transcript-polish-p3-composer-geometry
+title: Offscreen composer measurement without transcript movement
+notes: >
+  Implement only Phase 3 of the approved computer/transcript polish plan. Replace
+  the visible textarea's transient height:auto measurement with one offscreen
+  textarea mirror that receives the current value, exact live width, typography,
+  wrapping, padding, border, and box sizing. Measure grow and shrink there,
+  preserve the existing eight-row cap, and write only the final pixel height to
+  the visible textarea. Keep Transcript as the sole scroll/tail owner: do not add
+  a scroll listener, pin flag, animation-frame correction, observer, remount, or
+  viewport-global behavior. Preserve composer input, mention, attachment, voice,
+  reply, mobile newline, send, and reset semantics. No other plan phase belongs
+  in this commit.
+assumptions:
+  create:
+    - id: composer-autogrow-measures-offscreen-before-live-height
+      title: Composer autogrow measures offscreen before changing live geometry
+      statement: >
+        Every composer grow or shrink measurement must use an inert offscreen
+        textarea mirror with the live textarea's value, width, typography,
+        wrapping, padding, border, and box sizing, clamp that measurement to the
+        existing eight-row cap, and write exactly one final pixel height to the
+        visible textarea without ever applying auto or a temporary collapsed
+        height there, so composer measurement cannot move the transcript before
+        its sole geometry owner reconciles the final change.
+      reason: A transient visible height:auto collapse expands and clamps the
+        transcript viewport even though the final textarea height is restored in
+        the same task.
+      depends_on:
+        - transcript-tail-follow-has-one-prepaint-owner
+        - desktop-composer-groups-attach-and-send-bottom-right
+  reviewed:
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: Transcript keeps its existing single pre-paint layout effect and
+        composer geometry signal; no competing scroll owner is added.
+    - id: desktop-composer-groups-attach-and-send-bottom-right
+      outcome: unchanged
+      reason: Composer layout, alignment, and action grouping remain unchanged.
+    - id: composer-enter-uses-live-draft-state
+      outcome: unchanged
+      reason: Keyboard, caret, mention, and send behavior do not change.
+    - id: exact-trailing-mentions-send-before-completion
+      outcome: unchanged
+      reason: Exact local and qualified mention Enter precedence remains intact.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: Offline draft and mutation behavior remains unchanged.
+anchors:
+  transcript-tail-follow-has-one-prepaint-owner:
+    transcript-prepaint-geometry:
+      action: keep
+      reason: The existing Transcript layout effect remains the only scroll and
+        tail-follow owner.
+    transcript-prepaint-geometry-regression:
+      action: change
+      reason: Extend frame sampling across desktop/phone grow, shrink, ordinary
+        characters, newlines, and an intentionally unpinned reader.
+  composer-autogrow-measures-offscreen-before-live-height:
+    offscreen-composer-measurement:
+      action: change
+      reason: Own mirror synchronization, bounded measurement, and the sole final
+        visible height write.
+    offscreen-composer-measurement-regression:
+      action: change
+      reason: Prove exact mirrored metrics, grow/shrink/cap, and no visible auto
+        assignment.
+files:
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room5-mobile.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+verification: >
+  Check and clean-lock this plan before source edits. Run focused Composer units,
+  all web units, production/PWA build, and complete Rooms 5 and 36 browser suites.
+  Unit tests must instrument visible and mirror style writes and prove the live
+  textarea receives only a final pixel height while the mirror owns temporary
+  measurement writes; preserve grow, shrink, wrapping, paste, empty/reset, and
+  eight-row cap behavior. Browser tests must sample every frame at desktop and
+  390px through ordinary typing, newlines, multiline growth, shrink, and paste,
+  keeping a pinned transcript within 0-2px of bottom while a deliberately
+  unpinned reader retains its visible anchor. Run Harn working/staged checks and
+  apply plus git diff checks. Create one implementation commit. Do not implement
+  computer rail, activation history, worktree menu, relay, release, or deployment.
