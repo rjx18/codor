@@ -4,24 +4,25 @@ notes: >
   Fix the hosted-only cache/revalidation race that can briefly append an older
   socket-hydrated row below the newest combined-history unit and then remove it
   when authenticated head revalidation lands. When a room is displaying a
-  persisted head that still needs revalidation, classify every message in the
-  subscription's atomic opening snapshot as cold context before publishing
-  sync_complete. Do not classify later message frames as cold. Keep combined
+  combined-history cold set, classify every message in each subscription's
+  atomic opening snapshot as cold context before publishing sync_complete,
+  even if a fast authenticated head response has already cleared its transient
+  revalidation flag. Do not classify later message frames as cold. Keep combined
   pages authoritative for finalized order, keep the existing cache useful
   while disconnected, and keep Transcript as the sole scroll owner. Add no new
   reconnect, remount, scroll, timer, or cache mechanism.
 assumptions:
   create:
-    - id: hosted-cached-sync-snapshot-stays-cold-until-head-revalidation
-      title: Hosted cached sync snapshots stay cold until head revalidation
+    - id: combined-history-opening-sync-stays-cold
+      title: Combined-history opening sync snapshots remain cold context
       statement: >
-        When a hosted room is rendering a persisted transcript head that still
-        requires authenticated revalidation, every message delivered in that
-        subscription generation's atomic opening snapshot must be classified as
-        cold before sync_complete publishes the snapshot, while later message
-        frames remain live, so socket replay cannot appear temporarily beneath
-        the newest page-owned transcript unit or move a pinned reader during
-        revalidation.
+        Once a room has established a combined-history cold set, every message
+        delivered in a later subscription generation's atomic opening snapshot
+        must be added to that cold set before sync_complete publishes the
+        snapshot, regardless of whether a concurrent head request has already
+        completed, while message frames received after sync_complete remain
+        live, so socket replay cannot appear temporarily beneath the newest
+        page-owned transcript unit or move a pinned reader during revalidation.
       reason: >
         The cached duplicate set currently contains only cached message ids and
         misses additional rows replayed by the opening socket snapshot.
@@ -49,10 +50,10 @@ assumptions:
       outcome: unchanged
       reason: Offscreen textarea measurement remains unchanged and is exercised in hosted mode.
 anchors:
-  hosted-cached-sync-snapshot-stays-cold-until-head-revalidation:
+  combined-history-opening-sync-stays-cold:
     cached-sync-cold-classification:
       action: change
-      reason: Atomically union opening-snapshot ids into cold context before publishing sync_complete.
+      reason: Atomically union opening-snapshot ids into the established cold set before publishing sync_complete.
     cached-sync-cold-classification-regression:
       action: change
       reason: Prove cached snapshot rows are cold, later deltas stay live, and rooms remain isolated.
@@ -77,10 +78,11 @@ files:
 verification: >
   Clean-lock before source edits. Run focused store units, all web units,
   production/PWA build, and the complete Room 36 browser suite. The store
-  regression must start from a cached stale head, atomically commit an opening
-  snapshot containing an id absent from that cache, prove it is cold before any
-  render-visible state is published, then prove a post-sync message is not
-  cold. The browser regression must observe every transcript unit and every
+  regression must establish combined history, allow its head request to win the
+  race, atomically commit an opening snapshot containing an id absent from the
+  prior cache, prove it is cold before any render-visible state is published,
+  then prove a post-sync message is not cold. The browser regression must
+  observe every transcript unit and every
   animation-frame bottom gap through hosted cached reconnect, authenticated
   head revalidation, ordinary typing, multiline grow, and shrink; no older row
   may ever appear after the newest unit, a pinned gap remains within 0-2px, and
