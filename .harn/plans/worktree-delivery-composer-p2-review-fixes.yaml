@@ -1,0 +1,117 @@
+id: worktree-delivery-composer-p2-review-fixes
+title: Destination-bound composer echo and one-shot held retry
+notes: >
+  Apply only the contained Phase 2 review corrections. While a post awaits its
+  commit echo, subscribe the Composer only to the selected destination room's
+  message map and clear the draft only for a new message authored by that
+  destination room's authenticated self member. Keep all other room activity
+  out of the active Composer render path. Make release_hold one-shot at the
+  action boundary until the held delivery changes state or the server reports
+  an error; show that error inline and re-enable the same evidence-preserving
+  retry. Routing, protocol, delivery persistence, server history, relay, and
+  other Phase 2 behavior remain unchanged.
+assumptions:
+  create:
+    - id: pending-composer-echo-is-destination-and-self-bound
+      title: Pending composer echoes are destination- and self-bound
+      statement: >
+        While one composer submission is pending, the browser must observe only
+        that submission's destination message map and clear the unchanged draft
+        only after a newly committed chat authored by the authenticated self
+        member of that destination has the exact submitted body, so unrelated
+        rooms or another target-room author cannot rerender or falsely settle
+        the active composer.
+      reason: Whole-store observation and author-agnostic qualified matching can
+        disturb typing or clear a draft for unrelated target-room activity.
+      depends_on:
+        - exact-trailing-mentions-send-before-completion
+        - target-worktree-owns-qualified-conversation
+        - hosted-computer-sessions-keep-state-isolated
+    - id: held-delivery-release-is-one-shot-and-recoverable
+      title: Held delivery release is one-shot and recoverable
+      statement: >
+        An inline held-delivery retry must emit at most one release_hold action
+        while its result is pending, disable repeat activation during that
+        interval, clear pending state when the delivery leaves held, and on a
+        server error retain the original evidence, show the error inline, and
+        re-enable retry without creating a fresh delivery.
+      reason: Repeated clicks can race duplicate release acts, while an invisible
+        failure leaves the operator unable to understand or safely retry.
+      depends_on:
+        - held-delivery-recovery-stays-on-origin-message
+        - held-recovery-runs-are-inactive-until-release
+  reviewed:
+    - id: exact-trailing-mentions-send-before-completion
+      outcome: unchanged
+      reason: Exact-token Enter precedence and successful own-echo clearing remain
+        the contract; the echo is now bound to its correct destination identity.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: The destination room remains the sole owner and publisher of the
+        qualified message; only client echo recognition is narrowed.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: The destination selector remains within the already-mounted active
+        computer store and never observes another computer.
+    - id: held-delivery-recovery-stays-on-origin-message
+      outcome: unchanged
+      reason: Recovery remains attached to the original message and uses only
+        release_hold.
+    - id: held-recovery-runs-are-inactive-until-release
+      outcome: unchanged
+      reason: No work becomes active until the existing release_hold succeeds.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Existing delivery frames remain authoritative for leaving held state.
+anchors:
+  invalid-qualified-targets-never-fallback:
+    qualified-composer-refusal:
+      action: change
+      reason: Bind pending echo observation to one destination and its self member.
+    qualified-composer-refusal-regression:
+      action: change
+      reason: Prove identical text from another author cannot settle the draft.
+  held-delivery-recovery-stays-on-origin-message:
+    message-owned-held-recovery:
+      action: change
+      reason: Add per-delivery pending and inline failure state around release_hold.
+    message-owned-held-recovery-regression:
+      action: change
+      reason: Prove double activation emits once and failure remains visible/retryable.
+  agent-delivery-lifecycle-streams-v2:
+    steering-delivery-indicator:
+      action: change
+      reason: Thread authoritative errors through the existing delivery indicator.
+  pending-composer-echo-is-destination-and-self-bound:
+    destination-self-echo-observation:
+      action: change
+      reason: Own the narrow selector and exact self-authored commit predicate.
+    destination-self-echo-regression:
+      action: change
+      reason: Cover background-room churn and same-body other-author collisions.
+  held-delivery-release-is-one-shot-and-recoverable:
+    one-shot-held-release:
+      action: change
+      reason: Own synchronous duplicate suppression, disabled state, and error recovery.
+    one-shot-held-release-regression:
+      action: change
+      reason: Cover delayed duplicate activation and failed release re-enable behavior.
+files:
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+verification: >
+  Check and clean-lock this review plan before source edits. Run focused Composer
+  and Transcript units, all web units, production/PWA build, and affected Rooms
+  2 and 40 browser suites. Prove a pending composer ignores background-room
+  activity and same-body posts by a different destination author, while its own
+  destination echo clears once. Prove two synchronous Retry activations emit one
+  release_hold, the control disables while pending, and a failed release shows
+  the existing error and re-enables retry. Run Harn working/staged checks and
+  apply, git diff checks, and create one implementation commit. Do not change
+  routing, protocol, delivery storage, server history, relay, deployment, or
+  release behavior.
