@@ -77,6 +77,7 @@ function MountedRoomPage(props: {
   managed: ActiveComputerSession | undefined;
 }) {
   const { manager, managed } = props;
+  const showComputerRail = manager !== undefined;
   const activeToken = managed?.token ?? props.token;
   const token = useAccessToken(activeToken);
   // The public channel id stays the authorized ROOT; the selected conversation
@@ -327,6 +328,7 @@ function MountedRoomPage(props: {
             }}
             onSettings={openSettings}
             group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
+            showComputerRail={showComputerRail}
             readiness={(conversation) => connection.roomReadiness(conversation)}
             onSelectWorktree={(worktreeId) => {
               selectWorktree(worktreeId);
@@ -364,7 +366,7 @@ function MountedRoomPage(props: {
   }
 
   return (
-    <div className="nx-app" data-testid="app">
+    <div className={`nx-app${showComputerRail ? ' has-computer-rail' : ''}`} data-testid="app">
       <ChannelRail
         activeRoom={root}
         token={token}
@@ -380,6 +382,7 @@ function MountedRoomPage(props: {
           void group.refresh();
         }}
       />
+      {showComputerRail ? <ComputerSwitcher /> : null}
       <ChatPanel
         room={room}
         connection={connection}
@@ -431,6 +434,7 @@ function ChannelRail(props: {
   onOpenWorktreeDialog?: (dialog: 'create' | 'find') => void;
   onChildChanged?: () => void;
   onChildRemoved?: (worktreeId: string) => void;
+  showComputerRail?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
   const summaries = useRoomSummaries(props.token);
@@ -477,6 +481,7 @@ function ChannelRail(props: {
         <span className="nx-brand-tile" aria-hidden="true" />
         <strong>Codor</strong>
       </div>
+      {props.showComputerRail ? <ComputerSwitcher mobile /> : null}
       <div className="nx-rail-search">
         <Search size={15} aria-hidden="true" />
         <input type="search" placeholder="Search" aria-label="Search channels" />
@@ -584,7 +589,6 @@ function ChannelRail(props: {
             <span className="nx-conn-dot" aria-hidden="true" />
             {connected ? 'Connected' : 'Reconnecting…'}
           </span>
-          <ComputerSwitcher />
         </span>
         <IconButton icon={Settings} label="Settings" variant="quiet" onClick={props.onSettings} />
       </footer>

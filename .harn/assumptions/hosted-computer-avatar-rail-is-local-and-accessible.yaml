@@ -1,0 +1,23 @@
+id: hosted-computer-avatar-rail-is-local-and-accessible
+hash: a-5e3f9cd84e6a
+title: Hosted paired computers use an accessible local avatar rail
+state: active
+statement: >
+  In managed hosted mode, every paired computer is represented by one compact
+  keyboard- and pointer-accessible avatar in a narrow rail beside the channel
+  rail, while direct and self-hosted modes render no computer rail. The active
+  treatment is independent from activity badges. Each avatar exposes its full
+  sanitized hostname through its accessible name and tooltip, opens an
+  accessible local customization dialog from context-menu, long-press, and
+  Shift+F10, and persists only optional appearance metadata in browser-local
+  pairing storage. The rail shows only honest compact unread, working,
+  attention, and connection/repair indicators, preserves warm switching and
+  per-computer isolation, keeps phone chat width unchanged, and retains Add,
+  Forget, rename, and recovery behavior.
+depends_on:
+  - hosted-computer-switcher-is-discoverable-and-accessible
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-computer-switching-reuses-warm-session
+  - hosted-background-computer-activity-is-visible
+  - hosted-generated-computer-label-follows-authenticated-hostname
+created_by: computer-transcript-polish-p2-computer-rail

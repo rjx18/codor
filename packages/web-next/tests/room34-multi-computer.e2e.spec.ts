@@ -54,7 +54,12 @@ async function postWhileMentionRefreshIsPending(page: Page, text: string): Promi
   await expect(page.getByTestId('timeline')).toContainText(text, { timeout: 20_000 });
 }
 
-const menuItem = (page: Page, label: string) => page.locator('.nx-computer-menu li', { hasText: label });
+const computerButton = (page: Page, label: string) => page.getByRole('button', { name: new RegExp(label) }).first();
+
+async function customizeComputer(page: Page, label: string): Promise<void> {
+  await computerButton(page, label).click({ button: 'right' });
+  await expect(page.getByRole('dialog', { name: new RegExp(`Customize ${label}`) })).toBeVisible();
+}
 
 /** All per-computer archive room keys in IndexedDB (computer:<id>:<gen>:room:*). */
 async function archiveRoomKeys(page: Page): Promise<string[]> {
@@ -131,50 +136,37 @@ test.describe('multi-computer pairing', () => {
     await pasteCode(page, a.code);
     await page.getByTestId('pairing-code-submit').click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
     await page.evaluate(() => { (window as unknown as { __computerDocument?: string }).__computerDocument = 'same-document'; });
 
     // Add computer B (host B) through the switcher's "Add a computer".
     await control('/relay-up-b');
     const b = await control<{ code: string }>('/relay-pair-b');
-    await page.getByTestId('computer-current').click();
     await page.getByTestId('computer-add').click();
     await pasteCode(page, b.code);
     await page.getByTestId('pairing-code-submit').click();
 
     // B is the LAST PAIRED → active in the SAME document, with A still warm.
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
     expect(await page.evaluate(() => (window as unknown as { __computerDocument?: string }).__computerDocument)).toBe('same-document');
 
-    // A short desktop viewport must still expose the portaled menu as a bounded,
-    // genuinely scrollable surface rather than clipping it in the room footer.
+    // A short desktop viewport keeps the narrow rail inside the canvas rather
+    // than clipping a footer dropdown over the room.
     await page.setViewportSize({ width: 1440, height: 240 });
-    await page.getByTestId('computer-current').click();
-    const shortMenu = page.locator('.nx-computer-menu');
-    await expect(shortMenu).toBeVisible();
-    expect(await shortMenu.evaluate((node) => node.parentElement === document.body)).toBe(true);
-    const shortMenuBox = await shortMenu.boundingBox();
-    expect(shortMenuBox).not.toBeNull();
-    expect(shortMenuBox!.x).toBeGreaterThanOrEqual(0);
-    expect(shortMenuBox!.y).toBeGreaterThanOrEqual(0);
-    expect(shortMenuBox!.x + shortMenuBox!.width).toBeLessThanOrEqual(1440);
-    expect(shortMenuBox!.y + shortMenuBox!.height).toBeLessThanOrEqual(240);
-    const shortMenuScroll = await shortMenu.evaluate((node) => ({
-      overflow: getComputedStyle(node).overflowY,
-      scrollable: node.scrollHeight > node.clientHeight,
-    }));
-    expect(shortMenuScroll.overflow).toBe('auto');
-    expect(shortMenuScroll.scrollable).toBe(true);
-    await page.getByTestId('computer-current').click();
+    const shortRail = page.getByTestId('computer-switcher');
+    const shortRailBox = await shortRail.boundingBox();
+    expect(shortRailBox).not.toBeNull();
+    expect(shortRailBox!.x).toBeGreaterThanOrEqual(0);
+    expect(shortRailBox!.y).toBeGreaterThanOrEqual(0);
+    expect(shortRailBox!.x + shortRailBox!.width).toBeLessThanOrEqual(1440);
+    expect(shortRailBox!.y + shortRailBox!.height).toBeLessThanOrEqual(240);
+    expect(await shortRail.locator('[data-computer-avatar="true"]').count()).toBe(2);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.getByTestId('computer-current').click();
-
-    await expect(menuItem(page, 'codor-host-a').locator('[data-testid^="computer-connection-"]')).toHaveText('Connected');
-    await expect(menuItem(page, 'codor-host-b').locator('[data-testid^="computer-connection-"]')).toHaveText('Connected');
-    const popupA11y = await new AxeBuilder({ page }).include('.nx-computer-menu').analyze();
-    expect(popupA11y.violations).toEqual([]);
-    await page.getByTestId('computer-current').click();
+    await expect(computerButton(page, 'codor-host-a')).toHaveAttribute('aria-label', /Connected/);
+    await expect(computerButton(page, 'codor-host-b')).toHaveAttribute('aria-label', /Connected/);
+    const railA11y = await new AxeBuilder({ page }).include('[data-testid="computer-switcher"]').analyze();
+    expect(railA11y.violations).toEqual([]);
 
     const initialDials = await page.evaluate(() => ({
       ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
@@ -205,10 +197,9 @@ test.describe('multi-computer pairing', () => {
     await post(page, '@richard hi from computer two');
 
     // Switch back to computer A → its own session, its own tunnel.
-    await page.getByTestId('computer-current').click();
-    await menuItem(page, 'codor-host-a').getByRole('button').first().click();
+    await computerButton(page, 'codor-host-a').click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
     expect(await page.evaluate(() => (window as unknown as { __computerDocument?: string }).__computerDocument)).toBe('same-document');
     expect(await page.evaluate(() => ({
       ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
@@ -224,10 +215,8 @@ test.describe('multi-computer pairing', () => {
     // Inactive B continues consuming its socket into its own store and exposes
     // only aggregate badges in the switcher.
     await control('/computer-b-activity');
-    await page.getByTestId('computer-current').click();
-    await expect(menuItem(page, 'codor-host-b').locator('[data-testid^="computer-working-"]')).toContainText('working', { timeout: 20_000 });
-    await expect(menuItem(page, 'codor-host-b').locator('[data-testid^="computer-unread-"]')).not.toHaveText('0');
-    await page.getByTestId('computer-current').click();
+    await expect(computerButton(page, 'codor-host-b').locator('[data-testid^="computer-avatar-working-"]')).toHaveAttribute('aria-label', /working/, { timeout: 20_000 });
+    await expect(computerButton(page, 'codor-host-b').locator('[data-testid^="computer-avatar-unread-"]')).not.toHaveText('0');
 
     // Active A fails; its retained room stays readable and the rail switcher
     // still offers already-warm B. Choosing it neither reloads nor starts
@@ -236,9 +225,8 @@ test.describe('multi-computer pairing', () => {
     // harn:assume hosted-app-streams-follow-tunnel-generations ref=independent-computer-recovery-regression
     await control('/relay-down-a-only');
     await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 20_000 });
-    await page.getByTestId('computer-current').click();
-    await page.getByRole('button', { name: /codor-host-b, Connected/ }).click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
+    await computerButton(page, 'codor-host-b').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
     expect(await page.evaluate(() => (window as unknown as { __computerDocument?: string }).__computerDocument)).toBe('same-document');
     const bDialsAfterRecovery = await page.evaluate((session) => Object.entries(
@@ -247,8 +235,7 @@ test.describe('multi-computer pairing', () => {
     expect(bDialsAfterRecovery).toBe(bDialsBeforeRecovery);
 
     await control('/relay-up');
-    await page.getByTestId('computer-current').click();
-    await expect(menuItem(page, 'codor-host-a').locator('[data-testid^="computer-connection-"]')).toHaveText('Connected', { timeout: 30_000 });
+    await expect(computerButton(page, 'codor-host-a')).toHaveAttribute('aria-label', /Connected/, { timeout: 30_000 });
     const recoveredAppOpens = await page.evaluate(() => [...(
       window as unknown as {
         __codorRelayAppOpens: Array<{ session: string; generation: number }>;
@@ -259,11 +246,11 @@ test.describe('multi-computer pairing', () => {
     // harn:end hosted-app-streams-follow-tunnel-generations
 
     // Forget computer B → it disappears, A stays active.
-    await menuItem(page, 'codor-host-b').getByRole('button', { name: 'Forget' }).click();
+    await customizeComputer(page, 'codor-host-b');
+    await page.getByRole('button', { name: 'Forget computer' }).click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
-    await page.getByTestId('computer-current').click();
-    await expect(menuItem(page, 'codor-host-b')).toHaveCount(0);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    await expect(computerButton(page, 'codor-host-b')).toHaveCount(0);
   });
 
   test('a switchboard-served SPA renders no computer switcher (direct-path unchanged)', async ({ page }) => {

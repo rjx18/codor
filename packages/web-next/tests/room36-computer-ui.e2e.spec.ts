@@ -25,7 +25,7 @@ async function pasteCode(page: Page, code: string): Promise<void> {
 test.use({ viewport: { width: 390, height: 844 } });
 
 test.describe('computer switcher UI', () => {
-  test('phone popup and Add Computer modal stay keyboard- and axe-safe', async ({ page }) => {
+  test('phone avatar rail, local customization, and Add Computer modal stay keyboard- and axe-safe', async ({ page }) => {
     test.setTimeout(120_000);
     await control('/relay-up');
     const { code, relayUrl } = await control<{ code: string; relayUrl: string }>('/relay-pair');
@@ -42,24 +42,38 @@ test.describe('computer switcher UI', () => {
     // surface using the existing mobile navigation first.
     await page.getByTestId('mobile-back').click();
     await expect(page.getByTestId('computer-current')).toBeVisible();
-    await page.getByTestId('computer-current').click();
-    const popup = page.locator('.nx-computer-menu');
-    await expect(page.getByRole('dialog', { name: /Active computer/ })).toBeVisible();
-    expect(await popup.evaluate((node) => node.parentElement === document.body)).toBe(true);
-    const popupBox = await popup.boundingBox();
-    expect(popupBox).not.toBeNull();
-    expect(popupBox!.x).toBeGreaterThanOrEqual(0);
-    expect(popupBox!.x + popupBox!.width).toBeLessThanOrEqual(390);
-    expect(popupBox!.y).toBeGreaterThanOrEqual(0);
-    expect(popupBox!.y + popupBox!.height).toBeLessThanOrEqual(844);
-    const hit = await popup.evaluate((node) => {
-      const box = node.getBoundingClientRect();
-      const target = document.elementFromPoint(box.left + 8, box.top + 8);
-      return target !== null && node.contains(target);
-    });
-    expect(hit).toBe(true);
-    const popupA11y = await new AxeBuilder({ page }).include('.nx-computer-menu').analyze();
-    expect(popupA11y.violations).toEqual([]);
+    const rail = page.getByTestId('computer-switcher');
+    await expect(rail.locator('[data-computer-avatar="true"]')).toHaveCount(1);
+    const railBox = await rail.boundingBox();
+    expect(railBox).not.toBeNull();
+    expect(railBox!.x).toBeGreaterThanOrEqual(0);
+    expect(railBox!.x + railBox!.width).toBeLessThanOrEqual(390);
+    const railA11y = await new AxeBuilder({ page }).include('[data-testid="computer-switcher"]').analyze();
+    expect(railA11y.violations).toEqual([]);
+
+    // Shift+F10, right-click, and long-press are all browser-local entry points.
+    const current = page.getByTestId('computer-current');
+    await current.focus();
+    await page.keyboard.press('Shift+F10');
+    const customize = page.getByTestId('computer-customize-modal');
+    await expect(customize).toBeVisible();
+    await expect(customize).toContainText('local icon and color');
+    const customizeA11y = await new AxeBuilder({ page }).include('[data-testid="computer-customize-modal"]').analyze();
+    expect(customizeA11y.violations).toEqual([]);
+    await page.keyboard.press('Escape');
+    await expect(customize).toHaveCount(0);
+
+    await current.click({ button: 'right' });
+    await expect(customize).toBeVisible();
+    await page.getByRole('button', { name: /Use 🐈 icon/ }).click();
+    await page.getByRole('button', { name: /Use #0f766e avatar color/ }).click();
+    await page.keyboard.press('Escape');
+
+    await current.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0 });
+    await page.waitForTimeout(650);
+    await current.dispatchEvent('pointerup', { pointerType: 'touch', button: 0 });
+    await expect(customize).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await page.getByTestId('computer-add').click();
     const modal = page.getByTestId('computer-add-modal');

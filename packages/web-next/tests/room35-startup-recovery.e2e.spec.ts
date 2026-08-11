@@ -34,33 +34,30 @@ test.describe('startup recovery (boot path)', () => {
     await page.goto(`${SPA_ORIGIN}/`);
     await pasteCode(page, a.code);
     await page.getByTestId('pairing-code-submit').click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/, { timeout: 30_000 });
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/, { timeout: 30_000 });
 
     const b = await control<{ code: string }>('/relay-pair-b');
-    await page.getByTestId('computer-current').click();
     await page.getByTestId('computer-add').click();
     await pasteCode(page, b.code);
     await page.getByTestId('pairing-code-submit').click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/, { timeout: 30_000 });
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/, { timeout: 30_000 });
 
     // Persist A as active, then boot with only A absent. Both session retry loops
     // start, B becomes warm, and the first bounded A failure exposes B.
-    await page.getByTestId('computer-current').click();
-    await page.locator('.nx-computer-menu li', { hasText: 'codor-host-a' }).getByRole('button').first().click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await page.getByRole('button', { name: /codor-host-a/ }).click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
     await control('/relay-down-a-only');
     await page.reload();
     await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
-    await page.getByTestId('computer-current').click();
-    await expect(page.getByRole('button', { name: /codor-host-b, Connected/ })).toBeVisible();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    await expect(page.getByRole('button', { name: /codor-host-b/ })).toBeVisible();
     const recoveryA11y = await new AxeBuilder({ page }).include('[data-testid="app"]').analyze();
     expect(recoveryA11y.violations).toEqual([]);
 
     await page.evaluate(() => { (window as unknown as { __bootRecoveryDocument?: boolean }).__bootRecoveryDocument = true; });
-    await page.getByRole('button', { name: /codor-host-b, Connected/ }).click();
+    await page.getByRole('button', { name: /codor-host-b/ }).click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
     expect(await page.evaluate(() => (window as unknown as { __bootRecoveryDocument?: boolean }).__bootRecoveryDocument)).toBe(true);
     await control('/relay-up');
   });

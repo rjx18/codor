@@ -39,6 +39,8 @@ export interface ComputerActivitySummary {
   connected: boolean;
   unread: number;
   attention: boolean;
+  /** Number of rooms whose latest state needs operator attention. */
+  attentionCount?: number;
   working: number;
 }
 
@@ -665,16 +667,19 @@ export class ComputerSessionManager {
       if (slice.support) byRoom.set(slice.support.room, slice.support.summary);
     }
     const summaries = [...byRoom.values()];
-    const workingMembers = Object.values(state.rooms).reduce(
-      (total, slice) => total + Object.values(slice.members).filter((member) =>
-        member.kind === 'agent' && (member.state === 'running' || member.state === 'queued')).length,
-      0,
-    );
+    const workingRooms = new Set([
+      ...summaries.filter((room) => room.working).map((room) => room.id),
+      ...Object.values(state.rooms)
+        .filter((slice) => slice.room !== undefined && Object.values(slice.members).some((member) =>
+          member.kind === 'agent' && (member.state === 'running' || member.state === 'queued')))
+        .flatMap((slice) => slice.room === undefined ? [] : [slice.room.id]),
+    ]);
     return {
       connected: state.connected,
       unread: summaries.reduce((total, room) => total + room.unread, 0),
       attention: summaries.some((room) => room.attention),
-      working: Math.max(workingMembers, summaries.filter((room) => room.working).length),
+      attentionCount: summaries.filter((room) => room.attention).length,
+      working: workingRooms.size,
     };
   }
 

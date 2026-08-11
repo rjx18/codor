@@ -111,15 +111,10 @@ function memberHandles(summary: Phase5Summary, id: string): string[] {
 }
 
 async function switchComputer(page: Page, label: string): Promise<void> {
-  const current = page.getByTestId('computer-current');
-  await expect(current).toBeVisible();
-  await current.click();
-  const menu = page.locator('.nx-computer-menu');
-  await expect(menu).toBeVisible();
-  const item = menu.locator('li', { hasText: label });
-  await expect(item).toBeVisible();
-  await item.getByRole('button').first().click();
-  await expect(page.getByTestId('computer-current')).toHaveText(new RegExp(label));
+  const target = page.getByRole('button', { name: new RegExp(label) }).first();
+  await expect(target).toBeVisible();
+  await target.click();
+  await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', new RegExp(label));
   await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
 }
 
@@ -176,15 +171,14 @@ test.describe('Phase 5 preset, roster, and computer isolation', () => {
     await pasteCode(page, a.code);
     await page.getByTestId('pairing-code-submit').click();
     await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
 
     await control('/relay-up-b');
     const b = await control<{ code: string }>('/relay-pair-b');
-    await page.getByTestId('computer-current').click();
     await page.getByTestId('computer-add').click();
     await pasteCode(page, b.code);
     await page.getByTestId('pairing-code-submit').click();
-    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
     await page.evaluate(() => {
       (window as unknown as { __phase5Document?: Document }).__phase5Document = document;

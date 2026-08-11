@@ -1,0 +1,156 @@
+id: computer-transcript-polish-p2-computer-rail
+title: Compact paired-computer avatar rail
+notes: >
+  Implement only Phase 2 of the computer transcript polish plan on top of the
+  accepted Phase 1 commit 54b46ab. Replace the hosted computer footer picker
+  with a narrow vertical avatar rail beside the channel rail. Keep direct and
+  self-hosted layouts unchanged. Appearance is browser-local and optional;
+  pairing records, relay credentials, sessions, transports, protocol, and server
+  behavior remain unchanged. Preserve warm switching, background summaries, Add
+  Computer, Forget, rename, recovery, and all existing authorization boundaries.
+assumptions:
+  create:
+    - id: hosted-computer-avatar-rail-is-local-and-accessible
+      title: Hosted paired computers use an accessible local avatar rail
+      statement: >
+        In managed hosted mode, every paired computer is represented by one
+        compact keyboard- and pointer-accessible avatar in a narrow rail beside
+        the channel rail, while direct and self-hosted modes render no computer
+        rail. The active treatment is independent from activity badges. Each
+        avatar exposes its full sanitized hostname through its accessible name
+        and tooltip, opens an accessible local customization dialog from
+        context-menu, long-press, and Shift+F10, and persists only optional
+        appearance metadata in browser-local pairing storage. The rail shows
+        only honest compact unread, working, attention, and connection/repair
+        indicators, preserves warm switching and per-computer isolation, keeps
+        phone chat width unchanged, and retains Add, Forget, rename, and
+        recovery behavior.
+      reason: >
+        The current hosted picker spends the footer on a text dropdown and makes
+        computer identity and activity discoverable only after opening it. A
+        local avatar rail supplies the requested persistent affordance without
+        adding relay or wire state.
+      depends_on:
+        - hosted-computer-switcher-is-discoverable-and-accessible
+        - hosted-computer-sessions-keep-state-isolated
+        - hosted-computer-switching-reuses-warm-session
+        - hosted-background-computer-activity-is-visible
+        - hosted-generated-computer-label-follows-authenticated-hostname
+  reviewed:
+    - id: hosted-computer-switcher-is-discoverable-and-accessible
+      outcome: fixed
+      reason: The existing accessible switcher presentation is replaced by the
+        always-visible avatar rail while its truthful states, focus, and actions
+        remain required.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Avatar metadata is browser-local and no session, credential, store,
+        room, or transport ownership changes.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Selecting an avatar still calls the existing warm activation path
+        without reload or redial.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Existing per-computer unread, attention, and working projection remains
+        the sole activity source.
+    - id: hosted-generated-computer-label-follows-authenticated-hostname
+      outcome: unchanged
+      reason: Sanitized authenticated labels remain the identity shown in tooltip and
+        accessible names; explicit renames remain authoritative.
+    - id: hosted-offline-recovery-offers-other-computers
+      outcome: unchanged
+      reason: Recovery continues to expose the same warm alternate choices through the
+        shared presentation.
+    - id: hosted-add-computer-explains-pairing-code-source
+      outcome: unchanged
+      reason: Add Computer keeps its existing two-section codor pair and unchanged
+        PairingCodeInput flow.
+    - id: hosted-preset-state-follows-only-the-active-computer
+      outcome: unchanged
+      reason: Settings and active-computer state are outside this presentation-only
+        phase.
+anchors:
+  hosted-computer-avatar-rail-is-local-and-accessible:
+    computer-avatar-rail-presentation:
+      action: change
+      reason: Render the hosted-only vertical avatar rail with independent active and
+        activity treatments.
+    computer-avatar-rail-customization:
+      action: change
+      reason: Add browser-local appearance migration, persistence, customization, and
+        stable randomization.
+    computer-avatar-rail-accessibility-regression:
+      action: change
+      reason: Prove hostname names/tooltips, context-menu/Shift+F10/long-press entry,
+        dialog focus, and Axe behavior.
+    computer-avatar-rail-phone-regression:
+      action: change
+      reason: Keep the rail inside the phone channel-picker surface without reducing
+        the chat viewport.
+  hosted-computer-switcher-is-discoverable-and-accessible:
+    computer-switcher-presentation:
+      action: change
+      reason: Replace the footer dropdown with the compact avatar rail while retaining
+        truthful status and activation semantics.
+    computer-switcher-component-regression:
+      action: change
+      reason: Cover multiple avatars, active treatment, aggregate badges, status
+        states, Add, Forget, and warm selection.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: keep
+      reason: The rail reads the existing isolated snapshot and writes appearance
+        metadata only through its own local key.
+  hosted-computer-switching-reuses-warm-session:
+    warm-computer-activation:
+      action: keep
+      reason: Avatar selection preserves existing same-document warm activation and
+        no-new-socket behavior.
+  hosted-background-computer-activity-is-visible:
+    background-computer-summary:
+      action: keep
+      reason: Existing summary projection remains the source for unread, attention,
+        and working badges.
+  hosted-generated-computer-label-follows-authenticated-hostname:
+    computer-hostname-label:
+      action: keep
+      reason: The avatar label uses the already authenticated and sanitized computer
+        label.
+  hosted-offline-recovery-offers-other-computers:
+    recovery-computer-choices:
+      action: change
+      reason: Recovery reuses the compact ComputerChoice presentation with truthful
+        status and action labels.
+  hosted-add-computer-explains-pairing-code-source:
+    add-computer-dialog:
+      action: keep
+      reason: Add Computer behavior remains the existing two-section modal.
+files:
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/ComputerSwitcher.tsx
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/room/ComputerSwitcher.spec.tsx
+  - packages/web-next/src/room/ComputerChoice.spec.tsx
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/runtime/relay-records.ts
+  - packages/web-next/src/runtime/relay-store.ts
+  - packages/web-next/src/runtime/crypto.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room35-startup-recovery.e2e.spec.ts
+  - packages/web-next/tests/room36-computer-ui.e2e.spec.ts
+verification: >
+  Before editing, run harn find for every reviewed assumption and declared file,
+  check and clean-lock this plan from the exact 54b46ab base. Run focused
+  ComputerChoice/ComputerSwitcher/session/storage units, all web-next units, the
+  production/PWA build, Rooms 34, 35, and 36, desktop and phone flows, warm
+  switching and no-new-socket assertions, browser-local appearance
+  persistence/isolation, context-menu/long-press/Shift+F10 dialog focus, and
+  light/dark Axe. Run harn find --changed, harn check, harn apply, harn check
+  --staged, and git diff --check. Stage only this plan, the declared files, and
+  generated assumption truth; create exactly one implementation commit. Do not
+  start Phase 3, push, deploy, publish, or alter relay, database, credential,
+  protocol, or server behavior.
+applied:
+  applied_at: 2026-08-11T12:51:52.824Z

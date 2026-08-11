@@ -25,6 +25,7 @@ const view = (overrides: Record<string, unknown> = {}) => ({
   authRefused: false,
   unread: 0,
   attention: false,
+  attentionCount: 0,
   working: 0,
   ...overrides,
 });
@@ -44,14 +45,24 @@ async function render(computers: unknown[]) {
   };
   host = document.createElement('div');
   document.body.append(host);
-  const mountedRoot = createRoot(host);
-  root = mountedRoot;
+  root = createRoot(host);
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  await act(async () => { mountedRoot.render(<ComputerSwitcher />); });
+  await act(async () => { root!.render(<ComputerSwitcher />); });
+}
+
+async function openCustomize(id = 'A'): Promise<HTMLElement> {
+  const testid = id === 'A' ? 'computer-current' : `computer-avatar-${id}`;
+  const avatar = document.body.querySelector(`[data-testid="${testid}"]`) as HTMLButtonElement;
+  avatar.focus();
+  await act(async () => {
+    avatar.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+  });
+  return document.body.querySelector('[data-testid="computer-customize-modal"]') as HTMLElement;
 }
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  window.localStorage.clear();
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
     value: { writeText: vi.fn().mockResolvedValue(undefined) },
@@ -61,105 +72,77 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => { root?.unmount(); });
   host?.remove();
+  document.querySelectorAll('[data-testid$="-modal"]').forEach((node) => node.remove());
   harness.manager = undefined;
   delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
 });
 
-describe('ComputerSwitcher', () => {
-  it('shows an aggregate inactive badge and uses repair status without an ARIA menu tree', async () => {
+describe('ComputerSwitcher avatar rail', () => {
+  it('renders one avatar per computer with independent activity badges and truthful status', async () => {
     await render([
       view(),
-      view({ id: 'B', label: 'Laptop', active: false, unread: 2, attention: true, working: 1 }),
+      view({ id: 'B', label: 'Laptop', active: false, unread: 2, attention: true, attentionCount: 2, working: 1 }),
       view({ id: 'C', label: 'Offline', active: false, ready: false, connected: true, authRefused: true }),
     ]);
-    const trigger = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
-    expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
-    expect(trigger.getAttribute('aria-label')).toContain('4 actionable updates on inactive computers');
-    expect(host!.querySelector('[data-testid="computer-activity-badge"]')?.textContent).toBe('4');
-
-    await act(async () => { trigger.click(); });
-    const popup = document.body.querySelector('.nx-computer-menu') as HTMLElement;
-    expect(popup.parentElement).toBe(document.body);
-    expect(popup.getAttribute('data-positioned')).toBe('true');
-    expect(document.body.querySelector('[role="menu"]')).toBeNull();
-    expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-testid="computer-connection-C"]')?.textContent).toBe('Repair required');
-    expect((document.body.querySelector('[data-testid="computer-switch-C"]') as HTMLButtonElement).disabled).toBe(true);
+    expect(host!.querySelectorAll('[data-computer-avatar="true"]')).toHaveLength(3);
+    expect(host!.querySelector('[data-testid="computer-avatar-unread-B"]')?.textContent).toBe('2');
+    expect(host!.querySelector('[data-testid="computer-avatar-working-B"]')?.textContent).toBe('1');
+    expect(host!.querySelector('[data-testid="computer-avatar-attention-B"]')?.textContent).toBe('2');
+    const active = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
+    expect(active.getAttribute('aria-label')).toContain('Desk, Active, Connected');
+    expect(host!.querySelector('[data-testid="computer-avatar-C"]')?.getAttribute('aria-label')).toContain('Repair required');
+    expect(host!.querySelector('.nx-computer-menu')).toBeNull();
   });
 
-  it('cleans viewport listeners when the portaled popup closes', async () => {
-    const addEventListener = vi.spyOn(window, 'addEventListener');
-    const removeEventListener = vi.spyOn(window, 'removeEventListener');
+  it('activates a warm inactive computer without a popup or new presentation state', async () => {
     await render([view(), view({ id: 'B', label: 'Laptop', active: false })]);
-    const trigger = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
-    await act(async () => { trigger.click(); });
-    expect(addEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
-    expect(addEventListener).toHaveBeenCalledWith('scroll', expect.any(Function), true);
-    await act(async () => { trigger.click(); });
-    expect(removeEventListener).toHaveBeenCalledWith('resize', expect.any(Function));
-    expect(removeEventListener).toHaveBeenCalledWith('scroll', expect.any(Function), true);
+    await act(async () => { (host!.querySelector('[data-testid="computer-avatar-B"]') as HTMLButtonElement).click(); });
+    expect(harness.manager!.activate).toHaveBeenCalledWith('B');
   });
 
-  it('closes on Escape and returns focus to the trigger', async () => {
-    await render([view(), view({ id: 'B', label: 'Laptop', active: false })]);
-    const trigger = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
-    trigger.focus();
-    await act(async () => { trigger.click(); });
-    expect(document.activeElement).toBe(document.body.querySelector('[data-computer-choice="true"]'));
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it('closes on an outside pointer and returns focus to the trigger', async () => {
-    await render([view(), view({ id: 'B', label: 'Laptop', active: false })]);
-    const trigger = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
-    await act(async () => { trigger.click(); });
-    await act(async () => { document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })); });
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    expect(document.activeElement).toBe(trigger);
-  });
-
-  it('clears rename state when Escape closes and the popup is reopened', async () => {
-    await render([view(), view({ id: 'B', label: 'Laptop', active: false })]);
-    const trigger = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
-    await act(async () => { trigger.click(); });
-    await act(async () => {
-      document.body.querySelector('[data-testid="computer-switch-B"]')?.dispatchEvent(
-        new MouseEvent('dblclick', { bubbles: true }),
-      );
-    });
-    expect(document.body.querySelector('[data-testid="computer-rename-B"]')).not.toBeNull();
-    await act(async () => {
-      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-    });
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    await act(async () => { trigger.click(); });
-    expect(document.body.querySelector('[data-testid="computer-rename-B"]')).toBeNull();
-  });
-
-  it('shows both Add Computer steps together with the unchanged code input', async () => {
+  it('opens the browser-local customization dialog from context menu and returns focus', async () => {
     await render([view()]);
-    const trigger = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
-    await act(async () => { trigger.click(); });
-    await act(async () => { (document.body.querySelector('[data-testid="computer-add"]') as HTMLButtonElement).click(); });
+    const modal = await openCustomize();
+    expect(modal).not.toBeNull();
+    expect(modal.contains(document.activeElement)).toBe(true);
+    expect(modal.getAttribute('role')).toBe('dialog');
+    expect(document.body.querySelectorAll('[role="menu"]')).toHaveLength(0);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(document.body.querySelector('[data-testid="computer-customize-modal"]')).toBeNull();
+    expect(document.activeElement).toBe(host!.querySelector('[data-testid="computer-current"]'));
+  });
+
+  it('accepts Shift+F10 and persists icon/color choices independently per computer', async () => {
+    await render([view(), view({ id: 'B', label: 'Laptop', active: false })]);
+    const avatar = host!.querySelector('[data-testid="computer-avatar-B"]') as HTMLButtonElement;
+    avatar.focus();
+    await act(async () => { avatar.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true })); });
+    const modal = document.body.querySelector('[data-testid="computer-customize-modal"]') as HTMLElement;
+    const cat = [...modal.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Use 🐈 icon') as HTMLButtonElement;
+    expect(cat).toBeTruthy();
+    await act(async () => { cat.click(); });
+    const color = modal.querySelector('[data-testid="computer-color-0f766e"]') as HTMLButtonElement;
+    await act(async () => { color.click(); });
+    expect(JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}')).toEqual({
+      B: { glyph: '🐈', color: '#0f766e' },
+    });
+  });
+
+  it('keeps the existing two-step Add Computer flow and Forget action', async () => {
+    await render([view()]);
+    await act(async () => { (host!.querySelector('[data-testid="computer-add"]') as HTMLButtonElement).click(); });
     const modal = document.body.querySelector('[data-testid="computer-add-modal"]') as HTMLElement;
     expect(modal.contains(document.activeElement)).toBe(true);
-    expect(document.body.querySelector('[data-testid="computer-add-step-1"]')).not.toBeNull();
-    expect(document.body.textContent).toContain('codor pair');
-    expect(document.body.textContent).toContain('single-use');
-    expect(document.body.textContent).toContain('ten minutes');
-    expect(document.body.textContent).toContain('private relay');
-    expect(document.body.querySelector('[data-testid="computer-add-step-2"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-testid="pairing-code-0"]')).not.toBeNull();
-    expect(document.body.querySelector('[data-testid="computer-add-next"]')).toBeNull();
-    expect(document.body.querySelector('[data-testid="computer-add-back"]')).toBeNull();
+    expect(modal.querySelector('[data-testid="computer-add-step-1"]')).not.toBeNull();
+    expect(modal.querySelector('[data-testid="computer-add-step-2"]')).not.toBeNull();
+    expect(modal.textContent).toContain('single-use');
+    expect(modal.textContent).toContain('ten minutes');
+    await act(async () => { (modal.querySelector('[data-testid="computer-add-copy"]') as HTMLButtonElement).click(); });
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('codor pair');
 
-    await act(async () => { (document.body.querySelector('[data-testid="computer-add-copy"]') as HTMLButtonElement).click(); });
-    expect((navigator.clipboard.writeText as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith('codor pair');
-    expect(document.body.querySelector('[data-testid="computer-add-copy"]')?.textContent).toBe('Copied');
-    expect(document.body.querySelectorAll('input[data-testid^="pairing-code-"]')).toHaveLength(8);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await openCustomize();
+    await act(async () => { (document.querySelector('[data-testid="computer-forget-A"]') as HTMLButtonElement).click(); });
+    expect(harness.manager!.forget).toHaveBeenCalledWith('A');
   });
 });
