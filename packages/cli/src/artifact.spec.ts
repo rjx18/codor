@@ -132,7 +132,7 @@ describe('built public artifact', () => {
       .toMatchObject({ name: ENTRY_PACKAGE, version: releaseVersion.version });
   });
 
-  // harn:assume github-tags-publish-one-immutable-alpha-or-stable-release ref=public-package-repository-regression
+  // harn:assume github-tags-publish-numbered-semver-alpha-or-stable-release ref=public-package-repository-regression
   it('stages the exact public GitHub repository identity', () => {
     const { manifest } = buildArtifact({ repoRoot, outDir });
     expect(manifest.repository).toEqual({ type: 'git', url: 'https://github.com/rjx18/codor' });
@@ -141,7 +141,7 @@ describe('built public artifact', () => {
       url: 'https://github.com/rjx18/codor',
     });
   });
-  // harn:end github-tags-publish-one-immutable-alpha-or-stable-release
+  // harn:end github-tags-publish-numbered-semver-alpha-or-stable-release
 
   // harn:assume public-package-readme-renders-on-npm ref=artifact-readme-regression
   it('stages an npm-renderable README with the current install command', () => {

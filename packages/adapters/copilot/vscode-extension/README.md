@@ -30,8 +30,8 @@ changes.
 Codor never installs, updates, or publishes this extension automatically. The
 bridge listens only on `127.0.0.1`, uses a random local bearer token, and never
 reads or exports GitHub/VS Code credentials.
-<!-- harn:assume github-tags-publish-one-immutable-alpha-or-stable-release ref=copilot-release-asset-install-doc -->
+<!-- harn:assume github-tags-publish-numbered-semver-alpha-or-stable-release ref=copilot-release-asset-install-doc -->
 The VSIX attached to a GitHub Release is the manually installed companion for
 that exact Codor version; it is not published to the VS Code Marketplace.
-<!-- harn:end github-tags-publish-one-immutable-alpha-or-stable-release -->
+<!-- harn:end github-tags-publish-numbered-semver-alpha-or-stable-release -->
 <!-- harn:end vscode-copilot-bridge-is-manual-local-and-credential-private -->

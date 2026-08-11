@@ -265,7 +265,7 @@ assert.match(releaseArtifactBuilder, /SHA256SUMS/);
 assert.match(manual, /codor-installers-<full commit SHA>/);
 // harn:end verified-commit-installers-are-sha-addressed-and-ephemeral
 
-// harn:assume github-tags-publish-one-immutable-alpha-or-stable-release ref=github-release-policy-audit
+// harn:assume github-tags-publish-numbered-semver-alpha-or-stable-release ref=github-release-policy-audit
 assert.match(releaseWorkflow, /tags:\s*\n\s+- ['"]v\*\.\*\.\*['"]/);
 assert.match(releaseWorkflow, /permissions:\s*\{\}/);
 assert.match(releaseWorkflow, /contents:\s+write/);
@@ -286,6 +286,12 @@ assert.match(
 );
 assert.match(releaseWorkflow, /git merge-base[\s\S]*origin\/main/);
 assert.match(releaseWorkflow, /git merge-base[\s\S]*origin\/alpha/);
+assert.match(releaseWorkflow, /vX\.Y\.Z or vX\.Y\.Z-alpha\.N/);
+assert.ok(releaseWorkflow.includes('^v[0-9]+\\.[0-9]+\\.[0-9]+-alpha\\.(0|[1-9][0-9]*)$'));
+assert.match(releaseWorkflow, /RELEASE_KIND=stable[\s\S]*NPM_TAG=latest/);
+assert.match(releaseWorkflow, /RELEASE_KIND=alpha[\s\S]*NPM_TAG=alpha/);
+assert.match(releaseWorkflow, /stable tag commit is not contained in main/);
+assert.match(releaseWorkflow, /alpha tag commit must be outside main and contained in the curated alpha branch/);
 assert.match(releaseWorkflow, /NPM_TAG=latest/);
 assert.match(releaseWorkflow, /NPM_TAG=alpha/);
 assert.match(releaseWorkflow, /npm view[\s\S]*@richhardry\/codor/);
@@ -301,6 +307,6 @@ assert.doesNotMatch(releaseWorkflow, /pull_request/);
 assert.doesNotMatch(releaseWorkflow, /NPM_TOKEN/);
 assert.match(copilotBridgeReadme, /matching Codor GitHub\s+Release/);
 assert.doesNotMatch(copilotBridgeReadme, /Install this extension from its Marketplace page/i);
-// harn:end github-tags-publish-one-immutable-alpha-or-stable-release
+// harn:end github-tags-publish-numbered-semver-alpha-or-stable-release
 
 process.stdout.write('release audit passed: pre-tag gates, rename, relay disclosure, and acceptance provenance\n');

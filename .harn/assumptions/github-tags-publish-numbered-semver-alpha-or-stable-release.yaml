@@ -1,0 +1,25 @@
+id: github-tags-publish-numbered-semver-alpha-or-stable-release
+hash: a-b41cb284053d
+title: Eligible GitHub tags publish one immutable numbered alpha or stable release
+state: active
+statement: >
+  A pushed stable vX.Y.Z tag may publish only from a commit contained in main,
+  while a pushed numbered vX.Y.Z-alpha.N tag may publish only from a commit not
+  in main but contained in the curated alpha branch. The tag text must exactly
+  match every common release manifest version, the version must be absent from
+  npm and GitHub Releases, and the complete release gate and exact artifact
+  checksums must pass on a GitHub-hosted runner in the protected release
+  environment. Stable publication uses npm dist-tag latest and a normal GitHub
+  Release; alpha publication uses npm dist-tag alpha and a GitHub prerelease;
+  every other tag shape or ancestry fails closed. Each SemVer version carries an
+  immutable TGZ, manually installed VSIX, and SHA256SUMS, and the job grants
+  only contents write plus OIDC id-token write. The staged npm manifest must
+  identify https://github.com/rjx18/codor exactly, and neither workflow nor
+  Codor runtime stores an npm token or automatically installs or
+  Marketplace-publishes the extension.
+depends_on:
+  - verified-commit-installers-are-sha-addressed-and-ephemeral
+  - installed-or-published-release-artifacts-are-version-immutable
+  - release-candidate-requires-publishable-install-tarball
+  - packed-release-proof-runs-install-runtime
+created_by: github-release-semver-alpha-tags

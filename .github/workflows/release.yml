@@ -1,4 +1,4 @@
-# harn:assume github-tags-publish-one-immutable-alpha-or-stable-release ref=github-tag-release-workflow
+# harn:assume github-tags-publish-numbered-semver-alpha-or-stable-release ref=github-tag-release-workflow
 name: Release
 
 on:
@@ -50,8 +50,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           TAG="$GITHUB_REF_NAME"
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            printf 'release tags must be exactly vX.Y.Z: %s\n' "$TAG" >&2
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            RELEASE_KIND=stable
+            NPM_TAG=latest
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha\.(0|[1-9][0-9]*)$ ]]; then
+            RELEASE_KIND=alpha
+            NPM_TAG=alpha
+          else
+            printf 'release tags must be vX.Y.Z or vX.Y.Z-alpha.N: %s\n' "$TAG" >&2
             exit 1
           fi
           RELEASE_VERSION="${TAG#v}"
@@ -80,16 +86,18 @@ jobs:
 
           git fetch --quiet origin main
           git fetch --quiet origin alpha || true
-          if git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
-            RELEASE_KIND=stable
-            NPM_TAG=latest
-          elif git show-ref --verify --quiet refs/remotes/origin/alpha && \
-            git merge-base --is-ancestor "$GITHUB_SHA" origin/alpha; then
-            RELEASE_KIND=alpha
-            NPM_TAG=alpha
+          if [[ "$RELEASE_KIND" == stable ]]; then
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              printf 'stable tag commit is not contained in main\n' >&2
+              exit 1
+            fi
           else
-            printf 'tag commit is not contained in main or the curated alpha branch\n' >&2
-            exit 1
+            if git merge-base --is-ancestor "$GITHUB_SHA" origin/main || \
+              ! git show-ref --verify --quiet refs/remotes/origin/alpha || \
+              ! git merge-base --is-ancestor "$GITHUB_SHA" origin/alpha; then
+              printf 'alpha tag commit must be outside main and contained in the curated alpha branch\n' >&2
+              exit 1
+            fi
           fi
 
           NPM_ERROR="$(mktemp)"
@@ -189,4 +197,4 @@ jobs:
             ARGS+=(--prerelease)
           fi
           gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" "${ARGS[@]}"
-# harn:end github-tags-publish-one-immutable-alpha-or-stable-release
+# harn:end github-tags-publish-numbered-semver-alpha-or-stable-release

@@ -143,16 +143,17 @@ mistaken for one another. Treat the downloaded files as disposable verification 
 tagged GitHub Release for a permanent operator installation.
 <!-- harn:end verified-commit-installers-are-sha-addressed-and-ephemeral -->
 
-<!-- harn:assume github-tags-publish-one-immutable-alpha-or-stable-release ref=github-release-runbook -->
+<!-- harn:assume github-tags-publish-numbered-semver-alpha-or-stable-release ref=github-release-runbook -->
 ## Tagged alpha and stable releases
 
-Only a pushed `vX.Y.Z` tag can enter `.github/workflows/release.yml`. The tag text must equal every
-release manifest version, and the version must not already exist on npm or as a GitHub Release. A
-tagged commit contained in `main` publishes `@richhardry/codor` with npm `latest` and creates a
-normal GitHub Release. A commit not in `main` but contained in the curated `alpha` branch publishes
-the same unique three-part version with npm `alpha` and creates a prerelease. Other branches,
-pull requests, and tag shapes fail closed. Each version and each release asset is immutable; if a
-candidate has been published or installed, advance the version before rebuilding it.
+Only a pushed stable `vX.Y.Z` or numbered prerelease `vX.Y.Z-alpha.N` tag can enter
+`.github/workflows/release.yml`. The tag text must equal every release manifest version, and the
+version must not already exist on npm or as a GitHub Release. A stable tag contained in `main`
+publishes `@richhardry/codor` with npm `latest` and creates a normal GitHub Release. A numbered
+alpha tag outside `main` but contained in the curated `alpha` branch publishes with npm `alpha`
+and creates a prerelease. Other branches, pull requests, tag shapes, and ancestry combinations fail
+closed. Increment `N` for each new alpha candidate; after validation, publish `vX.Y.Z` from `main`.
+Each version and release asset is immutable, so never rebuild or overwrite a published candidate.
 
 The release runner uses Node 22.22.0, npm CLI 11.5.1 or newer, the protected `release` environment,
 and npm trusted publishing through OIDC (`id-token: write`). It does not read `NPM_TOKEN`, and the
@@ -174,7 +175,7 @@ For recovery, first check npm version metadata and `gh release view <tag>`. If e
 stop and do not overwrite it. If npm succeeded but GitHub Release creation failed, retain the exact
 TGZ, VSIX, and `SHA256SUMS` from the run and create the missing release only after confirming the
 tag and checksums; never rerun publication for an existing npm version.
-<!-- harn:end github-tags-publish-one-immutable-alpha-or-stable-release -->
+<!-- harn:end github-tags-publish-numbered-semver-alpha-or-stable-release -->
 
 ## Launch-sweep live acceptance record
 

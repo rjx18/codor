@@ -1,7 +1,7 @@
 id: github-tags-publish-one-immutable-alpha-or-stable-release
 hash: a-953ee50d8132
 title: Eligible GitHub tags publish one immutable alpha or stable release
-state: active
+state: retired
 statement: >
   A pushed vX.Y.Z tag may publish only after its text exactly matches the common
   release manifest version, the version is absent from npm and GitHub Releases,
@@ -25,3 +25,4 @@ depends_on:
   - release-candidate-requires-publishable-install-tarball
   - packed-release-proof-runs-install-runtime
 created_by: github-release-publishing
+retired_by: github-release-semver-alpha-tags

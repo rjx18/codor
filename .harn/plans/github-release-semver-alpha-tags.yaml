@@ -2,11 +2,11 @@ id: github-release-semver-alpha-tags
 title: Publish numbered SemVer alpha tags without moving latest
 notes: >
   The release artifacts and package manifests support SemVer prereleases, but
-  the tag gate still accepts stable vX.Y.Z tags only. Replace that stale
-  release policy with an explicit two-shape contract: stable vX.Y.Z tags from
-  main publish latest, while numbered vX.Y.Z-alpha.N tags from the curated
-  alpha branch publish alpha. Keep all ancestry, uniqueness, OIDC, immutable
-  asset, checksum, and manual VSIX requirements unchanged.
+  the tag gate still accepts stable vX.Y.Z tags only. Replace that stale release
+  policy with an explicit two-shape contract: stable vX.Y.Z tags from main
+  publish latest, while numbered vX.Y.Z-alpha.N tags from the curated alpha
+  branch publish alpha. Keep all ancestry, uniqueness, OIDC, immutable asset,
+  checksum, and manual VSIX requirements unchanged.
 assumptions:
   retire:
     - id: github-tags-publish-one-immutable-alpha-or-stable-release
@@ -15,7 +15,8 @@ assumptions:
         with the approved repeatable SemVer alpha numbering.
   create:
     - id: github-tags-publish-numbered-semver-alpha-or-stable-release
-      title: Eligible GitHub tags publish one immutable numbered alpha or stable release
+      title: Eligible GitHub tags publish one immutable numbered alpha or stable
+        release
       statement: >
         A pushed stable vX.Y.Z tag may publish only from a commit contained in
         main, while a pushed numbered vX.Y.Z-alpha.N tag may publish only from a
@@ -23,9 +24,9 @@ assumptions:
         text must exactly match every common release manifest version, the
         version must be absent from npm and GitHub Releases, and the complete
         release gate and exact artifact checksums must pass on a GitHub-hosted
-        runner in the protected release environment. Stable publication uses
-        npm dist-tag latest and a normal GitHub Release; alpha publication uses
-        npm dist-tag alpha and a GitHub prerelease; every other tag shape or
+        runner in the protected release environment. Stable publication uses npm
+        dist-tag latest and a normal GitHub Release; alpha publication uses npm
+        dist-tag alpha and a GitHub prerelease; every other tag shape or
         ancestry fails closed. Each SemVer version carries an immutable TGZ,
         manually installed VSIX, and SHA256SUMS, and the job grants only
         contents write plus OIDC id-token write. The staged npm manifest must
@@ -46,7 +47,8 @@ assumptions:
       reason: The update transaction still rejects prerelease candidates.
     - id: installed-or-published-release-artifacts-are-version-immutable
       outcome: unchanged
-      reason: Every numbered alpha and stable version remains immutable after publication.
+      reason: Every numbered alpha and stable version remains immutable after
+        publication.
     - id: vscode-copilot-bridge-is-manual-local-and-credential-private
       outcome: unchanged
       reason: The VSIX remains a manual, credential-free release asset.
@@ -73,13 +75,15 @@ anchors:
   github-tags-publish-numbered-semver-alpha-or-stable-release:
     github-tag-release-workflow:
       action: change
-      reason: Accept only stable or numbered alpha tags and bind each shape to the correct ancestry and dist-tag.
+      reason: Accept only stable or numbered alpha tags and bind each shape to the
+        correct ancestry and dist-tag.
     github-release-runbook:
       action: change
       reason: Document repeatable numbered alpha releases and stable promotion.
     copilot-release-asset-install-doc:
       action: change
-      reason: Preserve manual exact-version VSIX installation under the successor policy.
+      reason: Preserve manual exact-version VSIX installation under the successor
+        policy.
     public-package-repository-regression:
       action: change
       reason: Preserve the exact repository regression under the successor policy.
@@ -96,7 +100,8 @@ anchors:
   vscode-copilot-bridge-is-manual-local-and-credential-private:
     vscode-copilot-manual-install-doc:
       action: change
-      reason: The nested manual-install boundary is retained while its release-policy marker changes.
+      reason: The nested manual-install boundary is retained while its release-policy
+        marker changes.
 files:
   - .github/workflows/release.yml
   - MANUAL-VERIFY.md
@@ -109,3 +114,5 @@ verification: >
   working/staged checks, and the complete alpha CI/release gates. Confirm a
   numbered alpha tag publishes npm alpha and a GitHub prerelease while npm
   latest remains unchanged.
+applied:
+  applied_at: 2026-08-11T09:42:19.898Z
