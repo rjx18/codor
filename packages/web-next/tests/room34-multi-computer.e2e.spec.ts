@@ -6,11 +6,11 @@ const SPA_ORIGIN = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_SPA_PORT ?? '2
 // The switchboard SERVES its own SPA here (direct/self-hosted topology, same-origin API).
 const DIRECT_ORIGIN = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_API_PORT ?? '28137'}`;
 
-async function control<T = unknown>(path: string): Promise<T> {
+async function control<T = unknown>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`control ${path} failed: ${response.status}`);
   return (await response.json()) as T;
@@ -112,9 +112,11 @@ test.describe('multi-computer pairing', () => {
       const runtime = window as unknown as {
         __relaySessionDials?: Record<string, number>;
         __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+        __codorRelayHttp?: Array<{ target: string; generation: number }>;
       };
       runtime.__relaySessionDials = {};
       runtime.__codorRelayAppOpens = [];
+      runtime.__codorRelayHttp = [];
       window.WebSocket = class extends NativeWebSocket {
         constructor(target: string | URL, protocols?: string | string[]) {
           super(target, protocols);
@@ -190,6 +192,22 @@ test.describe('multi-computer pairing', () => {
     expect(initialAppOpens.filter((entry) => entry.session === aSession)).toHaveLength(1);
     expect(initialAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
 
+    // harn:assume managed-computer-activation-revalidates-destination-history ref=destination-history-activation-browser-regression
+    // A finalizes while same-room B is selected. The inactive A connector may
+    // retain live context, but immutable result evidence remains page-owned and
+    // must be reconciled by A's deliberate activation.
+    const activationFinal = 'activation history final from computer A';
+    const historyRequestsBeforeActivation = await page.evaluate(() => (
+      (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
+        .filter((entry) => entry.target.includes('/transcript-history')).length
+    ));
+    await control('/complete-agent', {
+      handle: 'fable',
+      prompt: 'finish while computer B is selected',
+      final_text: activationFinal,
+    });
+    await expect(page.getByTestId('timeline')).not.toContainText(activationFinal);
+
     // Both hosts deliberately use `eng`; each generation still owns exactly its
     // own same-named key, never a shared global credential.
     const rooms = await archiveRoomKeys(page);
@@ -213,6 +231,37 @@ test.describe('multi-computer pairing', () => {
     expect(await page.evaluate(() => ({
       ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
     }))).toEqual(initialDials); // switching reused both warm relay sessions
+    await expect(page.getByTestId('timeline').getByText(activationFinal, { exact: true }))
+      .toHaveCount(1, { timeout: 20_000 });
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
+        .filter((entry) => entry.target.includes('/transcript-history')).length
+    ))).toBe(historyRequestsBeforeActivation + 1);
+    expect(await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens])).toEqual(initialAppOpens);
+
+    // A no-change round trip stays stable: B never receives A's result, A
+    // renders it once, and neither warm transport opens again.
+    await page.getByTestId('computer-current').click();
+    await menuItem(page, 'codor-host-b').getByRole('button').first().click();
+    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-b/);
+    await expect(page.getByTestId('timeline')).not.toContainText(activationFinal);
+    await page.getByTestId('computer-current').click();
+    await menuItem(page, 'codor-host-a').getByRole('button').first().click();
+    await expect(page.getByTestId('computer-current')).toHaveText(/codor-host-a/);
+    await expect(page.getByTestId('timeline').getByText(activationFinal, { exact: true })).toHaveCount(1);
+    expect(await page.evaluate(() => ({
+      ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
+    }))).toEqual(initialDials);
+    expect(await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens])).toEqual(initialAppOpens);
+    // harn:end managed-computer-activation-revalidates-destination-history
     await expect(page.getByTestId('timeline')).not.toContainText('hi from computer two');
     // Post round-trips over computer A's tunnel.
     // harn:assume composer-enter-uses-live-draft-state ref=composer-live-mention-switch-regression

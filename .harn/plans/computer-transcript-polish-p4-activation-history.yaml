@@ -41,24 +41,24 @@ assumptions:
         stable-identity merge implementation.
     - id: finalized-browser-history-is-combined-page-owned
       outcome: unchanged
-      reason: Activation uses only combined history and never requests a
-        finalized run journal or legacy message page.
+      reason: Activation uses only combined history and never requests a finalized run
+        journal or legacy message page.
     - id: hosted-computer-sessions-keep-state-isolated
       outcome: unchanged
-      reason: The destination source store and token are captured before the
-        async boundary so same-named rooms cannot cross computer ownership.
+      reason: The destination source store and token are captured before the async
+        boundary so same-named rooms cannot cross computer ownership.
     - id: hosted-background-rooms-hydrate-metadata-until-promoted
       outcome: unchanged
-      reason: Only the activated public room refreshes; inactive computers and
-        their background rooms remain zero-history live subscriptions.
+      reason: Only the activated public room refreshes; inactive computers and their
+        background rooms remain zero-history live subscriptions.
     - id: hosted-app-streams-follow-tunnel-generations
       outcome: unchanged
-      reason: Activation does not dial, reconnect, replace, or close any tunnel
-        or app socket.
+      reason: Activation does not dial, reconnect, replace, or close any tunnel or app
+        socket.
     - id: transcript-tail-follow-has-one-prepaint-owner
       outcome: unchanged
-      reason: History merges through the existing store and Transcript remains
-        mounted as the only scroll and tail-follow owner.
+      reason: History merges through the existing store and Transcript remains mounted
+        as the only scroll and tail-follow owner.
 anchors:
   hosted-computer-switching-reuses-warm-session:
     warm-computer-activation:
@@ -96,3 +96,5 @@ verification: >
   after the destination refresh, stop for review instead of remounting/keying
   the room UI or adding another scroll owner. Do not implement any other phase,
   push, deploy, publish, or update a host.
+applied:
+  applied_at: 2026-08-11T12:18:23.044Z

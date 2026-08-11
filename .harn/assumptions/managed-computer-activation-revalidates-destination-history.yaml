@@ -1,0 +1,17 @@
+id: managed-computer-activation-revalidates-destination-history
+hash: a-d08cffaf5256
+title: Managed computer activation revalidates destination-owned history
+state: active
+statement: >
+  Every successful deliberate managed-computer activation must start one
+  non-blocking combined-history head refresh for the activated computer's
+  selected public room using that computer's captured client store and token, so
+  finalized evidence missed while the session was inactive is merged exactly
+  once without writing into another computer, blocking the switch, remounting
+  the room, hydrating inactive rooms, or reconnecting a healthy transport.
+depends_on:
+  - hosted-computer-switching-reuses-warm-session
+  - missed-terminal-history-refreshes-through-combined-head
+  - finalized-browser-history-is-combined-page-owned
+  - hosted-computer-sessions-keep-state-isolated
+created_by: computer-transcript-polish-p4-activation-history
