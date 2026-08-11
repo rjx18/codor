@@ -1,0 +1,13 @@
+id: hosted-avatar-activity-badges-form-bottom-cluster
+hash: a-0993b7079418
+title: Hosted computer activity badges share a bottom-right cluster
+state: active
+statement: >
+  When a hosted computer avatar has working and/or attention activity, those
+  independent count badges must occupy one compact horizontal bottom-right
+  cluster with adjacent geometry; each zero count remains hidden, green and red
+  may coexist, and unread remains an independent top-right badge.
+depends_on:
+  - hosted-computer-avatar-badges-are-actionable
+  - hosted-computer-avatar-rail-is-local-and-accessible
+created_by: computer-transcript-polish-p2-badge-cluster

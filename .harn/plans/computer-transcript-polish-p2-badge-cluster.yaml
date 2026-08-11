@@ -1,0 +1,85 @@
+id: computer-transcript-polish-p2-badge-cluster
+title: Place computer activity badges in one bottom cluster
+notes: >
+  Apply only the final contained Phase 2 review correction on top of 9b31cb7.
+  Keep unread at the avatar's top-right, but render working and attention/error
+  counts inside one compact horizontal bottom-right cluster. Each badge remains
+  independently optional, so either, both, or neither may be present. Do not
+  change status semantics, session behavior, warm switching, pairing, recovery,
+  relay, protocol, server, direct mode, or appearance persistence.
+assumptions:
+  create:
+    - id: hosted-avatar-activity-badges-form-bottom-cluster
+      title: Hosted computer activity badges share a bottom-right cluster
+      statement: >
+        When a hosted computer avatar has working and/or attention activity,
+        those independent count badges must occupy one compact horizontal
+        bottom-right cluster with adjacent geometry; each zero count remains
+        hidden, green and red may coexist, and unread remains an independent
+        top-right badge.
+      reason: Vertically stacking the two bottom badges wastes the compact rail
+        footprint and makes simultaneous activity harder to scan.
+      depends_on:
+        - hosted-computer-avatar-badges-are-actionable
+        - hosted-computer-avatar-rail-is-local-and-accessible
+  reviewed:
+    - id: hosted-computer-avatar-badges-are-actionable
+      outcome: unchanged
+      reason: Badge truth and independent zero suppression remain unchanged; only the
+        working/attention layout is tightened into one cluster.
+    - id: hosted-computer-avatar-rail-is-local-and-accessible
+      outcome: unchanged
+      reason: The hosted-only rail, active treatment, tooltips, warm sessions,
+        recovery, and local metadata boundary remain unchanged.
+    - id: hosted-computer-hostname-tooltip-is-focus-visible
+      outcome: unchanged
+      reason: Hostname tooltip behavior is outside this geometry-only correction.
+    - id: computer-appearance-is-purged-on-forget
+      outcome: unchanged
+      reason: Forget cleanup is outside this geometry-only correction.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Avatar activation remains untouched.
+    - id: hosted-offline-recovery-offers-other-computers
+      outcome: unchanged
+      reason: Recovery choices remain untouched.
+anchors:
+  hosted-computer-avatar-badges-are-actionable:
+    avatar-badge-presentation:
+      action: change
+      reason: Wrap working and attention badges in one bottom-right flex cluster.
+    avatar-badge-regression:
+      action: change
+      reason: Prove independent badge markup remains present while the cluster is
+        horizontal when both counts exist.
+  hosted-avatar-activity-badges-form-bottom-cluster:
+    bottom-activity-cluster-presentation:
+      action: change
+      reason: Own the bottom-right horizontal layout and preserve unread's separate
+        top-right placement.
+    bottom-activity-cluster-regression:
+      action: change
+      reason: Assert adjacent horizontal geometry for simultaneous working and
+        attention badges in the focused browser surface.
+  hosted-computer-avatar-rail-is-local-and-accessible:
+    computer-avatar-rail-presentation:
+      action: change
+      reason: The avatar's compact presentation changes only in bottom badge layout.
+files:
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/room/ComputerChoice.spec.tsx
+  - packages/web-next/tests/room36-computer-ui.e2e.spec.ts
+verification: >
+  Run harn find and inspect the existing avatar and badge assumptions before
+  checking and clean-locking this plan from e2aa09d's reviewed correction commit
+  9b31cb7. Run focused ComputerChoice/ComputerSwitcher units, all web-next
+  units, the production/PWA build, and Room 36. Prove zero suppression and
+  independent working/attention rendering in units, and assert adjacent
+  horizontal bounding-box geometry for both bottom badges in the browser. Run
+  harn find --changed, harn check, harn apply, harn check --staged, and git diff
+  --check, then create exactly one review-fix commit. Do not change pairing,
+  session, relay, protocol, server, direct-mode, deployment, or release
+  behavior.
+applied:
+  applied_at: 2026-08-11T13:22:38.435Z

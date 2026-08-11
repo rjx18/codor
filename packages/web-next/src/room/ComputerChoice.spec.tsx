@@ -53,6 +53,7 @@ describe('ComputerChoice status and activity presentation', () => {
     expect(html).toContain('data-testid="computer-connection-A"');
   });
 
+  // harn:assume hosted-avatar-activity-badges-form-bottom-cluster ref=bottom-activity-cluster-regression
   // harn:assume hosted-computer-avatar-badges-are-actionable ref=avatar-badge-regression
   // harn:assume hosted-computer-hostname-tooltip-is-focus-visible ref=hostname-tooltip-regression
   it('renders avatar activity as independent badges without a generic connection dot', () => {
@@ -67,6 +68,8 @@ describe('ComputerChoice status and activity presentation', () => {
     expect(html).toContain('data-testid="computer-avatar-unread-B"');
     expect(html).toContain('data-testid="computer-avatar-working-B"');
     expect(html).toContain('data-testid="computer-avatar-attention-B"');
+    expect(html).toContain('data-testid="computer-avatar-activity-B"');
+    expect(html.indexOf('computer-avatar-working-B')).toBeLessThan(html.indexOf('computer-avatar-attention-B'));
     expect(html).not.toContain('nx-computer-avatar-status');
     expect(html).toContain('class="nx-computer-avatar-tooltip" role="tooltip">Laptop</span>');
 
@@ -79,4 +82,5 @@ describe('ComputerChoice status and activity presentation', () => {
   });
   // harn:end hosted-computer-hostname-tooltip-is-focus-visible
   // harn:end hosted-computer-avatar-badges-are-actionable
+  // harn:end hosted-avatar-activity-badges-form-bottom-cluster
 });

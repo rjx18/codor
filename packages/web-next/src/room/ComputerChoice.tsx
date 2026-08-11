@@ -189,9 +189,11 @@ export function ComputerChoice({
   if (variant === 'avatar') {
     // harn:assume hosted-computer-avatar-badges-are-actionable ref=avatar-badge-presentation
     // harn:assume hosted-computer-hostname-tooltip-is-focus-visible ref=hostname-tooltip-presentation
+    // harn:assume hosted-avatar-activity-badges-form-bottom-cluster ref=bottom-activity-cluster-presentation
     const avatarStyle = {
       '--nx-computer-avatar-color': appearance?.color ?? '#4f46e5',
     } as CSSProperties;
+    const hasBottomActivity = computer.working > 0 || attention > 0;
     return (
       <button
         type="button"
@@ -215,11 +217,19 @@ export function ComputerChoice({
       >
         <span className="nx-computer-avatar-glyph" aria-hidden="true">{appearance?.glyph ?? '🖥️'}</span>
         <AvatarBadge kind="unread" count={computer.unread} computer={computer} />
-        <AvatarBadge kind="working" count={computer.working} computer={computer} />
-        <AvatarBadge kind="attention" count={attention} computer={computer} />
+        {hasBottomActivity ? (
+          <span
+            className="nx-computer-avatar-activity-badges"
+            data-testid={`computer-avatar-activity-${computer.id}`}
+          >
+            <AvatarBadge kind="working" count={computer.working} computer={computer} />
+            <AvatarBadge kind="attention" count={attention} computer={computer} />
+          </span>
+        ) : null}
         <span className="nx-computer-avatar-tooltip" role="tooltip">{computer.label}</span>
       </button>
     );
+    // harn:end hosted-avatar-activity-badges-form-bottom-cluster
     // harn:end hosted-computer-hostname-tooltip-is-focus-visible
     // harn:end hosted-computer-avatar-badges-are-actionable
   }

@@ -3569,8 +3569,17 @@
   line-height: 1;
 }
 .nx-computer-avatar-badge.is-unread { top: -5px; right: -5px; background: var(--c-ink); }
-.nx-computer-avatar-badge.is-working { right: -5px; bottom: -5px; background: var(--c-live); }
-.nx-computer-avatar-badge.is-attention { right: -5px; bottom: 12px; background: var(--c-error); }
+.nx-computer-avatar-activity-badges {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.nx-computer-avatar-activity-badges .nx-computer-avatar-badge { position: static; }
+.nx-computer-avatar-badge.is-working { background: var(--c-live); }
+.nx-computer-avatar-badge.is-attention { background: var(--c-error); }
 .nx-computer-add {
   display: grid;
   place-items: center;

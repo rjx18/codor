@@ -58,6 +58,34 @@ test.describe('computer switcher UI', () => {
     await expect(current.locator('[role="tooltip"]')).toBeVisible();
     await expect(current.locator('.nx-computer-avatar-status')).toHaveCount(0);
 
+    // The fixture has no simultaneous background activity, so add the same
+    // two badge nodes to this real avatar to measure the shipped CSS geometry.
+    // harn:assume hosted-avatar-activity-badges-form-bottom-cluster ref=bottom-activity-cluster-regression
+    await current.evaluate((button) => {
+      const cluster = document.createElement('span');
+      cluster.className = 'nx-computer-avatar-activity-badges';
+      cluster.dataset.testid = 'computer-avatar-activity-geometry';
+      for (const [kind, label] of [['working', '1 working channel'], ['attention', '1 attention channel']] as const) {
+        const badge = document.createElement('span');
+        badge.className = `nx-computer-avatar-badge is-${kind}`;
+        badge.dataset.testid = `computer-avatar-${kind}-geometry`;
+        badge.setAttribute('aria-label', label);
+        badge.textContent = '1';
+        cluster.append(badge);
+      }
+      button.append(cluster);
+    });
+    const workingBadge = current.locator('[data-testid="computer-avatar-working-geometry"]');
+    const attentionBadge = current.locator('[data-testid="computer-avatar-attention-geometry"]');
+    const workingBox = await workingBadge.boundingBox();
+    const attentionBox = await attentionBadge.boundingBox();
+    expect(workingBox).not.toBeNull();
+    expect(attentionBox).not.toBeNull();
+    expect(attentionBox!.x).toBeGreaterThan(workingBox!.x);
+    expect(Math.abs(attentionBox!.y - workingBox!.y)).toBeLessThanOrEqual(2);
+    expect(attentionBox!.x - (workingBox!.x + workingBox!.width)).toBeLessThanOrEqual(4);
+    // harn:end hosted-avatar-activity-badges-form-bottom-cluster
+
     // Shift+F10, right-click, and long-press are all browser-local entry points.
     await current.focus();
     await page.keyboard.press('Shift+F10');
