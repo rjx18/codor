@@ -5,11 +5,11 @@ notes: >
   0.10.14-alpha.2 release identity. Change no runtime behavior, package
   composition, install behavior, workflow policy, release permissions, npm
   latest tag, or production deployment. Push the release commit only to the
-  curated alpha branch; after alpha CI passes, push signed
-  v0.10.14-alpha.2 so the existing release workflow publishes npm dist-tag
-  alpha and a GitHub prerelease. This release contains the worktree rail and
-  menu polish, computer avatar rail, composer geometry fix, destination-bound
-  history refresh, and visible-boundary transcript grouping correction.
+  curated alpha branch; after alpha CI passes, push signed v0.10.14-alpha.2 so
+  the existing release workflow publishes npm dist-tag alpha and a GitHub
+  prerelease. This release contains the worktree rail and menu polish, computer
+  avatar rail, composer geometry fix, destination-bound history refresh, and
+  visible-boundary transcript grouping correction.
 assumptions:
   retire: []
   create: []
@@ -38,8 +38,8 @@ assumptions:
         release identity advances.
     - id: acp-v1-events-and-capabilities-are-negotiated
       outcome: unchanged
-      reason: ACP behavior is unchanged; clientInfo reports the common
-        0.10.14-alpha.2 identity.
+      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.14-alpha.2
+        identity.
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
       reason: Recursive build, serialized tests, browser tests, audits, and install
@@ -121,13 +121,14 @@ files:
   - scripts/release-audit.mjs
   - website/package.json
 verification: >
-  Verify every tracked non-legacy package manifest is exactly
-  0.10.14-alpha.2 and the explicit legacy manifests remain exempt. Run
-  recursive build, serialized workspace tests, complete browser suite,
-  release/license audits, deployment decision tests, artifact build and
-  inspection, and packed npx proof. Run Harn and diff checks. Push only to
-  origin/alpha, require alpha CI green, create and push signed tag
-  v0.10.14-alpha.2, require the release workflow green, then verify npm alpha,
-  GitHub prerelease assets and checksums, public npx metadata, and install the
-  exact alpha on this machine. Do not move npm latest, push main, or deploy
-  production.
+  Verify every tracked non-legacy package manifest is exactly 0.10.14-alpha.2
+  and the explicit legacy manifests remain exempt. Run recursive build,
+  serialized workspace tests, complete browser suite, release/license audits,
+  deployment decision tests, artifact build and inspection, and packed npx
+  proof. Run Harn and diff checks. Push only to origin/alpha, require alpha CI
+  green, create and push signed tag v0.10.14-alpha.2, require the release
+  workflow green, then verify npm alpha, GitHub prerelease assets and checksums,
+  public npx metadata, and install the exact alpha on this machine. Do not move
+  npm latest, push main, or deploy production.
+applied:
+  applied_at: 2026-08-11T15:58:50.643Z

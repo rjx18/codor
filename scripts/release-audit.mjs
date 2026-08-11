@@ -163,7 +163,7 @@ assert.match(manual, /Once that version is published or\s*installed, its filenam
 assert.match(manual, /advance the\s*release version before rebuilding or sending it/);
 assert.match(manual, /explicitly withdraw and replace a candidate at the same version only after\s*confirming it was not published or installed/);
 assert.match(manual, /Treat every previously transferred copy as invalid/);
-assert.equal(rootManifest.version, '0.10.14-alpha.1', 'the release candidate must advance to 0.10.14-alpha.1');
+assert.equal(rootManifest.version, '0.10.14-alpha.2', 'the release candidate must advance to 0.10.14-alpha.2');
 const legacyPackageVersions = new Set([
   'packages/adapters/grok/package.json',
   'packages/tunnel/package.json',
@@ -179,7 +179,7 @@ for (const path of tracked.filter((candidate) => candidate.endsWith('package.jso
   }
 }
 const acpAdapterSource = await readFile(new URL('../packages/adapters/acp/src/adapter.ts', import.meta.url), 'utf8');
-assert.match(acpAdapterSource, /clientInfo:\s*\{\s*name: 'Codor', version: '0\.10\.14-alpha\.1'/);
+assert.match(acpAdapterSource, /clientInfo:\s*\{\s*name: 'Codor', version: '0\.10\.14-alpha\.2'/);
 // harn:end installed-or-published-release-artifacts-are-version-immutable
 
 // harn:assume switchboard-static-serving-dependency-is-security-patched ref=patched-fastify-static-release-audit
