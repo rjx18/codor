@@ -110,6 +110,7 @@ files:
   - packages/switchboard/package.json
   - packages/web-next/package.json
   - relay/package.json
+  - scripts/release-audit.mjs
   - website/package.json
 verification: >
   Verify every tracked non-legacy package manifest is exactly 0.10.14 and the
