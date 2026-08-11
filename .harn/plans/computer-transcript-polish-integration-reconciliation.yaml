@@ -1,0 +1,30 @@
+id: computer-transcript-polish-integration-reconciliation
+title: Reconcile activation-history browser coverage with the computer avatar rail
+notes: >
+  Reconcile only the conflict-free merge's stale Room 34 selector calls. Phase 2
+  removed the old dropdown and its menuItem helper, while Phase 4's independently
+  developed regression still invoked that helper during its second A/B round
+  trip. Exercise the same destination-owned refresh through the shipped avatar
+  buttons and current aria-labels. Do not change product behavior, session state,
+  transport, pagination, or any other browser journey.
+assumptions:
+  reviewed:
+    - id: managed-computer-activation-revalidates-destination-history
+      outcome: unchanged
+      reason: The destination-owned activation refresh remains unchanged; only its browser selector follows the accepted avatar rail.
+    - id: hosted-computer-avatar-rail-is-local-and-accessible
+      outcome: unchanged
+      reason: The accepted avatar rail remains unchanged and becomes the interaction surface for the activation-history regression.
+anchors:
+  managed-computer-activation-revalidates-destination-history:
+    destination-history-activation-browser-regression:
+      action: change
+      reason: Replace stale dropdown helper calls and text assertions with the accepted avatar button and aria-label contract.
+files:
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: >
+  Check and clean-lock this plan before editing. Run Room 34 completely, all web
+  units, and the production/PWA build. Confirm the A/B final response appears
+  once, same-room stores remain isolated, and tunnel/app-socket counts do not
+  change. Run Harn working/staged checks, apply, git diff checks, and create one
+  reconciliation commit. Do not change product code, push, deploy, or publish.
