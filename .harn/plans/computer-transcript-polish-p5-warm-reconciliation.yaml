@@ -1,0 +1,99 @@
+id: computer-transcript-polish-p5-warm-reconciliation
+title: Make warm subscription reconciliation authoritative without cold suppression
+notes: >
+  Contained Phase 5 correction from the approved computer-transcript-polish
+  plan. Addressed warm sync_complete snapshots must replace matching retained
+  member, inbox, meter, support, and message records while retaining unrelated
+  records; message collisions resolve by protocol sequence, and only bounded
+  snapshots carrying history_floor may extend an established cold-message set.
+  Update the Room 23/27 regressions and the obsolete Room 34 Cat-icon assertion.
+  Do not add a cursor, staging mode, reconnect, history fetch, protocol, relay,
+  scrolling, or architecture mechanism.
+assumptions:
+  retire:
+    - id: combined-history-opening-sync-stays-cold
+      reason: >
+        Its broad statement classifies every opening snapshot as cold and would
+        hide messages recovered by a warm sequence reconciliation. The
+        replacement distinguishes bounded history_floor snapshots from warm
+        replay.
+  create:
+    - id: combined-history-sync-classifies-bounded-cold-only
+      title: Warm sync snapshots merge authoritatively and only bounded snapshots are
+        cold
+      statement: >
+        For an addressed sync_complete, the staged authoritative snapshot wins
+        matching member, inbox, meter, support, and message records while
+        retained unrelated records survive; message collisions choose the
+        greater protocol message.seq, and member history observes the final
+        merged member states. Only a completed snapshot with history_floor
+        defined may add its staged message ids to an established coldMessageIds
+        set. A warm replay without history_floor remains visible live recovery,
+        and a zero-history snapshot adds no messages, so combined pages remain
+        the sole source of finalized membership and order.
+      reason: >
+        Room 23 and Room 27 expose stale warm projections, while the old cold
+        classification suppresses recovered messages. This truth makes the
+        bounded-cold boundary and atomic merge explicit without changing the
+        wire.
+      depends_on:
+        - cached-transcript-head-stays-stale-until-revalidated
+        - finalized-browser-history-is-combined-page-owned
+        - paged-history-live-message-reconciliation
+        - transcript-tail-follow-has-one-prepaint-owner
+  reviewed:
+    - id: hosted-last-good-room-cache-is-bounded-read-only-projection
+      outcome: unchanged
+      reason: The persisted cache remains bounded, isolated, and read-only.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Warm projection merging remains scoped to the addressed room/store.
+    - id: hosted-computer-avatar-uses-monochrome-icon-palette
+      outcome: unchanged
+      reason: Room 34 only updates its stale test selector to the existing Cat icon.
+anchors:
+  combined-history-opening-sync-stays-cold:
+    cached-sync-cold-classification:
+      action: remove
+      reason: Retire the over-broad opening-snapshot cold classification anchor.
+    cached-sync-cold-classification-regression:
+      action: remove
+      reason: Replace the old regression with bounded-cold and warm-replay coverage.
+  combined-history-sync-classifies-bounded-cold-only:
+    warm-sync-authoritative-merge:
+      action: change
+      reason: Merge staged and retained projections atomically with sequence
+        precedence.
+    warm-sync-classification-regression:
+      action: change
+      reason: Prove bounded cold extension, warm replay visibility, and zero-history
+        behavior.
+    room23-warm-replay-regression:
+      action: change
+      reason: Prove a dropped background message returns once after warm
+        reconciliation.
+    room27-warm-projection-regression:
+      action: change
+      reason: Prove terminal/member and inactive working/unread state catches up on
+        one socket.
+  hosted-computer-avatar-uses-monochrome-icon-palette:
+    room34-cat-persistence-regression:
+      action: change
+      reason: Keep the existing persistence and forget coverage on the Lucide Cat
+        value.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/tests/room23-crosschannel-reconcile.e2e.spec.ts
+  - packages/web-next/tests/room27-pwa-resume.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: >
+  Lock on the exact clean 5401a296 base before source edits. Run focused store
+  tests, Room 23 twice on fresh harnesses, Room 27 twice on fresh harnesses,
+  Room 34 Cat persistence/forget, Rooms 21 and 36, all web-next units, and the
+  production/PWA build. Run Harn working/staged/apply checks and git diff
+  checks, then create exactly one clean implementation commit. Do not change
+  connector, protocol, switchboard, relay, session lifecycle, scrolling,
+  release, deployment, or publication behavior.
+applied:
+  applied_at: 2026-08-12T03:21:01.080Z

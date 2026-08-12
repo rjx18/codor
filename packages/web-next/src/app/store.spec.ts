@@ -140,7 +140,7 @@ describe('room-keyed client state', () => {
     expect(Object.keys(alpha.messages)).toEqual(['10', '12']);
   });
 
-  // harn:assume combined-history-opening-sync-stays-cold ref=cached-sync-cold-classification-regression
+  // harn:assume combined-history-sync-classifies-bounded-cold-only ref=warm-sync-classification-regression
   it('keeps an opening snapshot cold after a faster head lands but keeps later frames live', () => {
     const cached = createClientStore();
     const other = createClientStore();
@@ -180,6 +180,27 @@ describe('room-keyed client state', () => {
       81: true,
     });
 
+    const warm = createClientStore();
+    warm.getState().hydrateLastGoodRoom(room('shared'), [], {
+      messages: { 30: message('shared', 30) },
+      journals: {},
+      units: [{ kind: 'message', message_id: 30 }],
+      beforeCursor: null,
+      hasMore: false,
+    });
+    warm.getState().applyFrame(frame({ type: 'self', room: 'shared', member_id: 'warm-human' }));
+    warm.getState().applyFrame(frame({
+      type: 'message', seq: 31, message: message('shared', 31),
+    }));
+    warm.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 31 }));
+    expect(roomSlice(warm.getState(), 'shared').messages[31]).toBeDefined();
+    expect(roomSlice(warm.getState(), 'shared').transcriptHistory.coldMessageIds).toEqual({ 30: true });
+
+    const emptyWarm = createClientStore();
+    emptyWarm.getState().applyFrame(frame({ type: 'self', room: 'shared', member_id: 'empty-human' }));
+    emptyWarm.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 1 }));
+    expect(roomSlice(emptyWarm.getState(), 'shared').messages).toEqual({});
+
     cached.getState().applyFrame(frame({
       type: 'message', seq: 32, message: message('shared', 32),
     }));
@@ -194,7 +215,54 @@ describe('room-keyed client state', () => {
     firstSync.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 4 }));
     expect(roomSlice(firstSync.getState(), 'shared').transcriptHistory.coldMessageIds).toBeUndefined();
   });
-  // harn:end combined-history-opening-sync-stays-cold
+  it('merges warm snapshots authoritatively while retaining newer and unrelated state', () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('shared');
+    const retainedMember = { id: 'agent', state: 'running' };
+    const retainedDelivery = { id: 'delivery', room: 'shared', state: 'queued' };
+    const retainedMeter = { room: 'shared', day: '2026-07-18', turns: 1, cost_usd: 1, input_tokens: 1, output_tokens: 1 };
+    const retainedSupport = { room: 'shared', summary: {}, active_runs: [], interactions: [], inbox: [] };
+    store.getState().applyFrame(frame({ type: 'member', room: 'shared', seq: 1, member: retainedMember }));
+    store.getState().applyFrame(frame({
+      type: 'message', seq: 50, message: { ...message('shared', 5), seq: 50, body: 'newer retained' },
+    }));
+    store.getState().applyFrame(frame({
+      type: 'message', seq: 9, message: { ...message('shared', 9), body: 'unrelated retained' },
+    }));
+    store.getState().applyFrame(frame({ type: 'inbox', seq: 2, delivery: retainedDelivery }));
+    store.getState().applyFrame(frame({ type: 'meter', seq: 3, meter: retainedMeter }));
+    store.getState().applyFrame(frame({ type: 'room_support', support: retainedSupport }));
+
+    store.getState().applyFrame(frame({ type: 'self', room: 'shared', member_id: 'human' }));
+    store.getState().applyFrame(frame({ type: 'member', room: 'shared', seq: 60, member: { id: 'agent', state: 'idle' } }));
+    store.getState().applyFrame(frame({
+      type: 'message', seq: 40, message: { ...message('shared', 5), seq: 40, body: 'stale staged' },
+    }));
+    store.getState().applyFrame(frame({
+      type: 'message', seq: 60, message: { ...message('shared', 6), seq: 60, body: 'new staged' },
+    }));
+    store.getState().applyFrame(frame({
+      type: 'inbox', seq: 61, delivery: { ...retainedDelivery, state: 'consumed' },
+    }));
+    store.getState().applyFrame(frame({
+      type: 'meter', seq: 62, meter: { ...retainedMeter, turns: 2, cost_usd: 2 },
+    }));
+    store.getState().applyFrame(frame({
+      type: 'room_support', support: { ...retainedSupport, active_runs: [{ id: 6 }] },
+    }));
+    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 62 }));
+
+    const merged = roomSlice(store.getState(), 'shared');
+    expect(merged.members.agent).toMatchObject({ state: 'idle' });
+    expect(merged.memberHistory.agent?.at(-1)).toMatchObject({ state: 'idle' });
+    expect(merged.inbox.delivery).toMatchObject({ state: 'consumed' });
+    expect(merged.meter).toMatchObject({ turns: 2, cost_usd: 2 });
+    expect(merged.support).toMatchObject({ active_runs: [{ id: 6 }] });
+    expect(merged.messages[5]).toMatchObject({ seq: 50, body: 'newer retained' });
+    expect(merged.messages[6]).toMatchObject({ seq: 60, body: 'new staged' });
+    expect(merged.messages[9]).toMatchObject({ body: 'unrelated retained' });
+  });
+  // harn:end combined-history-sync-classifies-bounded-cold-only
 
   // harn:assume paged-history-live-message-reconciliation ref=live-history-pin-delete-regression
   it('reconciles pin, unpin, and deletion frames into a materialized history row', () => {

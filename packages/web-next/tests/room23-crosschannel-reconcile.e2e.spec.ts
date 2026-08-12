@@ -20,6 +20,7 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('cross-channel seq reconciliation', () => {
+  // harn:assume combined-history-sync-classifies-bounded-cold-only ref=room23-warm-replay-regression
   test('a dropped background-room message self-heals on the next probe, no reload', async ({ page }) => {
     // Short probe cadence so reconciliation runs deterministically (test seam).
     await page.addInitScript(() => {
@@ -74,4 +75,5 @@ test.describe('cross-channel seq reconciliation', () => {
     await expect(page.locator('.nx-prose', { hasText: 'DROPME reconcile probe' }).first())
       .toBeVisible({ timeout: 15000 });
   });
+  // harn:end combined-history-sync-classifies-bounded-cold-only
 });

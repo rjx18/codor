@@ -294,15 +294,17 @@ test.describe('multi-computer pairing', () => {
 
     // Forget computer B → it disappears, A stays active.
     await customizeComputer(page, 'codor-host-b');
-    await page.getByRole('button', { name: /Use 🐈 icon/ }).click();
+    // harn:assume hosted-computer-avatar-uses-monochrome-icon-palette ref=room34-cat-persistence-regression
+    await page.getByRole('button', { name: /Use Cat icon/ }).click();
     await expect.poll(() => page.evaluate(() => Object.values(JSON.parse(
       window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}',
-    )))).toContainEqual({ glyph: '🐈', color: expect.any(String) });
+    )))).toContainEqual({ glyph: 'cat', color: expect.any(String) });
     await page.getByRole('button', { name: 'Forget computer' }).click();
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
     await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
     await expect(computerButton(page, 'codor-host-b')).toHaveCount(0);
     expect(await page.evaluate(() => JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}'))).toEqual({});
+    // harn:end hosted-computer-avatar-uses-monochrome-icon-palette
   });
 
   test('a switchboard-served SPA renders no computer switcher (direct-path unchanged)', async ({ page }) => {

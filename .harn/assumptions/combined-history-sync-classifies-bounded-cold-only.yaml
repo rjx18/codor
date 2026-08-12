@@ -1,0 +1,19 @@
+id: combined-history-sync-classifies-bounded-cold-only
+hash: a-cca0b30bbcac
+title: Warm sync snapshots merge authoritatively and only bounded snapshots are cold
+state: active
+statement: >
+  For an addressed sync_complete, the staged authoritative snapshot wins
+  matching member, inbox, meter, support, and message records while retained
+  unrelated records survive; message collisions choose the greater protocol
+  message.seq, and member history observes the final merged member states. Only
+  a completed snapshot with history_floor defined may add its staged message ids
+  to an established coldMessageIds set. A warm replay without history_floor
+  remains visible live recovery, and a zero-history snapshot adds no messages,
+  so combined pages remain the sole source of finalized membership and order.
+depends_on:
+  - cached-transcript-head-stays-stale-until-revalidated
+  - finalized-browser-history-is-combined-page-owned
+  - paged-history-live-message-reconciliation
+  - transcript-tail-follow-has-one-prepaint-owner
+created_by: computer-transcript-polish-p5-warm-reconciliation

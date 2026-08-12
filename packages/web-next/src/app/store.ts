@@ -259,6 +259,18 @@ function rollingTail(messages: Record<number, Message>, next: Message): Record<n
   );
 }
 
+function mergeMessagesBySequence(
+  retained: Record<number, Message>,
+  staged: Record<number, Message>,
+): Record<number, Message> {
+  const merged = { ...retained };
+  for (const [id, message] of Object.entries(staged)) {
+    const previous = merged[Number(id)];
+    if (previous === undefined || message.seq >= previous.seq) merged[Number(id)] = message;
+  }
+  return merged;
+}
+
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
 
 const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHistory'], ClientStore>();
@@ -295,7 +307,7 @@ export function createClientStore(): ClientStore {
     const roomId = frameRoom(frame, fallbackRoom);
     if (roomId === undefined) return;
 
-    // harn:assume combined-history-opening-sync-stays-cold ref=cached-sync-cold-classification
+    // harn:assume combined-history-sync-classifies-bounded-cold-only ref=warm-sync-authoritative-merge
     // Every addressed subscription snapshot starts with self. Keep its frames
     // outside visible Zustand state until sync_complete even when retained or
     // cached content is already readable: hydrated is last-good presentation,
@@ -347,22 +359,22 @@ export function createClientStore(): ClientStore {
             next = { ...current, seq: bump, hydrated: true };
             break;
           }
-          // A live delta can race ahead of the subscription's opening `self`
-          // frame when several rooms share one socket. The snapshot remains the
-          // atomic base, while any already-landed delta in `current` wins.
-          const members = { ...hydrated.members, ...current.members };
-          const messages = { ...hydrated.messages, ...current.messages };
-          const inbox = { ...hydrated.inbox, ...current.inbox };
+          // The opening snapshot is the authoritative base. Retained records
+          // not present in a warm delta survive, while a message collision is
+          // resolved by protocol sequence so a genuinely newer live record
+          // cannot be replaced by an older staged snapshot.
+          const members = { ...current.members, ...hydrated.members };
+          const messages = mergeMessagesBySequence(current.messages, hydrated.messages);
+          const inbox = { ...current.inbox, ...hydrated.inbox };
           let memberHistory = current.memberHistory;
           for (const member of Object.values(members)) {
             memberHistory = observeMember(memberHistory, member);
           }
-          // Once combined history establishes a cold set, every later opening
-          // socket snapshot is context rather than new tail activity. Extend
-          // the set before publishing the atomic sync—even if a fast head
-          // response already cleared headNeedsRevalidation. Frames received
-          // after sync_complete bypass staging and remain live.
-          const transcriptHistory = current.transcriptHistory.coldMessageIds !== undefined
+          // Only a bounded cold snapshot is page context. Warm replay omits
+          // history_floor and must remain visible live recovery; frames received
+          // after sync_complete bypass staging and remain live as before.
+          const transcriptHistory = frame.history_floor !== undefined
+            && current.transcriptHistory.coldMessageIds !== undefined
             ? {
                 ...current.transcriptHistory,
                 coldMessageIds: {
@@ -373,7 +385,7 @@ export function createClientStore(): ClientStore {
                 },
               }
             : current.transcriptHistory;
-          // harn:end combined-history-opening-sync-stays-cold
+          // harn:end combined-history-sync-classifies-bounded-cold-only
           next = {
             ...current,
             hydrated: true,
@@ -384,10 +396,11 @@ export function createClientStore(): ClientStore {
             memberHistory,
             messages,
             inbox,
-            meter: current.meter ?? hydrated.meter,
-            support: current.support ?? hydrated.support,
+            meter: hydrated.meter ?? current.meter,
+            support: hydrated.support ?? current.support,
             transcriptHistory,
             historyCursor: frame.history_floor
+              ?? current.historyCursor
               ?? Object.values(messages).sort((a, b) => a.id - b.id)[0]?.id,
           };
           break;

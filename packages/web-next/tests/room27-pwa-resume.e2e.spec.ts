@@ -41,6 +41,7 @@ async function sleepAndResume(page: Page): Promise<void> {
 }
 
 test.describe('pwa resume', () => {
+  // harn:assume combined-history-sync-classifies-bounded-cold-only ref=room27-warm-projection-regression
   test('evidence produced while asleep appears once, in order, without a reload', async ({ page }) => {
     const turn = await control<Turn>('/stretch-turn');
     await openRoom(page, turn.room);
@@ -170,6 +171,7 @@ test.describe('pwa resume', () => {
     await step(room, 'complete');
     await expect(page.getByTestId(`room-working-${room}`)).toHaveCount(0, { timeout: 20_000 });
   });
+  // harn:end combined-history-sync-classifies-bounded-cold-only
 
   test('an always-visible stall is replaced by the watchdog without any lifecycle event', async ({ page }) => {
     // The watchdog deliberately waits a probe interval plus its deadline before
