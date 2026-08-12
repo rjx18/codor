@@ -4,7 +4,13 @@ import { describe, expect, it } from 'vitest';
 
 import type { ComputerSessionView } from '../app/computer-sessions.js';
 
-import { computerActionableCount, computerStatus, ComputerChoice } from './ComputerChoice.js';
+import {
+  COMPUTER_COLORS,
+  COMPUTER_GLYPHS,
+  computerActionableCount,
+  computerStatus,
+  ComputerChoice,
+} from './ComputerChoice.js';
 
 const computer = (overrides: Partial<ComputerSessionView> = {}): ComputerSessionView => ({
   id: 'A',
@@ -55,12 +61,15 @@ describe('ComputerChoice status and activity presentation', () => {
 
   // harn:assume hosted-avatar-activity-badges-form-bottom-cluster ref=bottom-activity-cluster-regression
   // harn:assume hosted-computer-avatar-badges-are-actionable ref=avatar-badge-regression
+  // harn:assume hosted-computer-avatar-uses-monochrome-icon-palette ref=computer-avatar-appearance-regression
+  // harn:assume hosted-computer-status-outline-is-independent-from-selection ref=computer-avatar-status-regression
   // harn:assume hosted-computer-hostname-tooltip-is-focus-visible ref=hostname-tooltip-regression
   it('renders avatar activity as independent badges without a generic connection dot', () => {
     const html = renderToStaticMarkup(
       <ComputerChoice
         computer={computer({ id: 'B', label: 'Laptop', connected: true, unread: 2, working: 1, attention: true })}
         variant="avatar"
+        appearance={{ glyph: 'laptop', color: '#0f766e' }}
         testid="avatar"
         onSelect={() => undefined}
       />,
@@ -71,6 +80,9 @@ describe('ComputerChoice status and activity presentation', () => {
     expect(html).toContain('data-testid="computer-avatar-activity-B"');
     expect(html.indexOf('computer-avatar-working-B')).toBeLessThan(html.indexOf('computer-avatar-attention-B'));
     expect(html).not.toContain('nx-computer-avatar-status');
+    expect(html).toContain('lucide-laptop');
+    expect(html).toContain('--nx-computer-avatar-color:#0f766e');
+    expect(html).toContain('class="nx-computer-avatar is-connected"');
     expect(html).toContain('class="nx-computer-avatar-tooltip" role="tooltip">Laptop</span>');
 
     const idle = renderToStaticMarkup(
@@ -80,7 +92,24 @@ describe('ComputerChoice status and activity presentation', () => {
     expect(idle).not.toContain('computer-avatar-working-C');
     expect(idle).not.toContain('computer-avatar-attention-C');
   });
+
+  it('keeps the status outline independent from active selection and exposes the full palette', () => {
+    expect(COMPUTER_GLYPHS).toHaveLength(18);
+    expect(COMPUTER_COLORS).toHaveLength(16);
+    const html = renderToStaticMarkup(
+      <ComputerChoice
+        computer={computer({ id: 'C', active: true, connected: false })}
+        variant="avatar"
+        appearance={{ glyph: 'server', color: '#334155' }}
+        onSelect={() => undefined}
+      />,
+    );
+    expect(html).toContain('class="nx-computer-avatar is-active is-reconnecting"');
+    expect(html).toContain('--nx-computer-avatar-color:#334155');
+  });
   // harn:end hosted-computer-hostname-tooltip-is-focus-visible
+  // harn:end hosted-computer-status-outline-is-independent-from-selection
+  // harn:end hosted-computer-avatar-uses-monochrome-icon-palette
   // harn:end hosted-computer-avatar-badges-are-actionable
   // harn:end hosted-avatar-activity-badges-form-bottom-cluster
 });

@@ -1,0 +1,14 @@
+id: hosted-computer-status-outline-is-independent-from-selection
+hash: a-dabacfb334bc
+title: Hosted computer status outline stays separate from selection
+state: active
+statement: >
+  Every hosted computer avatar always exposes a green connected, amber
+  reconnecting, or red repair-required outline derived from truthful session
+  status; active selection styling is separate and may coexist with any status,
+  while unread and working/attention badges retain their independent visibility
+  and positions.
+depends_on:
+  - hosted-computer-avatar-badges-are-actionable
+  - hosted-computer-avatar-rail-is-local-and-accessible
+created_by: computer-rail-phase2-presentation

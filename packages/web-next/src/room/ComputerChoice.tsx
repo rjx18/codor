@@ -1,3 +1,24 @@
+import {
+  Bot,
+  Boxes,
+  Cloud,
+  Code,
+  Cpu,
+  Database,
+  Gamepad2,
+  Globe,
+  HardDrive,
+  Laptop,
+  Monitor,
+  Network,
+  Rocket,
+  Router,
+  Server,
+  Smartphone,
+  Tablet,
+  Terminal,
+  type LucideIcon,
+} from 'lucide-react';
 import type { CSSProperties, KeyboardEventHandler, MouseEventHandler, PointerEventHandler, ReactNode } from 'react';
 
 import type { ComputerSessionView } from '../app/computer-sessions.js';
@@ -16,21 +37,75 @@ export interface ComputerAppearance {
 
 /** Small, intentionally finite choices so appearance metadata is harmless to persist. */
 export const COMPUTER_GLYPHS = [
-  '🖥️', '💻', '🐈', '🚀', '👻', '☕', '⚡', '🍃', '⭐', '🪐',
+  'monitor', 'laptop', 'cpu', 'terminal', 'server', 'router', 'smartphone',
+  'tablet', 'gamepad', 'hard-drive', 'globe', 'cloud', 'bot', 'boxes',
+  'code', 'database', 'network', 'rocket',
 ] as const;
 
 export const COMPUTER_COLORS = [
-  '#4f46e5', '#0f766e', '#15803d', '#b45309', '#be123c', '#7e22ce', '#0369a1',
+  '#3730a3', '#0f766e', '#166534', '#92400e', '#9f1239', '#6b21a8', '#075985',
+  '#155e75', '#047857', '#854d0e', '#9a3412', '#9d174d', '#7e22ce', '#1d4ed8',
+  '#334155', '#0f172a',
 ] as const;
+
+export type ComputerGlyph = typeof COMPUTER_GLYPHS[number];
+
+export const COMPUTER_GLYPH_ICONS: Record<ComputerGlyph, LucideIcon> = {
+  monitor: Monitor,
+  laptop: Laptop,
+  cpu: Cpu,
+  terminal: Terminal,
+  server: Server,
+  router: Router,
+  smartphone: Smartphone,
+  tablet: Tablet,
+  gamepad: Gamepad2,
+  'hard-drive': HardDrive,
+  globe: Globe,
+  cloud: Cloud,
+  bot: Bot,
+  boxes: Boxes,
+  code: Code,
+  database: Database,
+  network: Network,
+  rocket: Rocket,
+};
+
+export const COMPUTER_GLYPH_LABELS: Record<ComputerGlyph, string> = {
+  monitor: 'Monitor',
+  laptop: 'Laptop',
+  cpu: 'Processor',
+  terminal: 'Terminal',
+  server: 'Server',
+  router: 'Router',
+  smartphone: 'Phone',
+  tablet: 'Tablet',
+  gamepad: 'Gamepad',
+  'hard-drive': 'Hard drive',
+  globe: 'Globe',
+  cloud: 'Cloud',
+  bot: 'Bot',
+  boxes: 'Boxes',
+  code: 'Code',
+  database: 'Database',
+  network: 'Network',
+  rocket: 'Rocket',
+};
 
 const APPEARANCE_STORAGE_KEY = 'codor.computer-appearance.v1';
 
-function isAppearance(value: unknown): value is ComputerAppearance {
+function isComputerGlyph(value: unknown): value is ComputerGlyph {
+  return typeof value === 'string' && (COMPUTER_GLYPHS as readonly string[]).includes(value);
+}
+
+function isComputerColor(value: unknown): value is ComputerAppearance['color'] {
+  return typeof value === 'string' && (COMPUTER_COLORS as readonly string[]).includes(value);
+}
+
+function isStoredAppearance(value: unknown): value is ComputerAppearance {
   return typeof value === 'object' && value !== null
     && typeof (value as ComputerAppearance).glyph === 'string'
-    && (COMPUTER_GLYPHS as readonly string[]).includes((value as ComputerAppearance).glyph)
-    && typeof (value as ComputerAppearance).color === 'string'
-    && (COMPUTER_COLORS as readonly string[]).includes((value as ComputerAppearance).color);
+    && typeof (value as ComputerAppearance).color === 'string';
 }
 
 export function readComputerAppearances(): Record<string, ComputerAppearance> {
@@ -40,7 +115,7 @@ export function readComputerAppearances(): Record<string, ComputerAppearance> {
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null) return {};
-    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => isAppearance(value))) as Record<string, ComputerAppearance>;
+    return Object.fromEntries(Object.entries(parsed).filter(([, value]) => isStoredAppearance(value))) as Record<string, ComputerAppearance>;
   } catch {
     return {};
   }
@@ -78,7 +153,18 @@ export function computerAppearance(
   id: string,
   appearances: Record<string, ComputerAppearance>,
 ): ComputerAppearance {
-  return appearances[id] ?? defaultComputerAppearance(id);
+  const fallback = defaultComputerAppearance(id);
+  const saved = appearances[id];
+  return {
+    // harn:assume hosted-computer-avatar-uses-monochrome-icon-palette ref=legacy-emoji-appearance-fallback
+    glyph: normalizedGlyph(saved?.glyph, id),
+    color: isComputerColor(saved?.color) ? saved.color : fallback.color,
+    // harn:end legacy-emoji-appearance-fallback
+  };
+}
+
+function normalizedGlyph(value: string | undefined, id: string): ComputerGlyph {
+  return isComputerGlyph(value) ? value : defaultComputerAppearance(id).glyph as ComputerGlyph;
 }
 
 /** The only status mapping used by the switcher and recovery escape hatch. */
@@ -188,16 +274,21 @@ export function ComputerChoice({
 
   if (variant === 'avatar') {
     // harn:assume hosted-computer-avatar-badges-are-actionable ref=avatar-badge-presentation
+    // harn:assume hosted-computer-avatar-uses-monochrome-icon-palette ref=computer-avatar-icon-palette
     // harn:assume hosted-computer-hostname-tooltip-is-focus-visible ref=hostname-tooltip-presentation
     // harn:assume hosted-avatar-activity-badges-form-bottom-cluster ref=bottom-activity-cluster-presentation
     const avatarStyle = {
-      '--nx-computer-avatar-color': appearance?.color ?? '#4f46e5',
+      '--nx-computer-avatar-color': isComputerColor(appearance?.color)
+        ? appearance.color
+        : defaultComputerAppearance(computer.id).color,
     } as CSSProperties;
     const hasBottomActivity = computer.working > 0 || attention > 0;
+    const glyph = normalizedGlyph(appearance?.glyph, computer.id);
+    const Glyph = COMPUTER_GLYPH_ICONS[glyph];
     return (
       <button
         type="button"
-        className={`nx-computer-avatar ${computer.active ? 'is-active' : ''} is-${status.tone}`}
+        className={`nx-computer-avatar${computer.active ? ' is-active' : ''} is-${status.tone}`}
         style={avatarStyle}
         data-testid={testid}
         data-computer-avatar="true"
@@ -215,7 +306,9 @@ export function ComputerChoice({
         onPointerCancel={onPointerCancel}
         onPointerLeave={onPointerLeave}
       >
-        <span className="nx-computer-avatar-glyph" aria-hidden="true">{appearance?.glyph ?? '🖥️'}</span>
+        <span className="nx-computer-avatar-glyph" aria-hidden="true">
+          <Glyph size={20} strokeWidth={1.8} />
+        </span>
         <AvatarBadge kind="unread" count={computer.unread} computer={computer} />
         {hasBottomActivity ? (
           <span
@@ -231,6 +324,7 @@ export function ComputerChoice({
     );
     // harn:end hosted-avatar-activity-badges-form-bottom-cluster
     // harn:end hosted-computer-hostname-tooltip-is-focus-visible
+    // harn:end hosted-computer-avatar-uses-monochrome-icon-palette
     // harn:end hosted-computer-avatar-badges-are-actionable
   }
 

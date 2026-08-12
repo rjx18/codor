@@ -21,6 +21,8 @@ import { relayUrlConfigured } from '../runtime/relay-mode.js';
 import { PairingCodeInput } from '../surfaces/PairingCodeInput.js';
 import {
   COMPUTER_COLORS,
+  COMPUTER_GLYPH_ICONS,
+  COMPUTER_GLYPH_LABELS,
   COMPUTER_GLYPHS,
   computerAppearance,
   ComputerChoice,
@@ -187,6 +189,8 @@ export function ComputerSwitcher({ mobile = false }: { mobile?: boolean } = {}):
     ? undefined
     : list.computers.find((computer) => computer.id === customizing);
 
+  // harn:assume hosted-computer-avatar-uses-monochrome-icon-palette ref=computer-avatar-appearance-regression
+  // harn:assume hosted-computer-customization-dialog-is-viewport-safe ref=computer-customization-dialog-regression
   return (
     <div
       className={`nx-computer-switcher nx-computer-rail${mobile ? ' is-mobile-strip' : ''}`}
@@ -244,17 +248,18 @@ export function ComputerSwitcher({ mobile = false }: { mobile?: boolean } = {}):
               {COMPUTER_GLYPHS.map((glyph) => {
                 const current = computerAppearance(customizingComputer.id, appearances);
                 const selected = current.glyph === glyph;
+                const Glyph = COMPUTER_GLYPH_ICONS[glyph];
                 return (
                   <button
                     key={glyph}
                     type="button"
                     className="nx-computer-glyph"
-                    aria-label={`Use ${glyph} icon`}
+                    aria-label={`Use ${COMPUTER_GLYPH_LABELS[glyph]} icon`}
                     aria-pressed={selected}
                     data-testid={`computer-glyph-${glyph}`}
                     onClick={() => saveAppearance(customizingComputer.id, { ...current, glyph })}
                   >
-                    {glyph}
+                    <Glyph size={20} strokeWidth={1.8} aria-hidden="true" />
                   </button>
                 );
               })}

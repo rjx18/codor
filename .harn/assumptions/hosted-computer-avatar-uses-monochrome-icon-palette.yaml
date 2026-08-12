@@ -1,0 +1,14 @@
+id: hosted-computer-avatar-uses-monochrome-icon-palette
+hash: a-e8e276e1eda3
+title: Hosted computer avatars use safe monochrome Lucide choices
+state: active
+statement: >
+  Hosted computer avatars render one of the finite compact monochrome Lucide
+  icons with the selected browser-local color as its avatar background; unknown
+  legacy emoji or invalid saved appearance values are ignored and resolve to the
+  deterministic default icon and color without affecting pairing, switching, or
+  persistence of other computers.
+depends_on:
+  - hosted-computer-avatar-rail-is-local-and-accessible
+  - hosted-computer-sessions-keep-state-isolated
+created_by: computer-rail-phase2-presentation

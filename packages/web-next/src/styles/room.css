@@ -19,9 +19,11 @@
   box-shadow: var(--e-panel);
 }
 
+/* harn:assume hosted-computer-rail-precedes-channel-rail-on-desktop ref=desktop-computer-rail-order */
 .nx-app.has-computer-rail {
-  grid-template-columns: var(--rail-w) 64px minmax(0, 1fr) var(--context-w);
+  grid-template-columns: 64px var(--rail-w) minmax(0, 1fr) var(--context-w);
 }
+/* harn:end hosted-computer-rail-precedes-channel-rail-on-desktop */
 .nx-app > .nx-computer-rail {
   min-width: 0;
   border: 0;
@@ -2423,7 +2425,7 @@
 
 @media (max-width: 1360px) {
   .nx-app { grid-template-columns: var(--rail-w) minmax(0, 1fr); }
-  .nx-app.has-computer-rail { grid-template-columns: var(--rail-w) 58px minmax(0, 1fr); }
+  .nx-app.has-computer-rail { grid-template-columns: 58px var(--rail-w) minmax(0, 1fr); }
   .nx-app > .nx-context { display: none; }
   .nx-context-trigger { display: inline-flex; }
 }
@@ -3520,22 +3522,22 @@
   width: 44px;
   height: 44px;
   padding: 0;
-  border: 2px solid transparent;
+  border: 2px solid var(--nx-computer-status-color);
   border-radius: var(--r-full);
-  background: var(--c-raised);
-  color: var(--c-ink);
+  background: var(--nx-computer-avatar-color);
+  color: var(--c-surface);
   cursor: pointer;
   transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
 }
 .nx-computer-avatar:hover,
-.nx-computer-avatar:focus-visible { border-color: var(--nx-computer-avatar-color); background: var(--c-muted); }
+.nx-computer-avatar:focus-visible { border-color: var(--nx-computer-status-color); background: var(--nx-computer-avatar-color); }
 .nx-computer-avatar:focus-visible { outline: 2px solid var(--c-ink); outline-offset: 2px; }
-.nx-computer-avatar.is-active {
-  border-color: var(--nx-computer-avatar-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--nx-computer-avatar-color) 18%, transparent);
-}
+.nx-computer-avatar.is-active { box-shadow: 0 0 0 2px var(--c-surface), 0 0 0 4px var(--c-ink); }
+.nx-computer-avatar.is-connected { --nx-computer-status-color: var(--c-live); }
+.nx-computer-avatar.is-reconnecting { --nx-computer-status-color: var(--c-warn); }
+.nx-computer-avatar.is-repair { --nx-computer-status-color: var(--c-error); }
 .nx-computer-avatar:disabled { opacity: 0.55; cursor: not-allowed; }
-.nx-computer-avatar-glyph { font-size: 20px; line-height: 1; }
+.nx-computer-avatar-glyph { display: grid; place-items: center; line-height: 1; }
 .nx-computer-avatar-tooltip {
   position: absolute;
   z-index: 20;
@@ -3654,7 +3656,7 @@
 .nx-computer-forget:hover { background: var(--c-muted); color: var(--c-ink); }
 .nx-computer-customize-group { display: grid; gap: var(--sp-2); margin: var(--sp-4) 0; padding: 0; border: 0; }
 .nx-computer-customize-group legend { margin-bottom: var(--sp-2); font: var(--t-ui-strong); }
-.nx-computer-glyph-grid { display: grid; grid-template-columns: repeat(5, minmax(44px, 1fr)); gap: var(--sp-2); }
+.nx-computer-glyph-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(44px, 1fr)); gap: var(--sp-2); }
 .nx-computer-glyph,
 .nx-computer-color { min-width: 44px; min-height: 44px; border: 1px solid var(--c-line); border-radius: var(--r-control); background: var(--c-raised); color: var(--c-ink); cursor: pointer; }
 .nx-computer-glyph { font-size: 20px; }
@@ -3682,6 +3684,16 @@
 .nx-computer-pair-command .nx-code { color: var(--c-ink); }
 .nx-computer-pair-command .nx-btn.is-quiet { color: var(--c-body); }
 
+/* harn:assume hosted-computer-customization-dialog-is-viewport-safe ref=computer-customization-dialog-layout */
+.nx-modal[data-testid='computer-customize-modal'] {
+  width: min(100%, 620px);
+  max-height: min(92dvh, 820px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.nx-modal[data-testid='computer-customize-modal'] .nx-btn { min-height: 44px; }
+/* harn:end hosted-computer-customization-dialog-is-viewport-safe */
+
 @media (max-width: 719px) {
   .nx-computer-switcher.is-mobile-strip {
     flex-direction: row;
@@ -3708,6 +3720,11 @@
   .nx-computer-pair-command { align-items: flex-start; flex-wrap: wrap; }
   .nx-computer-add-grid { gap: var(--sp-4); }
   .nx-computer-add-step + .nx-computer-add-step { padding-top: var(--sp-4); }
+  .nx-modal[data-testid='computer-customize-modal'] {
+    width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: var(--sp-4);
+  }
 }
 
 /* harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-style

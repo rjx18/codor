@@ -15,6 +15,7 @@ vi.mock('../runtime/relay-mode.js', () => ({ relayUrlConfigured: () => 'wss://re
 vi.mock('../app/computer-sessions.js', () => ({ computerSessions: () => harness.manager }));
 
 const { ComputerSwitcher } = await import('./ComputerSwitcher.js');
+const { COMPUTER_GLYPHS, defaultComputerAppearance } = await import('./ComputerChoice.js');
 
 const view = (overrides: Record<string, unknown> = {}) => ({
   id: 'A',
@@ -123,14 +124,27 @@ describe('ComputerSwitcher avatar rail', () => {
     avatar.focus();
     await act(async () => { avatar.dispatchEvent(new KeyboardEvent('keydown', { key: 'F10', shiftKey: true, bubbles: true })); });
     const modal = document.body.querySelector('[data-testid="computer-customize-modal"]') as HTMLElement;
-    const cat = [...modal.querySelectorAll('button')].find((button) => button.getAttribute('aria-label') === 'Use 🐈 icon') as HTMLButtonElement;
-    expect(cat).toBeTruthy();
-    await act(async () => { cat.click(); });
+    const laptop = modal.querySelector('[data-testid="computer-glyph-laptop"]') as HTMLButtonElement;
+    expect(laptop.getAttribute('aria-label')).toBe('Use Laptop icon');
+    await act(async () => { laptop.click(); });
     const color = modal.querySelector('[data-testid="computer-color-0f766e"]') as HTMLButtonElement;
     await act(async () => { color.click(); });
     expect(JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}')).toEqual({
-      B: { glyph: '🐈', color: '#0f766e' },
+      B: { glyph: 'laptop', color: '#0f766e' },
     });
+  });
+
+  it('uses Lucide choices and safely migrates an unknown legacy emoji', async () => {
+    window.localStorage.setItem('codor.computer-appearance.v1', JSON.stringify({
+      A: { glyph: '🐈', color: '#0f766e' },
+    }));
+    await render([view()]);
+    const avatar = host!.querySelector('[data-testid="computer-current"]') as HTMLButtonElement;
+    const fallback = defaultComputerAppearance('A');
+    expect(COMPUTER_GLYPHS).toHaveLength(18);
+    expect(avatar.querySelector(`.lucide-${fallback.glyph}`)).not.toBeNull();
+    expect(avatar.getAttribute('style')).toContain('#0f766e');
+    expect(avatar.textContent).not.toContain('🐈');
   });
 
   it('keeps the existing two-step Add Computer flow and Forget action', async () => {
@@ -148,7 +162,7 @@ describe('ComputerSwitcher avatar rail', () => {
     await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     await openCustomize();
     await act(async () => {
-      (document.querySelector('[data-testid="computer-glyph-🐈"]') as HTMLButtonElement).click();
+      (document.querySelector('[data-testid="computer-glyph-laptop"]') as HTMLButtonElement).click();
     });
     expect(JSON.parse(window.localStorage.getItem('codor.computer-appearance.v1') ?? '{}')).toHaveProperty('A');
     await act(async () => { (document.querySelector('[data-testid="computer-forget-A"]') as HTMLButtonElement).click(); });

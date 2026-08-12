@@ -1,0 +1,13 @@
+id: hosted-computer-customization-dialog-is-viewport-safe
+hash: a-8481158841b6
+title: Hosted computer customization remains viewport-safe and accessible
+state: active
+statement: >
+  The browser-local computer customization dialog stays within the viewport,
+  exposes a bounded internal scroll region for long icon/color content, keeps
+  keyboard focus and Escape/outside-close behavior valid, preserves at least
+  44px control targets, and remains Axe-clean on desktop and phone widths.
+depends_on:
+  - hosted-computer-avatar-rail-is-local-and-accessible
+  - hosted-computer-hostname-tooltip-is-focus-visible
+created_by: computer-rail-phase2-presentation

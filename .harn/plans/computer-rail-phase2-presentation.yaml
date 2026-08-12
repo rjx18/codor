@@ -1,0 +1,198 @@
+id: computer-rail-phase2-presentation
+title: Desktop computer rail presentation and appearance polish
+notes: >
+  Implement only the contained hosted computer-rail presentation correction from
+  the clean integrated 4fd1f848 base. Move the desktop computer rail before the
+  channel rail while preserving the existing phone composition; replace
+  persisted emoji glyphs with a finite Lucide icon palette and browser-local
+  color choices; keep connection truth as an outline independent from selection;
+  and keep the customization modal bounded, scrollable, keyboard-safe, and
+  accessible. No session, relay, database, transport, protocol, recovery, or
+  server behavior changes are allowed.
+assumptions:
+  create:
+    - id: hosted-computer-rail-precedes-channel-rail-on-desktop
+      title: Hosted computer rail precedes the channel rail on desktop
+      statement: >
+        In managed hosted desktop mode the computer rail is the first navigation
+        rail, immediately before the channel rail, while the existing mobile
+        single-surface composition keeps its current channel-rail placement and
+        phone behavior unchanged.
+      reason: >
+        Desktop users need persistent computer identity before channel
+        navigation without changing the mobile information architecture.
+      depends_on:
+        - hosted-computer-avatar-rail-is-local-and-accessible
+        - hosted-computer-sessions-keep-state-isolated
+    - id: hosted-computer-avatar-uses-monochrome-icon-palette
+      title: Hosted computer avatars use safe monochrome Lucide choices
+      statement: >
+        Hosted computer avatars render one of the finite compact monochrome
+        Lucide icons with the selected browser-local color as its avatar
+        background; unknown legacy emoji or invalid saved appearance values are
+        ignored and resolve to the deterministic default icon and color without
+        affecting pairing, switching, or persistence of other computers.
+      reason: >
+        The rail must remain visually consistent while safely migrating existing
+        emoji metadata without introducing a remote appearance contract.
+      depends_on:
+        - hosted-computer-avatar-rail-is-local-and-accessible
+        - hosted-computer-sessions-keep-state-isolated
+    - id: hosted-computer-status-outline-is-independent-from-selection
+      title: Hosted computer status outline stays separate from selection
+      statement: >
+        Every hosted computer avatar always exposes a green connected, amber
+        reconnecting, or red repair-required outline derived from truthful
+        session status; active selection styling is separate and may coexist
+        with any status, while unread and working/attention badges retain their
+        independent visibility and positions.
+      reason: >
+        Connection health must remain visible even when an avatar is selected
+        and must not be confused with activity or active selection.
+      depends_on:
+        - hosted-computer-avatar-badges-are-actionable
+        - hosted-computer-avatar-rail-is-local-and-accessible
+    - id: hosted-computer-customization-dialog-is-viewport-safe
+      title: Hosted computer customization remains viewport-safe and accessible
+      statement: >
+        The browser-local computer customization dialog stays within the
+        viewport, exposes a bounded internal scroll region for long icon/color
+        content, keeps keyboard focus and Escape/outside-close behavior valid,
+        preserves at least 44px control targets, and remains Axe-clean on
+        desktop and phone widths.
+      reason: >
+        Expanding appearance choices must not trap controls offscreen or regress
+        keyboard and screen-reader operation on short or narrow viewports.
+      depends_on:
+        - hosted-computer-avatar-rail-is-local-and-accessible
+        - hosted-computer-hostname-tooltip-is-focus-visible
+  reviewed:
+    - id: hosted-computer-avatar-rail-is-local-and-accessible
+      outcome: unchanged
+      reason: The rail remains hosted-only, local, warm, isolated, and accessible;
+        this phase changes only its presentation geometry and icon treatment.
+    - id: hosted-computer-avatar-badges-are-actionable
+      outcome: unchanged
+      reason: Unread and working/attention badge semantics and zero-count suppression
+        remain unchanged.
+    - id: hosted-computer-hostname-tooltip-is-focus-visible
+      outcome: unchanged
+      reason: The rendered hostname tooltip and truthful accessible name remain
+        required.
+    - id: hosted-avatar-activity-badges-form-bottom-cluster
+      outcome: unchanged
+      reason: The bottom-right activity cluster remains horizontal and independent
+        from status/selection.
+    - id: computer-appearance-is-purged-on-forget
+      outcome: unchanged
+      reason: Appearance metadata remains browser-local and is still purged through
+        existing Forget paths.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: No session, credential, store, transport, or activation ownership
+        changes.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Avatar activation still uses the existing manager activation path.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Existing per-computer unread, attention, and working projection remains
+        the sole activity source.
+    - id: hosted-generated-computer-label-follows-authenticated-hostname
+      outcome: unchanged
+      reason: Hostname identity remains sanitized and authoritative in names/tooltips.
+    - id: hosted-offline-recovery-offers-other-computers
+      outcome: unchanged
+      reason: Recovery choices are outside this desktop rail presentation correction.
+    - id: hosted-add-computer-explains-pairing-code-source
+      outcome: unchanged
+      reason: Add Computer behavior and pairing-code copy remain unchanged.
+anchors:
+  hosted-computer-rail-precedes-channel-rail-on-desktop:
+    desktop-computer-rail-order:
+      action: change
+      reason: Put the hosted desktop computer rail before the channel rail without
+        changing mobile composition.
+    desktop-computer-rail-order-regression:
+      action: change
+      reason: Prove desktop DOM/grid order and unchanged phone rail bounds.
+  hosted-computer-avatar-uses-monochrome-icon-palette:
+    computer-avatar-icon-palette:
+      action: change
+      reason: Replace emoji rendering and expand the finite Lucide icon/color choices
+        with legacy fallback.
+    computer-avatar-appearance-regression:
+      action: change
+      reason: Cover icon/color persistence, unknown legacy fallback, and selected
+        background color.
+  hosted-computer-status-outline-is-independent-from-selection:
+    computer-avatar-status-outline:
+      action: change
+      reason: Render always-present status outlines independently from active
+        selection.
+    computer-avatar-status-regression:
+      action: change
+      reason: Cover connected, reconnecting, and repair tones with selection and
+        activity badges.
+  hosted-computer-customization-dialog-is-viewport-safe:
+    computer-customization-dialog-layout:
+      action: change
+      reason: Bound the modal and make its content scroll without losing focusable
+        controls.
+    computer-customization-dialog-regression:
+      action: change
+      reason: Cover keyboard focus, phone/short viewport bounds, 44px targets,
+        outside/Escape close, and Axe.
+  hosted-computer-avatar-rail-is-local-and-accessible:
+    computer-avatar-rail-presentation:
+      action: change
+      reason: The existing avatar rail presentation is updated for the new icon/status
+        treatment and desktop order.
+    computer-avatar-rail-customization:
+      action: change
+      reason: Browser-local appearance choices are expanded and safely migrated.
+    computer-avatar-rail-accessibility-regression:
+      action: change
+      reason: Focus, tooltip, dialog, and Axe coverage expands with the new choices.
+    computer-avatar-rail-phone-regression:
+      action: change
+      reason: Phone rail geometry remains explicitly covered.
+  hosted-computer-avatar-badges-are-actionable:
+    avatar-badge-presentation:
+      action: change
+      reason: Badge/status rendering is touched to add the independent outline.
+    avatar-badge-regression:
+      action: change
+      reason: Existing zero and simultaneous badge assertions are extended for status
+        outlines.
+  hosted-computer-hostname-tooltip-is-focus-visible:
+    hostname-tooltip-presentation:
+      action: keep
+      reason: Hostname tooltip behavior must not change.
+  hosted-avatar-activity-badges-form-bottom-cluster:
+    bottom-activity-cluster-presentation:
+      action: keep
+      reason: Existing horizontal bottom cluster must not regress.
+  computer-appearance-is-purged-on-forget:
+    appearance-forget-cleanup:
+      action: keep
+      reason: Forget cleanup behavior must remain unchanged.
+files:
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/room/ComputerSwitcher.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/room/ComputerChoice.spec.tsx
+  - packages/web-next/src/room/ComputerSwitcher.spec.tsx
+  - packages/web-next/tests/room36-computer-ui.e2e.spec.ts
+verification: >
+  Before editing, verify the exact 4fd1f848 base and clean-lock this plan. Run
+  focused ComputerChoice/ComputerSwitcher units, all web-next units, the
+  production/PWA build, and the Room 36 desktop/mobile geometry, persistence,
+  status, focus, short-viewport, and Axe journeys. Run harn find --changed, harn
+  check, harn apply, harn check --staged, and git diff --check. Stage only this
+  plan, the declared UI/test/style files, and generated assumption truth; create
+  exactly one implementation commit. Do not change server, relay, database,
+  transport, credential, protocol, release, or deployment behavior.
+applied:
+  applied_at: 2026-08-12T01:42:38.715Z

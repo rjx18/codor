@@ -365,8 +365,10 @@ function MountedRoomPage(props: {
     );
   }
 
+  // harn:assume hosted-computer-rail-precedes-channel-rail-on-desktop ref=desktop-computer-rail-order
   return (
     <div className={`nx-app${showComputerRail ? ' has-computer-rail' : ''}`} data-testid="app">
+      {showComputerRail ? <ComputerSwitcher /> : null}
       <ChannelRail
         activeRoom={root}
         token={token}
@@ -382,7 +384,6 @@ function MountedRoomPage(props: {
           void group.refresh();
         }}
       />
-      {showComputerRail ? <ComputerSwitcher /> : null}
       <ChatPanel
         room={room}
         connection={connection}
@@ -413,6 +414,7 @@ function MountedRoomPage(props: {
       )}
     </div>
   );
+  // harn:end hosted-computer-rail-precedes-channel-rail-on-desktop
   // harn:end settings-navigation-reuses-live-session
 }
 

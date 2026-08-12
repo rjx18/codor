@@ -1,0 +1,13 @@
+id: hosted-computer-rail-precedes-channel-rail-on-desktop
+hash: a-127119124539
+title: Hosted computer rail precedes the channel rail on desktop
+state: active
+statement: >
+  In managed hosted desktop mode the computer rail is the first navigation rail,
+  immediately before the channel rail, while the existing mobile single-surface
+  composition keeps its current channel-rail placement and phone behavior
+  unchanged.
+depends_on:
+  - hosted-computer-avatar-rail-is-local-and-accessible
+  - hosted-computer-sessions-keep-state-isolated
+created_by: computer-rail-phase2-presentation
