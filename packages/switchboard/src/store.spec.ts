@@ -1389,6 +1389,41 @@ describe('change log completeness', () => {
 // harn:assume changelog-covers-every-visible-entity-v2 ref=schedule-change-accounting-regression
 // harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-sync-regression-v2
 describe('scheduled change accounting and ordered commit recovery', () => {
+  it('persists a qualified schedule author scope and copies it onto the committed message', () => {
+    const { owner } = openRoom(store);
+    const target = store.addMember('eng', {
+      kind: 'agent', handle: 'scoped-target', display_name: 'Scoped Target', harness: 'fake', cwd: dir,
+    });
+    const authorTarget = {
+      worktree_id: '01J00000000000000000000000',
+      conversation_id: 'eng',
+      member_id: owner.id,
+      alias: 'feature-a',
+      handle: owner.handle,
+    };
+    const schedule = store.createSchedule({
+      room: 'eng', author_id: owner.id, author_handle: owner.handle, author_target: authorTarget,
+      target: { member_id: target.id, conversation_id: 'eng', handle: target.handle },
+      body: '@scoped-target ship it', mentions: [{ member_id: target.id, start: 0, end: 14 }],
+      due_ts: '2026-08-13T00:00:00.000Z', host_offset_minutes: 480,
+    }, '2026-08-12T00:00:00.000Z');
+    expect(store.getSchedule('eng', schedule.id)?.author_target).toEqual(authorTarget);
+    store.claimDueSchedules('2026-08-13T00:00:00.000Z');
+    const committed = store.commitScheduledMessage('eng', schedule.id, {
+      now: '2026-08-13T00:00:00.000Z',
+      message: {
+        author: owner.id, author_target: authorTarget, kind: 'chat', body: '@scoped-target ship it',
+        mentions: schedule.mentions,
+      },
+      plan: () => ({ fanout: [{ recipient: target.id, state: 'queued' }] }),
+    });
+    expect(committed.message?.author_target).toEqual(authorTarget);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getSchedule('eng', schedule.id)?.author_target).toEqual(authorTarget);
+    expect(store.getMessage('eng', committed.message!.id)?.author_target).toEqual(authorTarget);
+  });
+
   it('retains producing seqs, orders atomic effects, and commits exactly once', () => {
     const { owner } = openRoom(store);
     const target = store.addMember('eng', {

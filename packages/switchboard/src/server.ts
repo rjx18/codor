@@ -2269,6 +2269,10 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               const schedule = daemon.scheduleMessage(room, frame.body, actor.id, {
                 now: scheduleNow,
                 directive: scheduledDirective,
+                ...(principal.kind === 'agent' && principal.invocation !== undefined
+                  && principal.invocation.originRoom === room
+                  ? { authorTarget: principal.invocation.target }
+                  : {}),
               });
               if (!subscriptions.get(socket)?.has(schedule.room)) {
                 send({

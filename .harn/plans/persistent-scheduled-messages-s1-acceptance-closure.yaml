@@ -1,0 +1,305 @@
+id: persistent-scheduled-messages-s1-acceptance-closure
+title: Close scheduled-message ordering, attribution, and recovery acceptance
+notes: >
+  Final contained S1 correction after independent review of
+  cf293513b877526ab022b92994ae587da15996ce. The frozen-recipient and exact
+  schedule-seq corrections are directionally right, but the due fanout still
+  publishes an agent inbox frame at the message seq after the newer terminal
+  schedule frame. A disconnect may therefore observe a cursor regression,
+  contrary to the newly applied ordered-cursor truth. The due loop also catches
+  post-commit emit/dispatch failures as if the atomic commit failed: it calls
+  failSchedule on an already-sent row and broadcasts the same terminal schedule
+  again, while ordinary queued-delivery recovery should own that seam. Qualified
+  agent-authored schedules do not preserve an author execution/attribution
+  target; the destination-room payload snapshot cannot resolve a foreign agent
+  author and the scheduled message may fail or lose qualified attribution.
+  Finally, the locked review plan promised real socket cancellation, every
+  restart/crash state, target removal/replacement/unavailability, author/role
+  variants, and reconnect replay, but cf29351 adds only protocol parsing, direct
+  daemon calls, two store cases, and four daemon happy-edge cases; its test
+  named socket contract never opens a socket. Correct these S1 defects and
+  supply the complete acceptance matrix. Preserve the accepted directive
+  grammar, durable SQLite state machine, frozen one-recipient routing, exact
+  producing sequences, one bounded timer, correlation contract, redaction, and
+  all S2/exclusion boundaries.
+assumptions:
+  reviewed:
+    - id: scheduling-directive-is-bounded-and-canonical
+      outcome: unchanged
+      reason: The accepted lowercase directive, fixed-offset clock, explicit-offset
+        ISO, byte, future, and horizon rules remain unchanged; only missing
+        ingress refusal coverage is added.
+    - id: scheduled-target-identity-is-frozen-at-creation
+      outcome: unchanged
+      reason: Recipient identity remains frozen; acceptance must prove removal,
+        same-handle replacement, qualified unavailability, and no fallback in
+        addition to rename.
+    - id: scheduled-message-commit-is-exactly-once
+      outcome: unchanged
+      reason: The transaction remains authoritative; post-commit publication and
+        dispatch failures must never be reclassified as a failed commit or
+        duplicate terminal fanout.
+    - id: scheduled-state-machine-recovers-from-one-next-due-alarm
+      outcome: unchanged
+      reason: One timer and durable recovery remain the contract; the omitted
+        state/crash matrix and long-delay re-arm evidence are required now.
+    - id: scheduled-cancellation-is-authorized-before-claim
+      outcome: unchanged
+      reason: Correlated author/admin cancellation before claim remains the rule;
+        prove it through authenticated sockets, repository-related rooms,
+        unrelated rooms, roles, agent ownership, races, and terminal no-ops.
+    - id: changelog-is-sync-cursor-v2
+      outcome: unchanged
+      reason: Agent inbox publication must stop regressing from the terminal schedule
+        cursor to the earlier message cursor, and replay must converge from
+        every frame boundary.
+    - id: changelog-covers-every-visible-entity-v2
+      outcome: unchanged
+      reason: Real transitions still log exactly once and terminal/no-op paths must
+        not invent duplicate live schedule frames.
+    - id: scheduled-state-streams-through-room-seq-v2
+      outcome: unchanged
+      reason: Every ordinary message and inbox effect must publish before its terminal
+        schedule linkage with its honest producing cursor.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Qualified scheduled recipients retain exact worktree/conversation/member
+        identity through rename, replacement, unavailability, and restart.
+    - id: qualified-destination-refusals-are-atomic
+      outcome: unchanged
+      reason: Invalid or mixed delayed targets still fail before schedule allocation
+        and can never fall back.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: Scheduled messages and deliveries remain solely in the frozen
+        destination conversation while retaining honest source-author
+        attribution.
+    - id: target-worktree-turn-is-local-and-isolated
+      outcome: unchanged
+      reason: An authenticated agent acting from one active invocation must schedule
+        from that exact execution identity rather than an unresolved origin-room
+        row.
+    - id: agent-orchestration-is-repository-scoped
+      outcome: unchanged
+      reason: Scheduled creation by an authenticated agent must reuse the same
+        repository-scoped target-conversation authority boundary as an ordinary
+        post.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: A scheduled agent delivery still snapshots ordinary immutable context,
+        now with a resolvable frozen author scope.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: The initial queued agent inbox projection remains live and
+        reconnect-safe, but must be emitted before the terminal schedule cursor.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Once the atomic schedule commit creates a queued delivery, ordinary
+        WAL/boot reconciliation owns interruption before or after dispatch.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: Scheduled deliveries continue to enter the ordinary durable queue once
+        and in order.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Human role capabilities and the narrower own-schedule agent rule remain
+        intact and require the omitted authenticated matrix.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: A valid cancel request returns exactly one success or error carrying its
+        request ref.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Schedule acceptance, live, hydration, cancel result, and failure
+        projections continue through the sole redaction boundary.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The tested cancellation and schedule frames must be identical on local
+        and remote WebSocket paths.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Cold and warm schedule hydration still completes at the authoritative
+        snapshot cursor after redacted entity projections.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Agent queued-delivery hydration remains recipient-scoped while live
+        scheduled ordering becomes monotonic.
+anchors:
+  scheduling-directive-is-bounded-and-canonical:
+    scheduled-directive-parser:
+      action: change
+      reason: Keep one captured creation clock and close any integration boundary
+        defect exposed by the full matrix.
+    scheduled-directive-regression:
+      action: change
+      reason: Prove canonical examples plus all malformed, size, time, and ingress
+        payload refusals.
+    scheduled-directive-documentation:
+      action: change
+      reason: Reconcile the precise cancellation room scope and scheduled attribution
+        wording with tested behavior.
+  scheduled-target-identity-is-frozen-at-creation:
+    scheduled-target-resolution:
+      action: change
+      reason: Freeze enough source-author scope for qualified agent-authored delivery
+        without re-resolving the recipient.
+    scheduled-target-regression:
+      action: change
+      reason: Add human/agent authors, human/agent recipients, removal, replacement,
+        worktree lifecycle, restart, and attribution cases.
+  scheduled-message-commit-is-exactly-once:
+    atomic-scheduled-message-commit:
+      action: change
+      reason: Separate committed truth from fallible post-commit fanout/dispatch and
+        preserve exact author attribution.
+    exactly-once-schedule-regression:
+      action: change
+      reason: Inject every pre/post commit and dispatch interruption and prove one
+        linked message and delivery across reopen.
+  scheduled-state-machine-recovers-from-one-next-due-alarm:
+    durable-schedule-store:
+      action: change
+      reason: Persist any missing frozen author scope while retaining idempotent
+        pending/sending/terminal transitions.
+    one-next-due-alarm:
+      action: change
+      reason: Make re-arm and error handling finally-safe without duplicating terminal
+        publication.
+    schedule-recovery-regression:
+      action: change
+      reason: Cover pending, sending, sent, failed, cancelled, simultaneous rows,
+        long-delay wake, shutdown, and restart seams.
+  scheduled-cancellation-is-authorized-before-claim:
+    cancel-schedule-protocol:
+      action: change
+      reason: Retain required bounded refs and exercise exact success/error
+        correlation.
+    cancel-schedule-transaction:
+      action: change
+      reason: Make and document one explicit origin/destination repository-room
+        authorization rule and reject unrelated rooms.
+    cancel-schedule-race-regression:
+      action: change
+      reason: Replace direct helper-only checks with real authenticated socket role,
+        ownership, room, race, and terminal cases.
+  changelog-is-sync-cursor-v2:
+    ordered-live-entity-fanout:
+      action: change
+      reason: Emit the agent queued inbox projection before the newer terminal
+        schedule cursor and never regress live seq.
+    ordered-live-entity-regression:
+      action: change
+      reason: Include every message, inbox, member, and schedule frame and reconnect
+        after every boundary.
+  changelog-covers-every-visible-entity-v2:
+    schedule-change-accounting-regression:
+      action: change
+      reason: Prove exact change rows and absence of duplicate terminal/no-op live
+        frames under post-commit failures.
+  scheduled-state-streams-through-room-seq-v2:
+    schedule-protocol-schema-v2:
+      action: change
+      reason: Add only the bounded durable author coordinate needed for honest
+        qualified scheduled attribution, if required.
+    schedule-change-log-storage-v2:
+      action: change
+      reason: Persist and hydrate the complete schedule while preserving exact
+        mutation sequences.
+    schedule-sync-and-fanout-v2:
+      action: change
+      reason: Order agent and human inbox projections before terminal schedule fanout
+        and keep all projections redacted.
+    schedule-sync-regression-v2:
+      action: change
+      reason: Prove cold/warm/live/reconnect schedule and linked-message convergence
+        for human and agent clients.
+  agent-delivery-lifecycle-streams-v2:
+    delivery-created-emit:
+      action: change
+      reason: Reuse ordinary queued delivery semantics while honoring the schedule
+        commit's ordered publication boundary.
+  agent-orchestration-is-repository-scoped:
+    repository-scoped-agent-authorization:
+      action: change
+      reason: Route scheduled creation through the exact target-conversation identity
+        authorized for the authenticated agent.
+  target-worktree-turn-is-local-and-isolated:
+    qualified-local-turn-orchestration:
+      action: change
+      reason: Preserve the scheduled author source coordinate across qualified
+        delivery and later agent turns.
+  delivery-payload-snapshotted:
+    daemon-payload-snapshot:
+      action: change
+      reason: Resolve the frozen scheduled author in its source conversation and
+        retain authorTarget in immutable payload context.
+  roles-gate-human-acts-not-agents:
+    role-matrix-integration:
+      action: change
+      reason: Exercise cancellation through authenticated owner/admin/member/observer
+        and agent sockets.
+  management-frames-correlate-one-result:
+    management-correlation-server:
+      action: change
+      reason: Prove each cancellation success or failure emits exactly one frame with
+        the submitted ref.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: keep
+      reason: Scheduled live fanout and direct results must continue through the
+        unchanged projector.
+files:
+  - docs/PROTOCOL.md
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/schedule.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/ws.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/store.ts
+verification: >
+  Lock clean on cf293513b877526ab022b92994ae587da15996ce before implementation.
+  Record red-first on that exact commit: (1) trace an agent-target due commit
+  including inbox frames and show message seq, newer sent-schedule seq, then the
+  older message-seq inbox frame; reconnect from each observed cursor and expose
+  the ordering breach; (2) inject an exception after the atomic commit but
+  before/inside delivery dispatch and show the already-sent schedule is
+  broadcast twice instead of leaving one queued delivery to ordinary recovery;
+  (3) schedule from an authenticated agent in a registered worktree to a
+  qualified foreign target and show missing source author scope either fails
+  payload snapshot with no author or loses author_target attribution; (4)
+  demonstrate that the current socket-named tests invoke only schemas/daemon
+  helpers and that the mandated role/race/restart/removal matrix is absent. Then
+  implement the smallest S1-only closure. Run the complete matrix, not
+  representative samples: canonical directive placement and examples, ordered
+  d/h/m/s, lowercase/malformed cases, clock/ISO offsets, leap/day and
+  fixed-offset DST-adjacent clocks, UTF-8/directive/future/horizon bounds, and
+  text-only reply/attachment/voice/wait refusals; human and agent authors to
+  local human/agent and qualified human/agent targets with exact
+  author/recipient attribution; rename, same-handle replacement, removal,
+  worktree unregistration/removal/missing/locked states, no fallback/group
+  expansion, and restart; tied due rows and cancellation/claim races;
+  authenticated owner/admin/member/observer/foreign-room and own/other-agent
+  cancellation over an actual server socket with exact success/error refs and
+  authoritative terminal no-ops; pending/sending/sent/failed/cancelled reopen
+  and daemon boot; injected failure before claim, after claim, before commit,
+  after commit, before dispatch, and after dispatch; one bounded unrefed timer,
+  24-hour re-arm, wake, shutdown, and background error handling; exactly one
+  ordinary message, delivery, durable link, and dispatch after recovery; every
+  live message/member/inbox/schedule frame in monotonic producing-seq order,
+  replay after every boundary, cold/warm hydration, redaction, and local/remote
+  socket parity. Run protocol tests/build, isolated switchboard tests/build
+  without changing shared host links, recursive workspace build, serialized
+  workspace tests, Harn working/staged/apply checks, and git diff --check. Make
+  one acceptance-closure commit and finish clean. Do not integrate Q1, start S2,
+  change browser/CLI/cards/composer behavior, add recurrence/cron/edit/bulk/
+  scripts/external queues, mutate shared host/node_modules links, delegate, poll
+  peers, push, merge, deploy, publish, release, or update the host. Tag the
+  local orchestrator exactly once on a genuine blocker or completion with
+  commit, red/green evidence, Harn result, and clean status, then stop.
+applied:
+  applied_at: 2026-08-12T17:13:33.012Z

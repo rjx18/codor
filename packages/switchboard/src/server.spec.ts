@@ -105,6 +105,100 @@ describe('scheduled-message socket contract', () => {
       act: { act: 'cancel_schedule', schedule_id: 'schedule-1' },
     })).toThrow(/ref/);
   });
+
+  it('cancels a scheduled request through an authenticated WebSocket exactly once', async () => {
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    client.ws.send(JSON.stringify({
+      type: 'post', room: 'eng', body: '[send_in=1s] @admin-user socket schedule',
+    }));
+    const created = await client.next((frame) =>
+      frame.type === 'schedule' && frame.schedule.state === 'pending');
+    if (created.type !== 'schedule') throw new Error('missing scheduled request');
+    const ref = 'socket-cancel-1';
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref,
+      act: { act: 'cancel_schedule', schedule_id: created.schedule.id },
+    }));
+    const cancelled = await client.next((frame) =>
+      frame.type === 'cancel_schedule_result' && frame.ref === ref);
+    expect(cancelled).toMatchObject({
+      type: 'cancel_schedule_result', ref,
+      schedule: { id: created.schedule.id, state: 'cancelled' },
+    });
+    expect(client.frames.filter((frame) =>
+      frame.type === 'cancel_schedule_result' && frame.ref === ref,
+    )).toHaveLength(1);
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'socket-cancel-terminal-noop',
+      act: { act: 'cancel_schedule', schedule_id: created.schedule.id },
+    }));
+    expect(await client.next((frame) =>
+      frame.type === 'cancel_schedule_result' && frame.ref === 'socket-cancel-terminal-noop'))
+      .toMatchObject({ type: 'cancel_schedule_result', schedule: { state: 'cancelled' } });
+    expect(client.frames.filter((frame) =>
+      frame.type === 'schedule' && frame.schedule.id === created.schedule.id
+      && frame.schedule.state === 'cancelled')).toHaveLength(1);
+    client.ws.close();
+  });
+
+  it('applies owner/admin/member/observer schedule cancellation roles over sockets', async () => {
+    const memberClient = await connectAs(MEMBER_TOKEN);
+    memberClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await memberClient.next((frame) => frame.type === 'sync_complete');
+    memberClient.ws.send(JSON.stringify({
+      type: 'post', room: 'eng', body: '[send_in=1s] @admin-user member-owned schedule',
+    }));
+    const created = await memberClient.next((frame) =>
+      frame.type === 'schedule' && frame.schedule.state === 'pending');
+    if (created.type !== 'schedule') throw new Error('missing member schedule');
+    memberClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'member-cancel',
+      act: { act: 'cancel_schedule', schedule_id: created.schedule.id },
+    }));
+    expect(await memberClient.next((frame) =>
+      frame.type === 'cancel_schedule_result' && frame.ref === 'member-cancel'))
+      .toMatchObject({ type: 'cancel_schedule_result', schedule: { state: 'cancelled' } });
+
+    const observerClient = await connectAs(OBSERVER_TOKEN);
+    observerClient.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'observer-cancel',
+      act: { act: 'cancel_schedule', schedule_id: created.schedule.id },
+    }));
+    expect(await observerClient.next((frame) =>
+      frame.type === 'error' && frame.ref === 'observer-cancel'))
+      .toMatchObject({ type: 'error', ref: 'observer-cancel' });
+    memberClient.ws.close();
+    observerClient.ws.close();
+  });
+
+  it('replays a due schedule and its linked message after a real socket reconnect', async () => {
+    const first = await connect();
+    first.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await first.next((frame) => frame.type === 'sync_complete');
+    const owner = daemon.ownerOf('eng');
+    const schedule = daemon.scheduleMessage(
+      'eng', '[send_in=1h] @admin-user reconnect schedule', owner.id,
+      { now: new Date(Date.now()), hostOffsetMinutes: 480 },
+    );
+    const cursor = daemon.store.currentSeq('eng');
+    first.ws.close();
+    await daemon.runDueSchedules(new Date(Date.parse(schedule.due_ts) + 1));
+
+    const reconnected = await connect();
+    reconnected.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: cursor }));
+    const replayed = await reconnected.next((frame) =>
+      frame.type === 'schedule' && frame.schedule.id === schedule.id && frame.schedule.state === 'sent');
+    expect(replayed).toMatchObject({ type: 'schedule', schedule: { id: schedule.id, state: 'sent' } });
+    expect(reconnected.frames.some((frame) =>
+      frame.type === 'message' && frame.message.body === '@admin-user reconnect schedule')).toBe(true);
+    expect(daemon.store.listMessages('eng', { limit: 100 })
+      .filter((message) => message.body === '@admin-user reconnect schedule')).toHaveLength(1);
+    expect(daemon.store.listDeliveries('eng').filter((delivery) =>
+      delivery.message_id === daemon.store.getSchedule('eng', schedule.id)?.delivered_message_id)).toHaveLength(1);
+    reconnected.ws.close();
+  });
 });
 // harn:end scheduled-cancellation-is-authorized-before-claim
 

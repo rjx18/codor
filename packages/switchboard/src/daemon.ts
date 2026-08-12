@@ -2794,6 +2794,7 @@ export class Daemon {
       now?: Date;
       hostOffsetMinutes?: number;
       directive?: ParsedScheduleDirective;
+      authorTarget?: ScopedMemberTarget;
       replyTo?: number;
       attachments?: readonly Attachment[];
       voice?: VoiceNote;
@@ -2810,10 +2811,18 @@ export class Daemon {
       hostOffsetMinutes: options.hostOffsetMinutes,
     });
     if (parsedDirective === undefined) throw new Error('not a scheduling directive');
-    const author = this.store.getMember(originRoom, authorId);
+    const authorRoom = options.authorTarget?.conversation_id ?? originRoom;
+    const author = this.store.getMember(authorRoom, authorId);
     if (author === undefined || (author.kind !== 'human' && author.kind !== 'agent')
       || author.removed_ts !== undefined) {
       throw new Error(`no active schedule author: ${authorId}`);
+    }
+    if (options.authorTarget !== undefined) {
+      if (options.authorTarget.member_id !== author.id
+        || options.authorTarget.handle !== author.handle
+        || !this.store.routingTargetIsActive(options.authorTarget, originRoom)) {
+        throw new Error('scheduled author target is unavailable');
+      }
     }
     const routingState = this.routingState(originRoom);
     const parsed = parseBody(parsedDirective.clean_body, this.store.listMembers(originRoom), {
@@ -2842,6 +2851,20 @@ export class Daemon {
       throw new Error('scheduled target is unavailable');
     }
     const destination = mention.target?.conversation_id ?? originRoom;
+    let authorTarget = options.authorTarget;
+    if (authorTarget === undefined && author.kind === 'agent' && destination !== originRoom) {
+      const root = this.store.rootRoomId(originRoom) ?? originRoom;
+      const worktree = this.store.getWorktreeByConversation(root, originRoom);
+      if (worktree?.lifecycle === 'active' && worktree.conversation_id === originRoom) {
+        authorTarget = {
+          worktree_id: worktree.id,
+          conversation_id: originRoom,
+          member_id: author.id,
+          alias: worktree.alias,
+          handle: author.handle,
+        };
+      }
+    }
     const target = {
       member_id: targetMember.id,
       conversation_id: destination,
@@ -2855,6 +2878,7 @@ export class Daemon {
       room: destination,
       author_id: author.id,
       author_handle: author.handle,
+      ...(authorTarget !== undefined && { author_target: authorTarget }),
       target,
       body: parsedDirective.clean_body,
       mentions: parsed.mentions,
@@ -2877,9 +2901,18 @@ export class Daemon {
     room: string,
     committed: ReturnType<Store['commitScheduledMessage']>,
   ): void {
-    for (const effect of [...committed.effects].sort((left, right) => left.seq - right.seq)) {
+    const orderedEffects = [...committed.effects].sort((left, right) => left.seq - right.seq);
+    for (const effect of orderedEffects) {
       if (effect.entity === 'message' && committed.message?.id === Number(effect.entity_id)) {
         this.emitMessage(room, committed.message);
+        // Agent deliveries do not create an inbox change-log row, but their live
+        // projection shares the message's honest producing cursor and must be
+        // published before the newer terminal schedule linkage.
+        for (const delivery of committed.deliveries) {
+          if (this.targetMember(delivery, room)?.member.kind === 'agent') {
+            this.emitInboxAt(room, delivery, committed.message.seq);
+          }
+        }
       } else if (effect.entity === 'member') {
         const member = this.store.getMember(room, effect.entity_id);
         if (member !== undefined) this.emitMember(room, member, effect.seq);
@@ -2888,15 +2921,6 @@ export class Daemon {
         if (delivery !== undefined) this.emitInboxAt(room, delivery, effect.seq);
       } else if (effect.entity === 'schedule' && committed.schedule.id === effect.entity_id) {
         this.emitSchedule(committed.schedule, effect.seq);
-      }
-    }
-    // Agent deliveries do not create an inbox change-log row, but their live
-    // frame still belongs before the terminal schedule linkage.
-    if (committed.message !== undefined) {
-      for (const delivery of committed.deliveries) {
-        if (this.targetMember(delivery, room)?.member.kind === 'agent') {
-          this.emitInboxAt(room, delivery, committed.message.seq);
-        }
       }
     }
   }
@@ -2917,6 +2941,7 @@ export class Daemon {
       for (const candidate of work) {
         const current = this.store.getSchedule(candidate.room, candidate.id);
         if (current?.state !== 'sending') continue;
+        let committed: ReturnType<Store['commitScheduledMessage']> | undefined;
         try {
           const frozenMember = this.store.getMember(current.target.conversation_id, current.target.member_id);
           if (frozenMember === undefined) throw new Error(`frozen target is unavailable: ${current.target.member_id}`);
@@ -2928,14 +2953,15 @@ export class Daemon {
                 conversation_id: current.target.conversation_id,
                 member_id: current.target.member_id,
                 alias: current.target.alias,
-                handle: current.target.handle,
+                handle: frozenMember.handle,
               },
             }),
           };
-          const committed = this.store.commitScheduledMessage(candidate.room, candidate.id, {
+          const result = this.store.commitScheduledMessage(candidate.room, candidate.id, {
             now: nowTs,
             message: {
               author: current.author_id,
+              ...(current.author_target !== undefined && { author_target: current.author_target }),
               kind: 'chat',
               body: current.body,
               mentions: current.mentions,
@@ -2949,22 +2975,30 @@ export class Daemon {
               undefined,
               false,
               true,
-              candidate.room,
+              current.author_target?.conversation_id ?? candidate.room,
               frozenTarget,
             ).plan,
           });
+          committed = result;
           this.emitScheduledEffects(candidate.room, committed);
           if (committed.message !== undefined) {
             this.dispatchScheduledCreatedDeliveries(candidate.room, committed.deliveries);
           }
         } catch (error) {
+          // The transaction is authoritative. Once it returned, any emit or
+          // dispatch error belongs to ordinary delivery recovery and must not
+          // reclassify a sent schedule or broadcast its terminal row twice.
+          if (committed !== undefined) continue;
+          const beforeFailure = this.store.getSchedule(candidate.room, candidate.id);
           const failed = this.store.failSchedule(
             candidate.room,
             candidate.id,
             String(error).slice(0, 1_000),
             nowTs,
           );
-          this.emitSchedule(failed, this.store.scheduleChangeSeq(failed.room, failed.id));
+          if (failed.state !== beforeFailure?.state || failed.updated_ts !== beforeFailure?.updated_ts) {
+            this.emitSchedule(failed, this.store.scheduleChangeSeq(failed.room, failed.id));
+          }
         }
       }
     } finally {
@@ -2977,10 +3011,20 @@ export class Daemon {
   cancelSchedule(room: string, scheduleId: string, actorId: string, agent = false): Schedule {
     const local = this.store.getSchedule(room, scheduleId);
     const global = local === undefined ? this.store.findSchedule(scheduleId) : undefined;
-    const located = local ?? (global?.origin_room === room ? global : undefined);
+    const located = local ?? (global !== undefined
+      && (global.origin_room === room || global.room === room) ? global : undefined);
     if (located === undefined) throw new Error(`no such schedule: ${scheduleId}`);
-    const actor = this.store.getMember(room, actorId);
+    const authorTarget = located.author_target;
+    const actor = agent && authorTarget?.member_id === actorId
+      ? this.store.getMember(authorTarget.conversation_id, actorId)
+      : this.store.getMember(room, actorId);
     if (actor === undefined || actor.removed_ts !== undefined) throw new Error(`no active actor: ${actorId}`);
+    if (agent && (actor.kind !== 'agent' || located.author_id !== actorId)) {
+      throw new Error('forbidden: an agent may cancel only its own schedule');
+    }
+    if (room !== located.room && room !== located.origin_room) {
+      throw new Error('forbidden: schedule cancellation is limited to its origin or destination room');
+    }
     const admin = !agent && actor.kind === 'human' && (actor.role === 'admin' || actor.role === 'owner');
     const previous = located;
     const cancelled = this.store.cancelSchedule(located.room, scheduleId, actorId, { admin });

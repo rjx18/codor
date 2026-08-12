@@ -185,6 +185,91 @@ describe('scheduled-message daemon state machine', () => {
     expect(daemon.store.getMember('eng', secondTarget.id)).toBeDefined();
   });
 
+  it('keeps an agent inbox cursor before the terminal schedule cursor', async () => {
+    const target = spawnAgent('cursor-agent');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', '[send_in=1s] @cursor-agent cursor order', owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    frames = [];
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const delivery = daemon.store.listDeliveries('eng', { recipient: target.id })[0]!;
+    const visible = frames.filter(({ frame }) =>
+      (frame.type === 'message' && frame.message.id === daemon.store.getMessage(
+        'eng', daemon.store.getSchedule('eng', scheduled.id)!.delivered_message_id!,
+      )?.id)
+      || (frame.type === 'inbox' && frame.delivery.id === delivery.id)
+      || (frame.type === 'schedule' && frame.schedule.id === scheduled.id && frame.schedule.state === 'sent'));
+    expect(visible.map(({ frame }) => frame.seq)).toEqual(
+      [...visible].map(({ frame }) => frame.seq).sort((left, right) => left - right),
+    );
+    expect(visible.findIndex(({ frame }) => frame.type === 'inbox')).toBeLessThan(
+      visible.findIndex(({ frame }) => frame.type === 'schedule'),
+    );
+  });
+
+  it('does not duplicate a terminal schedule when post-commit dispatch throws', async () => {
+    const target = spawnAgent('dispatch-failure-agent');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', '[send_in=1s] @dispatch-failure-agent dispatch failure', owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    const scheduler = daemon as unknown as {
+      dispatchScheduledCreatedDeliveries: (room: string, deliveries: unknown[]) => void;
+    };
+    vi.spyOn(scheduler, 'dispatchScheduledCreatedDeliveries').mockImplementationOnce(() => {
+      throw new Error('injected dispatch failure');
+    });
+    frames = [];
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    expect(frames.filter(({ frame }) =>
+      frame.type === 'schedule' && frame.schedule.id === scheduled.id && frame.schedule.state === 'sent',
+    )).toHaveLength(1);
+    expect(daemon.store.getSchedule('eng', scheduled.id)?.state).toBe('sent');
+    expect(daemon.store.listDeliveries('eng', { recipient: target.id })).toHaveLength(1);
+  });
+
+  it('persists a qualified agent author scope through a delayed foreign-target delivery', async () => {
+    const authorWorktree = registerQualifiedFixture('author-source', 'author-source');
+    const targetWorktree = registerQualifiedFixture('author-destination', 'author-destination');
+    const authorRoom = authorWorktree.conversation_id!;
+    const targetRoom = targetWorktree.conversation_id!;
+    const author = daemon.spawnMember(authorRoom, {
+      harness: 'fake', handle: 'scoped-author', cwd: testCwd('scoped-author'),
+    });
+    const target = daemon.spawnMember(targetRoom, {
+      harness: 'fake', handle: 'scoped-recipient', cwd: testCwd('scoped-recipient'),
+    });
+    const authorTarget = {
+      worktree_id: authorWorktree.id,
+      conversation_id: authorRoom,
+      member_id: author.id,
+      alias: authorWorktree.alias,
+      handle: author.handle,
+    };
+    const schedule = (daemon.scheduleMessage as unknown as (
+      room: string,
+      body: string,
+      authorId: string,
+      options: Record<string, unknown>,
+    ) => ReturnType<Daemon['scheduleMessage']>)(
+      authorRoom,
+      ` [send_in=1s] ~${targetWorktree.alias}:@${target.handle} scoped author`,
+      author.id,
+      {
+        now: new Date('2026-08-12T00:00:00.000Z'),
+        hostOffsetMinutes: 480,
+        authorTarget,
+      },
+    );
+    expect(schedule.author_target).toEqual(authorTarget);
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const delivered = daemon.store.getMessage(targetRoom, daemon.store.getSchedule(targetRoom, schedule.id)!.delivered_message_id!);
+    expect(delivered?.author_target).toEqual(authorTarget);
+  });
+
   it('keeps qualified worktree identity and redacts the live schedule projection', async () => {
     const worktree = registerQualifiedFixture('scheduled-child', 'scheduled-child');
     const child = worktree.conversation_id;
@@ -207,6 +292,48 @@ describe('scheduled-message daemon state machine', () => {
       .some((delivery) => delivery.message_id === delivered?.id && delivery.target?.worktree_id === worktree.id))
       .toBe(true);
     expect(JSON.stringify(frames)).not.toContain('sk-proj-abcdef1234567890abcdef');
+  });
+
+  it('keeps a qualified frozen member id through a rename without retargeting', async () => {
+    const worktree = registerQualifiedFixture('rename-target', 'rename-target');
+    const child = worktree.conversation_id!;
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: 'before-rename', cwd: testCwd('before-rename'),
+    });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', ` [send_in=1s] ~${worktree.alias}:@before-rename preserve renamed id`, owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    daemon.store.updateMember(child, target.id, { handle: 'after-rename' });
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const completed = daemon.store.getSchedule(child, scheduled.id)!;
+    expect(completed.state).toBe('sent');
+    const message = daemon.store.getMessage(child, completed.delivered_message_id!);
+    expect(daemon.store.listDeliveries(child, { recipient: target.id })
+      .some((delivery) => delivery.message_id === message?.id && delivery.target?.member_id === target.id))
+      .toBe(true);
+  });
+
+  it('fails a removed qualified target without fallback or message allocation', async () => {
+    const worktree = registerQualifiedFixture('removed-target', 'removed-target');
+    const child = worktree.conversation_id!;
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: 'removed-target-agent', cwd: testCwd('removed-target-agent'),
+    });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const configured = spawnAgent('configured-fallback');
+    daemon.configureRoom('eng', { starting_agent_handle: configured.handle });
+    const scheduled = daemon.scheduleMessage(
+      'eng', ` [send_in=1s] ~${worktree.alias}:@${target.handle} no fallback`, owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    daemon.store.updateMember(child, target.id, { removed_ts: new Date().toISOString(), state: 'dead' });
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    expect(daemon.store.getSchedule(child, scheduled.id)?.state).toBe('failed');
+    expect(daemon.store.listMessages(child, { limit: 100 })
+      .some((message) => message.body === 'no fallback')).toBe(false);
+    expect(daemon.store.listDeliveries('eng', { recipient: configured.id })).toHaveLength(0);
   });
 
   it('re-arms the sole bounded timer and clears it on shutdown', async () => {
@@ -232,6 +359,32 @@ describe('scheduled-message daemon state machine', () => {
     await daemon.close({ force: true });
     expect(clearedTimers).toBeGreaterThan(0);
     expect(target.id).toBeTruthy();
+  });
+
+  it('reopens a claimed schedule and commits one message/delivery after a daemon restart', async () => {
+    const target = spawnAgent('restart-schedule-target');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const schedule = daemon.store.createSchedule({
+      origin_room: 'eng',
+      room: 'eng',
+      author_id: owner.id,
+      author_handle: owner.handle,
+      target: { member_id: target.id, conversation_id: 'eng', handle: target.handle },
+      body: '@restart-schedule-target restart once',
+      mentions: [{ member_id: target.id, start: 0, end: 23 }],
+      due_ts: new Date(Date.now() + 60 * 60 * 1_000).toISOString(),
+      host_offset_minutes: 480,
+    });
+    daemon.store.claimDueSchedules(new Date(Date.parse(schedule.due_ts) + 1).toISOString());
+    await daemon.close({ force: true });
+    frames = [];
+    daemon = newDaemon();
+    await until(() => daemon.store.getSchedule('eng', schedule.id)?.state === 'sent');
+    const sent = daemon.store.getSchedule('eng', schedule.id)!;
+    expect(daemon.store.listMessages('eng', { limit: 100 })
+      .filter((message) => message.id === sent.delivered_message_id)).toHaveLength(1);
+    expect(daemon.store.listDeliveries('eng', { recipient: target.id })
+      .filter((delivery) => delivery.message_id === sent.delivered_message_id)).toHaveLength(1);
   });
 });
 // harn:end scheduled-message-commit-is-exactly-once

@@ -468,6 +468,13 @@ function migrateScheduleStore(db: Database.Database): void {
   if (columns.length > 0 && !columns.some((column) => column.name === 'ledger_refs')) {
     db.exec('ALTER TABLE schedules ADD COLUMN ledger_refs TEXT');
   }
+  for (const column of [
+    'author_worktree_id', 'author_conversation_id', 'author_alias', 'author_target_handle',
+  ]) {
+    if (columns.length > 0 && !columns.some((candidate) => candidate.name === column)) {
+      db.exec(`ALTER TABLE schedules ADD COLUMN ${column} TEXT`);
+    }
+  }
   db.exec(`
     CREATE TABLE IF NOT EXISTS schedules (
       id TEXT PRIMARY KEY,
@@ -485,6 +492,10 @@ function migrateScheduleStore(db: Database.Database): void {
       mentions TEXT NOT NULL,
       refs TEXT,
       ledger_refs TEXT,
+      author_worktree_id TEXT,
+      author_conversation_id TEXT,
+      author_alias TEXT,
+      author_target_handle TEXT,
       due_ts TEXT NOT NULL,
       host_offset_minutes INTEGER NOT NULL,
       state TEXT NOT NULL CHECK (state IN ('pending', 'sending', 'sent', 'failed', 'cancelled')),
@@ -1485,6 +1496,10 @@ interface ScheduleRow {
   mentions: string;
   refs: string | null;
   ledger_refs: string | null;
+  author_worktree_id: string | null;
+  author_conversation_id: string | null;
+  author_alias: string | null;
+  author_target_handle: string | null;
   due_ts: string;
   host_offset_minutes: number;
   state: string;
@@ -1748,6 +1763,16 @@ function scheduleFromRow(row: ScheduleRow): Schedule {
     mentions: JSON.parse(row.mentions),
     ...(row.refs !== null && { refs: JSON.parse(row.refs) }),
     ...(row.ledger_refs !== null && { ledger_refs: JSON.parse(row.ledger_refs) }),
+    ...(row.author_worktree_id !== null && row.author_conversation_id !== null
+      && row.author_alias !== null && row.author_target_handle !== null && {
+      author_target: {
+        worktree_id: row.author_worktree_id,
+        conversation_id: row.author_conversation_id,
+        member_id: row.author_id,
+        alias: row.author_alias,
+        handle: row.author_target_handle,
+      },
+    }),
     due_ts: row.due_ts,
     host_offset_minutes: row.host_offset_minutes,
     state: ScheduleStateSchema.parse(row.state),
@@ -1949,6 +1974,7 @@ export interface NewSchedule {
   mentions: Message['mentions'];
   refs?: number[];
   ledger_refs?: string[];
+  author_target?: ScopedMemberTarget;
   due_ts: string;
   host_offset_minutes: number;
   created_ts?: string;
@@ -3771,6 +3797,7 @@ export class Store {
         ...(input.origin_room !== undefined && { origin_room: input.origin_room }),
         author_id: input.author_id,
         author_handle: input.author_handle,
+        ...(input.author_target !== undefined && { author_target: input.author_target }),
         target,
         body: input.body,
         mentions: input.mentions,
@@ -3786,9 +3813,11 @@ export class Store {
         `INSERT INTO schedules
          (id, room, origin_room, author_id, author_handle, target_member_id,
           target_conversation_id, target_worktree_id, target_alias, target_handle,
-         target_display_name, body, mentions, due_ts, host_offset_minutes, state,
-         refs, ledger_refs, created_ts, updated_ts, claimed_ts, completed_ts, error, delivered_message_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         target_display_name, body, mentions, refs, ledger_refs,
+         author_worktree_id, author_conversation_id, author_alias, author_target_handle,
+         due_ts, host_offset_minutes, state,
+         created_ts, updated_ts, claimed_ts, completed_ts, error, delivered_message_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         schedule.id,
         schedule.room,
@@ -3803,11 +3832,15 @@ export class Store {
         schedule.target.display_name ?? null,
         schedule.body,
         JSON.stringify(schedule.mentions),
+        schedule.refs === undefined ? null : JSON.stringify(schedule.refs),
+        schedule.ledger_refs === undefined ? null : JSON.stringify(schedule.ledger_refs),
+        schedule.author_target?.worktree_id ?? null,
+        schedule.author_target?.conversation_id ?? null,
+        schedule.author_target?.alias ?? null,
+        schedule.author_target?.handle ?? null,
         schedule.due_ts,
         schedule.host_offset_minutes,
         schedule.state,
-        schedule.refs === undefined ? null : JSON.stringify(schedule.refs),
-        schedule.ledger_refs === undefined ? null : JSON.stringify(schedule.ledger_refs),
         schedule.created_ts,
         schedule.updated_ts,
         null,
@@ -3961,14 +3994,17 @@ export class Store {
       }
       if (schedule.state !== 'sending') throw new Error(`schedule ${id} is not claimed`);
       const target = schedule.target;
-      const active = this.getMember(target.conversation_id, target.member_id)?.removed_ts === undefined
-        && this.getMember(target.conversation_id, target.member_id) !== undefined
+      const currentTargetMember = this.getMember(target.conversation_id, target.member_id);
+      const active = currentTargetMember?.removed_ts === undefined
+        && currentTargetMember !== undefined
         && (target.worktree_id === undefined || target.alias === undefined || this.routingTargetIsActive({
           worktree_id: target.worktree_id,
           conversation_id: target.conversation_id,
           member_id: target.member_id,
           alias: target.alias,
-          handle: target.handle,
+          // Member ids are the frozen identity. A rename must not retarget or
+          // strand a valid schedule; same-handle replacement still fails on id.
+          handle: currentTargetMember.handle,
         }, schedule.origin_room ?? room));
       if (!active) {
         const failed = this.updateScheduleTerminal(

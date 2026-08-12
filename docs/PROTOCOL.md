@@ -139,7 +139,9 @@ unavailable targets are refused before any SQLite write. S1 has no recurrence, c
 editing, bulk operations, scripts, external queues, cards, composer behavior, or CLI
 presentation. Accepted rows freeze the author, one resolved member/worktree identity,
 mention span, clean body, and absolute due instant; later aliases or same-handle
-members cannot retarget them.
+members cannot retarget them. When an agent schedules from a registered worktree,
+the row also snapshots its qualified author coordinate so the eventual destination
+message and delivery payload retain the exact execution attribution.
 
 Each insert or real state transition is a room-scoped `schedule` change-log entity
 with its producing sequence; live effects from one due commit are published in
@@ -148,7 +150,7 @@ daemon exposes redacted `schedule` frames during live fanout and hydration; dura
 states are `pending`, `sending`, `sent`, `failed`, and `cancelled`. A correlated
 `cancel_schedule` act carries one bounded correlation `ref`, echoed by its result,
 and is authorized for the schedule author or a human room admin in the schedule's
-origin room
+origin or destination room (never an unrelated room)
 and can win only while the row is pending. Delivery claims and the ordinary routed
 message commit share one SQLite transaction, so restart may delay work but cannot
 duplicate the visible message or its deliveries.

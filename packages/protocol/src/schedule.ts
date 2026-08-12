@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { MemberIdSchema, MessageIdSchema, RoomIdSchema, TimestampSchema } from './ids.js';
 import { HandleSchema } from './member.js';
 import { MentionSpanSchema } from './message.js';
-import { WorktreeAliasSchema, WorktreeIdSchema } from './worktree.js';
+import {
+  ScopedMemberTargetSchema,
+  WorktreeAliasSchema,
+  WorktreeIdSchema,
+} from './worktree.js';
 
 export const MAX_SCHEDULE_DIRECTIVE_CHARS = 256;
 export const MAX_SCHEDULE_BODY_BYTES = 65_536;
@@ -37,6 +41,8 @@ export const ScheduleSchema = z.object({
   origin_room: RoomIdSchema.optional(),
   author_id: MemberIdSchema,
   author_handle: z.string().min(1).max(64),
+  /** Stable execution identity when an agent schedules from a qualified worktree. */
+  author_target: ScopedMemberTargetSchema.optional(),
   target: ScheduledTargetSchema,
   body: z.string().max(MAX_SCHEDULE_BODY_BYTES).refine(
     (body) => new TextEncoder().encode(body).byteLength <= MAX_SCHEDULE_BODY_BYTES,
@@ -54,6 +60,14 @@ export const ScheduleSchema = z.object({
   completed_ts: TimestampSchema.optional(),
   error: z.string().max(1_000).optional(),
   delivered_message_id: MessageIdSchema.optional(),
+}).superRefine((schedule, ctx) => {
+  if (schedule.author_target !== undefined && schedule.author_target.member_id !== schedule.author_id) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['author_target', 'member_id'],
+      message: 'qualified schedule author target must match author_id',
+    });
+  }
 });
 export type Schedule = z.infer<typeof ScheduleSchema>;
 // harn:end scheduled-state-streams-through-room-seq-v2
