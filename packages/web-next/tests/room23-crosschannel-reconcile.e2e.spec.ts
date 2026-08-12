@@ -20,6 +20,137 @@ async function open(page: Page, room: string): Promise<void> {
 }
 
 test.describe('cross-channel seq reconciliation', () => {
+  // harn:assume selected-room-activation-reconciles-destination-history ref=selected-room-terminal-evidence-browser-regression
+  test('returning to an initialized room reconciles a run finalized while inactive', async ({ page }) => {
+    test.setTimeout(60_000);
+    let sockets = 0;
+    const finalText = 'terminal evidence finalized while engineering was inactive';
+    const retryText = 'terminal evidence appears after a failed activation refresh';
+    const droppedFinalTexts = new Set<string>();
+    let failNextHead = false;
+    const subscriptions: string[] = [];
+    await page.routeWebSocket(/\/ws\?/, (ws) => {
+      sockets += 1;
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        if (typeof message === 'string') {
+          try {
+            const frame = JSON.parse(message) as { type?: string; room?: string };
+            if (frame.type === 'subscribe' && frame.room !== undefined) subscriptions.push(frame.room);
+          } catch {
+            // Binary/non-protocol traffic is forwarded unchanged.
+          }
+        }
+        server.send(message);
+      });
+      server.onMessage((message) => {
+        if (typeof message === 'string') {
+          for (const text of [finalText, retryText]) {
+            if (!droppedFinalTexts.has(text) && message.includes(text)) {
+              droppedFinalTexts.add(text);
+              return;
+            }
+          }
+        }
+        ws.send(message);
+      });
+    });
+    await page.route('**/api/rooms/eng/transcript-history*', async (route) => {
+      if (!failNextHead) {
+        await route.continue();
+        return;
+      }
+      failNextHead = false;
+      await route.abort();
+    });
+    const requests: string[] = [];
+    page.on('request', (request) => requests.push(request.url()));
+    const engHistoryRequests = (): number => requests.filter((url) => (
+      url.includes('/api/rooms/eng/transcript-history')
+    )).length;
+    await page.addInitScript(() => {
+      const runtime = window as unknown as { __selectedRoomLoadCount?: number };
+      runtime.__selectedRoomLoadCount = (runtime.__selectedRoomLoadCount ?? 0) + 1;
+    });
+
+    await open(page, 'eng');
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
+    await expect(page.locator('.nx-skeleton')).toHaveCount(0);
+    await control('/enqueue', {
+      turns: [{
+        kind: 'complete',
+        delay_ms: 1_000,
+        final_text: finalText,
+      }],
+    });
+    await control('/start-run', { room: 'eng', handle: 'fable', prompt: 'finish after room switch' });
+    await expect(page.getByTestId('timeline')).toContainText('finish after room switch');
+
+    await page.getByTestId('room-link-research').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Research');
+    await expect(page.locator('.nx-skeleton')).toHaveCount(0);
+    await expect.poll(() => droppedFinalTexts.has(finalText)).toBe(true);
+    await expect(page.getByTestId('timeline')).not.toContainText(finalText);
+
+    const historyBeforeReturn = engHistoryRequests();
+    const journalBeforeReturn = requests.filter((url) => /\/runs\/[^/?]+/.test(url)).length;
+    const socketsBeforeReturn = sockets;
+    const subscriptionsBeforeReturn = subscriptions.length;
+    const loadCount = await page.evaluate(() => (
+      (window as unknown as { __selectedRoomLoadCount?: number }).__selectedRoomLoadCount
+    ));
+
+    await page.getByTestId('room-link-eng').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
+    await expect(page.getByTestId('timeline').getByText(finalText, { exact: true }))
+      .toHaveCount(1, { timeout: 10_000 });
+    await expect.poll(engHistoryRequests)
+      .toBe(historyBeforeReturn + 1);
+
+    expect(requests.filter((url) => /\/runs\/[^/?]+/.test(url))).toHaveLength(journalBeforeReturn);
+    expect(sockets).toBe(socketsBeforeReturn);
+    expect(subscriptions).toHaveLength(subscriptionsBeforeReturn);
+    expect(await page.evaluate(() => (
+      (window as unknown as { __selectedRoomLoadCount?: number }).__selectedRoomLoadCount
+    ))).toBe(loadCount);
+
+    // A failed head must preserve the mounted truth and remain retryable on a
+    // later activation; this request is intentionally aborted once.
+    failNextHead = true;
+    await control('/enqueue', {
+      turns: [{ kind: 'complete', delay_ms: 1_000, final_text: retryText }],
+    });
+    await control('/start-run', { room: 'eng', handle: 'fable', prompt: 'retry after a failed head' });
+    await expect(page.getByTestId('timeline')).toContainText('retry after a failed head');
+    await page.getByTestId('room-link-research').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Research');
+    await expect.poll(() => droppedFinalTexts.has(retryText)).toBe(true);
+    await expect(page.getByTestId('timeline')).not.toContainText(retryText);
+
+    const historyBeforeFailedActivation = engHistoryRequests();
+    const journalBeforeFailedActivation = requests.filter((url) => /\/runs\/[^/?]+/.test(url)).length;
+    await page.getByTestId('room-link-eng').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
+    await expect.poll(engHistoryRequests)
+      .toBe(historyBeforeFailedActivation + 1);
+    await expect(page.getByTestId('timeline')).not.toContainText(retryText);
+
+    // Switching away and back supplies a fresh activation key after the
+    // failed request has cleared, so the same destination retries successfully.
+    await page.getByTestId('room-link-research').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Research');
+    await page.getByTestId('room-link-eng').click();
+    await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
+    await expect(page.getByTestId('timeline').getByText(retryText, { exact: true }))
+      .toHaveCount(1, { timeout: 10_000 });
+    await expect.poll(engHistoryRequests)
+      .toBe(historyBeforeFailedActivation + 2);
+    expect(requests.filter((url) => /\/runs\/[^/?]+/.test(url))).toHaveLength(journalBeforeFailedActivation);
+    expect(sockets).toBe(socketsBeforeReturn);
+    expect(subscriptions).toHaveLength(subscriptionsBeforeReturn);
+  });
+  // harn:end selected-room-activation-reconciles-destination-history
+
   // harn:assume combined-history-sync-classifies-bounded-cold-only ref=room23-warm-replay-regression
   test('a dropped background-room message self-heals on the next probe, no reload', async ({ page }) => {
     // Short probe cadence so reconciliation runs deterministically (test seam).

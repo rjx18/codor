@@ -1,0 +1,21 @@
+id: selected-room-activation-reconciles-destination-history
+hash: a-9ca1d9b9b983
+title: Selected rooms reconcile destination-owned history after readiness
+state: active
+statement: >
+  Whenever a room becomes the selected conversation, the browser must wait until
+  that exact room is live on the selected connector and then start one
+  non-blocking, per-source-store and per-room deduplicated combined-history head
+  reconciliation using the source store, room, and credential captured for that
+  activation, so terminal evidence missed while the room was inactive appears
+  immediately without a reload, reconnect, new relay or app socket,
+  resubscription of an already promoted room, cross-computer writes, or loss of
+  cached, older, or newer live content; failure preserves rendered truth and a
+  later activation remains retryable.
+depends_on:
+  - missed-terminal-history-refreshes-through-combined-head
+  - managed-computer-activation-revalidates-destination-history
+  - finalized-browser-history-is-combined-page-owned
+  - hosted-computer-sessions-keep-state-isolated
+  - worktree-conversation-status-is-live-and-independent
+created_by: hosted-transcript-reliability-h1-selected-room-reconciliation

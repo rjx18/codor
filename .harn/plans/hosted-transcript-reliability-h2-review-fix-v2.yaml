@@ -1,0 +1,178 @@
+id: hosted-transcript-reliability-h2-review-fix-v2
+title: Close authoritative overlap and in-place reader-state review gaps v2
+notes: >
+  Correct only the H2 review findings on accepted implementation commit
+  aaaad27fb60d02fc3c8b68d67cee769e32c13a76. The current helper inserts the
+  authoritative response at the first overlap but retains every nonmatching
+  current unit after it. That can move a stale unit from inside the returned
+  authoritative range behind the new tail, and it retains a finalized suffix
+  even though a combined head owns the permanent newest ceiling. Preserve only
+  the loaded older prefix before the first stable overlap, then use the complete
+  chronological response as the authoritative suffix. If a bridged request
+  reaches exhaustion without overlap, the response is the complete finalized
+  range and stale current units must not survive; live-only records remain in
+  the separate room message map. Replace the browser test's full-navigation
+  approximation with real in-place room switches and assert live family order.
+  Clear room-scoped head anchor/pin restoration state in the pre-paint lifecycle
+  so an old room cannot influence the next room's layout. Do not alter H1,
+  server/protocol/relay/pagination/unitization, or any other transcript
+  behavior. Add the main Investigator's proven production case without involving
+  Lane E: start the run before a browser mounts, wait for its first prose,
+  persist the newer operator interjection, hydrate while the family is still
+  mutable, and settle live without reload. The expected permanent visible order
+  is trigger #1, older root #2, interjection #3, continuation #4, with #3
+  between the two run stretches; the accepted baseline instead paints
+  #1,#3,#2,#4 even though root/prose/tool x-coordinates are equal, proving
+  ordering/grouping rather than CSS indentation. This replacement plan also
+  accounts for the enclosing cached-head and live-settlement anchors exposed
+  when web-next is not hidden by .harnignore.
+assumptions:
+  reviewed:
+    - id: combined-head-adopts-authoritative-overlap-order
+      outcome: unchanged
+      reason: >
+        The correction makes the implemented splice match the accepted
+        assumption: older prefix plus exact authoritative response, with
+        live-only records kept outside page membership.
+    - id: combined-head-preserves-reader-unit-offset
+      outcome: unchanged
+      reason: >
+        Moving room-scoped restoration cleanup before paint closes the accepted
+        no-cross-room-leak requirement without adding another geometry owner.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        A successful head remains the sole finalized membership/order authority;
+        live-only messages remain separate until a page represents them.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: >
+        Message records still reconcile by protocol sequence independently of
+        the corrected page-unit membership and order.
+    - id: selected-room-activation-reconciles-destination-history
+      outcome: unchanged
+      reason: >
+        The browser correction now exercises the actual warm selected-room path;
+        readiness, deduplication, source store, room, and credential are
+        unchanged.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        The same layout owner continues to restore unpinned anchors and follow
+        the pinned tail after a synchronous room-scoped reset.
+    - id: cached-transcript-head-stays-stale-until-revalidated
+      outcome: unchanged
+      reason: >
+        The review browser journey remains a warm selected-room reconciliation;
+        cached last-good head invalidation and authenticated revalidation
+        ownership are not changed.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: >
+        The corrected authoritative unit splice and room lifecycle preserve the
+        existing live journal settlement contract without changing run fetches,
+        evidence ownership, or terminal rendering behavior.
+anchors:
+  combined-head-adopts-authoritative-overlap-order:
+    authoritative-head-overlap-merge:
+      action: change
+      reason: >
+        Retain only the older prefix before first overlap and replace the
+        remainder with the authoritative head/bridge; exhausted no-overlap
+        replaces stale finalized units rather than placing them after the newest
+        response.
+    authoritative-head-overlap-unit-regression:
+      action: change
+      reason: >
+        Add red coverage for stale interior/suffix units, exhausted no-overlap,
+        an older loaded prefix, and a live-only message record that must survive
+        without becoming a history unit.
+    authoritative-order-lifecycle-browser-regression:
+      action: change
+      reason: >
+        Start the production run before browser mount, hydrate after first prose
+        and the newer interjection while still mutable, then assert #1,#2,#3,#4
+        after live settlement without reload; also prove equal x coordinates and
+        use channel rail clicks for warm switch-away/switch-back before the
+        separate reload and page-boundary checks.
+  combined-head-preserves-reader-unit-offset:
+    head-reconciliation-reader-anchor:
+      action: change
+      reason: >
+        Reset pending restore and pin state synchronously for a new room before
+        the main geometry layout pass can observe the prior room's refs.
+    head-reconciliation-reader-anchor-regression:
+      action: change
+      reason: >
+        Prove held head work from room A cannot restore or unpin room B and that
+        a pinned reader remains at B's true tail, while retaining the existing
+        delayed intra-message two-pixel assertion.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-materializer:
+      action: change
+      reason: >
+        Remove stale finalized membership inside/after the authoritative
+        returned range while preserving older pages and separate live records.
+    combined-history-rendering:
+      action: change
+      reason: >
+        Reset the room-scoped restoration lifecycle before rendering the next
+        transcript's geometry.
+  live-before-history-materialization-reconciles:
+    history-materializer-uses-live-room-records:
+      action: change
+      reason: >
+        Explicitly prove the live-only record map survives even though it does
+        not gain or retain page-owned unit membership.
+  transcript-tail-follow-has-one-prepaint-owner:
+    transcript-prepaint-geometry:
+      action: change
+      reason: >
+        Perform room reset and head restoration in the one existing layout phase.
+  cached-transcript-head-stays-stale-until-revalidated:
+    cached-history-revalidation-regression:
+      action: change
+      reason: >
+        Account for the enclosing cached-head revalidation regression block that
+        contains the corrected transcript-history unit tests when web-next
+        anchors are visible to Harn.
+  live-runs-settle-beside-paged-history-once:
+    live-history-settlement-regression:
+      action: change
+      reason: >
+        Account for the enclosing live-settlement browser regression block that
+        contains the corrected continuation lifecycle tests when web-next
+        anchors are visible to Harn.
+files:
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+verification: >
+  Add the overlap regression first on aaaad27 and record its failure showing a
+  stale interior/suffix key after the authoritative tail. Then correct the
+  splice without sorting by id, timestamp, or receipt time. Unit coverage must
+  prove an older prefix is retained; stable incoming order is exact; stale
+  current units at or after first overlap are absent; an exhausted no-overlap
+  response replaces stale finalized units; and current/live message records not
+  represented by the page remain in the message map but never become history
+  units. Add the main Investigator's proven red browser journey before product
+  correction and run it against the pre-H2 ordering implementation (the accepted
+  2d5cbbc source behavior, also unchanged at the H1 parent): with no browser
+  mounted, start a real run, wait for first prose, persist the newer operator
+  interjection, open/hydrate while the family remains mutable, and let it settle
+  live. Record the exact baseline DOM failure #1,#3,#2,#4; assert equal
+  root/prose/tool x coordinates so the failure is ordering/grouping rather than
+  CSS. Green must be #1,#2,#3,#4 without reload, with #3 between the two output
+  stretches. Switch to another room and back through room-link clicks in the
+  same document, then retain the separate reload and page-boundary exact-key
+  checks. Extend the held-head journey to switch rooms before one response
+  settles and prove no restore/pin state leaks into the destination and a pinned
+  destination stays at the true tail; retain the intra-message delayed- response
+  offset within two pixels. Run focused transcript-history and Transcript units,
+  all web units, recursive build, and the complete isolated Room 21 and Room 23
+  suites. Run Harn check/apply/staged checks and git diff --check; create one
+  review-fix commit. Do not push, merge, deploy, publish, release, update a
+  host, or start unrelated work.
+applied:
+  applied_at: 2026-08-12T16:54:57.666Z

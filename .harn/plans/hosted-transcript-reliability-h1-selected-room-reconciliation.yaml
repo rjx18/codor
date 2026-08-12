@@ -1,0 +1,176 @@
+id: hosted-transcript-reliability-h1-selected-room-reconciliation
+title: Reconcile terminal evidence whenever a destination room becomes active
+notes: >
+  Implement only Lane A phase H1 from the accepted parallel reliability program.
+  The existing combined-head controller already owns bounded paging, stable-unit
+  deduplication, retryable failure, and concrete-store writes, but an
+  initialized room does not request a new head merely because the operator
+  returns to it. Make selected-room activation, after that exact room is live on
+  the current connector, the single lifecycle owner of a non-blocking
+  combined-head refresh. Capture the destination source store, room, and
+  credential before any await. Replace the narrower manager-level
+  computer-activation trigger so ordinary channel, worktree conversation,
+  browser Back/Forward, and managed-computer activation all use the same
+  ready-room path. Preserve the warm tunnel and app socket, all existing
+  subscriptions, cached readability, direct mode, current history pages, and the
+  prohibition on finalized /runs/:id fetches. Do not reload, reconnect, reopen a
+  relay handshake, clear newer live rows, or alter server history, relay,
+  protocol, pagination, unitization, rendering order, or viewport behavior;
+  authoritative overlap ordering belongs to H2.
+assumptions:
+  create:
+    - id: selected-room-activation-reconciles-destination-history
+      title: Selected rooms reconcile destination-owned history after readiness
+      statement: >
+        Whenever a room becomes the selected conversation, the browser must wait
+        until that exact room is live on the selected connector and then start
+        one non-blocking, per-source-store and per-room deduplicated
+        combined-history head reconciliation using the source store, room, and
+        credential captured for that activation, so terminal evidence missed
+        while the room was inactive appears immediately without a reload,
+        reconnect, new relay or app socket, resubscription of an already
+        promoted room, cross-computer writes, or loss of cached, older, or newer
+        live content; failure preserves rendered truth and a later activation
+        remains retryable.
+      reason: >
+        Returning to an initialized room currently bypasses initial history
+        materialization, and a warm already-promoted subscription has no new
+        hydration edge, so finalized page-owned evidence can remain absent.
+      depends_on:
+        - missed-terminal-history-refreshes-through-combined-head
+        - managed-computer-activation-revalidates-destination-history
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-computer-sessions-keep-state-isolated
+        - worktree-conversation-status-is-live-and-independent
+  reviewed:
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: >
+        The existing request map, combined-head bridge, stable-unit
+        deduplication, and retryable failure semantics remain the sole
+        reconciliation controller.
+    - id: managed-computer-activation-revalidates-destination-history
+      outcome: unchanged
+      reason: >
+        Managed-computer activation still reconciles its destination-owned head,
+        now through the common ready selected-room lifecycle rather than an
+        eager manager-only call.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        The activation path fetches only combined history and never imports cold
+        WebSocket rows or reads a finalized run journal.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        The source store and credential are captured before asynchronous work so
+        same-named rooms on another computer cannot receive or redirect a
+        result.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: >
+        Exact-room readiness remains connector-generation evidence and now gates
+        reconciliation for public roots and selected child conversations alike.
+    - id: hosted-background-rooms-hydrate-metadata-until-promoted
+      outcome: unchanged
+      reason: >
+        Only the selected destination is reconciled; background rooms retain
+        their existing zero-history subscriptions and promoted rooms are not
+        resubscribed.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: >
+        Computer switching continues to publish the already-warm destination
+        immediately and neither replaces nor closes any session.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        Reconciliation waits for current app-server room evidence and does not
+        dial, replace, close, or otherwise manipulate transport generations.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: >
+        The mounted room/settings surface and its navigation remain in place;
+        the new effect observes selected conversation readiness only.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        History continues to merge through the existing store while Transcript
+        remains the sole scroll and geometry owner.
+anchors:
+  selected-room-activation-reconciles-destination-history:
+    selected-room-ready-head-reconciliation:
+      action: change
+      reason: >
+        Add the activation effect that gates on exact-room connector readiness,
+        snapshots source ownership, and invokes the existing head controller
+        once.
+    selected-room-terminal-evidence-browser-regression:
+      action: change
+      reason: >
+        Reproduce run A, switch to room B, finalize A, and return to A; prove
+        the baseline omission and the immediate fixed result without reload,
+        watchdog, new socket, relay handshake, resubscription, or full journal
+        fetch.
+    selected-room-source-isolation-regression:
+      action: change
+      reason: >
+        Hold an activation reconciliation across a same-room-id computer switch
+        and prove only the captured A store changes using A's captured
+        credential.
+  managed-computer-activation-revalidates-destination-history:
+    destination-history-activation-refresh:
+      action: remove
+      reason: >
+        Remove the eager manager-only trigger after the common selected-room
+        readiness path assumes ownership of computer activation too.
+    destination-history-activation-regression:
+      action: remove
+      reason: >
+        Replace the manager-mock ownership test with lifecycle and browser
+        evidence for the common ready selected-room trigger.
+    destination-history-activation-browser-regression:
+      action: change
+      reason: >
+        Retain and strengthen the accepted warm same-room A/B browser journey
+        under the common activation path, including source-only mutation
+        evidence.
+  hosted-computer-switching-reuses-warm-session:
+    warm-computer-activation:
+      action: change
+      reason: >
+        Remove only the nested eager history trigger while keeping activation,
+        persistence, warm connector selection, and publication unchanged.
+  settings-navigation-reuses-live-session:
+    mounted-settings-route:
+      action: change
+      reason: >
+        The selected-room readiness effect lives inside the existing mounted
+        room composition without changing the settings navigation contract.
+files:
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/tests/room23-crosschannel-reconcile.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: >
+  Before implementation, add the room-switch reproduction and run its isolated
+  Playwright spec against accepted base
+  a2be0b6722b4d08dac5ac3550fee9362a3de3ba4; record that the latest terminal
+  evidence is absent specifically because no new combined head is requested for
+  an initialized, already-promoted room. Also make the same-room-id/two-computer
+  ownership regression red if its captured source or credential is removed.
+  After the smallest fix, run focused web unit tests for computer sessions and
+  transcript history, the complete web unit suite, recursive production build,
+  and isolated Room 23 cross-channel plus Room 34 multi-computer Playwright
+  specs. Assert one destination head request per concurrent activation, no
+  finalized /runs/:id request, no document reload, watchdog, relay handshake,
+  app-socket replacement, unnecessary room subscribe, cross-computer mutation,
+  duplicate, or clearing of newer live rows. Exercise direct and hosted paths
+  and a failed refresh followed by later activation retry. Run harn check, harn
+  apply, staged Harn checks, and git diff --check; create one implementation
+  commit that consumes only this plan. Stop and return for review without
+  starting H2, pushing, merging, deploying, publishing, releasing, or updating a
+  host.
+applied:
+  applied_at: 2026-08-12T15:43:11.120Z

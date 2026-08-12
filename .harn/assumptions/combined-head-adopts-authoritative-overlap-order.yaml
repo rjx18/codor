@@ -1,0 +1,22 @@
+id: combined-head-adopts-authoritative-overlap-order
+hash: a-f9bc89c0f9ee
+title: Combined heads replace their overlap with authoritative stable-unit order
+state: active
+statement: >
+  Every successful combined-history head reconciliation must deduplicate by
+  stable transcript unit identity and adopt the server response's exact order
+  throughout the returned overlap, while retaining already-loaded older units
+  outside that overlap and live room records not yet represented by the page, so
+  a finalized family and an intervening permanent message remain in permanent
+  first-half, interjection, continuation order through live display, settlement,
+  refresh, room return, reload, and cursor boundaries without a gap, duplicate,
+  or fallback to local receipt-time ordering.
+depends_on:
+  - historical-transcript-pages-match-output-scoped-rendering
+  - transcript-history-cursors-cover-complete-established-order
+  - finalized-browser-history-is-combined-page-owned
+  - missed-terminal-history-refreshes-through-combined-head
+  - live-runs-settle-beside-paged-history-once
+  - continuation-writer-follows-journaled-output-ownership
+  - permalink-ids-stable
+created_by: hosted-transcript-reliability-h2-authoritative-order

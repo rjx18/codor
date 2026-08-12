@@ -42,6 +42,7 @@ import {
   saveLastGoodRoom,
   type LastGoodRoomSnapshot,
 } from '../runtime/last-good-room.js';
+import { reconcileSelectedRoomHistory } from '../room/RoomPage.js';
 
 beforeEach(() => lastGoodCache.snapshots.clear());
 
@@ -558,8 +559,8 @@ describe('ComputerSessionManager', () => {
     manager.dispose();
   });
 
-  // harn:assume managed-computer-activation-revalidates-destination-history ref=destination-history-activation-regression
-  it('starts a non-blocking refresh with the activated destination store, room, and token', async () => {
+  // harn:assume selected-room-activation-reconciles-destination-history ref=selected-room-source-isolation-regression
+  it('keeps an unresolved selected-room refresh bound to its captured computer store', async () => {
     recovery.refreshHead.mockReset();
     const calls: Array<{
       store: NonNullable<ConnectorOptions['store']>;
@@ -567,22 +568,15 @@ describe('ComputerSessionManager', () => {
       token: string;
       release: () => void;
     }> = [];
-    const pending = new WeakMap<object, Map<string, Promise<boolean>>>();
     recovery.refreshHead.mockImplementation((store, room, token) => {
-      const byRoom = pending.get(store as object) ?? new Map<string, Promise<boolean>>();
-      pending.set(store as object, byRoom);
-      const existing = byRoom.get(room);
-      if (existing) return existing;
       let release!: () => void;
       const request = new Promise<boolean>((resolve) => {
         release = () => {
           (store as NonNullable<ConnectorOptions['store']>).getState()
             .updateTranscriptHistory(room, (history) => ({ ...history, failed: true }));
-          byRoom.delete(room);
           resolve(true);
         };
       });
-      byRoom.set(room, request);
       calls.push({
         store: store as NonNullable<ConnectorOptions['store']>,
         room,
@@ -597,35 +591,27 @@ describe('ComputerSessionManager', () => {
       await manager.start();
       const storeA = h.connectorOptions.get('A')!.store!;
       const storeB = h.connectorOptions.get('B')!.store!;
+      const connectorA = h.connectors.get('A')!;
+      const connectorB = h.connectors.get('B')!;
 
-      // Activation completes and publishes B even though its history request
-      // deliberately remains unresolved.
-      expect(await manager.activate('B')).toBe(true);
-      expect(manager.active()?.id).toBe('B');
+      reconcileSelectedRoomHistory(connectorA, 'same-room', true, storeA, 'token-A');
       expect(calls).toHaveLength(1);
-      expect(calls[0]).toMatchObject({ store: storeB, room: 'same-room', token: 'token-B' });
+      expect(calls[0]).toMatchObject({ store: storeA, room: 'same-room', token: 'token-A' });
 
-      // A second activation supplies the same source-owned request key; the
-      // real history controller's existing pending-request map deduplicates it.
+      // The source activation remains unresolved while the selected computer changes.
       expect(await manager.activate('B')).toBe(true);
-      expect(recovery.refreshHead).toHaveBeenCalledTimes(2);
-      expect(calls).toHaveLength(1);
-
-      // Switching before either response settles captures A independently.
-      expect(await manager.activate('A')).toBe(true);
-      expect(manager.active()?.id).toBe('A');
+      reconcileSelectedRoomHistory(connectorB, 'same-room', true, storeB, 'token-B');
       expect(calls).toHaveLength(2);
-      expect(calls[1]).toMatchObject({ store: storeA, room: 'same-room', token: 'token-A' });
+      expect(calls[1]).toMatchObject({ store: storeB, room: 'same-room', token: 'token-B' });
 
       calls[0]!.release();
       await Promise.resolve();
-      expect(storeB.getState().rooms['same-room']?.transcriptHistory.failed).toBe(true);
-      expect(storeA.getState().rooms['same-room']?.transcriptHistory.failed).not.toBe(true);
+      expect(storeA.getState().rooms['same-room']?.transcriptHistory.failed).toBe(true);
+      expect(storeB.getState().rooms['same-room']?.transcriptHistory.failed).not.toBe(true);
 
       calls[1]!.release();
       await Promise.resolve();
-      expect(storeA.getState().rooms['same-room']?.transcriptHistory.failed).toBe(true);
-      expect(manager.active()?.id).toBe('A');
+      expect(storeB.getState().rooms['same-room']?.transcriptHistory.failed).toBe(true);
     } finally {
       manager.dispose();
       for (const call of calls) call.release();
@@ -635,7 +621,6 @@ describe('ComputerSessionManager', () => {
       );
     }
   });
-  // harn:end managed-computer-activation-revalidates-destination-history
 
   it('parks an inactive upgrade without replacing the active UI and gates it when selected', async () => {
     recovery.upgrade.mockReset();

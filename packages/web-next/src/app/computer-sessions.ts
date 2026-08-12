@@ -277,24 +277,6 @@ export class ComputerSessionManager {
     if (publicRoot !== undefined) rememberRoom(publicRoot, id);
     if (entry.upgrade) requireBrowserUpgrade(entry.upgrade);
     this.publish();
-    if (publicRoot !== undefined) {
-      // harn:assume managed-computer-activation-revalidates-destination-history ref=destination-history-activation-refresh
-      // Capture every ownership input before the controller's async boundary.
-      // The controller keys requests by this concrete source store, so a later
-      // mirror switch cannot redirect its merge into a same-named room.
-      const destination = {
-        computerId: entry.material.computer.id,
-        store: entry.store,
-        token: entry.token,
-        room: publicRoot,
-      };
-      void refreshTranscriptHistoryHead(
-        destination.store,
-        destination.room,
-        () => destination.token,
-      );
-      // harn:end managed-computer-activation-revalidates-destination-history
-    }
     return entry.connector !== undefined;
   }
   // harn:end hosted-computer-switching-reuses-warm-session
