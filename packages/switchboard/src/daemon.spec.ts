@@ -4365,7 +4365,7 @@ describe('durable ephemeral approval answers', () => {
 
 // harn:assume collaboration-round-release-is-one-barrier ref=collaboration-barrier-regression
 // harn:assume group-participant-terminality-commits-with-the-turn ref=collaboration-finalization-regression
-// harn:assume grouped-deliveries-retain-agent-briefings ref=grouped-delivery-briefing-regression
+// harn:assume grouped-deliveries-retain-single-handoff-briefings ref=grouped-delivery-briefing-regression
 describe('barriered collaboration rounds', () => {
   it('waits for every first-round result and releases one finish-order-independent bundle', async () => {
     const alpha = spawnAgent('group-alpha');
@@ -4507,7 +4507,7 @@ describe('barriered collaboration rounds', () => {
       .map((participant) => participant.member_id)).toEqual([alpha.id, beta.id, charlie.id]);
   });
 });
-// harn:end grouped-deliveries-retain-agent-briefings
+// harn:end grouped-deliveries-retain-single-handoff-briefings
 
 describe('continuation collaboration results', () => {
   it('records the terminal fragment id while the next round receives the full aggregate', async () => {

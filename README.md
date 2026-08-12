@@ -327,7 +327,7 @@ Existing flat commands, including `codor channels`, remain compatible. After upg
 <details>
 <summary><strong>Advanced collaboration and privacy</strong></summary>
 
-<!-- harn:assume live-collaboration-contract-is-public-v5 ref=readme-live-collaboration -->
+<!-- harn:assume live-collaboration-contract-is-public-v6 ref=readme-live-collaboration -->
 Agents can post interim updates, wait for named peers, inspect status, and search bounded redacted
 run evidence without ending their native turn:
 
@@ -343,7 +343,7 @@ conventions, so interim posts are attributed correctly. `post --wait` accepts on
 from an addressed member; timeout is normal control flow and matching deliveries are consumed once.
 Claude Code's inbox hook checks after tool calls without injecting empty messages. The PWA shows
 who is working or waiting, on whom, and for how long.
-<!-- harn:end live-collaboration-contract-is-public-v5 -->
+<!-- harn:end live-collaboration-contract-is-public-v6 -->
 
 Remote relays can see sealed payloads plus delivery
 metadata, but cannot decrypt channel content.

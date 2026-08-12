@@ -1,0 +1,17 @@
+id: live-collaboration-contract-is-public-v6
+hash: a-5276ccb180dc
+title: The single-handoff live collaboration contract is public
+state: active
+statement: >
+  Public docs must describe member-attributed interim and blocking posts,
+  direct-reply wait mechanics, consuming inbox hooks, transient wait visibility,
+  member status, bounded redacted run-evidence search, and the exact
+  adapter-independent single-handoff conventions briefing agents receive, while
+  clearly distinguishing separately available observability tools from briefing
+  guidance that forbids polling delegated channel work.
+depends_on:
+  - collaboration-briefing-enforces-single-channel-handoff
+  - cli-waits-consume-only-matching-deliveries
+  - run-evidence-search-is-bounded-and-redacted
+  - web-waits-are-visible-across-live-surfaces-v5
+created_by: d1-review-fix-harn-dependencies

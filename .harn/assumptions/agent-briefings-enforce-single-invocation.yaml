@@ -1,0 +1,17 @@
+id: agent-briefings-enforce-single-invocation
+hash: a-b4f462a3ed77
+title: Agent briefings distinguish discussion from one intentional invocation
+state: active
+statement: >
+  On first delivery, after misaddress, and on the next delivery after a
+  successful automatic or manual compaction, the conventions briefing must state
+  that an ordinary final reply posts automatically, an @mention invokes and
+  auto-sends to that member exactly once, a plain member name discusses them
+  without invocation, and codor post is only for necessary interim output while
+  continuing or output outside the normal response path, because models must not
+  accidentally schedule or repeat paid channel work while referring to a
+  collaborator.
+depends_on:
+  - collaboration-briefing-enforces-single-channel-handoff
+  - substantive-routing-excludes-acknowledgements
+created_by: d1-review-fix-harn-dependencies

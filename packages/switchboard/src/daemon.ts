@@ -4371,7 +4371,7 @@ export class Daemon {
       const fresh = this.store.getMember(targetRoom, recipient.id)!;
       const needsConventions = !fresh.conventions_sent || fresh.misaddressed;
       const needsRoster = fresh.roster_stale;
-      // harn:assume grouped-deliveries-retain-agent-briefings ref=grouped-delivery-briefing
+      // harn:assume grouped-deliveries-retain-single-handoff-briefings ref=grouped-delivery-briefing
       const roster = needsRoster
         ? this.store.listMembers(targetRoom).map((member) => ({
             handle: member.handle,
@@ -4400,7 +4400,7 @@ export class Daemon {
               }),
             );
           }
-          // harn:end grouped-deliveries-retain-agent-briefings
+          // harn:end grouped-deliveries-retain-single-handoff-briefings
           continue;
         }
       }

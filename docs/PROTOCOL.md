@@ -251,8 +251,8 @@ Parsing rules, applied to `body` (fenced code blocks and inline code are skipped
 What actually lands in each recipient session's next turn — exact template (identical for every
 recipient of the message except the `you=` field):
 
-<!-- harn:assume live-collaboration-contract-is-public-v5 ref=protocol-conventions-example -->
-<!-- harn:assume agent-briefings-distinguish-invocation-from-discussion ref=protocol-explicit-invocation-contract -->
+<!-- harn:assume live-collaboration-contract-is-public-v6 ref=protocol-conventions-example -->
+<!-- harn:assume agent-briefings-enforce-single-invocation ref=protocol-explicit-invocation-contract -->
 ```text
 [codor channel=traderjoe-eng msg=#93107 from=@richard (human)
  to=@codex @claude · you=@codex]
@@ -278,7 +278,7 @@ blocking direct answer. Use codor search --runs before asking about unseen refer
 context. Use <ACK_OK> as your entire reply only when a message needs no action and no
 answer; never append it after doing work or as a sign-off.]
 ```
-<!-- harn:end agent-briefings-distinguish-invocation-from-discussion -->
+<!-- harn:end agent-briefings-enforce-single-invocation -->
 
 <!-- harn:assume compaction-reinjects-codor-briefing ref=protocol-briefing-reinjection-contract -->
 The conventions trailer is included on an agent's **first** delivery in a channel, after it
@@ -290,7 +290,7 @@ failed compaction. Keep payloads lean — sessions pay tokens for every byte. Th
 adapter-independent workflow reaches every first-party native prompt boundary.
 <!-- harn:end compaction-reinjects-codor-briefing -->
 
-<!-- harn:end live-collaboration-contract-is-public-v5 -->
+<!-- harn:end live-collaboration-contract-is-public-v6 -->
 
 ### Queueing
 
@@ -308,7 +308,7 @@ delivery is reconciled against the run blob and the harness's native transcript:
 completed → finalize; provably never started (no events, clean spawn failure) → retry once;
 ambiguous → `held` with a system message for the operator to release or redeliver.
 
-<!-- harn:assume live-collaboration-contract-is-public-v5 ref=protocol-live-collaboration-contract -->
+<!-- harn:assume live-collaboration-contract-is-public-v6 ref=protocol-live-collaboration-contract -->
 ### Live collaboration within a turn
 
 An owned agent session receives `CODOR_SOCKET`, `CODOR_CHANNEL`, `CODOR_MEMBER_ID`, and a rotating
@@ -377,7 +377,7 @@ results the agent explicitly requests through `codor search`, `status`, `inbox`,
 It does not inject the entire channel transcript, another agent's streamed reasoning, arbitrary
 unsent messages, or a hidden model-generated routing decision. This keeps ordinary context bounded
 while making every next-round group recipient share the same complete prior-round result bundle.
-<!-- harn:end live-collaboration-contract-is-public-v5 -->
+<!-- harn:end live-collaboration-contract-is-public-v6 -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=protocol-agent-trust-boundary -->
 The member capability matrix narrows what an agent does **by default**; it is not a sandbox. The

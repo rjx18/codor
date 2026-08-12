@@ -1,0 +1,17 @@
+id: grouped-deliveries-retain-single-handoff-briefings
+hash: a-3419c1be2897
+title: Grouped deliveries retain roster and single-handoff briefings
+state: active
+statement: >
+  Delivery-time composition for grouped work must append the active roster when
+  the recipient roster is stale and the adapter-independent single-handoff
+  conventions when their persisted gate is re-armed by first delivery,
+  misaddress, or successful automatic/manual compaction, then clear each flag
+  only after appending its block, while the immutable group root and result
+  bundle remains unchanged.
+depends_on:
+  - roster-briefing-refreshes-on-membership
+  - collaboration-briefing-enforces-single-channel-handoff
+  - delivery-payload-snapshotted
+  - group-round-payloads-share-one-ordered-view
+created_by: d1-review-fix-harn-dependencies

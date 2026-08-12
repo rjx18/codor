@@ -334,7 +334,7 @@ export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
   }
   if (ctx.conventions) {
     // harn:assume collaboration-briefing-enforces-single-channel-handoff ref=collaboration-handoff-conventions
-    // harn:assume agent-briefings-distinguish-invocation-from-discussion ref=explicit-invocation-conventions
+    // harn:assume agent-briefings-enforce-single-invocation ref=explicit-invocation-conventions
     const untagged = ctx.conventions.untaggedGoesTo === undefined
       ? ''
       : ` An untagged reply goes to @${ctx.conventions.untaggedGoesTo}.`;
@@ -351,7 +351,7 @@ export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
       `Use codor search --runs before asking about unseen referenced context. ` +
       `Use <ACK_OK> as your entire reply only when a message needs no action and no answer; ` +
       `never append it after doing work or as a sign-off.]\n`;
-    // harn:end agent-briefings-distinguish-invocation-from-discussion
+    // harn:end agent-briefings-enforce-single-invocation
     // harn:end collaboration-briefing-enforces-single-channel-handoff
   }
   return payload;

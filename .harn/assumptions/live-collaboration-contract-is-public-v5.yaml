@@ -1,7 +1,7 @@
 id: live-collaboration-contract-is-public-v5
 hash: a-8ff7ab76846d
 title: The live collaboration contract is public
-state: active
+state: retired
 statement: Public docs must describe member-attributed interim and blocking
   posts, direct-reply waits and renewal, consuming inbox hooks, transient wait
   visibility, member status, and bounded redacted run-evidence search, including
@@ -12,3 +12,4 @@ depends_on:
   - run-evidence-search-is-bounded-and-redacted
   - web-waits-are-visible-across-live-surfaces-v5
 created_by: v5-p3-room
+retired_by: d1-review-fix-harn-dependencies

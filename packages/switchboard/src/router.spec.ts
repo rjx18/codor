@@ -852,7 +852,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
   // harn:end awaiting-reply-marker-is-delivery-context
 
   // harn:assume collaboration-briefing-enforces-single-channel-handoff ref=collaboration-handoff-regression
-  // harn:assume agent-briefings-distinguish-invocation-from-discussion ref=explicit-invocation-regression
+  // harn:assume agent-briefings-enforce-single-invocation ref=explicit-invocation-regression
   it('teaches one channel-member handoff without polling for every adapter', () => {
     const baseline = composePayload(payloadCtx, 'codex');
     const live = composePayload({
@@ -881,7 +881,7 @@ describe('delivery payload template (byte-exact goldens)', () => {
       expect(live, phrase).not.toContain(phrase);
     }
   });
-  // harn:end agent-briefings-distinguish-invocation-from-discussion
+  // harn:end agent-briefings-enforce-single-invocation
   // harn:end collaboration-briefing-enforces-single-channel-handoff
 });
 
