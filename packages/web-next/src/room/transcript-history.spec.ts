@@ -95,6 +95,58 @@ afterEach(resetClientStoreForTest);
 
 // harn:assume transcript-history-prepends-one-deliberate-page ref=deliberate-history-top-reach-regression
 describe('combined transcript page merging', () => {
+  // harn:assume combined-head-adopts-authoritative-overlap-order ref=authoritative-head-overlap-unit-regression
+  it('lets an authoritative head response order a stable-key overlap around the interjection', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page([messageUnit(2)], [message(2)], null, false)],
+      'head',
+    );
+    const merged = mergeTranscriptPages(
+      current,
+      [page(
+        [proseUnit(1, 1, 1), messageUnit(2), proseUnit(1, 2, 2)],
+        [message(1, 'run'), message(2), message(3, 'run')],
+        null,
+        false,
+      )],
+      'head',
+    );
+
+    expect(merged.units.map(transcriptUnitKey)).toEqual([
+      'prose:1:1:1',
+      'message:2',
+      'prose:1:2:2',
+    ]);
+  });
+
+  it('retains loaded units outside the overlap on both sides of the response', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page(
+        [messageUnit(9), messageUnit(2), messageUnit(99)],
+        [message(9), message(2), message(99)],
+        null,
+        false,
+      )],
+      'head',
+    );
+    const merged = mergeTranscriptPages(
+      current,
+      [page([messageUnit(1), messageUnit(2), messageUnit(3)], [message(1), message(2), message(3)], null, false)],
+      'head',
+    );
+
+    expect(merged.units.map(transcriptUnitKey)).toEqual([
+      'message:9',
+      'message:1',
+      'message:2',
+      'message:3',
+      'message:99',
+    ]);
+  });
+  // harn:end combined-head-adopts-authoritative-overlap-order
+
   it('keeps stable unit identities when an older page extends the same output row', () => {
     const current = mergeTranscriptPages(
       emptyHistory(),

@@ -89,6 +89,28 @@ const uniqueUnits = (units: readonly TranscriptHistoryUnit[]): TranscriptHistory
   });
 };
 
+// A head response is authoritative wherever it meets the established client
+// range. Remove every overlapping stable identity from the current sequence,
+// then splice the response at its first overlap so units loaded outside that
+// overlap keep their relative order on either side. A bridge can contain no
+// overlap when the established range has fallen behind the server entirely;
+// in that case the newest response belongs before the retained range.
+const mergeAuthoritativeHeadUnits = (
+  current: readonly TranscriptHistoryUnit[],
+  incoming: readonly TranscriptHistoryUnit[],
+): TranscriptHistoryUnit[] => {
+  const authoritative = uniqueUnits(incoming);
+  if (authoritative.length === 0) return uniqueUnits(current);
+  const incomingKeys = new Set(authoritative.map(transcriptUnitKey));
+  const firstOverlap = current.findIndex((unit) => incomingKeys.has(transcriptUnitKey(unit)));
+  if (firstOverlap < 0) return uniqueUnits([...authoritative, ...current]);
+  return uniqueUnits([
+    ...current.slice(0, firstOverlap).filter((unit) => !incomingKeys.has(transcriptUnitKey(unit))),
+    ...authoritative,
+    ...current.slice(firstOverlap).filter((unit) => !incomingKeys.has(transcriptUnitKey(unit))),
+  ]);
+};
+
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-materializer
 // harn:assume live-before-history-materialization-reconciles ref=history-materializer-uses-live-room-records
 export function indexedEventsForUnit(
@@ -112,7 +134,7 @@ export function mergeTranscriptPages(
   const incoming = chronologicalPages.flatMap((page) => page.units);
   const units = mode === 'older'
     ? uniqueUnits([...incoming, ...current.units])
-    : uniqueUnits([...current.units, ...incoming]);
+    : mergeAuthoritativeHeadUnits(current.units, incoming);
   const oldestFetched = pagesNewestFirst.at(-1);
   const establishFloor = !current.initialized || current.units.length === 0;
   return {

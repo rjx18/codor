@@ -122,6 +122,7 @@ interface HistoryRestore {
   fallbackHeight: number;
   fallbackTop: number;
   merged: boolean;
+  head?: boolean;
 }
 
 /** Highest durable activity sequence the reader can meaningfully see. A tall
@@ -637,6 +638,47 @@ export function Transcript(props: { room: string; token: () => string; connectio
     const node = scrollerRef.current;
     const column = columnRef.current;
     if (!node || !column) return;
+    // A non-initial head refresh can reorder an already-visible overlap. Capture
+    // the first stable unit before its response commits; the same geometry owner
+    // below then restores it before paint. Pinned readers deliberately skip the
+    // capture and continue following the true tail.
+    let pending = historyRestoreRef.current;
+    if (
+      history.loadingHead
+      && history.initialized
+      && !pinnedRef.current
+      && pending === undefined
+    ) {
+      const viewport = node.getBoundingClientRect();
+      const firstVisible = [...column.querySelectorAll<HTMLElement>('[data-transcript-unit]')]
+        .find((row) => row.getBoundingClientRect().bottom > viewport.top);
+      if (firstVisible !== undefined) {
+        pending = {
+          room: props.room,
+          anchorUnit: `unit:${firstVisible.dataset.transcriptUnit!}`,
+          anchorOffset: firstVisible.getBoundingClientRect().top - viewport.top,
+          fallbackHeight: node.scrollHeight,
+          fallbackTop: node.scrollTop,
+          merged: false,
+          head: true,
+        };
+        historyRestoreRef.current = pending;
+      }
+    }
+    // A failed head must not leave an anchor armed for a later room or retry.
+    // A successful response arms the existing restore path in this same layout
+    // owner, after React has committed the authoritative unit sequence.
+    if (pending?.head === true && pending.room === props.room && !history.loadingHead) {
+      if (history.failed) {
+        cancelHistorySettle();
+        historyRestoreRef.current = undefined;
+      } else if (!pending.merged) {
+        pending.merged = true;
+        cancelHistorySettle();
+        restoreHistoryAnchor();
+        settleHistoryAfterQuiet();
+      }
+    }
     // A newly mounted tail row needs correction in this commit's layout phase;
     // ResizeObserver owns later column/viewport geometry changes in the same
     // hook, so no second effect or deferred frame can expose an old position.
@@ -691,6 +733,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
   }, [
     cancelHistorySettle,
     entries,
+    history.failed,
+    history.initialized,
+    history.loadingHead,
+    history.units,
     journalVersion,
     lastId,
     markVisibleRowsRead,

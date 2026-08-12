@@ -10,6 +10,18 @@ interface ContinuationIds {
   ack: { trigger: number; root: number; interjection: number; result: number };
 }
 
+interface TranscriptUnit {
+  kind: string;
+  message_id?: number;
+  root_message_id?: number;
+  output_message_id?: number;
+  event_indices?: number[];
+}
+
+interface TranscriptHistoryPage {
+  units: TranscriptUnit[];
+}
+
 async function control<T>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
@@ -35,8 +47,170 @@ async function expectIdOrder(rows: Locator, count: number): Promise<void> {
   }
 }
 
+function transcriptUnitKey(unit: TranscriptUnit): string {
+  if (unit.kind === 'message') return `message:${String(unit.message_id)}`;
+  return [
+    unit.kind,
+    String(unit.root_message_id),
+    String(unit.output_message_id),
+    (unit.event_indices ?? []).join(','),
+  ].join(':');
+}
+
+async function renderedUnitKeys(page: Page): Promise<string[]> {
+  return page.locator('[data-transcript-unit]').evaluateAll((nodes) => nodes
+    .map((node) => node.getAttribute('data-transcript-unit'))
+    .filter((key): key is string => key !== null));
+}
+
 // harn:assume live-runs-settle-beside-paged-history-once ref=live-history-settlement-regression
 test.describe('durable continuation writer', () => {
+  // harn:assume combined-head-adopts-authoritative-overlap-order ref=authoritative-order-lifecycle-browser-regression
+  test('keeps the production family in authoritative order when a live interjection is refreshed', async ({ page }) => {
+    const { room } = await control<{ room: string }>('/continuation-room');
+    const historyUrl = `**/api/rooms/${room}/transcript-history`;
+    const initialResponse = page.waitForResponse(historyUrl);
+    await openRoom(page, room);
+    const initialPage = await (await initialResponse).json() as TranscriptHistoryPage;
+    await control('/live-family', { room });
+    const interjection = await control<{ id: number }>('/live-family-step', {
+      room, step: 'interject', body: 'Authoritative-order interjection.',
+    });
+
+    // Reconnect while the family is still running. The only finalized unit in
+    // this response is the permanent interjection; the family is still live.
+    const reloadResponse = page.waitForResponse(historyUrl);
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(`[data-testid="msg-${String(interjection.id)}"]`)).toBeVisible();
+    const reloadedPage = await (await reloadResponse).json() as TranscriptHistoryPage;
+    expect(initialPage.units).toEqual([]);
+    expect(reloadedPage.units.map(transcriptUnitKey)).toEqual([`message:${String(interjection.id)}`]);
+
+    await control('/live-family-step', { room, step: 'evidence' });
+    const continuation = await control<{ id: number }>('/live-family-step', {
+      room, step: 'continue', body: 'Authoritative continuation.',
+    });
+    await expect(page.locator(`[data-testid="run-${String(continuation.id)}"]`)).toBeVisible();
+    const settledHeadResponse = page.waitForResponse(historyUrl, { timeout: 15_000 });
+    await control('/live-family-step', { room, step: 'interrupt' });
+
+    const settledPage = await (await settledHeadResponse).json() as TranscriptHistoryPage;
+    const authoritative = settledPage.units.map(transcriptUnitKey);
+    await expect.poll(() => renderedUnitKeys(page)).toEqual(authoritative);
+
+    const interjectionIndex = authoritative.indexOf(`message:${String(interjection.id)}`);
+    const continuationIndex = authoritative.findIndex((key) => key.includes(`:${String(continuation.id)}:`));
+    expect(interjectionIndex).toBeGreaterThanOrEqual(0);
+    expect(continuationIndex).toBeGreaterThan(interjectionIndex);
+    expect(new Set(await renderedUnitKeys(page)).size).toBe(authoritative.length);
+
+    const otherRoom = await control<{ room: string }>('/continuation-room');
+    await openRoom(page, otherRoom.room);
+    const switchBackResponse = page.waitForResponse(historyUrl);
+    await openRoom(page, room);
+    const switchBack = await (await switchBackResponse).json() as TranscriptHistoryPage;
+    expect(switchBack.units.map(transcriptUnitKey)).toEqual(authoritative);
+    const switchReloadResponse = page.waitForResponse(historyUrl);
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 15_000 });
+    const reloaded = await (await switchReloadResponse).json() as TranscriptHistoryPage;
+    expect(reloaded.units.map(transcriptUnitKey)).toEqual(authoritative);
+
+    await control('/seed-bulk', { room, count: 25, newer: true });
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 15_000 });
+    await page.addStyleTag({ content: '.nx-turn { min-height: 80px; }' });
+    const familyTarget = page.locator(`[data-transcript-unit="${authoritative.at(-1)!}"]`);
+    await revealOlder(page, familyTarget);
+    const pagedKeys = await renderedUnitKeys(page);
+    const familyPositions = authoritative.map((key) => pagedKeys.indexOf(key));
+    expect(familyPositions.every((position) => position >= 0)).toBe(true);
+    expect(familyPositions).toEqual([...familyPositions].sort((left, right) => left - right));
+    expect(new Set(pagedKeys).size).toBe(pagedKeys.length);
+  });
+  // harn:end combined-head-adopts-authoritative-overlap-order
+
+  // harn:assume combined-head-preserves-reader-unit-offset ref=head-reconciliation-reader-anchor-regression
+  test('holds an unpinned intra-message anchor through delayed head materialization', async ({ page }) => {
+    const seeded = await control<{ room: string }>('/seed-terminal-family', {
+      shape: 'root-evidence', status: 'interrupted', gap: 0,
+    });
+    const { room } = seeded;
+    await page.setViewportSize({ width: 1440, height: 500 });
+    await openRoom(page, room);
+    await page.addStyleTag({ content: '.nx-run-block { min-height: 240px; }' });
+
+    const anchor = page.locator('[data-transcript-unit^="tool:"]').first();
+    await expect(anchor).toBeVisible();
+    const timeline = page.getByTestId('timeline');
+    const placeAnchor = async (): Promise<void> => {
+      await timeline.evaluate((node) => {
+        node.scrollTop = node.scrollHeight;
+        node.dispatchEvent(new Event('scroll'));
+        node.scrollTop = 0;
+        node.dispatchEvent(new Event('scroll'));
+      });
+      await anchor.evaluate((row) => {
+        const node = document.querySelector('[data-testid="timeline"]')!;
+        node.scrollTop += row.getBoundingClientRect().top - node.getBoundingClientRect().top;
+        node.dispatchEvent(new Event('scroll'));
+      });
+    };
+    await placeAnchor();
+    const anchorState = await anchor.evaluate((row) => {
+      const node = document.querySelector('[data-testid="timeline"]')!;
+      return {
+        key: row.getAttribute('data-transcript-unit')!,
+        offset: row.getBoundingClientRect().top - node.getBoundingClientRect().top,
+      };
+    });
+
+    await control('/live-family', { room });
+    await control('/live-family-step', {
+      room, step: 'interject', body: 'Delayed-head anchor interjection.',
+    });
+    await page.reload();
+    await expect(anchor).toBeVisible();
+    await page.addStyleTag({ content: '.nx-run-block { min-height: 240px; }' });
+    await placeAnchor();
+
+    let releaseHead = (): void => undefined;
+    let headHeld = false;
+    const held = new Promise<void>((resolve) => { releaseHead = resolve; });
+    let heldOnce = false;
+    await page.route(`**/api/rooms/${room}/transcript-history`, async (route) => {
+      const response = await route.fetch();
+      if (!heldOnce && new URL(route.request().url()).search === '') {
+        heldOnce = true;
+        headHeld = true;
+        await held;
+      }
+      await route.fulfill({ response });
+    });
+
+    await control('/live-family-step', { room, step: 'evidence' });
+    await control('/live-family-step', { room, step: 'continue', body: 'Delayed-head continuation.' });
+    await placeAnchor();
+    const interrupt = control('/live-family-step', { room, step: 'interrupt' });
+    await expect.poll(() => headHeld).toBe(true);
+    const before = await anchor.evaluate((row) => {
+      const node = document.querySelector('[data-testid="timeline"]')!;
+      return row.getBoundingClientRect().top - node.getBoundingClientRect().top;
+    });
+    releaseHead();
+    await interrupt;
+    await expect.poll(async () => {
+      const after = await anchor.evaluate((row) => {
+        const node = document.querySelector('[data-testid="timeline"]')!;
+        return row.getBoundingClientRect().top - node.getBoundingClientRect().top;
+      });
+      return Math.abs(after - before);
+    }, { timeout: 10_000 }).toBeLessThanOrEqual(2);
+    expect(anchorState.key).toBe(await anchor.getAttribute('data-transcript-unit'));
+  });
+  // harn:end combined-head-preserves-reader-unit-offset
+
   test('real turns preserve permanent chronology, evidence, and one acknowledgement live and after paging', async ({ page }) => {
     // A room of this repetition's own, opened BEFORE the turns start, makes
     // every row and journal event below a genuine live production-writer frame.
