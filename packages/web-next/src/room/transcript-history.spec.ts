@@ -120,7 +120,7 @@ describe('combined transcript page merging', () => {
     ]);
   });
 
-  it('retains loaded units outside the overlap on both sides of the response', () => {
+  it('retains the older prefix and drops stale units after the overlap', () => {
     const current = mergeTranscriptPages(
       emptyHistory(),
       [page(
@@ -142,8 +142,65 @@ describe('combined transcript page merging', () => {
       'message:1',
       'message:2',
       'message:3',
-      'message:99',
     ]);
+  });
+
+  it('drops stale interior and suffix units after the first authoritative overlap', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page(
+        [messageUnit(9), messageUnit(2), messageUnit(8), messageUnit(7)],
+        [message(9), message(2), message(8), message(7)],
+        null,
+        false,
+      )],
+      'head',
+    );
+    const merged = mergeTranscriptPages(
+      current,
+      [page([messageUnit(1), messageUnit(2), messageUnit(3)], [message(1), message(2), message(3)], null, false)],
+      'head',
+    );
+
+    expect(merged.units.map(transcriptUnitKey)).toEqual([
+      'message:9',
+      'message:1',
+      'message:2',
+      'message:3',
+    ]);
+  });
+
+  it('replaces stale finalized units when a no-overlap head reaches exhaustion', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page([messageUnit(1), messageUnit(2)], [message(1), message(2)], 'older')],
+      'head',
+    );
+    const merged = mergeTranscriptPages(
+      current,
+      [page([messageUnit(3), messageUnit(4)], [message(3), message(4)], null, false)],
+      'head',
+    );
+
+    expect(merged.units.map(transcriptUnitKey)).toEqual(['message:3', 'message:4']);
+  });
+
+  it('keeps a live-only message record without giving it history membership', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page([messageUnit(2)], [message(2)], null, false)],
+      'head',
+    );
+    const liveOnly = { ...message(99), body: 'live only', seq: 99 };
+    const withLive = { ...current, messages: { ...current.messages, 99: liveOnly } };
+    const merged = mergeTranscriptPages(
+      withLive,
+      [page([messageUnit(1), messageUnit(2)], [message(1), message(2)], null, false)],
+      'head',
+    );
+
+    expect(merged.units.map(transcriptUnitKey)).toEqual(['message:1', 'message:2']);
+    expect(merged.messages[99]).toEqual(liveOnly);
   });
   // harn:end combined-head-adopts-authoritative-overlap-order
 

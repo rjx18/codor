@@ -589,7 +589,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     }, READ_DWELL_MS);
   }, [cancelReadTimer, connected, props.connection, support, transcriptReady]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     lastMarkedSeqRef.current = 0;
     cancelReadTimer();
     cancelHistorySettle();

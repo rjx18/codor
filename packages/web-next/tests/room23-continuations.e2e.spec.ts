@@ -38,6 +38,15 @@ async function openRoom(page: Page, room: string): Promise<void> {
   await expect(page.getByTestId('connection')).toHaveText(/Connected/);
 }
 
+async function clickRoom(page: Page, room: string): Promise<void> {
+  const link = page.getByTestId(`room-link-${room}`);
+  await expect(link).toBeVisible();
+  await link.click();
+  await expect(link).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByTestId('timeline')).toBeVisible();
+  await expect(page.getByTestId('connection')).toHaveText(/Connected/);
+}
+
 async function expectIdOrder(rows: Locator, count: number): Promise<void> {
   const boxes = await Promise.all(Array.from({ length: count }, (_, index) =>
     rows.nth(index).boundingBox()));
@@ -66,9 +75,66 @@ async function renderedUnitKeys(page: Page): Promise<string[]> {
 // harn:assume live-runs-settle-beside-paged-history-once ref=live-history-settlement-regression
 test.describe('durable continuation writer', () => {
   // harn:assume combined-head-adopts-authoritative-overlap-order ref=authoritative-order-lifecycle-browser-regression
+  test('keeps a mutable production family ordered when hydration follows its first prose', async ({ page }) => {
+    const { room } = await control<{ room: string }>('/continuation-room');
+    const trigger = await control<{ id: number }>('/post-chat', {
+      room, body: '@continuator stream a durable answer',
+    });
+    const live = await control<{ room: string; root: number }>('/live-family', { room });
+    await control('/live-family-step', { room, step: 'evidence' });
+    const interjection = await control<{ id: number }>('/live-family-step', {
+      room, step: 'interject', body: 'Investigator interjection between stretches.',
+    });
+
+    let documentLoads = 0;
+    page.on('request', (request) => {
+      if (request.resourceType() === 'document') documentLoads += 1;
+    });
+    await openRoom(page, room);
+    await expect(page.locator(`[id="${String(live.root)}"]`)).toContainText('Live root stretch.');
+
+    const continuation = await control<{ id: number }>('/live-family-step', {
+      room, step: 'continue', body: 'Live continuation stretch.',
+    });
+    await expect(page.locator(`[id="${String(continuation.id)}"]`)).toContainText('Live continuation stretch.');
+    await control('/live-family-step', { room, step: 'interrupt' });
+
+    const rows = page.locator('.nx-column > [id]');
+    const familyIds = [trigger.id, live.root, interjection.id, continuation.id];
+    await expect.poll(() => rows.evaluateAll((nodes, ids) => nodes.map((node) => Number(node.id))
+      .filter((id) => ids.includes(id)), familyIds))
+      .toEqual([trigger.id, live.root, interjection.id, continuation.id]);
+    expect(documentLoads).toBe(1);
+    const rootBlock = page.locator(`[id="${String(live.root)}"]`);
+    await rootBlock.getByTestId('tool-batch').locator('.nx-batch-line').click();
+    const coordinates = await page.evaluate((ids) => {
+      const article = (id: number): HTMLElement => document.querySelector(`[id="${String(id)}"]`)!;
+      const root = article(ids.root);
+      return {
+        order: [...document.querySelectorAll<HTMLElement>('.nx-column > [id]')]
+          .map((node) => Number(node.id))
+          .filter((id) => ids.all.includes(id)),
+        root: root.querySelector<HTMLElement>('.nx-run')?.getBoundingClientRect().x,
+        prose: root.querySelector<HTMLElement>('.nx-run-block')?.getBoundingClientRect().x,
+        tool: root.querySelector<HTMLElement>('.nx-tool')?.getBoundingClientRect().x,
+      };
+    }, { root: live.root, all: [trigger.id, live.root, interjection.id, continuation.id] });
+    expect(coordinates.order).toEqual([trigger.id, live.root, interjection.id, continuation.id]);
+    expect(coordinates.prose).toBe(coordinates.root);
+    expect(coordinates.tool).toBe(coordinates.root);
+    await expect(page.locator(`[id="${String(interjection.id)}"]`)).toContainText('Investigator interjection');
+  });
+  // harn:end combined-head-adopts-authoritative-overlap-order
+
+  // harn:assume combined-head-adopts-authoritative-overlap-order ref=authoritative-order-lifecycle-browser-regression
   test('keeps the production family in authoritative order when a live interjection is refreshed', async ({ page }) => {
     const { room } = await control<{ room: string }>('/continuation-room');
+    const otherRoom = await control<{ room: string }>('/continuation-room');
     const historyUrl = `**/api/rooms/${room}/transcript-history`;
+    let documentLoads = 0;
+    page.on('request', (request) => {
+      if (request.resourceType() === 'document') documentLoads += 1;
+    });
     const initialResponse = page.waitForResponse(historyUrl);
     await openRoom(page, room);
     const initialPage = await (await initialResponse).json() as TranscriptHistoryPage;
@@ -105,12 +171,13 @@ test.describe('durable continuation writer', () => {
     expect(continuationIndex).toBeGreaterThan(interjectionIndex);
     expect(new Set(await renderedUnitKeys(page)).size).toBe(authoritative.length);
 
-    const otherRoom = await control<{ room: string }>('/continuation-room');
-    await openRoom(page, otherRoom.room);
+    const documentLoadsBeforeSwitch = documentLoads;
+    await clickRoom(page, otherRoom.room);
     const switchBackResponse = page.waitForResponse(historyUrl);
-    await openRoom(page, room);
+    await clickRoom(page, room);
     const switchBack = await (await switchBackResponse).json() as TranscriptHistoryPage;
     expect(switchBack.units.map(transcriptUnitKey)).toEqual(authoritative);
+    expect(documentLoads).toBe(documentLoadsBeforeSwitch);
     const switchReloadResponse = page.waitForResponse(historyUrl);
     await page.reload();
     await expect(page.getByTestId('timeline')).toBeVisible({ timeout: 15_000 });
@@ -137,6 +204,9 @@ test.describe('durable continuation writer', () => {
       shape: 'root-evidence', status: 'interrupted', gap: 0,
     });
     const { room } = seeded;
+    const pinnedRoom = await control<{ room: string }>('/seed-terminal-family', {
+      shape: 'root-evidence', status: 'interrupted', gap: 0,
+    });
     await page.setViewportSize({ width: 1440, height: 500 });
     await openRoom(page, room);
     await page.addStyleTag({ content: '.nx-run-block { min-height: 240px; }' });
@@ -208,6 +278,46 @@ test.describe('durable continuation writer', () => {
       return Math.abs(after - before);
     }, { timeout: 10_000 }).toBeLessThanOrEqual(2);
     expect(anchorState.key).toBe(await anchor.getAttribute('data-transcript-unit'));
+
+    // A second held head resolves while the reader is in another room. The
+    // destination is already pinned at its true tail; the A response must not
+    // carry its pending anchor or unpin state across that room boundary.
+    await page.unroute(`**/api/rooms/${room}/transcript-history`);
+    await control('/live-family', { room, handle: 'reviewer' });
+    await control('/live-family-step', { room, handle: 'reviewer', step: 'evidence' });
+    await control('/live-family-step', {
+      room, handle: 'reviewer', step: 'interject', body: 'Second delayed-head interjection.',
+    });
+    await control('/live-family-step', {
+      room, handle: 'reviewer', step: 'continue', body: 'Second delayed-head continuation.',
+    });
+    let releaseBackgroundHead = (): void => undefined;
+    let backgroundHeadHeld = false;
+    const backgroundHead = new Promise<void>((resolve) => { releaseBackgroundHead = resolve; });
+    let backgroundHeadOnce = false;
+    await page.route(`**/api/rooms/${room}/transcript-history`, async (route) => {
+      const response = await route.fetch();
+      if (!backgroundHeadOnce && new URL(route.request().url()).search === '') {
+        backgroundHeadOnce = true;
+        backgroundHeadHeld = true;
+        await backgroundHead;
+      }
+      await route.fulfill({ response });
+    });
+    const secondInterrupt = control('/live-family-step', {
+      room, handle: 'reviewer', step: 'interrupt',
+    });
+    await expect.poll(() => backgroundHeadHeld).toBe(true);
+    await clickRoom(page, pinnedRoom.room);
+    const pinnedTimeline = page.getByTestId('timeline');
+    await expect.poll(() => pinnedTimeline.locator('[data-transcript-unit]').count())
+      .toBeGreaterThan(0);
+    const pinnedGap = (): Promise<number> => pinnedTimeline.evaluate((node) =>
+      node.scrollHeight - node.scrollTop - node.clientHeight);
+    await expect.poll(pinnedGap).toBeLessThanOrEqual(2);
+    releaseBackgroundHead();
+    await secondInterrupt;
+    await expect.poll(pinnedGap).toBeLessThanOrEqual(2);
   });
   // harn:end combined-head-preserves-reader-unit-offset
 
