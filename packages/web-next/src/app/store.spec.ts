@@ -94,6 +94,44 @@ describe('room-keyed client state', () => {
     });
     expect(roomSlice(useClientStore.getState(), 'source').errors).toEqual(['native reset failed']);
   });
+  it('retains one member ref across an ordinary clear and source-room remount', () => {
+    const store = useClientStore.getState();
+    store.registerActionRef('source', 'clear-remount-1', 'member-source');
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 4,
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+
+    store.setActiveRoom('other');
+    store.setActiveRoom('source');
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 5, ref: 'different-ref',
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['different-ref'])
+      .toMatchObject({ status: 'success', memberId: 'member-source' });
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 6, ref: 'clear-remount-1',
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['clear-remount-1'])
+      .toMatchObject({ status: 'success', memberId: 'member-source' });
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+    expect(store.consumeActionResult('source', 'clear-remount-1'))
+      .toMatchObject({ status: 'success' });
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets['clear-remount-1'])
+      .toBeUndefined();
+  });
   // harn:end context-reset-requests-settle-by-explicit-ref
   // harn:end context-reset-confirmation-is-anchored-and-member-local
 

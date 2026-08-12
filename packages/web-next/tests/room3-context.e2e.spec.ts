@@ -406,6 +406,7 @@ test.describe('manual compaction', () => {
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
+    return (await res.json()) as T;
   };
 
   test('compacting shows busy, then lands a new ring reading and re-enables', async ({ page }) => {
@@ -494,7 +495,7 @@ test.describe('manual compaction', () => {
 // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-browser-regression
 test.describe('clear member context', () => {
   const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
-  const control = async (path: string, body: unknown = {}): Promise<void> => {
+  const control = async <T = unknown>(path: string, body: unknown = {}): Promise<T> => {
     const response = await fetch(`${CONTROL}${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
@@ -547,9 +548,19 @@ test.describe('clear member context', () => {
     await expect(card.getByTestId('clear-context-confirmation')).toHaveCount(0);
     const pending = card.getByTestId('member-eraser-clear-context');
     await expect(pending).toHaveAttribute('data-clearing', 'true');
-    await pending.click({ force: true });
-    await pending.click({ force: true });
-    await expect(clear).toBeVisible();
+    await expect(pending).toBeFocused();
+
+    // The source-room store owns the request. A remounted card must retain one
+    // spinner and refuse every duplicate click until this exact result arrives.
+    await page.getByTestId('room-link-eng').click();
+    await page.getByTestId('room-link-context-reset').click();
+    const remountedPending = page.getByTestId('member-eraser-clear-context');
+    await expect(remountedPending).toHaveAttribute('data-clearing', 'true');
+    await remountedPending.click({ force: true });
+    await remountedPending.click({ force: true });
+    expect((await control<{ attempts: number }>('/reset-stats')).attempts).toBe(beforeAttempts + 1);
+
+    await expect(remountedPending).toBeVisible();
     // An unrelated compact_member refusal lands in the same room while reset
     // remains held. Its correlated UI action recovers, but Clear stays pending.
     const compact = page.getByTestId('member-eraser-compact');

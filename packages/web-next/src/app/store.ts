@@ -236,9 +236,10 @@ function projectActionResult(current: RoomSlice, result: ActionResult): RoomSlic
     const oldest = resultRefs.shift();
     if (oldest !== undefined) delete actionResults[oldest];
   }
-  const actionTargets = { ...current.actionTargets };
-  delete actionTargets[result.ref];
-  return { ...current, actionResults, actionTargets };
+  // Keep the target beside its result until the owning card consumes that
+  // exact ref. This lets a remounted card distinguish its own settled result
+  // from an unrelated member frame while the source room remains authoritative.
+  return { ...current, actionResults };
 }
 
 function retainActionTarget(
@@ -658,7 +659,9 @@ export function createClientStore(): ClientStore {
       if (consumed === undefined) return {};
       const actionResults = { ...current.actionResults };
       delete actionResults[ref];
-      return { rooms: { ...state.rooms, [roomId]: { ...current, actionResults } } };
+      const actionTargets = { ...current.actionTargets };
+      delete actionTargets[ref];
+      return { rooms: { ...state.rooms, [roomId]: { ...current, actionResults, actionTargets } } };
     });
     return consumed;
   },

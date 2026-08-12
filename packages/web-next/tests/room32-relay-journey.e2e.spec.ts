@@ -116,13 +116,23 @@ test.describe('relay tunnel journey', () => {
     const hostedConfirmation = hostedCard.getByTestId('clear-context-confirmation');
     await expect(page.getByTestId('clear-context-dialog')).toHaveCount(0);
     await expect(hostedConfirmation.getByTestId('clear-context-confirm')).toBeFocused();
+    const beforeResetAttempts = (await control<{ attempts: number }>('/reset-stats')).attempts;
+    await control('/hold-resets');
     await control('/fail-reset');
     await hostedConfirmation.getByTestId('clear-context-confirm').click();
-    await expect(hostedCard.getByTestId('member-eraser-clear-error')).toContainText(
+    const hostedPending = hostedCard.getByTestId('member-eraser-clear-context');
+    await expect(hostedPending).toHaveAttribute('data-clearing', 'true');
+    await expect(hostedPending).toBeFocused();
+    await page.getByTestId('room-link-eng').click();
+    await control('/hold-resets', { held: false });
+    await page.getByTestId('room-link-context-reset').click();
+    const returnedHostedCard = page.getByTestId('member-eraser');
+    await expect(returnedHostedCard.getByTestId('member-eraser-clear-error')).toContainText(
       'fixture native retirement failed',
       { timeout: 20_000 },
     );
-    await expect(hostedCard.getByTestId('member-eraser-clear-retry')).toBeVisible();
+    await expect(returnedHostedCard.getByTestId('member-eraser-clear-retry')).toBeVisible();
+    expect((await control<{ attempts: number }>('/reset-stats')).attempts).toBe(beforeResetAttempts + 1);
     await expect(page.getByTestId('composer-input')).toBeEnabled();
     // harn:end context-reset-confirmation-is-anchored-and-member-local
     await page.getByTestId('room-link-eng').click();

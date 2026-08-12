@@ -451,18 +451,28 @@ function MemberCard(props: {
   const [compacting, setCompacting] = useState(false);
   // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-anchored-control
   const [confirmClear, setConfirmClear] = useState(false);
-  const [clearRef, setClearRef] = useState<string>();
   const [clearError, setClearError] = useState<string>();
   const clearTriggerRef = useRef<HTMLButtonElement>(null);
   const clearConfirmationRef = useRef<HTMLDivElement>(null);
-  const clearPendingRef = useRef<string>();
-  const clearing = clearRef !== undefined;
+  const focusPendingClearRef = useRef(false);
   // harn:end context-reset-confirmation-is-anchored-and-member-local
   const [reviving, setReviving] = useState(false);
   const errorCount = useClientStore((state) => roomSlice(state, props.room).errors.length);
+  // The ref and result are owned by the originating room slice, rather than by
+  // this card instance. That source remains authoritative through room and
+  // hosted-computer remounts.
+  const clearRef = useClientStore((state) => {
+    const targets = roomSlice(state, props.room).actionTargets;
+    return Object.entries(targets).findLast(([, memberId]) => memberId === member.id)?.[0];
+  });
   const clearResult = useClientStore((state) => clearRef === undefined
     ? undefined
     : roomSlice(state, props.room).actionResults[clearRef]);
+  const settledClearResult = clearResult !== undefined
+    && (clearResult.memberId === undefined || clearResult.memberId === member.id)
+    ? clearResult
+    : undefined;
+  const clearing = clearRef !== undefined && settledClearResult === undefined;
   const startedAt = useRef<{ errors: number; member: Member } | null>(null);
   const revivedAt = useRef<{ errors: number; member: Member } | null>(null);
   useEffect(() => {
@@ -479,19 +489,23 @@ function MemberCard(props: {
     }
   }, [compacting, errorCount, member]);
   useEffect(() => {
-    if (clearRef === undefined || clearResult === undefined) return;
-    // A ref is unique to one card. The member id on a success is an additional
-    // fence; errors inherit the target recorded before dispatch.
-    if (clearResult.memberId !== undefined && clearResult.memberId !== member.id) return;
-    useClientStore.getState().consumeActionResult(props.room, clearRef);
-    clearPendingRef.current = undefined;
-    setClearRef(undefined);
-    if (clearResult.status === 'error') {
-      setClearError(clearResult.message ?? 'Context reset failed.');
-    } else {
+    if (clearRef === undefined || settledClearResult === undefined) return;
+    // A matching success is consumed once and removes the target. An error is
+    // retained in the source slice until Retry so a remounted card can still
+    // announce the same local failure without permitting a duplicate attempt.
+    if (settledClearResult.status === 'success') {
+      useClientStore.getState().consumeActionResult(props.room, clearRef);
       setClearError(undefined);
+    } else {
+      setClearError(settledClearResult.message ?? 'Context reset failed.');
     }
-  }, [clearRef, clearResult, member.id, props.room]);
+  }, [clearRef, settledClearResult, member.id, props.room]);
+
+  useEffect(() => {
+    if (!focusPendingClearRef.current || clearRef === undefined) return;
+    focusPendingClearRef.current = false;
+    clearTriggerRef.current?.focus();
+  }, [clearRef]);
 
   useEffect(() => {
     if (!confirmClear) return;
@@ -521,12 +535,16 @@ function MemberCard(props: {
 
   // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
   const dispatchClear = (): void => {
-    if (clearPendingRef.current !== undefined || member.state !== 'idle' || member.session_ref === undefined) return;
+    if (clearing || member.state !== 'idle') return;
+    const retrying = settledClearResult?.status === 'error' || clearError !== undefined;
+    if (member.session_ref === undefined && !retrying) return;
+    if (clearRef !== undefined && settledClearResult?.status === 'error') {
+      useClientStore.getState().consumeActionResult(props.room, clearRef);
+    }
     const ref = createClearRef(member.id);
-    clearPendingRef.current = ref;
     useClientStore.getState().registerActionRef(props.room, ref, member.id);
     setClearError(undefined);
-    setClearRef(ref);
+    focusPendingClearRef.current = true;
     setConfirmClear(false);
     props.connection.act({ act: 'clear_member_context', member_id: member.id }, ref);
   };
@@ -660,7 +678,12 @@ function MemberCard(props: {
                 )}
                 {/* harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-web-control */}
                 {/* harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-anchored-control */}
-                {props.canManage && member.state !== 'dead' && member.session_ref !== undefined && (
+                {props.canManage && member.state !== 'dead' && (
+                  member.session_ref !== undefined
+                  || clearing
+                  || clearError !== undefined
+                  || settledClearResult?.status === 'error'
+                ) && (
                   <div className="nx-member-clear-wrap">
                     <button
                       ref={clearTriggerRef}
