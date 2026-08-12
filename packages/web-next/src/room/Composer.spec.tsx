@@ -3,12 +3,14 @@ import { parseBody } from '@codor/protocol';
 import { describe, expect, it } from 'vitest';
 
 import {
+  composerDispatchSnapshot,
   composeVoiceBody,
   deriveVoiceRecipientHandle,
   exactLocalMention,
   exactQualifiedMention,
   hasOwnPendingComposerEcho,
   insertQualifiedMentionText,
+  pendingComposerResolution,
   qualifiedCompletionCandidates,
   qualifiedMentionQuery,
   resizeComposerTextarea,
@@ -232,6 +234,69 @@ describe('pending composer echo ownership', () => {
   });
 });
 // harn:end pending-composer-echo-is-destination-and-self-bound
+
+// harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+describe('raw composer acknowledgement ownership', () => {
+  const message = (id: number, author: string, body: string) => ({
+    id,
+    room: 'eng',
+    author,
+    kind: 'chat' as const,
+    body,
+    mentions: [],
+    refs: [],
+    ledger_refs: [],
+    ts: '2026-08-12T00:00:00.000Z',
+    seq: id,
+  });
+
+  const pending = (rawBody: string) => ({
+    ...composerDispatchSnapshot(rawBody),
+    targetRoom: 'eng',
+    knownMessageIds: new Set<number>(),
+    authorId: 'owner-eng',
+    errorCount: 0,
+  });
+
+  it.each([
+    'please investigate @sol ',
+    'please investigate ~review:@sol ',
+  ])('correlates the canonical self echo but clears the exact raw snapshot (%s)', (rawBody) => {
+    const send = pending(rawBody);
+    expect(send.body).toBe(rawBody.trim());
+    expect(pendingComposerResolution(
+      { 1: message(1, 'owner-eng', send.body) }, send, rawBody, 0,
+    )).toBe('clear');
+  });
+
+  it('preserves an edit made after dispatch even when the canonical self echo arrives', () => {
+    const send = pending('please investigate @sol ');
+    expect(pendingComposerResolution(
+      { 1: message(1, 'owner-eng', send.body) }, send, 'please investigate @sol — adding context', 0,
+    )).toBe('preserve');
+  });
+
+  it('does not correlate identical canonical prose from another author', () => {
+    const send = pending('please investigate @sol ');
+    expect(pendingComposerResolution(
+      { 1: message(1, 'sol', send.body) }, send, send.rawBody, 0,
+    )).toBeUndefined();
+  });
+
+  it('canonicalizes surrounding whitespace while retaining whitespace-only raw ownership', () => {
+    expect(composerDispatchSnapshot('  please investigate @sol \n')).toEqual({
+      rawBody: '  please investigate @sol \n',
+      body: 'please investigate @sol',
+    });
+    expect(composerDispatchSnapshot(' \n\t ')).toEqual({ rawBody: ' \n\t ', body: '' });
+  });
+
+  it('preserves the raw draft when the server reports a refusal or transport error', () => {
+    const send = pending('please investigate @sol ');
+    expect(pendingComposerResolution(undefined, send, send.rawBody, 1)).toBe('error');
+  });
+});
+// harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
 describe('composeVoiceBody', () => {
   it('prefixes the recipient mention before the plain transcript — no marker glyphs', () => {

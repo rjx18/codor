@@ -1,0 +1,98 @@
+id: lane-b-q1-exact-raw-composer-acknowledgement
+title: Exact raw composer snapshot acknowledgement
+notes: >
+  Implement only Lane B phase Q1 from the accepted parallel reliability and
+  collaboration program. At dispatch, retain both the exact raw textarea value
+  and its canonical trimmed body. Correlate a commit echo only by the canonical
+  body, authenticated self identity, and destination room, but clear the
+  composer only when its current raw value still equals the dispatched raw
+  snapshot. Preserve edits made after dispatch, exact local and qualified
+  trailing-mention first-Enter delivery, one delivery only, existing refusal and
+  error visibility, and the narrow destination-message subscription. Routing,
+  protocol, room state, scheduling, transcript behavior, and unrelated composer
+  presentation remain unchanged.
+assumptions:
+  create:
+    - id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
+      title: Composer acknowledgement separates raw draft ownership from canonical
+        echo
+      statement: >
+        Each composer dispatch must capture the exact raw textarea snapshot and
+        the canonical submitted body; its pending send correlates only a newly
+        committed chat with that canonical body from the authenticated self in
+        the selected destination room, and on that echo clears only when the
+        current textarea still exactly equals the dispatched raw snapshot, so
+        trailing whitespace clears after a successful send while any edit made
+        after dispatch remains owned by the operator.
+      reason: >
+        Comparing the raw textarea to the trimmed submitted body leaves a
+        successfully sent exact trailing mention visible, while comparing only
+        canonical text would erase post-dispatch edits or accept the wrong echo.
+      depends_on:
+        - pending-composer-echo-is-destination-and-self-bound
+        - exact-trailing-mentions-send-before-completion
+        - composer-enter-uses-live-draft-state
+  reviewed:
+    - id: pending-composer-echo-is-destination-and-self-bound
+      outcome: unchanged
+      reason: >
+        Echo ownership remains bound to one destination, its authenticated self
+        identity, a new message id, and the canonical submitted body; Q1 only
+        separates that correlation value from exact raw draft ownership.
+    - id: exact-trailing-mentions-send-before-completion
+      outcome: unchanged
+      reason: >
+        Exact local and qualified mentions still send unchanged on the first
+        desktop Enter with one delivery, while partial completion and refusal
+        behavior remain intact.
+    - id: composer-enter-uses-live-draft-state
+      outcome: unchanged
+      reason: >
+        Dispatch continues to read the live textarea at the action edge; Q1
+        records that same raw value before deriving the canonical body.
+    - id: qualified-completion-lists-registered-targets-only
+      outcome: unchanged
+      reason: >
+        Qualified candidate discovery and exact-token recognition do not change;
+        only acknowledgement state records an additional raw snapshot.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        Connectivity and hydration gates still prevent mutation while the room
+        is not ready, and refusal or transport error continues to preserve the
+        draft with the existing actionable hint.
+anchors:
+  composer-acknowledgement-separates-raw-draft-from-canonical-echo:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: >
+        Capture the live raw dispatch snapshot separately from the canonical
+        body and use each only for its intended ownership decision.
+    raw-draft-acknowledgement-regression:
+      action: change
+      reason: >
+        Prove trailing-space local and qualified mentions clear after the own
+        canonical echo while edits, other-author messages, whitespace-only
+        input, and refused or failed sends remain correct.
+files:
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+verification: >
+  Before implementation, add the literal raw textarea regression `please
+  investigate @sol ` and its qualified equivalent, press Enter once, observe one
+  canonical post, deliver the authenticated self echo, and record each test
+  failing on the accepted baseline because the raw draft remains. Then implement
+  the smallest fix. Cover edit-after-dispatch preservation, identical-body
+  other-author non-correlation, canonical whitespace handling, whitespace-only
+  refusal, and server refusal/error draft preservation. Run the focused Composer
+  unit tests, the direct Room 2 and qualified Room 40 Playwright journeys, the
+  hosted relay Room 32 journey, all web-next unit tests, and the web-next
+  production/PWA build. Run harn check, apply and staged checks, git diff
+  --check, create exactly one implementation commit containing the applied plan
+  and assumption truth, and finish with a clean worktree. Do not push, merge,
+  deploy, publish, release, or begin any other phase.
+applied:
+  applied_at: 2026-08-12T12:33:15.543Z

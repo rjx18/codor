@@ -221,6 +221,32 @@ export function selectPendingDestinationMessages(
 }
 // harn:end pending-composer-echo-is-destination-and-self-bound
 
+// harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-and-canonical-pending-send
+type PendingComposerSend = {
+  rawBody: string;
+  body: string;
+  targetRoom: string;
+  knownMessageIds: Set<number>;
+  authorId: string | undefined;
+  errorCount: number;
+};
+
+export function composerDispatchSnapshot(rawBody: string): Pick<PendingComposerSend, 'rawBody' | 'body'> {
+  return { rawBody, body: rawBody.trim() };
+}
+
+export function pendingComposerResolution(
+  messages: Readonly<Record<number, Message>> | undefined,
+  pending: PendingComposerSend,
+  currentRawBody: string,
+  errorCount: number,
+): 'clear' | 'preserve' | 'error' | undefined {
+  if (hasOwnPendingComposerEcho(messages, pending)) {
+    return currentRawBody === pending.rawBody ? 'clear' : 'preserve';
+  }
+  return errorCount > pending.errorCount ? 'error' : undefined;
+}
+
 /** The spoken-message body: mention prefix (omitted when unaddressed — never a
  *  dangling `@`), then the plain newline-joined transcript. No marker glyphs —
  *  the voice-ness rides the message's `voice` metadata, rendered as a card. */
@@ -268,13 +294,7 @@ export function Composer(props: { room: string; token: () => string; connection:
   const pendingCaretRef = useRef<number>();
   const [routingCatalog, setRoutingCatalog] = useState<WorktreeRoutingCatalog>();
   const [qualifiedMention, setQualifiedMention] = useState<QualifiedMentionQuery>();
-  const [pendingSend, setPendingSend] = useState<{
-    body: string;
-    targetRoom: string;
-    knownMessageIds: Set<number>;
-    authorId: string | undefined;
-    errorCount: number;
-  }>();
+  const [pendingSend, setPendingSend] = useState<PendingComposerSend>();
   // The selector closes over one pending destination and returns only its
   // message-map identity. Member/inbox churn there, and every update in every
   // other room, therefore leaves the active composer alone while typing.
@@ -375,10 +395,15 @@ export function Composer(props: { room: string; token: () => string; connection:
   // frame arrives. A lifecycle race therefore remains visible and retryable.
   useEffect(() => {
     if (pendingSend === undefined) return;
-    const committed = hasOwnPendingComposerEcho(pendingDestinationMessages, pendingSend);
-    if (committed) {
+    const resolution = pendingComposerResolution(
+      pendingDestinationMessages,
+      pendingSend,
+      areaRef.current?.value ?? draft,
+      slice.errors.length,
+    );
+    if (resolution === 'clear' || resolution === 'preserve') {
       setPendingSend(undefined);
-      if ((areaRef.current?.value ?? draft) === pendingSend.body) {
+      if (resolution === 'clear') {
         setDraft('');
         setReplyTo(undefined);
         setPending([]);
@@ -389,7 +414,7 @@ export function Composer(props: { room: string; token: () => string; connection:
       }
       return;
     }
-    if (slice.errors.length > pendingSend.errorCount) {
+    if (resolution === 'error') {
       setHint(slice.errors.at(-1) ?? 'Message was refused');
       setPendingSend(undefined);
     }
@@ -804,7 +829,8 @@ export function Composer(props: { room: string; token: () => string; connection:
     // state render under load. Read the controlled element at the action edge
     // so an overwritten seeded @mention can never be submitted from a stale
     // closure.
-    const body = (areaRef.current?.value ?? draft).trim();
+    const snapshot = composerDispatchSnapshot(areaRef.current?.value ?? draft);
+    const body = snapshot.body;
     if (pendingSend !== undefined || !connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
     const parsed = parseBody(body, roster, {
       qualifiedTargets: routingCatalog,
@@ -827,7 +853,7 @@ export function Composer(props: { room: string; token: () => string; connection:
     const targetRoom = parsed.qualified?.[0]?.target?.conversation_id ?? props.room;
     const targetSlice = roomSlice(useClientStore.getState(), targetRoom);
     setPendingSend({
-      body,
+      ...snapshot,
       targetRoom,
       knownMessageIds: new Set(Object.keys(targetSlice.messages).map(Number)),
       // Multiplexed child subscriptions carry their own addressed `self`, so a
@@ -842,6 +868,7 @@ export function Composer(props: { room: string; token: () => string; connection:
     });
     setHint(undefined);
   };
+  // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
   return (
     <footer

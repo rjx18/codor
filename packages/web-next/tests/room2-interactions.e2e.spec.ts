@@ -109,19 +109,36 @@ test.describe('composer addressing', () => {
   });
 
   // harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
-  test('an exact trailing local mention sends on the first Enter', async ({ page }) => {
+  // harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+  test('an exact trailing local mention with raw whitespace sends once and clears on its canonical echo', async ({ page }) => {
     await openRoom(page);
     const input = page.getByTestId('composer-input');
     await expect(input).toHaveValue(/@\w+ /);
     // @scout is the fixture's already-running agent, so this exercises the
     // composer without consuming a queued FakeAdapter turn from another spec.
-    await input.fill('send this now @scout');
-    await expect(page.getByTestId('mention-popover')).toBeVisible();
+    const raw = 'please investigate @scout ';
+    const canonical = raw.trim();
+    await input.fill(raw);
     await input.press('Enter');
-    await expect(page.locator('.nx-prose', { hasText: 'send this now @scout' })).toBeVisible();
-    await expect(input).not.toHaveValue('send this now @scout');
+    await expect(page.locator('.nx-prose', { hasText: canonical })).toBeVisible();
+    await expect.poll(async () => (await control<{ count: number }>('/room-message-count', {
+      room: 'eng', body: canonical,
+    })).count).toBe(1);
+    await expect(input).not.toHaveValue(raw);
   });
+  // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
   // harn:end exact-trailing-mentions-send-before-completion
+
+  // harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+  test('whitespace-only input is refused without dispatch or draft loss', async ({ page }) => {
+    await openRoom(page);
+    const input = page.getByTestId('composer-input');
+    const raw = ' \n\t ';
+    await input.fill(raw);
+    await input.press('Enter');
+    await expect(input).toHaveValue(raw);
+  });
+  // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
   // harn:assume composer-enter-uses-live-draft-state ref=composer-live-mention-direct-regression
   test('Enter submits the live completed draft even when the mention picker is one frame stale', async ({ page }) => {

@@ -63,27 +63,29 @@ async function registeredChildren(page: Page): Promise<{
 
 test.describe('native worktree group navigation', () => {
   // harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
-  test('an exact trailing qualified mention sends on the first Enter into its child', async ({ page }) => {
+  // harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+  test('an exact trailing qualified mention with raw whitespace sends once and clears on its canonical echo', async ({ page }) => {
     const review = await reviewChild(page);
     await openRoom(page, `/?room=workspace&token=${TOKEN}`);
     await expect(page.getByTestId(`worktree-link-${review.id}`)).toHaveAttribute(
       'aria-label', /Connected/, { timeout: 10_000 },
     );
     const input = page.getByTestId('composer-input');
-    const text = `qualified first enter ~${review.alias}:@reviewer`;
-    await input.fill(text);
-    await expect(page.getByTestId('qualified-mention-popover')).toBeVisible();
+    const raw = `please investigate ~${review.alias}:@reviewer `;
+    const canonical = raw.trim();
+    await input.fill(raw);
     await input.press('Enter');
     await expect.poll(async () => (await control<{ count: number }>('/room-message-count', {
       room: review.conversation_id,
-      body: text,
+      body: canonical,
     })).count).toBe(1);
-    await expect(input).not.toHaveValue(text);
+    await expect(input).not.toHaveValue(raw);
     expect((await control<{ count: number }>('/room-message-count', {
       room: 'workspace',
-      body: text,
+      body: canonical,
     })).count).toBe(0);
   });
+  // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
   // harn:end exact-trailing-mentions-send-before-completion
 
   // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-browser-regression

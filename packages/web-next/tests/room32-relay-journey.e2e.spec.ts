@@ -111,12 +111,16 @@ test.describe('relay tunnel journey', () => {
     // is for" guard without kicking off an agent run — the point here is the
     // client→server→client round trip over the tunnel, not agent behaviour.
     const input = page.getByTestId('composer-input');
-    await input.fill('@viewer hello over the relay');
+    // harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+    const rawRelayBody = '@viewer hello over the relay ';
+    await input.fill(rawRelayBody);
     // The composer only sends once the room has hydrated over the tunnel; the
     // send button enabling is that gate (connected AND hydrated AND non-empty).
     await expect(page.getByTestId('composer-send')).toBeEnabled({ timeout: 30_000 });
     await input.press('Enter');
     await expect(page.getByTestId('timeline')).toContainText('hello over the relay', { timeout: 20_000 });
+    await expect(input).not.toHaveValue(rawRelayBody);
+    // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
     // Attachment upload and retrieval both cross the tunnel. The presented URL
     // is a blob and preserves the exact uploaded bytes.
