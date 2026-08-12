@@ -129,7 +129,7 @@ token is a complete directive:
 ```
 
 `send_in` accepts ordered compound days, hours, minutes, and seconds (`d`, `h`, `m`,
-`s`). A clock-only `send_at` means the next occurrence in the switchboard host's
+`s`) in lowercase; case variants are malformed rather than reinterpreted. A clock-only `send_at` means the next occurrence in the switchboard host's
 numeric UTC offset captured at creation. ISO-8601 `send_at` values must carry `Z` or
 an explicit numeric offset. The directive is at most 256 characters; the clean body is
 at most 65,536 UTF-8 bytes; the due instant is strictly in the future and no more than
@@ -141,10 +141,14 @@ presentation. Accepted rows freeze the author, one resolved member/worktree iden
 mention span, clean body, and absolute due instant; later aliases or same-handle
 members cannot retarget them.
 
-Each insert or state transition is a room-scoped `schedule` change-log entity. The
+Each insert or real state transition is a room-scoped `schedule` change-log entity
+with its producing sequence; live effects from one due commit are published in
+ascending sequence order. The
 daemon exposes redacted `schedule` frames during live fanout and hydration; durable
 states are `pending`, `sending`, `sent`, `failed`, and `cancelled`. A correlated
-`cancel_schedule` act is authorized for the schedule author or a human room admin
+`cancel_schedule` act carries one bounded correlation `ref`, echoed by its result,
+and is authorized for the schedule author or a human room admin in the schedule's
+origin room
 and can win only while the row is pending. Delivery claims and the ordinary routed
 message commit share one SQLite transaction, so restart may delay work but cannot
 duplicate the visible message or its deliveries.

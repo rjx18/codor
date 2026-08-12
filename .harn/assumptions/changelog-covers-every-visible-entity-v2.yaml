@@ -1,0 +1,14 @@
+id: changelog-covers-every-visible-entity-v2
+hash: a-158566e4cc7e
+title: Every message, member, inbox, meter, room, and schedule mutation logs once
+state: active
+statement: >
+  Every store mutation of a client-visible message, member, human inbox, meter,
+  room, or schedule row must append exactly one changes(room_id, seq, entity,
+  entity_id) row with a per-room monotonic seq allocated in the same SQLite
+  transaction, and no no-op may emit a synthetic entity frame at an unrelated
+  current cursor, because sync hydrates exclusively from this log and missed,
+  duplicate, or invented cursor ownership creates client desynchronization.
+depends_on:
+  - changelog-is-sync-cursor-v2
+created_by: persistent-scheduled-messages-s1-review-fixes

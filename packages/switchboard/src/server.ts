@@ -2232,7 +2232,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             for (const delivery of inbox) send({ type: 'inbox', seq: hydrationCursor, delivery });
             // harn:end agent-sync-hydrates-only-own-queued-inbox
             for (const meter of sync.meters) send({ type: 'meter', seq: hydrationCursor, meter });
-            // harn:assume scheduled-state-streams-through-room-seq ref=schedule-sync-and-fanout
+            // harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-sync-and-fanout-v2
             for (const schedule of sync.schedules ?? []) {
               send({
                 type: 'schedule',
@@ -2240,7 +2240,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
                 schedule: daemon.project(room, schedule),
               });
             }
-            // harn:end scheduled-state-streams-through-room-seq
+            // harn:end scheduled-state-streams-through-room-seq-v2
             // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
             if (sync.support !== undefined) {
               subscription.lastSupport = JSON.stringify(sync.support);
@@ -2259,17 +2259,22 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           } else if (frame.type === 'post') {
             const actor = assertRoomCapability(principal, frame.room, 'post');
             const room = effectiveAgentRoom(principal, frame.room);
-            const scheduledDirective = parseScheduleDirective(frame.body);
+            const scheduleNow = new Date();
+            const scheduledDirective = parseScheduleDirective(frame.body, { now: scheduleNow });
             if (scheduledDirective !== undefined) {
               if (frame.reply_to !== undefined || (frame.attachments?.length ?? 0) > 0
                 || frame.voice !== undefined || frame.awaiting_reply === true) {
                 throw new Error('scheduled requests are text-only and cannot carry replies, attachments, voice, or waits');
               }
-              const schedule = daemon.scheduleMessage(room, frame.body, actor.id);
+              const schedule = daemon.scheduleMessage(room, frame.body, actor.id, {
+                now: scheduleNow,
+                directive: scheduledDirective,
+              });
               if (!subscriptions.get(socket)?.has(schedule.room)) {
                 send({
                   type: 'schedule',
-                  seq: daemon.store.currentSeq(schedule.room),
+                  seq: daemon.store.scheduleChangeSeq(schedule.room, schedule.id)
+                    ?? daemon.store.currentSeq(schedule.room),
                   schedule: daemon.project(schedule.room, schedule),
                 });
               }
@@ -2336,7 +2341,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               );
               send({
                 type: 'cancel_schedule_result',
-                ref: frame.ref ?? act.schedule_id,
+                ref: frame.ref!,
                 schedule: daemon.project(schedule.room, schedule),
               });
             // harn:end scheduled-cancellation-is-authorized-before-claim

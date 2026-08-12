@@ -97,8 +97,76 @@ describe('scheduled directive protocol', () => {
       now, hostOffsetMinutes: 480,
     })).toThrow(/explicit offset/);
   });
+
+  it('keeps recognition at the first token and rejects malformed or case-variant directives', () => {
+    expect(protocol.parseScheduleDirective('ordinary [send_in=2h] @sol')).toBeUndefined();
+    expect(() => protocol.parseScheduleDirective('[send_in=2h @sol')).toThrow(/malformed/);
+    expect(() => protocol.parseScheduleDirective('[send_in=2h]')).toThrow(/body/);
+    expect(() => protocol.parseScheduleDirective('[SEND_IN=2h] @sol case', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/malformed/);
+  });
+
+  it('accepts every ordered relative unit and refuses duplicates or descending units', () => {
+    expect(protocol.parseScheduleDirective('[send_in=1d2h3m4s]@sol all units', {
+      now, hostOffsetMinutes: 480,
+    })?.due_ts).toBe('2026-08-13T14:03:04.000Z');
+    expect(() => protocol.parseScheduleDirective('[send_in=1h2h] @sol duplicate', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/ordered/);
+    expect(() => protocol.parseScheduleDirective('[send_in=2m1h] @sol descending', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/ordered/);
+  });
+
+  it('enforces UTF-8 bytes, directive bounds, strict future, and the horizon', () => {
+    const exact = protocol.parseScheduleDirective(`[send_in=1s] ${'é'.repeat(32_768)}`, {
+      now, hostOffsetMinutes: 480,
+    });
+    expect(exact?.clean_body).toHaveLength(32_768);
+    expect(() => protocol.parseScheduleDirective(`[send_in=1s] ${'é'.repeat(32_769)}`, {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/UTF-8/);
+    expect(() => protocol.parseScheduleDirective(`[send_in=${'1'.repeat(250)}s] @sol too long`, {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/256/);
+    expect(() => protocol.parseScheduleDirective('[send_in=0s] @sol now', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/invalid relative duration|future/);
+    expect(protocol.parseScheduleDirective('[send_in=365d] @sol horizon', {
+      now, hostOffsetMinutes: 480,
+    })).toBeDefined();
+    expect(() => protocol.parseScheduleDirective('[send_in=365d1s] @sol beyond', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/365/);
+  });
+
+  it('handles leap/day rollover and fixed-offset DST-adjacent clocks', () => {
+    expect(protocol.parseScheduleDirective('[send_at=12:00AM] @sol leap', {
+      now: new Date('2028-02-28T23:00:00.000Z'), hostOffsetMinutes: 0,
+    })?.due_ts).toBe('2028-02-29T00:00:00.000Z');
+    expect(protocol.parseScheduleDirective('[send_at=00:05] @sol day', {
+      now: new Date('2026-12-31T23:59:00.000Z'), hostOffsetMinutes: 0,
+    })?.due_ts).toBe('2027-01-01T00:05:00.000Z');
+    expect(protocol.parseScheduleDirective('[send_at=02:30] @sol dst', {
+      now: new Date('2026-03-08T06:00:00.000Z'), hostOffsetMinutes: -300,
+    })?.due_ts).toBe('2026-03-08T07:30:00.000Z');
+    expect(protocol.parseScheduleDirective('[send_at=2026-03-08T07:30:00Z] @sol z', {
+      now: new Date('2026-03-07T12:00:00.000Z'), hostOffsetMinutes: 480,
+    })?.due_ts).toBe('2026-03-08T07:30:00.000Z');
+  });
 });
 // harn:end scheduling-directive-is-bounded-and-canonical
+
+// harn:assume scheduled-cancellation-is-authorized-before-claim ref=cancel-schedule-race-regression
+it('requires a correlation ref for schedule cancellation acts', () => {
+  expect(() => protocol.ActFrameSchema.parse({
+    type: 'act',
+    room: 'eng',
+    act: { act: 'cancel_schedule', schedule_id: 'schedule-1' },
+  })).toThrow(/ref/);
+});
+// harn:end scheduled-cancellation-is-authorized-before-claim
 
 // harn:assume workspace-packages-use-codor-scope ref=codor-package-scope-regression
 it('uses the codor scope for every scoped workspace package', () => {

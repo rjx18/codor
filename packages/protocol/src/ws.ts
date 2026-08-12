@@ -34,7 +34,7 @@ import {
 export const BROWSER_PROTOCOL_EPOCH = 2;
 // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 
-// harn:assume changelog-is-sync-cursor ref=ws-subscribe-cursor
+// harn:assume changelog-is-sync-cursor-v2 ref=ws-subscribe-cursor-v2
 /** Reconnect/delta-sync always cursors on `since_seq` — never message ids. */
 export const SubscribeFrameSchema = z.object({
   type: z.literal('subscribe'),
@@ -63,7 +63,7 @@ export const SubscribeFrameSchema = z.object({
   client_kind: z.literal('browser').optional(),
   // harn:end browser-protocol-epoch-blocks-only-stale-browser-ui
 });
-// harn:end changelog-is-sync-cursor
+// harn:end changelog-is-sync-cursor-v2
 export type SubscribeFrame = z.infer<typeof SubscribeFrameSchema>;
 
 export const PostFrameSchema = z.object({
@@ -361,6 +361,14 @@ export const ActFrameSchema = z.object({
   // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
   ref: ManagementRefSchema.optional(),
   // harn:end management-frames-correlate-one-result
+}).superRefine((frame, ctx) => {
+  if (frame.act.act === 'cancel_schedule' && frame.ref === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ref'],
+      message: 'cancel_schedule requires a correlation ref',
+    });
+  }
 });
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 
@@ -480,14 +488,14 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
     adopted: z.boolean().optional(),
   }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
-  // harn:assume scheduled-state-streams-through-room-seq ref=schedule-protocol-schema
+  // harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-protocol-schema-v2
   z.object({ type: z.literal('schedule'), seq: SeqSchema, schedule: ScheduleSchema }),
   z.object({
     type: z.literal('cancel_schedule_result'),
     ref: ManagementRefSchema,
     schedule: ScheduleSchema,
   }),
-  // harn:end scheduled-state-streams-through-room-seq
+  // harn:end scheduled-state-streams-through-room-seq-v2
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
   z.object({
     type: z.literal('member'),

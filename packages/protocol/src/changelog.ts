@@ -2,11 +2,13 @@ import { z } from 'zod';
 
 import { RoomIdSchema, SeqSchema } from './ids.js';
 
-// harn:assume changelog-is-sync-cursor ref=changelog-entry-schema
+// harn:assume changelog-is-sync-cursor-v2 ref=changelog-entry-schema-v2
 /**
  * The per-room change log records EVERY insert and in-place update of any
  * client-visible entity — messages (incl. run finalization), members, human
- * inbox records, meters, room config. `seq` is the ONLY delta-sync cursor:
+ * inbox records, meters, room config, and schedules. `seq` is the ONLY
+ * delta-sync cursor; live frames carry the exact producing seq and transaction
+ * effects are published in ascending seq order:
  * clients reconnect with `since_seq` and hydrate changed rows from the log
  * (message-id cursors cannot express in-place run finalizations).
  */
@@ -20,4 +22,4 @@ export const ChangeLogEntrySchema = z.object({
   entity_id: z.string().min(1), // stringified: message id, member ulid, delivery id, …
 });
 export type ChangeLogEntry = z.infer<typeof ChangeLogEntrySchema>;
-// harn:end changelog-is-sync-cursor
+// harn:end changelog-is-sync-cursor-v2

@@ -1,7 +1,7 @@
 id: scheduled-state-streams-through-room-seq
 hash: a-bc1207cdf5d3
 title: Schedule state is a room-scoped durable sync entity
-state: active
+state: retired
 statement: >
   Every schedule insert or state transition must append exactly one schedule
   change with the destination room's monotonic seq in the same transaction, and
@@ -16,3 +16,4 @@ depends_on:
   - redaction-before-fanout
   - unix-socket-same-protocol
 created_by: persistent-scheduled-messages-s1
+retired_by: persistent-scheduled-messages-s1-review-fixes

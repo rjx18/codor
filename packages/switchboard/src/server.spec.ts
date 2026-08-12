@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import {
+  ActFrameSchema,
   BROWSER_PROTOCOL_EPOCH,
   VoiceTranscribeError,
   worktreeSelectorFromBranch,
@@ -80,6 +81,29 @@ describe('scheduled-message socket contract', () => {
   it('exposes correlated cancellation through the shared protocol', () => {
     expect(() => daemon.cancelSchedule('eng', 'missing-schedule', member.id, false))
       .toThrow(/no such schedule/);
+  });
+
+  it('rejects cancellation by an administrator from an unrelated room', () => {
+    const schedule = daemon.scheduleMessage(
+      'eng', '[send_in=1s] @admin-user cancel scope', member.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    daemon.createRoom({
+      id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' },
+    });
+    const otherAdmin = daemon.store.addMember('other', {
+      kind: 'human', handle: 'other-admin', display_name: 'Other Admin', role: 'admin',
+    });
+    expect(() => daemon.cancelSchedule('other', schedule.id, otherAdmin.id, false))
+      .toThrow(/forbidden|no such schedule/);
+    expect(daemon.store.getSchedule('eng', schedule.id)?.state).toBe('pending');
+  });
+
+  it('requires a ref on the wire before a cancel request reaches the daemon', () => {
+    expect(() => ActFrameSchema.parse({
+      type: 'act', room: 'eng',
+      act: { act: 'cancel_schedule', schedule_id: 'schedule-1' },
+    })).toThrow(/ref/);
   });
 });
 // harn:end scheduled-cancellation-is-authorized-before-claim

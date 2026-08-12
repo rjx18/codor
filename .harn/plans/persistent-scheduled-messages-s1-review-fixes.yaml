@@ -1,0 +1,358 @@
+id: persistent-scheduled-messages-s1-review-fixes
+title: Freeze scheduled routing, preserve cursor order, and prove S1 recovery
+notes: >
+  Contained independent-review correction for Lane C S1 commit
+  273ee3a9c2c277dd714e149b151fcc3e13bf70ba. The committed due path stores a
+  frozen target but reparses the old visible body through ordinary fallback; a
+  local target rename can therefore deliver to a configured different default.
+  It also emits the terminal schedule (the transaction's newest seq) before the
+  ordinary message (an older seq), so a disconnect after the first frame can
+  reconnect beyond and permanently miss the message. Claimed rows from one batch
+  are likewise emitted with currentSeq rather than their own producing seq.
+  cancel_schedule accepts no request ref and globally locates an id before
+  treating an unrelated-room admin as authorized. The S1 tests cover one happy
+  daemon path, one claimed reopen, and one missing-id call; they do not satisfy
+  the locked plan's required parser bounds, exact identity, restart/crash,
+  simultaneous due, cancellation race, worktree, authorization, redaction, or
+  sync evidence. Correct only those S1 backend defects. Keep the committed
+  syntax, fixed host-offset rule, SQLite ownership, one timer, ordinary
+  message/delivery machinery, terminal states, and all S2/exclusion boundaries.
+assumptions:
+  retire:
+    - id: changelog-is-sync-cursor
+      reason: >
+        Its exhaustive entity list ends at room and is now false after schedule
+        became a durable client-visible entity; it also does not state the
+        necessary producing-seq and commit-order rule exposed by the review.
+    - id: changelog-covers-every-visible-entity
+      reason: >
+        Its exhaustive mutation list omits schedule rows and must be replaced
+        rather than reviewed unchanged after the schema grew a new entity.
+    - id: scheduled-state-streams-through-room-seq
+      reason: >
+        Its state coverage remains correct, but the review proves that merely
+        appending a change is insufficient: live frames need their exact
+        producing seq and multi-entity transaction frames must publish in commit
+        order before a client may advance its reconnect cursor.
+  create:
+    - id: changelog-is-sync-cursor-v2
+      title: The room change-log seq is the only ordered entity sync cursor
+      statement: >
+        Every mutation of a client-visible message, member, inbox, meter, room,
+        or schedule entity must be represented as ChangeLogEntry {seq, entity,
+        entity_id}; subscriptions carry since_seq, hydration retains that
+        request cursor until sync_complete, and every live entity frame carries
+        the exact seq that produced its projected row and is published in
+        ascending transaction order, so a disconnect after any frame can replay
+        every later mutation without skipping an earlier entity from the same
+        commit.
+      reason: >
+        Emitting a later schedule cursor before its earlier delivered message
+        lets reconnect skip permanent transcript content even though both rows
+        are durable.
+    - id: changelog-covers-every-visible-entity-v2
+      title: Every message, member, inbox, meter, room, and schedule mutation logs
+        once
+      statement: >
+        Every store mutation of a client-visible message, member, human inbox,
+        meter, room, or schedule row must append exactly one changes(room_id,
+        seq, entity, entity_id) row with a per-room monotonic seq allocated in
+        the same SQLite transaction, and no no-op may emit a synthetic entity
+        frame at an unrelated current cursor, because sync hydrates exclusively
+        from this log and missed, duplicate, or invented cursor ownership
+        creates client desynchronization.
+      reason: Schedule state is now first-class reconnect state and must obey the same
+        exact mutation-to-cursor accounting as existing entities.
+      depends_on:
+        - changelog-is-sync-cursor-v2
+    - id: scheduled-state-streams-through-room-seq-v2
+      title: Schedule state streams at its producing seq after earlier committed
+        entities
+      statement: >
+        Every schedule insert or real state transition must append exactly one
+        destination-room schedule change and retain that producing seq for live
+        fanout; cold and warm hydration project bounded redacted rows before
+        sync_complete, while a due transaction publishes its ordinary message,
+        member and inbox effects in ascending committed sequence before its
+        terminal schedule linkage, so reconnect after any delivered frame
+        converges on Pending, Sending, Failed, Cancelled, or sent state and the
+        linked ordinary message without polling, gaps, or duplicate no-op
+        broadcasts.
+      reason: S2 cards can reconcile safely only when schedule and ordinary transcript
+        cursors preserve the same transaction order.
+      depends_on:
+        - changelog-is-sync-cursor-v2
+        - changelog-covers-every-visible-entity-v2
+        - sync-cursor-commits-after-hydration
+        - redaction-before-fanout
+        - unix-socket-same-protocol
+  reviewed:
+    - id: scheduling-directive-is-bounded-and-canonical
+      outcome: unchanged
+      reason: The syntax/time rule remains; this correction adds the omitted boundary
+        matrix and ensures ingress parses one captured clock rather than
+        validating once and scheduling from a later instant.
+    - id: scheduled-target-identity-is-frozen-at-creation
+      outcome: unchanged
+      reason: The existing statement already forbids the observed rename/default
+        retarget; delivery must now plan from the persisted identity rather than
+        re-resolving the body.
+    - id: scheduled-message-commit-is-exactly-once
+      outcome: unchanged
+      reason: The atomic SQLite linkage remains the right boundary; corrections
+        preserve it while routing exactly the frozen recipient and proving every
+        pre/post commit recovery edge.
+    - id: scheduled-state-machine-recovers-from-one-next-due-alarm
+      outcome: unchanged
+      reason: One bounded timer and durable pending/sending recovery remain the
+        contract; the complete state/restart matrix and deterministic alarm
+        evidence were simply absent.
+    - id: scheduled-cancellation-is-authorized-before-claim
+      outcome: unchanged
+      reason: Its existing statement already requires correlation, author/admin scope,
+        and one race winner; the protocol, lookup boundary, and tests must be
+        brought into conformance.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Hydration still advances only on sync_complete; live due frames now need
+        to respect the same ordered cursor truth.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: The due transaction continues allocating one permanent message id inside
+        the message insert transaction.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Qualified creation and due revalidation retain exact stable identity;
+        the correction must not re-resolve aliases or handles.
+    - id: qualified-destination-refusals-are-atomic
+      outcome: unchanged
+      reason: All target/payload validation remains before schedule allocation and a
+        stale due target fails without fallback.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: Qualified schedule state, message, attribution, delivery, and live
+        frames stay solely in the frozen destination conversation.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Once the due transaction creates ordinary queued work, the existing
+        delivery attempt WAL and boot reconciliation remain sole owners.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: Frozen scheduled routing still creates ordinary deliveries through the
+        established queue_seq transaction.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Members may request cancellation, but the authenticated author or an
+        admin of the schedule's actual room/repository scope must authorize it;
+        a foreign-room admin never gains global UUID authority.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Live, hydration, direct acceptance, result, and error projections
+        continue through the existing redaction boundary.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Ref-required cancellation and schedule frames remain additive parts of
+        the identical local and remote WebSocket protocol.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: Existing clients continue advancing by frame seq and sync_complete; the
+        server must restore the ordering that this contract relies on.
+    - id: list-rooms-reply-carries-per-room-seq
+      outcome: unchanged
+      reason: Per-room committed summaries remain optional reconciliation hints; they
+        inherit but do not redefine the expanded entity cursor.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: Schedule frames already carry their destination through the schedule
+        row, while existing addressed self/member/sync frames remain unchanged.
+    - id: substantive-output-messages-drive-unread
+      outcome: unchanged
+      reason: A schedule state transition is not transcript activity; only its
+        atomically created ordinary message retains existing unread semantics.
+    - id: approval-answer-is-atomic-and-chatless
+      outcome: unchanged
+      reason: Approval answer/inbox mutations remain exactly as before under the
+        expanded change-log entity inventory.
+    - id: approval-deliveries-project-resolution-separately
+      outcome: unchanged
+      reason: Approval resolution remains a durable inbox projection unrelated to
+        schedule state.
+    - id: channel-archive-is-durable-soft-state
+      outcome: unchanged
+      reason: Archive keeps every durable schedule row just as it preserves the
+        existing transcript, roster, and inbox state.
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: Member tasks remain member changes and do not share schedule storage.
+anchors:
+  changelog-is-sync-cursor:
+    changelog-entry-schema:
+      action: remove
+      reason: Replace the outdated five-entity anchor with v2 cursor truth.
+    ws-subscribe-cursor:
+      action: remove
+      reason: Move the unchanged since_seq subscription seam under v2 cursor truth.
+  changelog-covers-every-visible-entity:
+    changelog-append:
+      action: remove
+      reason: Replace the outdated mutation inventory with schedule-inclusive v2 truth.
+  scheduled-state-streams-through-room-seq:
+    schedule-protocol-schema:
+      action: remove
+      reason: Move schedule schemas under the exact producing-seq replacement.
+    schedule-change-log-storage:
+      action: remove
+      reason: Move storage mutations under exact change/cursor accounting.
+    schedule-sync-and-fanout:
+      action: remove
+      reason: Replace currentSeq fanout with producing-seq ordered fanout.
+  changelog-is-sync-cursor-v2:
+    changelog-entry-schema-v2:
+      action: change
+      reason: Own the schedule-inclusive entity schema and ordered cursor
+        documentation.
+    ws-subscribe-cursor-v2:
+      action: change
+      reason: Retain since_seq as the one subscription cursor under expanded truth.
+    ordered-live-entity-fanout:
+      action: change
+      reason: Publish transaction effects only with their producing sequence and order.
+    ordered-live-entity-regression:
+      action: change
+      reason: Simulate disconnect/reconnect at every due-transaction frame boundary.
+  changelog-covers-every-visible-entity-v2:
+    changelog-append-v2:
+      action: change
+      reason: Own schedule-inclusive one-mutation/one-change truth.
+    schedule-change-accounting-regression:
+      action: change
+      reason: Assert exact seq rows for insert, batch claim, terminal transitions,
+        cancellation, failure, and terminal no-ops.
+  scheduled-state-streams-through-room-seq-v2:
+    schedule-protocol-schema-v2:
+      action: change
+      reason: Keep bounded schedule/result frames under their exact cursor contract.
+    schedule-change-log-storage-v2:
+      action: change
+      reason: Return or retain each schedule mutation's producing seq for fanout.
+    schedule-sync-and-fanout-v2:
+      action: change
+      reason: Hydrate redacted state and emit message/inbox/member before terminal
+        schedule.
+    schedule-sync-regression-v2:
+      action: change
+      reason: Cover live, cold/warm hydration, redaction, direct qualified acceptance,
+        terminal linkage, and cursor-safe replay.
+  scheduling-directive-is-bounded-and-canonical:
+    scheduled-directive-parser:
+      action: change
+      reason: Make recognition grammar consistent and schedule from one captured
+        now/offset.
+    scheduled-directive-regression:
+      action: change
+      reason: Add the complete position, malformed, unit, byte, future/horizon,
+        ISO/clock, leap/day, and DST-adjacent fixed-offset matrix.
+    scheduled-directive-documentation:
+      action: change
+      reason: Clarify exact case/clock recognition and correlated cancel behavior.
+  scheduled-target-identity-is-frozen-at-creation:
+    scheduled-target-resolution:
+      action: change
+      reason: Snapshot all author/destination attribution needed for later ordinary
+        delivery and route only the persisted recipient identity.
+    scheduled-target-regression:
+      action: change
+      reason: Prove local rename cannot fall back, same-handle replacement cannot
+        retarget, and agent/human qualified schedules retain exact attribution.
+  scheduled-message-commit-is-exactly-once:
+    atomic-scheduled-message-commit:
+      action: change
+      reason: Commit an ordinary plan for the frozen recipient without body reparse or
+        default/group expansion and expose ordered effects for fanout.
+    exactly-once-schedule-regression:
+      action: change
+      reason: Prove idempotent commit/reopen and recovery before claim, after claim,
+        after commit, before dispatch, and after dispatch.
+  scheduled-state-machine-recovers-from-one-next-due-alarm:
+    durable-schedule-store:
+      action: change
+      reason: Preserve exact mutation seq and terminal/no-op behavior across reopen.
+    one-next-due-alarm:
+      action: change
+      reason: Re-arm in a finally-safe path while retaining one unrefed bounded timer.
+    schedule-recovery-regression:
+      action: change
+      reason: Cover tied due rows, the sole alarm, long-delay wake, shutdown, and
+        pending/sending/sent/failed/cancelled boot states.
+  scheduled-cancellation-is-authorized-before-claim:
+    cancel-schedule-protocol:
+      action: change
+      reason: Require one bounded request ref and echo it on success or error.
+    cancel-schedule-transaction:
+      action: change
+      reason: Scope lookup and admin authority to the schedule destination/origin
+        relationship while retaining own-agent cancellation.
+    cancel-schedule-race-regression:
+      action: change
+      reason: Exercise the real socket contract, every human/agent role, unrelated
+        rooms, pending/claim one-winner races, and terminal idempotency.
+  roles-gate-human-acts-not-agents:
+    role-matrix-integration:
+      action: change
+      reason: Replace the one member assertion with
+        owner/admin/author/foreign/observer and narrow agent cancellation
+        coverage.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: keep
+      reason: All schedule fanout must continue through the unchanged sole projector.
+files:
+  - docs/PROTOCOL.md
+  - packages/protocol/src/changelog.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/schedule.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/ws.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/store.ts
+verification: >
+  Lock clean on exact base 273ee3a9c2c277dd714e149b151fcc3e13bf70ba before
+  source edits. Red-first on that commit: (1) rename a frozen local target while
+  a different configured default exists and assert the current code sends to the
+  wrong id; (2) trace two same-instant due rows and assert current claimed
+  frames share the newest seq and terminal schedule precedes its older message,
+  then simulate reconnect from every received cursor and show the gap; (3) prove
+  a cancel act without ref parses and an admin in an unrelated room can cancel a
+  globally found id; (4) prove the current tests omit/allow the required
+  restart, worktree, redaction, and race failures. Record those expected
+  failures before implementation. Then implement the smallest contained
+  corrections and the complete original S1 verification matrix: directive
+  position/malformed prefixes, ordered s/m/h/d, case rule,
+  `[send_in=2h30m]@sol`, `[send_at=8:30PM]@sol`, Z/offset ISO, leap/day and
+  DST-adjacent fixed offsets, UTF-8 byte/directive limits, strict future and
+  365-day horizon, text-only refusal; human/agent authors, local and qualified
+  exact targets and attribution, rename/removal/replacement/worktree
+  unavailability, no fallback or group expansion; simultaneous due rows;
+  cancellation/claim and role/room authorization;
+  pending/sending/sent/failed/cancelled reopen and boot; injected failures
+  around claim/atomic commit/dispatch; one timer/re-arm/shutdown; exact one
+  message/delivery/link; producing seq, ordered live frames, cold/warm
+  hydration, reconnect replay, redaction, and local-socket protocol parity. Run
+  protocol test/build, switchboard test/build, recursive workspace build, and
+  serialized workspace tests; run Harn working/staged/apply checks and git diff
+  --check; make one review-fix commit and finish clean. Do not mutate the shared
+  host checkout or its user-owned node_modules symlinks to manufacture a gate;
+  use a worktree-local or temporary isolated resolver, or report the exact
+  external link failure separately after all S1-focused gates are proven. Do not
+  implement S2/Q1/UI/cards/composer/CLI presentation, recurrence, cron, editing,
+  bulk operations, scripts, queues, unrelated cleanup, delegation, peer polling,
+  push, merge, deploy, publish, release, or host update. Tag the local
+  orchestrator once on a genuine blocker or completion with exact red and green
+  evidence, commit, Harn result, and clean status, then stop.
+applied:
+  applied_at: 2026-08-12T16:34:01.600Z

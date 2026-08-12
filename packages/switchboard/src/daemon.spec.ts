@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import Database from 'better-sqlite3';
 
-import { Daemon, RECOVERY_ATTEMPT_CEILING, interactionKey } from './daemon.js';
+import { Daemon, RECOVERY_ATTEMPT_CEILING, interactionKey, type DaemonOptions } from './daemon.js';
 import { FakeAdapter } from './fake-adapter.js';
 import { localSocketPath } from './local-socket.js';
 import { Store } from './store.js';
@@ -26,12 +26,13 @@ let thinkingFake: FakeAdapter;
 let daemon: Daemon;
 let frames: { room: string; frame: ServerFrame }[];
 
-function newDaemon(): Daemon {
+function newDaemon(overrides: Partial<DaemonOptions> = {}): Daemon {
   const d = new Daemon({
     dbPath: join(dir, 'switchboard.sqlite'),
     blobRoot: join(dir, 'blobs'),
     adapters: [fake, claudeFake, codexFake, thinkingFake],
     homeDir: dir,
+    ...overrides,
   });
   d.onFrame((room, frame) => frames.push({ room, frame }));
   return d;
@@ -126,6 +127,8 @@ const resultMessageFor = (root: Message) => daemon.store.getMessage(
 // harn:assume scheduled-target-identity-is-frozen-at-creation ref=scheduled-target-regression
 // harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=schedule-recovery-regression
 // harn:assume scheduled-message-commit-is-exactly-once ref=exactly-once-schedule-regression
+// harn:assume changelog-is-sync-cursor-v2 ref=ordered-live-entity-regression
+// harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-sync-regression-v2
 describe('scheduled-message daemon state machine', () => {
   it('freezes one target and delivers one ordinary routed message', async () => {
     const target = spawnAgent('scheduled-sol');
@@ -138,6 +141,97 @@ describe('scheduled-message daemon state machine', () => {
     await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
     expect(daemon.store.listMessages('eng', { limit: 100 })
       .filter((message) => message.body === '@scheduled-sol ship it')).toHaveLength(1);
+  });
+
+  it('keeps a renamed frozen local target instead of falling back to the configured default', async () => {
+    const target = spawnAgent('scheduled-sol');
+    const configuredDefault = spawnAgent('configured-default');
+    daemon.configureRoom('eng', { starting_agent_handle: configuredDefault.handle });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', '[send_in=1s] @scheduled-sol preserve identity', owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    daemon.store.updateMember('eng', target.id, { handle: 'renamed-sol' });
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const completed = daemon.store.getSchedule('eng', scheduled.id)!;
+    const message = daemon.store.getMessage('eng', completed.delivered_message_id!);
+    expect(message).toBeDefined();
+    const recipients = daemon.store.listDeliveries('eng')
+      .filter((delivery) => delivery.message_id === message!.id)
+      .map((delivery) => delivery.recipient);
+    expect(recipients).toContain(target.id);
+    expect(recipients).not.toContain(configuredDefault.id);
+  });
+
+  it('publishes same-instant due effects in ascending producing sequence', async () => {
+    const firstTarget = spawnAgent('first-due');
+    const secondTarget = spawnAgent('second-due');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const now = new Date('2026-08-12T00:00:00.000Z');
+    daemon.scheduleMessage('eng', '[send_in=1s] @first-due first', owner.id, {
+      now, hostOffsetMinutes: 480,
+    });
+    daemon.scheduleMessage('eng', '[send_in=1s] @second-due second', owner.id, {
+      now, hostOffsetMinutes: 480,
+    });
+    frames = [];
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const visible = frames
+      .filter(({ frame }) => frame.type === 'message' || frame.type === 'schedule')
+      .map(({ frame }) => frame.seq);
+    expect(visible).toEqual([...visible].sort((left, right) => left - right));
+    expect(daemon.store.getMember('eng', firstTarget.id)).toBeDefined();
+    expect(daemon.store.getMember('eng', secondTarget.id)).toBeDefined();
+  });
+
+  it('keeps qualified worktree identity and redacts the live schedule projection', async () => {
+    const worktree = registerQualifiedFixture('scheduled-child', 'scheduled-child');
+    const child = worktree.conversation_id;
+    const target = daemon.spawnMember(child, {
+      harness: 'fake', handle: 'scheduled-child-agent', cwd: testCwd('scheduled-child-agent'),
+    });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', ` [send_in=1s] ~${worktree.alias}:@${target.handle} scoped sk-proj-abcdef1234567890abcdef`, owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    expect(scheduled.room).toBe(child);
+    expect(scheduled.target.worktree_id).toBe(worktree.id);
+    expect(daemon.store.getSchedule(child, scheduled.id)?.body).toContain('sk-proj-');
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const completed = daemon.store.getSchedule(child, scheduled.id)!;
+    const delivered = daemon.store.getMessage(child, completed.delivered_message_id!);
+    expect(delivered?.room).toBe(child);
+    expect(daemon.store.listDeliveries(child, { recipient: target.id })
+      .some((delivery) => delivery.message_id === delivered?.id && delivery.target?.worktree_id === worktree.id))
+      .toBe(true);
+    expect(JSON.stringify(frames)).not.toContain('sk-proj-abcdef1234567890abcdef');
+  });
+
+  it('re-arms the sole bounded timer and clears it on shutdown', async () => {
+    await daemon.close({ force: true });
+    let scheduledTimers = 0;
+    let clearedTimers = 0;
+    daemon = newDaemon({
+      clock: () => new Date('2026-08-12T00:00:00.000Z'),
+      scheduleSetTimeout: () => {
+        scheduledTimers += 1;
+        return { unref: () => undefined } as unknown as NodeJS.Timeout;
+      },
+      scheduleClearTimeout: () => { clearedTimers += 1; },
+    });
+    const target = spawnAgent('timer-target');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    daemon.scheduleMessage('eng', '[send_in=1h] @timer-target timer', owner.id, {
+      now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480,
+    });
+    expect(scheduledTimers).toBeGreaterThan(0);
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    expect(scheduledTimers).toBeGreaterThan(1);
+    await daemon.close({ force: true });
+    expect(clearedTimers).toBeGreaterThan(0);
+    expect(target.id).toBeTruthy();
   });
 });
 // harn:end scheduled-message-commit-is-exactly-once

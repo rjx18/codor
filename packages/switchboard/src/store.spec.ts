@@ -35,6 +35,7 @@ describe('durable scheduled-message store', () => {
       expect.objectContaining({ id: schedule.id, state: 'sending' }),
     ]);
   });
+
 });
 // harn:end scheduled-message-commit-is-exactly-once
 // harn:end scheduled-state-machine-recovers-from-one-next-due-alarm
@@ -1382,6 +1383,80 @@ describe('change log completeness', () => {
     expect(result.meters).toHaveLength(1);
     expect(result.members).toHaveLength(0); // unchanged since cursor
     expect(result.seq).toBe(store.currentSeq('eng'));
+  });
+});
+
+// harn:assume changelog-covers-every-visible-entity-v2 ref=schedule-change-accounting-regression
+// harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-sync-regression-v2
+describe('scheduled change accounting and ordered commit recovery', () => {
+  it('retains producing seqs, orders atomic effects, and commits exactly once', () => {
+    const { owner } = openRoom(store);
+    const target = store.addMember('eng', {
+      kind: 'agent', handle: 'sol', display_name: 'Sol', harness: 'fake', cwd: dir,
+    });
+    const schedule = store.createSchedule({
+      room: 'eng', author_id: owner.id, author_handle: owner.handle,
+      target: { member_id: target.id, conversation_id: 'eng', handle: target.handle },
+      body: '@sol ship it', mentions: [{ member_id: target.id, start: 0, end: 4 }],
+      due_ts: '2026-08-13T00:00:00.000Z', host_offset_minutes: 480,
+    }, '2026-08-12T00:00:00.000Z');
+    const createChange = store.getChangesSince('eng', 0).at(-1)!;
+    expect(createChange).toMatchObject({ entity: 'schedule', entity_id: schedule.id });
+    expect(store.scheduleChangeSeq('eng', schedule.id)).toBe(createChange.seq);
+
+    store.claimDueSchedules('2026-08-13T00:00:00.000Z');
+    const claimChange = store.getChangesSince('eng', createChange.seq).at(-1)!;
+    expect(claimChange).toMatchObject({ entity: 'schedule', entity_id: schedule.id });
+
+    const committed = store.commitScheduledMessage('eng', schedule.id, {
+      now: '2026-08-13T00:00:00.000Z',
+      message: { author: owner.id, kind: 'chat', body: '@sol ship it', mentions: schedule.mentions },
+      plan: () => ({ fanout: [{ recipient: target.id, state: 'queued' }] }),
+    });
+    expect(committed.effects.map((effect) => effect.entity)).toEqual(['message', 'schedule']);
+    expect(committed.effects.map((effect) => effect.seq)).toEqual(
+      [...committed.effects].sort((a, b) => a.seq - b.seq).map((effect) => effect.seq),
+    );
+    expect(committed.message?.seq).toBe(committed.effects[0]!.seq);
+    expect(store.listDeliveries('eng')).toHaveLength(1);
+
+    const replay = store.commitScheduledMessage('eng', schedule.id, {
+      now: '2026-08-13T00:00:01.000Z',
+      message: { author: owner.id, kind: 'chat', body: '@sol ship it', mentions: schedule.mentions },
+      plan: () => ({ fanout: [{ recipient: target.id, state: 'queued' }] }),
+    });
+    expect(replay.effects).toEqual([]);
+    expect(replay.message?.id).toBe(committed.message?.id);
+    expect(store.listMessages('eng', { limit: 100 })).toHaveLength(1);
+    expect(store.listDeliveries('eng')).toHaveLength(1);
+  });
+
+  it('rolls back a failed plan, persists a failed state, and does not log terminal no-ops', () => {
+    const { owner } = openRoom(store);
+    const target = store.addMember('eng', {
+      kind: 'agent', handle: 'sol', display_name: 'Sol', harness: 'fake', cwd: dir,
+    });
+    const schedule = store.createSchedule({
+      room: 'eng', author_id: owner.id, author_handle: owner.handle,
+      target: { member_id: target.id, conversation_id: 'eng', handle: target.handle },
+      body: '@sol fail', mentions: [{ member_id: target.id, start: 0, end: 4 }],
+      due_ts: '2026-08-13T00:00:00.000Z', host_offset_minutes: 480,
+    }, '2026-08-12T00:00:00.000Z');
+    store.claimDueSchedules('2026-08-13T00:00:00.000Z');
+    expect(() => store.commitScheduledMessage('eng', schedule.id, {
+      message: { author: owner.id, kind: 'chat', body: '@sol fail', mentions: schedule.mentions },
+      plan: () => { throw new Error('injected plan failure'); },
+    })).toThrow('injected plan failure');
+    expect(store.getSchedule('eng', schedule.id)?.state).toBe('sending');
+    expect(store.listMessages('eng', { limit: 100 })).toEqual([]);
+    const failed = store.failSchedule('eng', schedule.id, 'injected plan failure', '2026-08-13T00:00:01.000Z');
+    const failedSeq = store.scheduleChangeSeq('eng', schedule.id)!;
+    expect(failed.state).toBe('failed');
+    expect(store.failSchedule('eng', schedule.id, 'ignored', '2026-08-13T00:00:02.000Z')).toEqual(failed);
+    expect(store.scheduleChangeSeq('eng', schedule.id)).toBe(failedSeq);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.getSchedule('eng', schedule.id)).toMatchObject({ state: 'failed', error: 'injected plan failure' });
   });
 });
 

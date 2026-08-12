@@ -43,6 +43,7 @@ import type {
   WorktreeListResponse,
   ScopedMemberTarget,
   WorktreeRoutingCatalog,
+  ParsedScheduleDirective,
 } from '@codor/protocol';
 
 import {
@@ -96,6 +97,7 @@ import {
   parseBody,
   type PayloadContext,
   resolveRecipients,
+  type RouteResult,
   type RoutedRecipient,
   type ResolvedRef,
 } from './router.js';
@@ -941,15 +943,15 @@ export class Daemon {
     this.emit(room, { type: 'message', seq: message.seq, message });
   }
 
-  // harn:assume scheduled-state-streams-through-room-seq ref=schedule-sync-and-fanout
-  private emitSchedule(schedule: Schedule): void {
+  // harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-sync-and-fanout-v2
+  private emitSchedule(schedule: Schedule, producingSeq = this.store.scheduleChangeSeq(schedule.room, schedule.id)): void {
     this.emit(schedule.room, {
       type: 'schedule',
-      seq: this.store.currentSeq(schedule.room),
+      seq: producingSeq ?? this.store.currentSeq(schedule.room),
       schedule,
     });
   }
-  // harn:end scheduled-state-streams-through-room-seq
+  // harn:end scheduled-state-streams-through-room-seq-v2
 
   // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
   // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
@@ -1007,13 +1009,13 @@ export class Daemon {
   }
   // harn:end current-context-window-truth-outlives-restarts
 
-  private emitMember(room: string, member: Member): void {
+  private emitMember(room: string, member: Member, producingSeq = this.store.currentSeq(room)): void {
     // harn:assume live-agent-waits-are-transient ref=wait-member-projection
     // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
     const waiting = this.memberWaits.get(member.id);
     this.emit(room, {
       type: 'member',
-      seq: this.store.currentSeq(room),
+      seq: producingSeq,
       member: { ...this.memberWithLastUsage(room, member), ...(waiting && { waiting }) },
     });
     // harn:end last-agent-usage-is-transient-and-seeded
@@ -1069,6 +1071,18 @@ export class Daemon {
     );
   }
   // harn:end push-only-for-human-targeted-events
+
+  /** Schedule commits use the exact inbox producing seq without changing the
+   * ordinary push-only delivery path. */
+  private emitInboxAt(room: string, delivery: Delivery, producingSeq: number): void {
+    this.emit(room, { type: 'inbox', seq: producingSeq, delivery });
+    const recipient = this.store.getMember(room, delivery.recipient);
+    if (recipient?.kind !== 'human' || delivery.state !== 'consumed' || delivery.read_ts !== undefined) return;
+    const message = this.store.getMessage(room, delivery.message_id);
+    if (!message || !['chat', 'run', 'ask', 'approval'].includes(message.kind)) return;
+    const kind: HumanPushKind = message.kind === 'ask' || message.kind === 'approval' ? message.kind : 'inbox';
+    this.queueHumanPush(room, message.id, kind, message.body, [recipient.id], delivery.id);
+  }
 
   // ── room / member management ──────────────────────────────────────────
 
@@ -2779,6 +2793,7 @@ export class Daemon {
     options: {
       now?: Date;
       hostOffsetMinutes?: number;
+      directive?: ParsedScheduleDirective;
       replyTo?: number;
       attachments?: readonly Attachment[];
       voice?: VoiceNote;
@@ -2789,8 +2804,9 @@ export class Daemon {
       || options.voice !== undefined || options.awaitingReply === true) {
       throw new Error('scheduled requests are text-only and cannot carry replies, attachments, voice, or waits');
     }
-    const parsedDirective = parseScheduleDirective(body, {
-      now: options.now ?? this.scheduleClock(),
+    const capturedNow = options.now ?? this.scheduleClock();
+    const parsedDirective = options.directive ?? parseScheduleDirective(body, {
+      now: capturedNow,
       hostOffsetMinutes: options.hostOffsetMinutes,
     });
     if (parsedDirective === undefined) throw new Error('not a scheduling directive');
@@ -2846,77 +2862,131 @@ export class Daemon {
       ledger_refs: parsed.ledger_refs,
       due_ts: parsedDirective.due_ts,
       host_offset_minutes: parsedDirective.host_offset_minutes,
-      created_ts: (options.now ?? this.scheduleClock()).toISOString(),
+      created_ts: capturedNow.toISOString(),
     });
-    this.emitSchedule(schedule);
+    this.emitSchedule(schedule, this.store.scheduleChangeSeq(schedule.room, schedule.id));
     this.armScheduleTimer();
     return schedule;
   }
   // harn:end scheduled-target-identity-is-frozen-at-creation
 
   // harn:assume scheduled-message-commit-is-exactly-once ref=atomic-scheduled-message-commit
-  async runDueSchedules(now = this.scheduleClock()): Promise<void> {
-    const nowTs = now.toISOString();
-    const claimed = this.store.claimDueSchedules(nowTs);
-    for (const schedule of claimed) this.emitSchedule(schedule);
-    const sending = this.store.listRecoverableSchedules()
-      .filter((schedule) => schedule.state === 'sending');
-    const work = [...sending, ...claimed]
-      .filter((schedule, index, all) => all.findIndex((candidate) => candidate.id === schedule.id) === index)
-      .sort((left, right) => left.due_ts.localeCompare(right.due_ts) || left.id.localeCompare(right.id));
-    for (const candidate of work) {
-      const current = this.store.getSchedule(candidate.room, candidate.id);
-      if (current?.state !== 'sending') continue;
-      try {
-        const committed = this.store.commitScheduledMessage(candidate.room, candidate.id, {
-          now: nowTs,
-          message: {
-            author: current.author_id,
-            kind: 'chat',
-            body: current.body,
-            mentions: current.mentions,
-            refs: current.refs,
-            ledger_refs: current.ledger_refs,
-          },
-          plan: (message) => this.planRoutedMessage(
-            candidate.room,
-            message,
-            undefined,
-            undefined,
-            false,
-            true,
-            candidate.room,
-          ).plan,
-        });
-        this.emitSchedule(committed.schedule);
-        if (committed.message !== undefined) {
-          this.emitMessage(candidate.room, committed.message);
-          if (committed.member !== undefined) this.emitMember(candidate.room, committed.member);
-          this.dispatchCreatedDeliveries(candidate.room, committed.deliveries);
-        }
-      } catch (error) {
-        const failed = this.store.failSchedule(
-          candidate.room,
-          candidate.id,
-          String(error).slice(0, 1_000),
-          nowTs,
-        );
-        this.emitSchedule(failed);
+  // harn:assume changelog-is-sync-cursor-v2 ref=ordered-live-entity-fanout
+  /** Publish the rows from one SQLite commit in their producing-seq order. */
+  private emitScheduledEffects(
+    room: string,
+    committed: ReturnType<Store['commitScheduledMessage']>,
+  ): void {
+    for (const effect of [...committed.effects].sort((left, right) => left.seq - right.seq)) {
+      if (effect.entity === 'message' && committed.message?.id === Number(effect.entity_id)) {
+        this.emitMessage(room, committed.message);
+      } else if (effect.entity === 'member') {
+        const member = this.store.getMember(room, effect.entity_id);
+        if (member !== undefined) this.emitMember(room, member, effect.seq);
+      } else if (effect.entity === 'inbox') {
+        const delivery = this.store.getDelivery(room, effect.entity_id);
+        if (delivery !== undefined) this.emitInboxAt(room, delivery, effect.seq);
+      } else if (effect.entity === 'schedule' && committed.schedule.id === effect.entity_id) {
+        this.emitSchedule(committed.schedule, effect.seq);
       }
     }
-    this.armScheduleTimer();
+    // Agent deliveries do not create an inbox change-log row, but their live
+    // frame still belongs before the terminal schedule linkage.
+    if (committed.message !== undefined) {
+      for (const delivery of committed.deliveries) {
+        if (this.targetMember(delivery, room)?.member.kind === 'agent') {
+          this.emitInboxAt(room, delivery, committed.message.seq);
+        }
+      }
+    }
+  }
+  // harn:end changelog-is-sync-cursor-v2
+
+  async runDueSchedules(now = this.scheduleClock()): Promise<void> {
+    try {
+      const nowTs = now.toISOString();
+      const claimed = this.store.claimDueSchedules(nowTs);
+      for (const schedule of claimed) {
+        this.emitSchedule(schedule, this.store.scheduleChangeSeq(schedule.room, schedule.id));
+      }
+      const sending = this.store.listRecoverableSchedules()
+        .filter((schedule) => schedule.state === 'sending');
+      const work = [...sending, ...claimed]
+        .filter((schedule, index, all) => all.findIndex((candidate) => candidate.id === schedule.id) === index)
+        .sort((left, right) => left.due_ts.localeCompare(right.due_ts) || left.id.localeCompare(right.id));
+      for (const candidate of work) {
+        const current = this.store.getSchedule(candidate.room, candidate.id);
+        if (current?.state !== 'sending') continue;
+        try {
+          const frozenMember = this.store.getMember(current.target.conversation_id, current.target.member_id);
+          if (frozenMember === undefined) throw new Error(`frozen target is unavailable: ${current.target.member_id}`);
+          const frozenTarget: RoutedRecipient = {
+            member: frozenMember,
+            ...(current.target.worktree_id !== undefined && current.target.alias !== undefined && {
+              target: {
+                worktree_id: current.target.worktree_id,
+                conversation_id: current.target.conversation_id,
+                member_id: current.target.member_id,
+                alias: current.target.alias,
+                handle: current.target.handle,
+              },
+            }),
+          };
+          const committed = this.store.commitScheduledMessage(candidate.room, candidate.id, {
+            now: nowTs,
+            message: {
+              author: current.author_id,
+              kind: 'chat',
+              body: current.body,
+              mentions: current.mentions,
+              refs: current.refs,
+              ledger_refs: current.ledger_refs,
+            },
+            plan: (message) => this.planRoutedMessage(
+              candidate.room,
+              message,
+              undefined,
+              undefined,
+              false,
+              true,
+              candidate.room,
+              frozenTarget,
+            ).plan,
+          });
+          this.emitScheduledEffects(candidate.room, committed);
+          if (committed.message !== undefined) {
+            this.dispatchScheduledCreatedDeliveries(candidate.room, committed.deliveries);
+          }
+        } catch (error) {
+          const failed = this.store.failSchedule(
+            candidate.room,
+            candidate.id,
+            String(error).slice(0, 1_000),
+            nowTs,
+          );
+          this.emitSchedule(failed, this.store.scheduleChangeSeq(failed.room, failed.id));
+        }
+      }
+    } finally {
+      this.armScheduleTimer();
+    }
   }
   // harn:end scheduled-message-commit-is-exactly-once
 
   // harn:assume scheduled-cancellation-is-authorized-before-claim ref=cancel-schedule-transaction
   cancelSchedule(room: string, scheduleId: string, actorId: string, agent = false): Schedule {
-    const located = this.store.findSchedule(scheduleId, room);
+    const local = this.store.getSchedule(room, scheduleId);
+    const global = local === undefined ? this.store.findSchedule(scheduleId) : undefined;
+    const located = local ?? (global?.origin_room === room ? global : undefined);
     if (located === undefined) throw new Error(`no such schedule: ${scheduleId}`);
-    const actor = this.store.getMember(room, actorId) ?? this.store.getMember(located.room, actorId);
+    const actor = this.store.getMember(room, actorId);
     if (actor === undefined || actor.removed_ts !== undefined) throw new Error(`no active actor: ${actorId}`);
     const admin = !agent && actor.kind === 'human' && (actor.role === 'admin' || actor.role === 'owner');
+    const previous = located;
     const cancelled = this.store.cancelSchedule(located.room, scheduleId, actorId, { admin });
-    this.emitSchedule(cancelled);
+    if (cancelled.state !== previous.state || cancelled.updated_ts !== previous.updated_ts) {
+      this.emitSchedule(cancelled, this.store.scheduleChangeSeq(cancelled.room, cancelled.id));
+    }
     this.armScheduleTimer();
     return cancelled;
   }
@@ -3471,6 +3541,29 @@ export class Daemon {
     }
   }
 
+  /** Dispatch the already-fanned-out rows from a schedule commit. Their live
+   * inbox frames were emitted with the commit's producing sequence above. */
+  private dispatchScheduledCreatedDeliveries(room: string, created: Delivery[]): void {
+    for (const delivery of created) {
+      if (delivery.target !== undefined && !this.store.routingTargetIsActive(delivery.target, room)) {
+        this.refuseQualifiedDelivery(room, delivery, `target ${delivery.target.alias}:@${delivery.target.handle} is no longer active`);
+        continue;
+      }
+      const located = this.targetMember(delivery, room);
+      const recipient = located?.member;
+      const targetRoom = located?.room ?? room;
+      if (recipient?.kind !== 'agent') continue;
+      if (
+        delivery.group_id !== undefined &&
+        (recipient.state === 'dead' || recipient.removed_ts !== undefined)
+      ) {
+        this.skipUnavailableGroupDelivery(room, delivery);
+      } else {
+        this.dispatchAgentDelivery(room, delivery, recipient, targetRoom);
+      }
+    }
+  }
+
   // harn:assume agent-chains-uninterrupted-by-default ref=delivery-hop-brake-dispatch
   private deliveryBrakeReason(room: string, delivery: Delivery): string | undefined {
     const config = this.store.getRoom(room)!.config;
@@ -3636,7 +3729,8 @@ export class Daemon {
     agentHop?: number,
     awaitingReply = false,
     executionRoom = room,
-  ) {
+    frozenTarget?: RoutedRecipient,
+  ): { result: RouteResult; fanout: FanoutDelivery[] } {
     const originMembers = this.store.listMembers(room);
     const members = this.store.listMembers(executionRoom);
     const routingState = this.routingState(room);
@@ -3653,21 +3747,38 @@ export class Daemon {
           return member === undefined ? undefined : { member, target: replyTarget } satisfies RoutedRecipient;
         })()
       : undefined;
-    const result = resolveRecipients(message, {
-      members,
-      author,
-      repliedTo,
-      latestFinalizedAgentAuthor: this.latestFinalizedAgentAuthor(executionRoom),
-      roomConfig: this.store.getRoom(executionRoom)!.config,
-      triggerAuthor,
-      replyAuthor,
-      replyTarget,
-      qualifiedTargets: routingState.catalog,
-      qualifiedMembers: routingState.members,
-    });
+    const result: RouteResult = frozenTarget === undefined
+      ? resolveRecipients(message, {
+          members,
+          author,
+          repliedTo,
+          latestFinalizedAgentAuthor: this.latestFinalizedAgentAuthor(executionRoom),
+          roomConfig: this.store.getRoom(executionRoom)!.config,
+          triggerAuthor,
+          replyAuthor,
+          replyTarget,
+          qualifiedTargets: routingState.catalog,
+          qualifiedMembers: routingState.members,
+        })
+      : {
+          routable: true,
+          parsed: {
+            mentions: message.mentions,
+            refs: message.refs,
+            ledger_refs: message.ledger_refs,
+            unresolved: [],
+          },
+          agents: frozenTarget.member.kind === 'agent' ? [frozenTarget.member] : [],
+          humans: frozenTarget.member.kind === 'human' ? [frozenTarget.member] : [],
+          commentary: false,
+          misaddressed: false,
+          agentTargets: frozenTarget.member.kind === 'agent' ? [frozenTarget] : [],
+          humanTargets: frozenTarget.member.kind === 'human' ? [frozenTarget] : [],
+        };
     const localize = ({ member, target }: RoutedRecipient): RoutedRecipient => ({
       member,
-      ...(target !== undefined && target.conversation_id !== room ? { target } : {}),
+      ...(target !== undefined && (frozenTarget !== undefined || target.conversation_id !== room)
+        ? { target } : {}),
     });
     const agentTargets: RoutedRecipient[] = (result.agentTargets
       ?? result.agents.map((member) => ({ member }))).map(localize);
@@ -3710,7 +3821,8 @@ export class Daemon {
     awaitingReply = false,
     allowGroup = true,
     executionRoom = room,
-  ): { result: ReturnType<typeof resolveRecipients>; plan: RoutedMessagePlan } {
+    frozenTarget?: RoutedRecipient,
+  ): { result: RouteResult; plan: RoutedMessagePlan } {
     const planned = this.planFanout(
       room,
       message,
@@ -3718,6 +3830,7 @@ export class Daemon {
       agentHop,
       awaitingReply,
       executionRoom,
+      frozenTarget,
     );
     // A message that may not START a group carries no refusal of its own: an
     // interim note was already refused at the post boundary, and a group

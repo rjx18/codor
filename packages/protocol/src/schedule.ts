@@ -30,7 +30,7 @@ export const ScheduledTargetSchema = z.object({
 });
 export type ScheduledTarget = z.infer<typeof ScheduledTargetSchema>;
 
-// harn:assume scheduled-state-streams-through-room-seq ref=schedule-protocol-schema
+// harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-protocol-schema-v2
 export const ScheduleSchema = z.object({
   id: ScheduleIdSchema,
   room: RoomIdSchema,
@@ -56,7 +56,7 @@ export const ScheduleSchema = z.object({
   delivered_message_id: MessageIdSchema.optional(),
 });
 export type Schedule = z.infer<typeof ScheduleSchema>;
-// harn:end scheduled-state-streams-through-room-seq
+// harn:end scheduled-state-streams-through-room-seq-v2
 
 export interface ParseScheduleDirectiveOptions {
   now?: Date;

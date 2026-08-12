@@ -1954,12 +1954,20 @@ export interface NewSchedule {
   created_ts?: string;
 }
 
+/** One durable row mutation produced by an atomic scheduled-message commit. */
+export interface ScheduleEffect {
+  seq: number;
+  entity: ChangeEntity;
+  entity_id: string;
+}
+
 export interface AtomicScheduledMessage {
   schedule: Schedule;
   message?: Message;
   deliveries: Delivery[];
   member?: Member;
   collaboration?: CollaborationRoundProjection;
+  effects: ScheduleEffect[];
 }
 
 export interface AtomicRoutedMessage {
@@ -2100,7 +2108,7 @@ export class Store {
     this.db.close();
   }
 
-  // harn:assume changelog-covers-every-visible-entity ref=changelog-append
+  // harn:assume changelog-covers-every-visible-entity-v2 ref=changelog-append-v2
   /**
    * Allocates the room's next seq and appends one change row — called by
    * EVERY mutating method below, inside its transaction. Returns the seq so
@@ -2116,7 +2124,7 @@ export class Store {
       .run(room, bumped.seq, entity, entityId);
     return bumped.seq;
   }
-  // harn:end changelog-covers-every-visible-entity
+  // harn:end changelog-covers-every-visible-entity-v2
 
   // ── rooms ─────────────────────────────────────────────────────────────
 
@@ -3736,7 +3744,7 @@ export class Store {
   // harn:end eligible-multi-agent-routing-starts-one-group
 
   // harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=durable-schedule-store
-  // harn:assume scheduled-state-streams-through-room-seq ref=schedule-change-log-storage
+  // harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-change-log-storage-v2
   /** Persist one validated schedule before any message or delivery write. */
   createSchedule(input: NewSchedule, createdTs = input.created_ts ?? new Date().toISOString()): Schedule {
     return this.db.transaction(() => {
@@ -3811,7 +3819,7 @@ export class Store {
       return schedule;
     })();
   }
-  // harn:end scheduled-state-streams-through-room-seq
+  // harn:end scheduled-state-streams-through-room-seq-v2
 
   getSchedule(room: string, id: string): Schedule | undefined {
     const row = this.db.prepare('SELECT * FROM schedules WHERE room = ? AND id = ?')
@@ -3826,6 +3834,16 @@ export class Store {
     }
     const row = this.db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow | undefined;
     return row === undefined ? undefined : scheduleFromRow(row);
+  }
+
+  /** The change-log seq that produced the latest visible schedule row. */
+  scheduleChangeSeq(room: string, id: string): number | undefined {
+    const row = this.db.prepare(
+      `SELECT seq FROM changes
+       WHERE room_id = ? AND entity = 'schedule' AND entity_id = ?
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(room, id) as { seq: number } | undefined;
+    return row?.seq;
   }
 
   listSchedules(room: string, options: { state?: Schedule['state']; limit?: number } = {}): Schedule[] {
@@ -3928,17 +3946,18 @@ export class Store {
     id: string,
     opts: {
       message: NewMessage;
-      plan: (message: Message) => RoutedMessagePlan;
+      plan: (message: Message, schedule: Schedule) => RoutedMessagePlan;
       now?: string;
       failureReason?: string;
     },
   ): AtomicScheduledMessage {
     return this.db.transaction(() => {
+      const startSeq = this.currentSeq(room);
       const schedule = this.getSchedule(room, id);
       if (schedule === undefined) throw new Error(`no such schedule: ${id}`);
       if (schedule.state === 'sent' || schedule.state === 'failed' || schedule.state === 'cancelled') {
         return { schedule, message: schedule.delivered_message_id === undefined
-          ? undefined : this.getMessage(room, schedule.delivered_message_id), deliveries: [] } as AtomicScheduledMessage;
+          ? undefined : this.getMessage(room, schedule.delivered_message_id), deliveries: [], effects: [] };
       }
       if (schedule.state !== 'sending') throw new Error(`schedule ${id} is not claimed`);
       const target = schedule.target;
@@ -3956,10 +3975,17 @@ export class Store {
           room, id, 'failed', opts.now ?? new Date().toISOString(),
           { error: opts.failureReason ?? 'frozen target is no longer active' },
         );
-        return { schedule: failed, message: undefined, deliveries: [] };
+        return {
+          schedule: failed,
+          message: undefined,
+          deliveries: [],
+          effects: this.getChangesSince(room, startSeq).map(({ seq, entity, entity_id }) => ({
+            seq, entity, entity_id,
+          })),
+        };
       }
       const message = this.postMessage(room, opts.message);
-      const plan = opts.plan(message);
+      const plan = opts.plan(message, schedule);
       const member = plan.markMisaddressed
         ? this.updateMember(room, message.author, { misaddressed: true })
         : undefined;
@@ -3983,7 +4009,16 @@ export class Store {
         room, id, 'sent', opts.now ?? new Date().toISOString(),
         { delivered_message_id: message.id },
       );
-      return { schedule: sent, message, deliveries, member, collaboration };
+      return {
+        schedule: sent,
+        message,
+        deliveries,
+        member,
+        collaboration,
+        effects: this.getChangesSince(room, startSeq).map(({ seq, entity, entity_id }) => ({
+          seq, entity, entity_id,
+        })),
+      };
     })();
   }
   // harn:end scheduled-message-commit-is-exactly-once
