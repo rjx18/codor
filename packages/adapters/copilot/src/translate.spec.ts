@@ -37,6 +37,24 @@ describe('Copilot JSONL event translation', () => {
     });
   });
 
+  // harn:assume native-prose-completeness-is-explicit ref=copilot-prose-classification-regression
+  it('keeps native fragments as deltas and classifies a non-stream fallback as a block', () => {
+    const translator = createTurnTranslator(SESSION);
+    expect(translator.push(JSON.stringify({
+      type: 'assistant.message_delta',
+      data: { messageId: 'streamed', deltaContent: 'fragment' },
+    }))).toEqual([
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'fragment' } },
+    ]);
+    expect(translator.push(JSON.stringify({
+      type: 'assistant.message',
+      data: { messageId: 'fallback', content: 'complete' },
+    }))).toEqual([
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'complete' } },
+    ]);
+  });
+  // harn:end native-prose-completeness-is-explicit
+
   it('maps documented tool and authoritative subagent lifecycle', () => {
     const events = replay('synthetic-success.jsonl', 'completed');
     expect(events).toContainEqual({

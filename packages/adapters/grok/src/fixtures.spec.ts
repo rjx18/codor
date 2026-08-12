@@ -13,13 +13,20 @@ describe('native Grok streaming-json fixture', () => {
     const events = lines.flatMap((line) => translator.push(line));
 
     expect(events).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: { text: 'hello ' } },
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'hello ' } },
       { type: 'run.item', item_type: 'reasoning_summary', payload: { text: 'checking the answer' } },
-      { type: 'run.item', item_type: 'text_delta', payload: { text: 'world' } },
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'world' } },
       { type: 'run.completed', status: 'completed', final_text: 'hello world' },
     ]);
     expect(translator.sessionId()).toBe('22222222-2222-4222-8222-222222222222');
     expect(translator.end()).toEqual([]);
+  });
+
+  it('keeps delta-named native records as incomplete fragments', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push('{"type":"text_delta","data":"fragment"}')).toEqual([
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'fragment' } },
+    ]);
   });
   // harn:end grok-capability-truth
 });

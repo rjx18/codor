@@ -23,11 +23,12 @@ function replay(): { events: WireEvent[]; sessionId: string | undefined } {
 }
 
 describe('OpenCode raw run translation', () => {
+  // harn:assume native-prose-completeness-is-explicit ref=opencode-prose-classification-regression
   it('replays the live PONG with native id and reported usage', () => {
     const replayed = replay();
     expect(replayed.sessionId).toBe('ses_0b418b8aeffelyQqZS0JoBHFvF');
     expect(replayed.events).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PONG' } },
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'PONG' } },
       {
         type: 'run.completed',
         status: 'completed',
@@ -36,6 +37,7 @@ describe('OpenCode raw run translation', () => {
       },
     ]);
   });
+  // harn:end native-prose-completeness-is-explicit
 
   it('maps a completed tool part to call and result items', () => {
     const translator = createTurnTranslator();

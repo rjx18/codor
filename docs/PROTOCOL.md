@@ -404,7 +404,7 @@ the run blob and fans out live to surfaces:
 ```
 run.started        { member, trigger_msg }
 run.item           { type: 'tool_call'|'tool_result'|'reasoning_summary'|'text_delta'|
-                     'commit'|'file_change', payload, output_message_id? }
+                     'text_block'|'commit'|'file_change', payload, output_message_id? }
                                                              // rendered on its assigned row
 ask.raised         { card }                                   // blocks the run
 approval.raised    { card }                                   // blocks the run
@@ -439,6 +439,7 @@ and is not written to the run journal.
 <!-- harn:end compaction-timeline-items-are-durable-run-evidence -->
 
 <!-- harn:assume normalized-run-item-payload-contract ref=normalized-run-item-documentation -->
+<!-- harn:assume native-prose-completeness-is-explicit ref=prose-event-protocol-contract -->
 `run.item.payload` has a standalone normalized schema for each `item_type`:
 
 ```ts
@@ -450,6 +451,7 @@ tool_result       { call_id: string, status: 'ok' | 'error',
                     image?: { media_type: string, data_b64: string },
                     duration_ms?: number, raw?: unknown }
 text_delta        { text: string }
+text_block        { text: string }
 reasoning_summary { text: string }
 file_change       { path: string, change: 'created' | 'modified' | 'deleted',
                     diff?: { path: string, unified: string } }
@@ -461,6 +463,25 @@ The schemas allow unknown extra keys and preserve plain JSON so deep redaction s
 adapter tests and surfaces. `WireEventSchema` deliberately keeps the transport payload as
 `unknown`: a malformed third-party adapter item degrades to generic rendering instead of
 failing a live turn. First-party adapters must parse at their source boundary.
+
+`text_delta` is an incomplete native streaming fragment. Consumers may concatenate compatible
+deltas. `text_block` is one complete native prose block, so consecutive blocks retain a paragraph
+boundary. Adapters classify solely from the native event path, never timestamps, delays, or output
+rows, and may emit both kinds on distinct paths. Existing journals containing only `text_delta`
+remain valid without migration. The audited first-party classification is:
+
+| Adapter | `text_delta` native path | `text_block` native path |
+| --- | --- | --- |
+| ACP | `agent_message_chunk` | — |
+| Claude | — | assistant text content block |
+| Codex | — | completed `agentMessage` item |
+| Copilot | `assistant.message_delta` | non-stream `assistant.message` fallback |
+| Cursor | timestamped assistant fragment | — |
+| Gemini | assistant message with `delta:true` | assistant message not marked as a delta |
+| Grok | delta-named record | non-delta `message`/`assistant`/`text` alias |
+| OpenCode | — | completed text part |
+| Antigravity | stdout chunk | — |
+<!-- harn:end native-prose-completeness-is-explicit -->
 
 `call_id` pairs a tool result with its call. `title` is the human-readable one-line command or
 path. File-editing adapters emit unified diffs when native evidence permits. Inline images are

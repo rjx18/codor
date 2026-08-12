@@ -47,3 +47,10 @@ intercept or redact provider traffic.
 The checked-in translator accepts the documented Responses-style streaming event
 names and the common CLI aliases used by current builds. A scrubbed live capture
 should be added before advertising additional tool, subagent, or usage behavior.
+
+<!-- harn:assume native-prose-completeness-is-explicit ref=grok-prose-classification-contract -->
+Delta-named records (`response.output_text.delta`, `text_delta`, and
+`assistant.message_delta`) emit `run.item/text_delta`. Non-delta `message`,
+`assistant`, and `text` aliases emit complete `run.item/text_block` events.
+Classification comes from the native record name, never timing or row boundaries.
+<!-- harn:end native-prose-completeness-is-explicit -->

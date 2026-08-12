@@ -9,17 +9,18 @@ import { AskCardSchema, RunStatusSchema, UsageSchema } from './message.js';
  * into these; the switchboard journals them into the run blob and fans them
  * out live to surfaces.
  */
+// harn:assume normalized-run-item-payload-contract ref=standalone-run-item-payload-schemas
 export const RunItemTypeSchema = z.enum([
   'tool_call',
   'tool_result',
   'reasoning_summary',
   'text_delta',
+  'text_block',
   'commit',
   'file_change',
 ]);
 export type RunItemType = z.infer<typeof RunItemTypeSchema>;
 
-// harn:assume normalized-run-item-payload-contract ref=standalone-run-item-payload-schemas
 export const RunItemDiffSchema = z.object({
   path: z.string().min(1),
   unified: z.string(),
@@ -55,6 +56,9 @@ export type ToolResultPayload = z.infer<typeof ToolResultPayloadSchema>;
 export const TextDeltaPayloadSchema = z.object({ text: z.string() }).loose();
 export type TextDeltaPayload = z.infer<typeof TextDeltaPayloadSchema>;
 
+export const TextBlockPayloadSchema = z.object({ text: z.string() }).loose();
+export type TextBlockPayload = z.infer<typeof TextBlockPayloadSchema>;
+
 export const ReasoningSummaryPayloadSchema = z.object({ text: z.string() }).loose();
 export type ReasoningSummaryPayload = z.infer<typeof ReasoningSummaryPayloadSchema>;
 
@@ -76,6 +80,7 @@ export const RunItemPayloadSchemas = {
   tool_result: ToolResultPayloadSchema,
   reasoning_summary: ReasoningSummaryPayloadSchema,
   text_delta: TextDeltaPayloadSchema,
+  text_block: TextBlockPayloadSchema,
   commit: CommitPayloadSchema,
   file_change: FileChangePayloadSchema,
 } as const satisfies Record<RunItemType, z.ZodType>;

@@ -20,6 +20,7 @@ function replay(name: string): { events: WireEvent[]; sessionId: string | undefi
 }
 
 describe('Gemini stream-json translation', () => {
+  // harn:assume native-prose-completeness-is-explicit ref=gemini-prose-classification-regression
   it('translates the complete documented success vocabulary and token-only usage', () => {
     const replayed = replay('synthetic-success.jsonl');
     expect(replayed.sessionId).toBe('11111111-1111-4111-8111-111111111111');
@@ -33,6 +34,11 @@ describe('Gemini stream-json translation', () => {
         input: { file_path: 'README.md' },
       },
     });
+    expect(replayed.events.filter((event) =>
+      event.type === 'run.item' && event.item_type === 'text_delta')).toEqual([
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PO' } },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'NG' } },
+    ]);
     expect(replayed.events.at(-1)).toEqual({
       type: 'run.completed',
       status: 'completed',
@@ -40,6 +46,16 @@ describe('Gemini stream-json translation', () => {
       usage: { input_tokens: 12, output_tokens: 2 },
     });
   });
+
+  it('classifies an assistant message without delta:true as a completed block', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push(JSON.stringify({
+      type: 'message', role: 'assistant', content: 'complete', delta: false,
+    }))).toEqual([
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'complete' } },
+    ]);
+  });
+  // harn:end native-prose-completeness-is-explicit
 
   it('maps a documented error result to a failed run', () => {
     expect(replay('synthetic-failure.jsonl').events.at(-1)).toEqual({

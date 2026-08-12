@@ -656,6 +656,7 @@ describe('room config', () => {
 });
 
 describe('normalized run-item payloads', () => {
+  // harn:assume native-prose-completeness-is-explicit ref=prose-event-protocol-regression
   const cases: [
     RunItemType,
     { parse(value: unknown): unknown; safeParse(value: unknown): { success: boolean } },
@@ -729,6 +730,16 @@ describe('normalized run-item payloads', () => {
       expect(parseRunItemPayload(type, invalid).success).toBe(false);
     },
   );
+
+  it('parses complete text blocks and rejects malformed block payloads', () => {
+    expect(parseRunItemPayload('text_block', { text: 'Complete paragraph', vendor: 'extra' }))
+      .toMatchObject({
+        success: true,
+        data: { text: 'Complete paragraph', vendor: 'extra' },
+      });
+    expect(parseRunItemPayload('text_block', { text: 42 }).success).toBe(false);
+  });
+  // harn:end native-prose-completeness-is-explicit
 });
 
 describe('spawn control vocabularies', () => {

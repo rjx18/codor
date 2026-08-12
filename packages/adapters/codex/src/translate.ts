@@ -293,7 +293,7 @@ export function createTurnTranslator(
         if (itemType === 'agentMessage') {
           if (method !== 'item/completed') return [];
           lastAgentText = stringValue(item.text) ?? '';
-          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: lastAgentText } }];
+          return [{ type: 'run.item', item_type: 'text_block', payload: { text: lastAgentText } }];
         }
 
         if (itemType === 'reasoning') {

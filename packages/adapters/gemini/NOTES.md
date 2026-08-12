@@ -83,7 +83,10 @@ Interactive attach is `gemini --resume UUID` in the member's working directory.
 | Gemini stream event | Codor event |
 | --- | --- |
 | `init` | capture `session_id`; no visible item |
-| assistant `message` | `run.item/text_delta`; concatenate final text |
+<!-- harn:assume native-prose-completeness-is-explicit ref=gemini-prose-classification-contract -->
+| assistant `message` with `delta:true` | `run.item/text_delta`; concatenate final text |
+| assistant `message` without `delta:true` | `run.item/text_block`; concatenate final text |
+<!-- harn:end native-prose-completeness-is-explicit -->
 | user `message` | ignored as prompt echo |
 | `tool_use` | `run.item/tool_call` |
 | `tool_result` | `run.item/tool_result` |

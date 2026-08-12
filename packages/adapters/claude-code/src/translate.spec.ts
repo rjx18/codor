@@ -49,15 +49,31 @@ describe('pong fixture replay', () => {
     expect(translator.sessionId()).toBe('ec6d311d-1205-4d48-961e-56bb0e995398');
   });
 
-  it('normalizes assistant text and the result with cost_usd', () => {
-    expect(all.filter((e) => e.type === 'run.item' && e.item_type === 'text_delta')).toEqual([
-      { type: 'run.item', item_type: 'text_delta', payload: { text: 'PONG' } },
+  it('normalizes completed assistant text and the result with cost_usd', () => {
+    expect(all.filter((e) => e.type === 'run.item' && e.item_type.startsWith('text_'))).toEqual([
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'PONG' } },
     ]);
     const done = completed(all);
     expect(done.status).toBe('completed');
     expect(done.final_text).toBe('PONG');
     expect(done.usage!.cost_usd).toBeTypeOf('number');
     expect(done.usage!.input_tokens).toBeGreaterThan(0);
+  });
+
+  it('keeps consecutive completed assistant content blocks separate', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'text', text: 'First paragraph.' },
+          { type: 'text', text: 'Second paragraph.' },
+        ],
+      },
+    })).toEqual([
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'First paragraph.' } },
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'Second paragraph.' } },
+    ]);
   });
 });
 
@@ -310,11 +326,12 @@ describe('robustness', () => {
 
 // harn:assume claude-result-errors-follow-native-signals ref=claude-result-failure-regression
 describe('result failure contract', () => {
+  // harn:assume native-prose-completeness-is-explicit ref=claude-prose-classification-regression
   it('classifies the contract-derived context overflow as error detail, never final text', () => {
     const { all } = replay(testFixture('context-overflow.jsonl'));
     expect(all).toContainEqual({
       type: 'run.item',
-      item_type: 'text_delta',
+      item_type: 'text_block',
       payload: { text: 'API Error: 400 Prompt is too long' },
     });
     expect(completed(all)).toMatchObject({
@@ -325,6 +342,7 @@ describe('result failure contract', () => {
     expect(completed(all)).not.toHaveProperty('final_text');
     expect(WireEventSchema.safeParse(completed(all)).success).toBe(true);
   });
+  // harn:end native-prose-completeness-is-explicit
 
   it('uses a non-success result subtype as a primary signal even when is_error is false', () => {
     const { all } = replay([

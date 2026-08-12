@@ -100,7 +100,9 @@ Interactive attach is `opencode --session SESSION_ID` in the member cwd.
 | --- | --- |
 | `step_start` | capture session id; no visible item |
 | completed/error `tool_use` | `run.item/tool_call` then `run.item/tool_result` |
-| `text` | `run.item/text_delta`; concatenate final text |
+<!-- harn:assume native-prose-completeness-is-explicit ref=opencode-prose-classification-contract -->
+| completed `text` part (`part.time.end` is present in the verified 1.17.14 capture) | `run.item/text_block`; concatenate final text |
+<!-- harn:end native-prose-completeness-is-explicit -->
 | `reasoning` | `run.item/reasoning_summary` when present |
 | `step_finish` | accumulate input/output tokens and reported `cost` |
 | `error` | retain diagnostic and emit error-shaped tool result |
