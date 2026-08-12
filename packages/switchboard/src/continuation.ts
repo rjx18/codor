@@ -29,20 +29,35 @@ function callId(event: Extract<WireEvent, { type: 'run.item' }>): string | undef
   return typeof payload.call_id === 'string' ? payload.call_id : undefined;
 }
 
+type ProseItemType = 'text_delta' | 'text_block';
+
+function proseItemType(
+  event: Extract<WireEvent, { type: 'run.item' }>,
+): ProseItemType | undefined {
+  return event.item_type === 'text_delta' || event.item_type === 'text_block'
+    ? event.item_type
+    : undefined;
+}
+
 function textOf(event: Extract<WireEvent, { type: 'run.item' }>): string {
-  if (event.item_type !== 'text_delta') return '';
+  if (proseItemType(event) === undefined) return '';
   const payload = event.payload as { text?: unknown };
   return typeof payload.text === 'string' ? payload.text : '';
 }
 
-function completionResidual(finalText: string | undefined, streamed: string): string {
+function completionResidual(
+  finalText: string | undefined,
+  streamed: string,
+  visible: string,
+): string {
   if (finalText === undefined || finalText.length === 0) return '';
+  if (visible.length > 0 && finalText.startsWith(visible)) return finalText.slice(visible.length);
   if (streamed.length === 0) return finalText;
   if (finalText.startsWith(streamed)) return finalText.slice(streamed.length);
   // Several harnesses stream interim narration and then repeat only the final
   // answer as `final_text`. That suffix is already durable journal prose; adding
   // it again would create a third block and duplicate the visible reply.
-  if (streamed.endsWith(finalText)) return '';
+  if (streamed.endsWith(finalText) || (visible.length > 0 && visible.endsWith(finalText))) return '';
   return finalText;
 }
 
@@ -58,6 +73,8 @@ export class ContinuationWriter {
   private readonly toolOutputs = new Map<string, number>();
   private readonly pendingCompactions: number[] = [];
   private streamedText = '';
+  private readonly visibleText = new Map<number, string>();
+  private readonly lastProseType = new Map<number, ProseItemType>();
 
   constructor(
     readonly rootMessageId: number,
@@ -109,7 +126,11 @@ export class ContinuationWriter {
     } else {
       if (
         event.status !== 'failed'
-        && completionResidual(event.final_text, this.streamedText).length > 0
+        && completionResidual(
+          event.final_text,
+          this.streamedText,
+          this.visibleText.get(event.output_message_id ?? this.currentOutputId) ?? '',
+        ).length > 0
       ) {
         allocateAfterInterleave();
       }
@@ -129,7 +150,17 @@ export class ContinuationWriter {
     if (event.type === 'run.item') {
       const id = callId(event);
       if (event.item_type === 'tool_call' && id !== undefined) this.toolOutputs.set(id, target);
-      if (event.item_type === 'text_delta') this.streamedText += textOf(event);
+      const kind = proseItemType(event);
+      if (kind !== undefined) {
+        const text = textOf(event);
+        this.streamedText += text;
+        if (text.length > 0) {
+          const previous = this.visibleText.get(target) ?? '';
+          const boundary = kind === 'text_block' || this.lastProseType.get(target) === 'text_block';
+          this.visibleText.set(target, `${previous}${boundary && previous.length > 0 ? '\n\n' : ''}${text}`);
+          this.lastProseType.set(target, kind);
+        }
+      }
       if (event.item_type !== 'tool_result' && event.item_type !== 'reasoning_summary') {
         this.currentOutputId = target;
       }
@@ -150,6 +181,7 @@ export class ContinuationWriter {
 }
 
 /** Rebuild the exact per-row prose and terminal identity from one root journal. */
+// harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=continuation-prose-boundary-projection
 export function projectContinuationOutputs(
   rootMessageId: number,
   events: readonly WireEvent[],
@@ -159,6 +191,7 @@ export function projectContinuationOutputs(
   const substantiveMessageIds = new Set<number>();
   let streamed = '';
   let resultMessageId = rootMessageId;
+  const lastProseType = new Map<number, ProseItemType>();
 
   for (const event of events) {
     if (event.type !== 'run.item' && event.type !== 'timeline' && event.type !== 'run.completed') continue;
@@ -168,9 +201,13 @@ export function projectContinuationOutputs(
     resultMessageId = target;
 
     if (event.type === 'run.item') {
+      const kind = proseItemType(event);
       const text = textOf(event);
       if (text.length > 0) {
-        bodies.set(target, (bodies.get(target) ?? '') + text);
+        const previous = bodies.get(target) ?? '';
+        const boundary = kind === 'text_block' || lastProseType.get(target) === 'text_block';
+        bodies.set(target, `${previous}${boundary && previous.length > 0 ? '\n\n' : ''}${text}`);
+        if (kind !== undefined) lastProseType.set(target, kind);
         streamed += text;
         substantiveMessageIds.add(target);
       } else if (event.item_type !== 'reasoning_summary') {
@@ -185,7 +222,7 @@ export function projectContinuationOutputs(
 
     const residual = event.status === 'failed'
       ? ''
-      : completionResidual(event.final_text, streamed);
+      : completionResidual(event.final_text, streamed, bodies.get(target) ?? '');
     if (residual.length > 0) {
       bodies.set(target, (bodies.get(target) ?? '') + residual);
       substantiveMessageIds.add(target);
@@ -194,4 +231,5 @@ export function projectContinuationOutputs(
 
   return { resultMessageId, bodies, referencedMessageIds, substantiveMessageIds };
 }
+// harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 // harn:end continuation-writer-follows-journaled-output-ownership

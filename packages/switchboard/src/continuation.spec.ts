@@ -92,5 +92,70 @@ describe('continuation output assignment', () => {
       bodies: new Map([[1, 'checking first. final answer']]),
     });
   });
+
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=continuation-prose-boundary-regression
+  it('projects mixed deltas and complete blocks without losing ownership or final text', () => {
+    const writer = new ContinuationWriter(1);
+    const journal: WireEvent[] = [
+      writer.assign({
+        type: 'run.item', item_type: 'text_delta', payload: { text: 'A' },
+      }, 1, () => 99).event,
+      writer.assign({
+        type: 'run.item', item_type: 'tool_call',
+        payload: { call_id: 'other', tool: 'Read', title: 'other output' },
+      }, 2, () => 2).event,
+      writer.assign({
+        type: 'run.item', item_type: 'tool_result',
+        payload: { call_id: 'other', status: 'ok', output_text: 'done' },
+      }, 2, () => 99).event,
+      writer.assign({
+        type: 'run.item', item_type: 'text_delta', output_message_id: 1,
+        payload: { text: 'B' },
+      }, 2, () => 99).event,
+      writer.assign({
+        type: 'run.item', item_type: 'text_block', output_message_id: 1,
+        payload: { text: 'Block one' },
+      }, 2, () => 99).event,
+      writer.assign({
+        type: 'run.item', item_type: 'text_delta', output_message_id: 1,
+        payload: { text: 'C' },
+      }, 2, () => 99).event,
+      writer.assign({
+        type: 'run.item', item_type: 'text_block', output_message_id: 1,
+        payload: { text: 'Block two' },
+      }, 2, () => 99).event,
+      writer.assign({
+        type: 'run.completed', status: 'completed',
+        final_text: 'AB\n\nBlock one\n\nC\n\nBlock two', output_message_id: 1,
+      }, 2, () => 99).event,
+    ];
+
+    expect(journal.map((event) => event.output_message_id)).toEqual([
+      1, 2, 2, 1, 1, 1, 1, 1,
+    ]);
+    expect(projectContinuationOutputs(1, journal).bodies).toEqual(new Map([
+      [1, 'AB\n\nBlock one\n\nC\n\nBlock two'],
+      [2, ''],
+    ]));
+  });
+
+  it('counts a complete block as streamed prose for terminal allocation and residuals', () => {
+    const writer = new ContinuationWriter(1);
+    const block = writer.assign({
+      type: 'run.item', item_type: 'text_block', payload: { text: 'Block' },
+    }, 1, () => 2);
+    expect(block.event.output_message_id).toBe(1);
+    const completed = writer.assign({
+      type: 'run.completed', status: 'completed', final_text: 'Block',
+    }, 2, () => 3);
+    expect(completed.allocation).toBeUndefined();
+    expect(completed.event.output_message_id).toBe(1);
+    const residual = projectContinuationOutputs(1, [
+      block.event,
+      { ...completed.event, final_text: 'Block\n\nTail', output_message_id: 1 },
+    ]);
+    expect(residual.bodies).toEqual(new Map([[1, 'Block\n\nTail']]));
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 });
 // harn:end continuation-writer-follows-journaled-output-ownership

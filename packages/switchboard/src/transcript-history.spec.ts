@@ -220,6 +220,41 @@ describe('buildTranscriptHistoryPage', () => {
     expect(page.messages.map((message) => message.id)).toEqual([2, 3, 4]);
   });
 
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=transcript-prose-boundary-unit-regression
+  it('unitizes complete blocks independently while deltas survive other-output activity', () => {
+    const visible = 'AB\n\nBlock one\n\nC\n\nBlock two\n\nD';
+    const root = run(1, 'completed', {
+      outputMode: true, body: visible, finalText: visible, ended: 9,
+    });
+    const other: Message = {
+      ...run(2, 'completed'), run: undefined, run_parent_id: 1, body: '', ts: at(8), seq: 2,
+    };
+    const events: WireEvent[] = [
+      { type: 'run.item', item_type: 'text_delta', output_message_id: 1, ts: at(1), payload: { text: 'A' } },
+      { type: 'run.item', item_type: 'tool_call', output_message_id: 2, ts: at(2), payload: { call_id: 'other', tool: 'Read', title: 'other' } },
+      { type: 'run.item', item_type: 'tool_result', output_message_id: 2, ts: at(3), payload: { call_id: 'other', status: 'ok' } },
+      { type: 'run.item', item_type: 'text_delta', output_message_id: 1, ts: at(4), payload: { text: 'B' } },
+      { type: 'run.item', item_type: 'text_block', output_message_id: 1, ts: at(5), payload: { text: 'Block one' } },
+      { type: 'run.item', item_type: 'text_delta', output_message_id: 1, ts: at(6), payload: { text: 'C' } },
+      { type: 'run.item', item_type: 'text_block', output_message_id: 1, ts: at(7), payload: { text: 'Block two' } },
+      { type: 'run.item', item_type: 'text_delta', output_message_id: 1, ts: at(8), payload: { text: 'D' } },
+      { type: 'run.completed', status: 'completed', output_message_id: 1, final_text: visible },
+    ];
+    const source = new Source([root, other], new Map([[1, events]]));
+
+    const { page } = buildTranscriptHistoryPage({ room: 'eng', source });
+    expect(page.units).toEqual([
+      { kind: 'prose', root_message_id: 1, output_message_id: 1, event_indices: [0, 3] },
+      { kind: 'prose', root_message_id: 1, output_message_id: 1, event_indices: [4] },
+      { kind: 'prose', root_message_id: 1, output_message_id: 1, event_indices: [5] },
+      { kind: 'prose', root_message_id: 1, output_message_id: 1, event_indices: [6] },
+      { kind: 'prose', root_message_id: 1, output_message_id: 1, event_indices: [7] },
+      { kind: 'tool', root_message_id: 1, output_message_id: 2, event_indices: [1, 2] },
+    ]);
+    expect(page.units.some((unit) => unit.kind === 'settled_tail')).toBe(false);
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
+
   it('retains timestamp interleaving for legacy journals without output ids', () => {
     const source = new Source(
       [run(1, 'completed', { ended: 5 }), chat(2, 3)],

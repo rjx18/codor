@@ -120,6 +120,27 @@ describe('combined transcript page merging', () => {
     ]);
   });
 
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=authoritative-head-overlap-unit-regression
+  it('keeps consecutive complete prose units distinct through authoritative overlap', () => {
+    const current = mergeTranscriptPages(
+      emptyHistory(),
+      [page([
+        proseUnit(1, 1, 4), proseUnit(1, 1, 5), messageUnit(2),
+      ], [message(1, 'run'), message(2)], null, false)],
+      'head',
+    );
+    const merged = mergeTranscriptPages(
+      current,
+      [page([
+        proseUnit(1, 1, 4), proseUnit(1, 1, 5), messageUnit(2),
+      ], [message(1, 'run'), message(2)], null, false)],
+      'head',
+    );
+    expect(merged.units.map(transcriptUnitKey)).toEqual([
+      'prose:1:1:4', 'prose:1:1:5', 'message:2',
+    ]);
+  });
+
   it('retains the older prefix and drops stale units after the overlap', () => {
     const current = mergeTranscriptPages(
       emptyHistory(),

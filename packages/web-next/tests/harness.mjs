@@ -1049,7 +1049,12 @@ const startStretchTurn = (existingRoom, opts = {}) => {
     daemon.emitMessage(roomId, root);
     daemon.emitMember(roomId, running);
   }
-  stretchFamilies.set(roomId, { agentId: agent.id, ref, rootId: root.id, index: 0 });
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=prose-boundary-lifecycle-browser-regression
+  stretchFamilies.set(roomId, {
+    agentId: agent.id, ref, rootId: root.id, index: 0,
+    proseKind: opts.mode === 'block' ? 'text_block' : 'text_delta',
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
   return { room: roomId, root: root.id };
 };
 
@@ -1078,7 +1083,9 @@ const stretchStep = (roomId, step, opts = {}) => {
       });
     const target = row?.id ?? family.rootId;
     emit({
-      type: 'run.item', item_type: 'text_delta', output_message_id: target,
+      // Block fixtures exercise the complete-native path through the same
+      // production live/settled/page lifecycle as the delta fixture.
+      type: 'run.item', item_type: family.proseKind, output_message_id: target,
       payload: { text }, ts,
     }, target);
     if (row !== undefined && opts.live !== false) daemon.emitMessage(roomId, row);

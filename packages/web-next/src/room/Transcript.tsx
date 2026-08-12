@@ -1637,6 +1637,24 @@ function segmentTs(segment: RunSegment): string | undefined {
   return undefined;
 }
 
+// harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=transcript-prose-boundary-rendering
+function visibleProseText(segments: readonly RunSegment[]): string {
+  let visible = '';
+  let previousBlock = false;
+  for (const segment of segments) {
+    if (segment.kind !== 'prose') continue;
+    const row = segment.row;
+    const block = row.event.type === 'run.item' && row.event.item_type === 'text_block';
+    const text = row.text ?? '';
+    if (text.length === 0) continue;
+    const boundary = visible.length > 0 && (block || previousBlock);
+    visible += `${boundary ? '\n\n' : ''}${text}`;
+    previousBlock = block;
+  }
+  return visible;
+}
+// harn:end explicit-prose-boundaries-survive-transcript-lifecycle
+
 /** Journals for a set of FINALIZED runs (complete, no live buffer needed),
  *  presented into segments so the transcript can interleave their blocks. Reads
  *  go through the shared room-scoped cache, so asking for the same journal from
@@ -1698,10 +1716,11 @@ export function continuationTrailingText(
   streamedText: string,
   outputMessages: boolean,
   hasProse: boolean,
+  visibleText = streamedText,
 ): string {
-  return outputMessages && hasProse && finalText.startsWith(streamedText)
-    ? finalText.slice(streamedText.length)
-    : '';
+  if (!outputMessages || !hasProse) return '';
+  if (finalText.startsWith(visibleText)) return finalText.slice(visibleText.length);
+  return finalText.startsWith(streamedText) ? finalText.slice(streamedText.length) : '';
 }
 
 /**
@@ -1865,7 +1884,14 @@ function RunContent(props: {
     .filter((segment): segment is Extract<RunSegment, { kind: 'prose' }> => segment.kind === 'prose')
     .map((segment) => segment.row.text ?? '')
     .join('');
-  const trailingText = continuationTrailingText(finalText, streamedText, outputMessages, hasProse);
+  const visibleText = visibleProseText(segments);
+  const trailingText = continuationTrailingText(
+    finalText,
+    streamedText,
+    outputMessages,
+    hasProse,
+    visibleText,
+  );
   // harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence
   // Failed/interrupted runs have empty bodies by design — their reason lives
   // on run.error and must render, or failures are silently blank.
@@ -2111,6 +2137,7 @@ function historicalGroupingPresentation(
 }
 
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=historical-transcript-grouping-callsite
+// harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-rendering
 function renderHistoricalTimeline(
   history: TranscriptHistoryState,
   ctx: TimelineCtx,
@@ -2204,6 +2231,7 @@ function renderHistoricalTimeline(
   }
   return out;
 }
+// harn:end finalized-browser-history-is-combined-page-owned
 // harn:end visible-transcript-grouping-ignores-hidden-boundaries
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-presentation

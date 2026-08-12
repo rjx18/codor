@@ -1,0 +1,302 @@
+id: prose-event-semantics-p2-presentation-parity
+title: P2 preserve explicit prose boundaries through live and historical transcripts
+notes: >
+  Implement only Lane E phase P2 from the accepted parallel reliability program.
+  The exact accepted Lane A dependency head
+  3164948cd83bb31e3c20fd2ecc8920e060abb41d is already integrated, including H1
+  7c8c95e7474f4acf22eb1483a382f86861a888ac, H2
+  aaaad27fb60d02fc3c8b68d67cee769e32c13a76, and its accepted correction. The
+  clean combined base is merge commit 297c263b88b71db82d8f034c6a7665c87150c452.
+
+  Carry P1's additive text_block through the existing continuation projector,
+  shared live/history run presenter, server transcript unitizer, and H2
+  combined-head lifecycle. A text_delta is an incomplete fragment and
+  concatenates only with compatible deltas in the same output-owned prose run;
+  timestamps and activity in another permanent output row do not create a
+  boundary. A text_block is one already-complete native prose block and must
+  remain its own visible paragraph/unit. Transitions to or from a block, and
+  consecutive blocks, preserve an explicit paragraph boundary in projected
+  message bodies without prefixing an empty output row or treating a row
+  allocation itself as prose syntax.
+
+  Keep native/raw text aggregation distinct from visible paragraph joining
+  wherever terminal final_text deduplication requires it. A completed block must
+  count as streamed prose for allocation and fallback suppression, while modern
+  projected message bodies must compare against the same visible joined form
+  that the browser renders. Preserve old text_delta journals without migration;
+  malformed payload fallback; reasoning suppression; tool pairing; compaction;
+  first-contributing-event timestamps; permanent output ownership; stable unit
+  keys and anchors; H2 authoritative order and reader offset; the
+  twenty-visible-unit page budget; continuation interleaving; pins, search, and
+  permalinks; and the ban on cold finalized /runs/:id reads. Do not alter
+  protocol/adapters, native classification, page shape/cursors, H2 merge policy,
+  transport, styling, or unrelated transcript behavior.
+assumptions:
+  create:
+    - id: explicit-prose-boundaries-survive-transcript-lifecycle
+      title: Explicit prose event boundaries survive every transcript lifecycle
+      statement: >
+        Every transcript consumer must concatenate compatible text_delta
+        fragments exactly while presenting each text_block as one complete
+        visible paragraph, preserving a paragraph boundary at every transition
+        to or from a block and between consecutive blocks; time gaps and events
+        owned by another permanent output row never invent a prose boundary,
+        final-text fallback compares the appropriate raw or visible projection
+        without duplication, and the same stable units, anchors, order, and text
+        must survive live display, settlement, combined-head reconciliation,
+        bounded paging, room switching, and reload for old delta-only journals,
+        block-native journals, and mixed text/tool evidence.
+      reason: >
+        P1 records whether native prose is a fragment or a complete block, but
+        the current projector, unitizer, and presenter recognize only
+        text_delta, so completed blocks degrade to generic tool rows or vanish
+        from projected bodies and history.
+      depends_on:
+        - native-prose-completeness-is-explicit
+        - continuation-writer-follows-journaled-output-ownership
+        - normalized-run-items-presented-live
+        - historical-transcript-pages-match-output-scoped-rendering
+        - finalized-browser-history-is-combined-page-owned
+        - combined-head-adopts-authoritative-overlap-order
+        - combined-head-preserves-reader-unit-offset
+        - live-runs-settle-beside-paged-history-once
+  reviewed:
+    - id: native-prose-completeness-is-explicit
+      outcome: unchanged
+      reason: >
+        P2 consumes P1's native-path classification without changing protocol,
+        adapters, schemas, or any classification seam.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Text blocks use the same transactionally allocated permanent output ids;
+        projection changes only prose joining and terminal deduplication.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: >
+        The shared presenter continues safe parsing, exact journal order, tool
+        pairing, and live/journal index reconciliation while distinguishing a
+        complete prose block from compatible fragments.
+    - id: prose-blocks-carry-first-delta-timestamps
+      outcome: unchanged
+      reason: >
+        A coalesced delta row retains its first fragment timestamp and a
+        complete block row retains its own timestamp; no timing heuristic
+        controls prose boundaries.
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: >
+        The server continues counting exactly what the browser renders, now with
+        each complete native block as an indivisible prose unit and compatible
+        deltas coalesced per permanent output.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: >
+        The immutable ceiling, twenty-unit budget, cursor boundary, and complete
+        established order remain unchanged while the corrected visible units
+        participate in them.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Finalized blocks are rendered only from combined-page units and their
+        indexed excerpts, never by fetching a cold full journal.
+    - id: combined-head-adopts-authoritative-overlap-order
+      outcome: unchanged
+      reason: >
+        H2's stable-key overlap splice is type-agnostic and remains
+        authoritative; P2 proves block units retain exact server order across
+        the lifecycle.
+    - id: combined-head-preserves-reader-unit-offset
+      outcome: unchanged
+      reason: >
+        Separate block units expose stable intra-message anchors that continue
+        using H2's single pre-paint offset owner.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: >
+        Live block evidence remains uncapped and hands off exactly once to
+        immutable indexed page units without a terminal journal fetch.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: >
+        Search, pin, inbox, and permalink navigation continue walking stable
+        message/output targets through bounded pages; prose event type does not
+        change target identity.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: >
+        Newer live pin/deletion records still reconcile by message sequence
+        without changing page-owned block-unit membership or order.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: >
+        Run search remains deliberately limited to projected tool titles and
+        outputs; adding visible prose blocks neither widens nor leaks its scope.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: >
+        Message and output ids remain the public anchor identity while stable
+        intra-message unit keys derive from unchanged journal indices.
+    - id: pins-are-durable-owner-admin-markers
+      outcome: unchanged
+      reason: >
+        Paragraph presentation does not change pin authority, durable state, or
+        message identity.
+anchors:
+  explicit-prose-boundaries-survive-transcript-lifecycle:
+    continuation-prose-boundary-projection:
+      action: change
+      reason: >
+        Project text blocks into permanent row bodies with explicit paragraph
+        boundaries while retaining a separate aggregation for terminal dedup.
+    continuation-prose-boundary-regression:
+      action: change
+      reason: >
+        Prove delta concatenation, block transitions, row attribution, restart
+        replay, and final_text suppression on the same mixed journal.
+    transcript-prose-boundary-unitizer:
+      action: change
+      reason: >
+        Count each complete block as one stable prose unit, coalesce only
+        compatible deltas per output, and compare modern projected bodies in
+        their visible form for settled-tail suppression.
+    transcript-prose-boundary-unit-regression:
+      action: change
+      reason: >
+        Pin exact event-index units, twenty-unit paging, output interleaving,
+        malformed fallback, and no duplicate settled tail for delta and block
+        paths.
+    live-prose-boundary-presenter:
+      action: change
+      reason: >
+        Safe-parse text_block into its own prose row and prevent adjacent deltas
+        from coalescing across the explicit block boundary.
+    live-prose-boundary-presenter-regression:
+      action: change
+      reason: >
+        Compare delta-only, block-only, transitions, timestamps, and mixed tool
+        rows with exact text, row ids, and order.
+    transcript-prose-boundary-rendering:
+      action: change
+      reason: >
+        Render the same joined prose and fallback semantics from live evidence
+        and page-owned indexed excerpts without changing stable anchors.
+    transcript-prose-boundary-rendering-regression:
+      action: change
+      reason: >
+        Pin trailing-text deduplication and historical stable-unit presentation
+        for both prose paths.
+    prose-boundary-lifecycle-browser-regression:
+      action: change
+      reason: >
+        Exercise identical delta-native and block-native transcripts, including
+        mixed tool evidence, live, settled, paged, switched, and reloaded.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-segmentation-engine:
+      action: change
+      reason: >
+        Recognize both prose types while preserving permanent output allocation,
+        call/result ownership, restart replay, and terminal result identity.
+    continuation-segmentation-regression:
+      action: change
+      reason: |
+        Add red-first block projection and final-text deduplication coverage.
+  normalized-run-items-presented-live:
+    normalized-run-presenter:
+      action: change
+      reason: >
+        Present text_block as a complete prose row while text_delta keeps its
+        existing compatible-fragment coalescing behavior.
+  prose-blocks-carry-first-delta-timestamps:
+    prose-block-first-ts:
+      action: change
+      reason: >
+        Retain the first fragment timestamp for coalesced deltas and the native
+        event timestamp for a complete block without using time as a boundary.
+  historical-transcript-pages-match-output-scoped-rendering:
+    transcript-history-page-builder:
+      action: change
+      reason: >
+        Unitize text_block and text_delta with browser-identical boundaries and
+        visible-body settled-tail comparison inside existing output scoping.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-rendering:
+      action: change
+      reason: >
+        Consume block-owned indexed excerpts through the shared presenter while
+        retaining page-only finalized membership and stable anchors.
+  combined-head-adopts-authoritative-overlap-order:
+    authoritative-head-overlap-unit-regression:
+      action: change
+      reason: >
+        Prove new block-unit stable keys survive exact authoritative overlap
+        ordering with no gap or duplicate.
+    authoritative-order-lifecycle-browser-regression:
+      action: change
+      reason: |
+        Extend the live/settled/switch/reload/page journey to both prose paths.
+  combined-head-preserves-reader-unit-offset:
+    head-reconciliation-reader-anchor-regression:
+      action: change
+      reason: >
+        Retain stable intra-message unit anchoring when complete blocks create
+        distinct visible units.
+  live-runs-settle-beside-paged-history-once:
+    live-history-settlement-renderer:
+      action: change
+      reason: |
+        Hand off block and delta rows from live evidence to page excerpts once.
+    live-history-settlement-regression:
+      action: change
+      reason: >
+        Assert exact text and stable units at live-to-finalized handoff without
+        a terminal /runs request.
+files:
+  - packages/switchboard/src/continuation.ts
+  - packages/switchboard/src/continuation.spec.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/web-next/src/runtime/run-presenter.ts
+  - packages/web-next/src/runtime/run-presenter.spec.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+verification: >
+  Before product edits, add focused unit regressions for one canonical journal
+  containing compatible deltas, consecutive complete blocks, transitions in both
+  directions, a same-output tool pair, an event on another permanent output, and
+  a terminal final_text. Record failures on the clean combined base:
+  continuation projection omits block text, the presenter exposes blocks as
+  generic tool rows, and server history either omits them or counts the wrong
+  stable units. Add browser lifecycle coverage before its product fix and record
+  a semantic assertion failure rather than a fixture, timeout, or infrastructure
+  failure.
+
+  Green unit coverage must prove: deltas concatenate exactly despite timestamps
+  or other-output activity; every block/transition is a distinct visible prose
+  row and stable unit with first-event timestamp and exact event indices;
+  projected bodies retain paragraph boundaries without a leading empty-row
+  delimiter; raw/visible terminal comparison adds a true residual once and never
+  duplicates complete prose; tools, reasoning, compaction, malformed payloads,
+  output ownership, and result ids remain unchanged; twenty means twenty
+  rendered units; H2 authoritative merge keeps exact stable-key order and reader
+  anchors; and old delta-only journals still render identically.
+
+  The Room 23 production-style journey must run equivalent delta-native and
+  block-native fixtures with mixed prose/tool evidence and compare exact visible
+  text, unit keys, permanent row order, and absence of duplicates while live,
+  after settlement/head handoff, after a deliberate older-page fetch, after an
+  in-document room switch away/back, and after reload. Assert no cold finalized
+  /runs/:id request and retain permalink/target, pin sequence, and reader-offset
+  checks already owned by H2. Run focused continuation/history/presenter/
+  Transcript/transcript-history units, the complete switchboard suite, all web
+  units, recursive pnpm -r build, and the complete isolated Room 23 Playwright
+  suite. Run harn find --changed, harn find --plan, harn check, staged Harn
+  find/check, git diff --check, and the shared pre-commit hook flow; create
+  exactly one implementation commit consuming this plan. Stop for independent
+  review without starting any other phase, pushing, merging, deploying,
+  publishing, releasing, or updating a host.
+applied:
+  applied_at: 2026-08-12T17:37:47.359Z

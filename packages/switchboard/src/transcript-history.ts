@@ -99,6 +99,16 @@ function messageTime(message: Message): number {
   return Date.parse(message.ts);
 }
 
+type ProseItemType = 'text_delta' | 'text_block';
+
+function parseProseItem(event: Extract<WireEvent, { type: 'run.item' }>):
+  { kind: ProseItemType; text: string } | undefined {
+  if (event.item_type !== 'text_delta' && event.item_type !== 'text_block') return undefined;
+  const parsed = parseRunItemPayload(event.item_type, event.payload);
+  return parsed.success ? { kind: event.item_type, text: parsed.data.text } : undefined;
+}
+
+// harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=transcript-prose-boundary-unitizer
 function unitizeRun(
   root: Message,
   events: readonly WireEvent[],
@@ -109,6 +119,8 @@ function unitizeRun(
   const pendingCompactions = new Map<number, JournalEntry[]>();
   const proseTargets = new Set<number>();
   const streamedText = new Map<number, string>();
+  const visibleText = new Map<number, string>();
+  const lastProseType = new Map<number, ProseItemType>();
   const prose = new Map<number, JournalEntry>();
   let lastTimestamp = messageTime(root);
   let completion: {
@@ -150,21 +162,34 @@ function unitizeRun(
       const target = eventTarget(event, root.id);
       const timestamp = event.ts === undefined ? lastTimestamp : Date.parse(event.ts);
       if (event.ts !== undefined) lastTimestamp = timestamp;
-      if (event.item_type === 'text_delta') {
-        const parsed = parseRunItemPayload('text_delta', event.payload);
-        if (!parsed.success) {
+      const parsedProse = parseProseItem(event);
+      if (parsedProse !== undefined || event.item_type === 'text_delta' || event.item_type === 'text_block') {
+        if (parsedProse === undefined) {
           prose.delete(target);
           add('tool', index, target, timestamp);
           return;
         }
-        const previous = prose.get(target);
-        if (previous !== undefined) {
-          previous.unit.event_indices.push(index);
+        if (parsedProse.kind === 'text_block') {
+          prose.delete(target);
+          add('prose', index, target, timestamp);
         } else {
-          prose.set(target, add('prose', index, target, timestamp));
+          const previous = prose.get(target);
+          if (previous !== undefined) {
+            previous.unit.event_indices.push(index);
+          } else {
+            prose.set(target, add('prose', index, target, timestamp));
+          }
         }
         proseTargets.add(target);
-        streamedText.set(target, `${streamedText.get(target) ?? ''}${parsed.data.text}`);
+        streamedText.set(target, `${streamedText.get(target) ?? ''}${parsedProse.text}`);
+        const previousVisible = visibleText.get(target) ?? '';
+        const boundary = parsedProse.kind === 'text_block'
+          || lastProseType.get(target) === 'text_block';
+        visibleText.set(
+          target,
+          `${previousVisible}${boundary && previousVisible.length > 0 ? '\n\n' : ''}${parsedProse.text}`,
+        );
+        lastProseType.set(target, parsedProse.kind);
         return;
       }
       prose.delete(target);
@@ -239,9 +264,16 @@ function unitizeRun(
     ? (getMessage(settledTarget)?.body ?? '')
     : (root.run?.final_text ?? root.body);
   const targetStream = streamedText.get(settledTarget) ?? '';
+  const targetVisible = visibleText.get(settledTarget) ?? '';
+  const modernResidual = modern && (
+    (finalText.startsWith(targetVisible) && finalText.length > targetVisible.length)
+    || (targetVisible !== targetStream
+      && finalText.startsWith(targetStream)
+      && finalText.length > targetStream.length)
+  );
   const hasVisibleText = finalText.length > 0 && (
     !targetHasProse
-    || (modern && finalText.startsWith(targetStream) && finalText.length > targetStream.length)
+    || modernResidual
   );
   const failed = root.run?.status === 'failed' || root.run?.status === 'interrupted';
 
@@ -270,6 +302,7 @@ function unitizeRun(
   }
   return entries;
 }
+// harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 
 function compareEntries(left: Entry, right: Entry, continuationFloor: number | undefined): number {
   const leftStrict = continuationFloor !== undefined && left.positionMessageId >= continuationFloor;

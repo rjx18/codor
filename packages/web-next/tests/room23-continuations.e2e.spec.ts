@@ -444,5 +444,84 @@ test.describe('durable continuation writer', () => {
     expect(historyRequests.length).toBeGreaterThanOrEqual(2);
   });
   // harn:end missed-terminal-history-refreshes-through-combined-head
+
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=prose-boundary-lifecycle-browser-regression
+  test('keeps delta and complete-block prose identical through live settlement and history', async ({ page }) => {
+    const snapshots: Array<{ mode: string; text: string; units: string[] }> = [];
+    for (const mode of ['delta', 'block'] as const) {
+      const { room } = await control<{ room: string }>('/stretch-room');
+      const other = await control<{ room: string }>('/continuation-room');
+      const turn = await control<{ room: string; root: number }>('/stretch-turn', { room, mode });
+      const runReads: number[] = [];
+      page.on('request', (request) => {
+        const match = new RegExp(`^/api/rooms/${room}/runs/(\\d+)$`).exec(new URL(request.url()).pathname);
+        if (match) runReads.push(Number(match[1]));
+      });
+
+      await openRoom(page, room);
+      await control('/stretch-step', {
+        room, step: 'stretch', own: false, text: `${mode} first paragraph`,
+      });
+      const liveRoot = page.locator(`[data-testid="run-${String(turn.root)}"]`);
+      await expect(liveRoot.locator('.nx-run-block')).toContainText(`${mode} first paragraph`);
+      await control('/stretch-step', { room, step: 'tools' });
+      await control('/stretch-step', {
+        room, step: 'stretch', text: `${mode} second paragraph`,
+      });
+      await expect(page.locator('.nx-column')).toContainText(`${mode} second paragraph`);
+      await control('/stretch-step', { room, step: 'complete' });
+      await expect(page.locator('.nx-column')).toContainText(`${mode} second paragraph`);
+      const readsBeforeHistory = runReads.length;
+
+      await control('/seed-bulk', { room, count: 25, newer: true });
+      const headResponse = page.waitForResponse(`**/api/rooms/${room}/transcript-history*`);
+      await page.reload();
+      await expect(page.getByTestId('timeline')).toBeVisible();
+      await headResponse;
+      const first = page.locator(`[data-testid="run-${String(turn.root)}"]`);
+      const timeline = page.getByTestId('timeline');
+      const loadOlderRun = async (): Promise<void> => {
+        await page.addStyleTag({ content: '.nx-turn { min-height: 80px; }' });
+        await timeline.evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+          node.dispatchEvent(new Event('scroll'));
+        });
+        await timeline.evaluate((node) => {
+          node.scrollTop = 0;
+          node.dispatchEvent(new Event('scroll', { bubbles: true }));
+          node.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, bubbles: true }));
+        });
+        await expect.poll(() => first.count(), { timeout: 15_000 }).toBe(1);
+      };
+      await loadOlderRun();
+      await expect(first.locator('.nx-run-block')).toContainText(`${mode} first paragraph`);
+      const units = await renderedUnitKeys(page);
+      const text = await page.locator('.nx-column').innerText();
+
+      await clickRoom(page, other.room);
+      await clickRoom(page, room);
+      await loadOlderRun();
+      await expect(first.locator('.nx-run-block')).toContainText(`${mode} first paragraph`);
+      const reloadedHead = page.waitForResponse(`**/api/rooms/${room}/transcript-history*`);
+      await page.reload();
+      await expect(page.getByTestId('timeline')).toBeVisible();
+      await reloadedHead;
+      await loadOlderRun();
+      await expect(page.locator('.nx-column .nx-run-block').filter({ hasText: `${mode} second paragraph` }))
+        .toHaveCount(1);
+      expect(runReads).toHaveLength(readsBeforeHistory);
+      snapshots.push({ mode, text, units });
+    }
+
+    expect(snapshots.map(({ mode }) => mode)).toEqual(['delta', 'block']);
+    expect(snapshots[0]!.text).toContain('delta first paragraph');
+    expect(snapshots[1]!.text).toContain('block first paragraph');
+    expect(snapshots[0]!.units.length).toBeGreaterThan(0);
+    expect(snapshots[1]!.units.length).toBe(snapshots[0]!.units.length);
+    expect(new Set(snapshots[1]!.units).size).toBe(snapshots[1]!.units.length);
+    expect(snapshots[1]!.text.match(/block first paragraph/g)).toHaveLength(1);
+    expect(snapshots[1]!.text.match(/block second paragraph/g)).toHaveLength(1);
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 });
 // harn:end live-runs-settle-beside-paged-history-once
