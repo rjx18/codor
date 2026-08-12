@@ -1,0 +1,339 @@
+id: context-reset-v2-c1-backend
+title: Context reset v2 phase C1 - bounded correlated backend retirement
+notes: >
+  Lane F phase C1 from the accepted parallel reliability and collaboration
+  program. Preserve the existing owner/admin, local owned-custody, idle,
+  persisted-session, no-active-turn, no-pending-delivery, no-attach,
+  no-compaction, and single-reset lease gates. Make every clear request carry a
+  caller-supplied bounded ref and return exactly one matching success or error
+  to that requester; unrelated room errors, member broadcasts, and stale results
+  must not settle another request.
+
+  Make native retirement an honest bounded boundary. Claude must finish or bound
+  its retained query interruption/close/pump retirement. Codex and ACP must
+  request graceful shutdown, await confirmed exit, and after the grace bound
+  escalate only the child/process group created and owned by that adapter, with
+  a second finite confirmation bound. One-shot first-party CLI adapters must
+  likewise prove that no owned turn child can still write before reset succeeds.
+  A timeout, disconnect, process error, or unconfirmed exit rejects without
+  clearing the durable reference or forgetting supervision. A daemon restart
+  with no retained in-memory runtime still clears only after the adapter
+  honestly confirms that it owns no live writer.
+
+  Hold the reset lease across retirement and the atomic durable clear, and fence
+  attach, turn, compaction, delayed usage, stale session/model events, and late
+  runtime exits from restoring invalidated state. On failure release the lease
+  and preserve the old valid session/runtime reference; on success preserve
+  identity, configuration, channel transcript/evidence, provider limits,
+  spend/usage accounting, and queued future delivery while clearing only
+  session/context/task/runtime metadata. Clear itself creates no native session
+  and no paid turn; the next admitted delivery creates the fresh runtime through
+  the ordinary session path.
+
+  Red first: add focused protocol/server tests proving two concurrent refs and
+  unrelated frames cannot cross-settle; daemon tests for timeout, restart,
+  duplicate reset, mirrored custody, attach/turn/compaction races, queued-after-
+  lease delivery, stale usage/model/session/exit callbacks, and durable failure
+  preservation; and adapter tests that initially expose incomplete graceful
+  retirement, escalation, or retained-runtime forgetting. Then implement the
+  smallest backend fix. Run affected protocol, adapter, and complete switchboard
+  tests/builds plus Harn staged/apply checks and git diff --check. C2 UI,
+  layout, modal/confirmation behavior, unrelated protocol redesign, transcript
+  deletion, deployment, publication, push, merge, and release are excluded.
+assumptions:
+  retire: []
+  create:
+    - id: context-reset-requests-settle-by-explicit-ref
+      title: Context reset requests settle only by their explicit correlation ref
+      statement: >
+        Every clear_member_context request must carry one bounded explicit ref,
+        and the initiating connection must receive exactly one success member
+        result or error carrying that same ref for the same room and target.
+        Ordinary authoritative member broadcasts remain uncorrelated state, and
+        unrelated room errors, member updates, concurrent clears, disconnects,
+        or stale replies cannot settle a different reset request.
+      reason: >
+        A constant action-name ref and an uncorrelated member broadcast cannot
+        distinguish concurrent or stale reset outcomes and cannot support the
+        member-local C2 progress contract safely.
+      depends_on:
+        - member-context-reset-is-authorized-atomic-and-lazy
+        - management-frames-correlate-one-result
+    - id: context-reset-retirement-is-bounded-owned-and-confirmed
+      title: Context reset clears durable state only after bounded owned retirement
+      statement: >
+        A first-party adapter reset must retire every retained writer for the
+        selected idle member within finite graceful and confirmation bounds,
+        escalating only a subprocess or process group created and owned by that
+        adapter. Success means the prior runtime can no longer emit, mutate,
+        resume, or be found through any session/member cache; an unconfirmed
+        exit, timeout, disconnect, close failure, or foreign/unowned runtime
+        rejects while retaining supervision and the old durable session
+        reference. A restarted daemon with no retained runtime confirms absence
+        without creating a replacement session.
+      reason: >
+        Clearing resume and context metadata before all native writers are
+        conclusively retired permits stale output and can orphan a paid runtime;
+        an unbounded wait can wedge turn admission indefinitely.
+      depends_on:
+        - member-context-reset-is-authorized-atomic-and-lazy
+        - adapter-process-lifecycle-supervised
+        - claude-agent-sdk-query-is-the-session-runtime
+        - codex-app-server-is-the-member-runtime
+        - acp-v1-events-and-capabilities-are-negotiated
+  reviewed:
+    - id: member-context-reset-is-authorized-atomic-and-lazy
+      outcome: unchanged
+      reason: >
+        Existing authorization, custody, idle-state, lease, atomic clear,
+        preserved durable state, lazy fresh-session, and failure semantics
+        remain authoritative; C1 closes correlation, bounded retirement, and
+        stale- writer gaps inside that contract.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Clear remains owner/admin-only and agent credentials gain no act.
+    - id: one-inflight-turn-per-member
+      outcome: unchanged
+      reason: >
+        The ordinary single-turn pump remains intact; the reset lease continues
+        to exclude turn admission until retirement and commit settle.
+    - id: durable-agent-runtime-configuration
+      outcome: unchanged
+      reason: >
+        Model, policy, thinking, cwd, purpose, and private ACP launch identity
+        remain durable while session lifecycle and baselines are cleared.
+    - id: member-task-projection-is-durable-and-session-scoped
+      outcome: unchanged
+      reason: >
+        Tasks remain scoped to the retired native session and clear atomically
+        only after confirmed reset success.
+    - id: compaction-reinjects-codor-briefing
+      outcome: unchanged
+      reason: >
+        Reset continues re-arming the same briefing flags without changing
+        compaction semantics or clearing misaddress state.
+    - id: current-context-window-truth-outlives-restarts
+      outcome: unchanged
+      reason: >
+        Successful reset invalidates only the retired context window; delayed
+        old-session or old-model usage remains unable to restore it.
+    - id: attach-custody-lease-tracks-child-pid
+      outcome: unchanged
+      reason: >
+        Reset does not acquire foreign custody and continues refusing pending or
+        active interactive attach ownership.
+    - id: custody-uncertain-never-double-writes
+      outcome: unchanged
+      reason: >
+        Mirrored or uncertain custody still fails closed; escalation is limited
+        to adapter-owned children and never targets an external writer.
+    - id: manual-compaction-leases-out-turn-admission
+      outcome: unchanged
+      reason: >
+        Compaction and reset leases remain mutually exclusive at the common
+        admission seam.
+    - id: adapter-process-lifecycle-supervised
+      outcome: unchanged
+      reason: >
+        Existing subprocess supervision remains authoritative; reset adds a
+        bounded graceful-to-force retirement path without weakening turn or
+        daemon shutdown supervision.
+    - id: claude-agent-sdk-query-is-the-session-runtime
+      outcome: unchanged
+      reason: >
+        Ordinary turns still reuse one query; explicit reset alone bounds and
+        confirms full query retirement before forgetting it.
+    - id: codex-app-server-is-the-member-runtime
+      outcome: unchanged
+      reason: >
+        Ordinary turns still retain one app-server; reset preserves supervision
+        until the owned child is conclusively gone and all lookup entries
+        retire.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: >
+        Ordinary ACP negotiation/resume stays unchanged; reset conclusively
+        retires its owned retained provider before lifecycle metadata clears.
+files:
+  - packages/protocol/src/adapter.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/switchboard/src/fake-adapter.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/adapters/claude-code/src/adapter.ts
+  - packages/adapters/claude-code/src/adapter.spec.ts
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/adapter.spec.ts
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/acp/src/adapter.spec.ts
+  - packages/adapters/antigravity/src/adapter.ts
+  - packages/adapters/antigravity/src/adapter.spec.ts
+  - packages/adapters/copilot/src/adapter.ts
+  - packages/adapters/copilot/src/adapter.spec.ts
+  - packages/adapters/cursor/src/adapter.ts
+  - packages/adapters/cursor/src/adapter.spec.ts
+  - packages/adapters/gemini/src/adapter.ts
+  - packages/adapters/gemini/src/adapter.spec.ts
+  - packages/adapters/grok/src/adapter.ts
+  - packages/adapters/grok/src/adapter.spec.ts
+  - packages/adapters/opencode/src/adapter.ts
+  - packages/adapters/opencode/src/adapter.spec.ts
+anchors:
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-protocol:
+      action: change
+      reason: >
+        Require a bounded explicit ref for clear_member_context while retaining
+        compatibility for unrelated acts.
+    clear-context-ref-server:
+      action: change
+      reason: >
+        Return one requester-local success or failure with the exact request ref
+        and keep ordinary member fanout uncorrelated.
+    clear-context-ref-regression:
+      action: change
+      reason: >
+        Prove concurrent refs, unrelated errors/member frames, denial, success,
+        disconnect, and stale results cannot cross-settle.
+  context-reset-retirement-is-bounded-owned-and-confirmed:
+    adapter-reset-retirement-contract:
+      action: change
+      reason: >
+        Define finite complete retirement and ownership semantics without
+        replacement-session creation.
+    claude-reset-retirement:
+      action: change
+      reason: >
+        Bound query interruption, close/return, and pump settlement before cache
+        removal.
+    codex-reset-retirement:
+      action: change
+      reason: >
+        Gracefully dispose, escalate only the owned app-server child when
+        needed, confirm exit, and retain supervision on failure.
+    acp-reset-retirement:
+      action: change
+      reason: >
+        Gracefully terminate then narrowly escalate the owned ACP process group,
+        confirming exit before negotiated runtime removal.
+    one-shot-reset-retirement:
+      action: change
+      reason: >
+        Prove each built-in one-shot adapter has no live owned child capable of
+        writing before confirming reset.
+    reset-retirement-regression:
+      action: change
+      reason: >
+        Cover graceful exit, timeout/escalation, unconfirmed failure,
+        disconnect/restart, late exit, and fresh post-reset creation order.
+  member-context-reset-is-authorized-atomic-and-lazy:
+    adapter-reset-contract:
+      action: change
+      reason: >
+        Tighten the hook documentation around bounded confirmed retirement and
+        no stale writers.
+    clear-context-act-schema:
+      action: change
+      reason: Require explicit per-request correlation for this destructive act.
+    clear-context-runtime-lease:
+      action: change
+      reason: >
+        Preserve all existing guards while fencing turns, attach, compaction,
+        stale usage/session/model/exit callbacks, and queued-after-lease work
+        across the complete bounded retirement boundary.
+    clear-context-server-dispatch:
+      action: change
+      reason: >
+        Correlate requester-local completion and failure without treating an
+        ordinary member broadcast as action acknowledgement.
+    clear-context-store-transaction:
+      action: change
+      reason: >
+        Verify the atomic success boundary still clears only session-scoped
+        metadata and preserves configuration, history, limits, spend, and future
+        queued delivery.
+    claude-session-reset:
+      action: change
+      reason: Bound and confirm complete retained-query retirement.
+    codex-session-reset:
+      action: change
+      reason: Bound and confirm owned app-server retirement before cache removal.
+    acp-session-reset:
+      action: change
+      reason: Bound and confirm owned provider retirement before cache removal.
+    first-party-cli-session-reset:
+      action: change
+      reason: Verify no live one-shot child remains for every built-in adapter.
+  member-task-projection-is-durable-and-session-scoped:
+    member-task-storage:
+      action: change
+      reason: >
+        Exercise task clearing only inside the confirmed atomic reset success
+        transaction and preservation on retirement failure.
+    member-task-daemon-regression:
+      action: change
+      reason: Preserve task state on failed retirement and clear it on success.
+  current-context-window-truth-outlives-restarts:
+    persisted-window-seed:
+      action: change
+      reason: >
+        Prove delayed old-session/model usage cannot restore context truth after
+        the reset boundary.
+  attach-custody-lease-tracks-child-pid:
+    attach-release-handshake:
+      action: change
+      reason: Prove attach acquisition remains excluded for the full reset lease.
+  manual-compaction-leases-out-turn-admission:
+    compaction-lease-state:
+      action: change
+      reason: Preserve mutual exclusion across bounded reset retirement.
+    compaction-lease-regression:
+      action: change
+      reason: Prove neither lease admits or settles the other's work.
+  claude-agent-sdk-query-is-the-session-runtime:
+    claude-sdk-session-lifecycle:
+      action: change
+      reason: Reuse the existing query retirement seam with explicit finite bounds.
+    claude-sdk-session-regression:
+      action: change
+      reason: Prove full retirement and failure preservation before a fresh query.
+  codex-app-server-is-the-member-runtime:
+    codex-app-server-session-lifecycle:
+      action: change
+      reason: Keep runtime supervision until bounded retirement confirms child exit.
+    codex-app-server-session-regression:
+      action: change
+      reason: Prove graceful, escalated, delayed, and failed exit ordering.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Add bounded confirmed retirement for the retained ACP process.
+    acp-adapter-regression:
+      action: change
+      reason: Prove negotiated runtime state is forgotten only after confirmed exit.
+  adapter-process-lifecycle-supervised:
+    antigravity-cli-process-supervision:
+      action: change
+      reason: Exercise the one-shot reset no-live-child boundary.
+    copilot-cli-process-supervision:
+      action: change
+      reason: Exercise the one-shot reset no-live-child boundary.
+    gemini-cli-process-supervision:
+      action: change
+      reason: Exercise the one-shot reset no-live-child boundary.
+    grok-cli-process-supervision:
+      action: change
+      reason: Exercise the one-shot reset no-live-child boundary.
+    grok-cli-process-supervision-regression:
+      action: change
+      reason: Cover reset refusal while an owned one-shot child is still live.
+    opencode-cli-process-supervision:
+      action: change
+      reason: Exercise the one-shot reset no-live-child boundary.
+applied:
+  applied_at: 2026-08-12T15:50:04.230Z

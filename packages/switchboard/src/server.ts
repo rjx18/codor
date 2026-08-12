@@ -2476,11 +2476,24 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             }
             // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-server-dispatch
             else if (act.act === 'clear_member_context') {
+              // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-server
+              const resetRef = frame.ref;
+              if (resetRef === undefined) {
+                throw new Error('clear_member_context requires an explicit correlation ref');
+              }
               void daemon
                 .clearMemberContext(frame.room, act.member_id, actor.id)
-                .catch((error: unknown) =>
-                  send({ type: 'error', message: String(error), ref: 'clear_member_context' }),
-                );
+                .then((member) => send({
+                  type: 'member',
+                  seq: daemon.store.currentSeq(frame.room),
+                  member: daemon.project(frame.room, member),
+                  room: frame.room,
+                  ref: resetRef,
+                }))
+                .catch((error: unknown) => send({
+                  type: 'error', message: String(error), ref: resetRef,
+                }));
+              // harn:end context-reset-requests-settle-by-explicit-ref
             }
             // harn:end member-context-reset-is-authorized-atomic-and-lazy
             else if (act.act === 'set_role') daemon.setHumanRole(frame.room, act.member_id, act.role);

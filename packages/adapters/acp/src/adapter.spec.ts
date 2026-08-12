@@ -1,9 +1,10 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { Session, WireEvent } from '@codor/protocol';
 
@@ -13,9 +14,13 @@ const fake = fileURLToPath(new URL('../test-fixtures/fake-agent.mjs', import.met
 
 const launch = (...args: string[]) => ({ executable: process.execPath, argv: [fake, ...args] });
 
-async function collectTurn(adapter: AcpAdapter, session: Session): Promise<WireEvent[]> {
+async function collectTurn(
+  adapter: AcpAdapter,
+  session: Session,
+  hooks: Parameters<AcpAdapter['deliver']>[2] = {},
+): Promise<WireEvent[]> {
   const events: WireEvent[] = [];
-  const iterator = adapter.deliver(session, 'hello')[Symbol.asyncIterator]();
+  const iterator = adapter.deliver(session, 'hello', hooks)[Symbol.asyncIterator]();
   for (;;) {
     const next = await iterator.next();
     if (next.done) break;
@@ -69,6 +74,48 @@ describe('ACP adapter', () => {
     await adapter.resetSession(session);
     await expect(adapter.resetSession(undefined)).resolves.toBeUndefined();
   });
+
+  // harn:assume context-reset-retirement-is-bounded-owned-and-confirmed ref=reset-retirement-regression
+  it('escalates its owned ACP process group after grace and confirms exit', async () => {
+    const adapter = new AcpAdapter();
+    const session = adapter.spawn({ cwd: process.cwd(), acp_launch: launch() });
+    const signals: Array<NodeJS.Signals | number | undefined> = [];
+    const child = Object.assign(new EventEmitter(), {
+      pid: 987654,
+      exitCode: null as number | null,
+      signalCode: null as NodeJS.Signals | null,
+      kill(signal?: NodeJS.Signals | number) {
+        signals.push(signal);
+        if (signal === 'SIGKILL') {
+          this.signalCode = 'SIGKILL';
+          this.emit('exit', null, 'SIGKILL');
+        }
+        return true;
+      },
+    });
+    const runtimes = (adapter as unknown as {
+      runtimes: WeakMap<Session, unknown>;
+    }).runtimes;
+    runtimes.set(session, {
+      child,
+      connection: {},
+      sessionId: 'fake-acp-session',
+      active: null,
+      pending: new Map(),
+      retiring: false,
+    });
+
+    vi.useFakeTimers();
+    try {
+      const reset = adapter.resetSession(session);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(reset).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+  // harn:end context-reset-retirement-is-bounded-owned-and-confirmed
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
   it('resolves executable files and symlinks but rejects executable-named directories', () => {

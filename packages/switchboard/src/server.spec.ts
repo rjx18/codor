@@ -4096,7 +4096,8 @@ describe('compact_member act (manual-compaction-is-an-operator-act)', () => {
 
 // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-server-dispatch
 describe('clear_member_context act', () => {
-  it('dispatches an owner reset and publishes the authoritative cleared member', async () => {
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-regression
+  it('returns one requester-local result with the exact ref while fanout stays uncorrelated', async () => {
     const agent = daemon.spawnMember('eng', {
       harness: 'fake', handle: 'clearable', cwd: testCwd('clearable'),
     });
@@ -4106,20 +4107,71 @@ describe('clear_member_context act', () => {
     await client.next((frame) => frame.type === 'sync_complete');
 
     client.ws.send(JSON.stringify({
-      type: 'act', room: 'eng', act: { act: 'clear_member_context', member_id: agent.id },
+      type: 'act', room: 'eng', ref: 'reset-clearable-1',
+      act: { act: 'clear_member_context', member_id: agent.id },
     }));
 
-    const frame = await client.next((candidate) =>
+    const result = await client.next((candidate) =>
       candidate.type === 'member' &&
       candidate.member.id === agent.id &&
-      candidate.member.session_ref === undefined);
-    expect(frame).toMatchObject({ type: 'member', member: { id: agent.id } });
+      candidate.ref === 'reset-clearable-1');
+    expect(result).toMatchObject({
+      type: 'member', room: 'eng', ref: 'reset-clearable-1', member: { id: agent.id },
+    });
+    const broadcasts = client.frames.filter((candidate) =>
+      candidate.type === 'member' &&
+      candidate.member.id === agent.id &&
+      candidate.member.session_ref === undefined &&
+      candidate.ref === undefined);
+    expect(broadcasts).toHaveLength(1);
     expect(fake.resets).toHaveLength(1);
     expect(fake.resets[0]).toMatchObject({ harness: 'fake', cwd: testCwd('clearable') });
     client.ws.close();
   });
 
-  it('correlates daemon refusal to the clear act and rejects a non-admin before dispatch', async () => {
+  it('does not cross-settle concurrent refs, unrelated broadcasts, or requester-local errors', async () => {
+    const first = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'clear-first', cwd: testCwd('clear-first'),
+    });
+    const second = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'clear-second', cwd: testCwd('clear-second'),
+    });
+    daemon.store.updateMember('eng', first.id, { session_ref: 'native-first' });
+    daemon.store.updateMember('eng', second.id, { session_ref: 'native-second' });
+    const client = await connect();
+    client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await client.next((frame) => frame.type === 'sync_complete');
+    fake.holdResets();
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'reset-first',
+      act: { act: 'clear_member_context', member_id: first.id },
+    }));
+    client.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'reset-second',
+      act: { act: 'clear_member_context', member_id: second.id },
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    daemon.configureMember('eng', first.id, { purpose: 'unrelated update' });
+    expect(client.frames.some((frame) =>
+      frame.type === 'member' && frame.member.id === first.id && frame.ref === undefined)).toBe(true);
+    expect(client.frames.some((frame) => frame.type === 'member' && frame.ref?.startsWith('reset-')))
+      .toBe(false);
+    fake.releaseResets();
+
+    const firstResult = await client.next((frame) =>
+      frame.type === 'member' && frame.ref === 'reset-first');
+    const secondResult = await client.next((frame) =>
+      frame.type === 'member' && frame.ref === 'reset-second');
+    expect(firstResult.type === 'member' && firstResult.member.id).toBe(first.id);
+    expect(secondResult.type === 'member' && secondResult.member.id).toBe(second.id);
+    expect(client.frames.filter((frame) => frame.type === 'member' && frame.ref === 'reset-first'))
+      .toHaveLength(1);
+    expect(client.frames.filter((frame) => frame.type === 'member' && frame.ref === 'reset-second'))
+      .toHaveLength(1);
+    client.ws.close();
+  });
+
+  it('correlates daemon refusal to the exact clear ref and rejects a non-admin before dispatch', async () => {
     const fresh = daemon.spawnMember('eng', {
       harness: 'fake', handle: 'already-fresh', cwd: testCwd('already-fresh'),
     });
@@ -4127,23 +4179,26 @@ describe('clear_member_context act', () => {
     owner.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     await owner.next((frame) => frame.type === 'sync_complete');
     owner.ws.send(JSON.stringify({
-      type: 'act', room: 'eng', act: { act: 'clear_member_context', member_id: fresh.id },
+      type: 'act', room: 'eng', ref: 'fresh-refusal',
+      act: { act: 'clear_member_context', member_id: fresh.id },
     }));
-    expect(await owner.next((frame) => frame.type === 'error' && frame.ref === 'clear_member_context'))
-      .toMatchObject({ type: 'error', ref: 'clear_member_context', message: expect.stringContaining('fresh context') });
+    expect(await owner.next((frame) => frame.type === 'error' && frame.ref === 'fresh-refusal'))
+      .toMatchObject({ type: 'error', ref: 'fresh-refusal', message: expect.stringContaining('fresh context') });
 
     const denied = await connectAs(MEMBER_TOKEN);
     denied.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     await denied.next((frame) => frame.type === 'sync_complete');
     denied.ws.send(JSON.stringify({
-      type: 'act', room: 'eng', act: { act: 'clear_member_context', member_id: fresh.id },
+      type: 'act', room: 'eng', ref: 'denied-reset',
+      act: { act: 'clear_member_context', member_id: fresh.id },
     }));
-    expect(await denied.next((frame) => frame.type === 'error'))
-      .toMatchObject({ type: 'error', ref: 'act' });
+    expect(await denied.next((frame) => frame.type === 'error' && frame.ref === 'denied-reset'))
+      .toMatchObject({ type: 'error', ref: 'denied-reset' });
     expect(fake.resets).toHaveLength(0);
     owner.ws.close();
     denied.ws.close();
   });
+  // harn:end context-reset-requests-settle-by-explicit-ref
 });
 // harn:end member-context-reset-is-authorized-atomic-and-lazy
 

@@ -233,6 +233,35 @@ describe('persistent Codex app-server lifecycle', () => {
     server.exit(0);
     await adapter.resetSession(session);
   });
+
+  // harn:assume context-reset-retirement-is-bounded-owned-and-confirmed ref=reset-retirement-regression
+  it('escalates only its owned app-server child after grace and confirms forced exit', async () => {
+    const server = createFakeCodexAppServer();
+    const { adapter } = fixtureAdapter(server);
+    const session = adapter.spawn({ cwd: '/work' });
+    session.env = { CODOR_MEMBER_ID: 'escalated-reset-member' };
+    const first = collect(adapter, session, 'old context');
+    await server.waitForRequest('turn/start');
+    completeTurn(server, 'turn-1');
+    await first;
+
+    const signals: Array<NodeJS.Signals | number | undefined> = [];
+    server.child.kill = vi.fn((signal?: NodeJS.Signals | number) => {
+      signals.push(signal);
+      if (signal === 'SIGKILL') server.exit(null, 'SIGKILL');
+      return true;
+    });
+    vi.useFakeTimers();
+    try {
+      const reset = adapter.resetSession(session);
+      await vi.advanceTimersByTimeAsync(20_000);
+      await expect(reset).resolves.toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+  });
+  // harn:end context-reset-retirement-is-bounded-owned-and-confirmed
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
   // harn:assume active-turn-steering-is-ordered-and-durable ref=codex-active-turn-steering-regression

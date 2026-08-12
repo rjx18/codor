@@ -1,0 +1,15 @@
+id: context-reset-requests-settle-by-explicit-ref
+hash: a-80ace2227a94
+title: Context reset requests settle only by their explicit correlation ref
+state: active
+statement: >
+  Every clear_member_context request must carry one bounded explicit ref, and
+  the initiating connection must receive exactly one success member result or
+  error carrying that same ref for the same room and target. Ordinary
+  authoritative member broadcasts remain uncorrelated state, and unrelated room
+  errors, member updates, concurrent clears, disconnects, or stale replies
+  cannot settle a different reset request.
+depends_on:
+  - member-context-reset-is-authorized-atomic-and-lazy
+  - management-frames-correlate-one-result
+created_by: context-reset-v2-c1-backend

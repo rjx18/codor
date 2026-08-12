@@ -154,13 +154,20 @@ interface CodexRuntime {
   pendingCompaction: PendingCompaction | null;
 }
 
-function waitForRuntimeExit(child: ChildProcessWithoutNullStreams, label: string): Promise<void> {
+const RETIREMENT_GRACE_MS = 5_000;
+const RETIREMENT_CONFIRM_MS = 5_000;
+
+function waitForRuntimeExit(
+  child: ChildProcessWithoutNullStreams,
+  label: string,
+  timeoutMs = RETIREMENT_CONFIRM_MS,
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       child.off('exit', onExit);
       reject(new Error(`${label} did not exit after retirement`));
-    }, 10_000);
+    }, timeoutMs);
     timer.unref?.();
     const onExit = (): void => {
       clearTimeout(timer);
@@ -1035,10 +1042,19 @@ export class CodexAdapter implements HarnessAdapter {
       throw new Error('cannot clear Codex context while compaction is in flight');
     }
     const child = runtime.child ?? runtime.retiringChild;
-    const exited = child === null ? Promise.resolve() : waitForRuntimeExit(child, 'Codex app-server');
     runtime.retiringChild = child;
     this.retireRuntime(runtime);
-    await exited;
+    if (child !== null) {
+      try {
+        await waitForRuntimeExit(child, 'Codex app-server', RETIREMENT_GRACE_MS);
+      } catch {
+        // dispose() already requested graceful stdin shutdown/SIGTERM. Escalate
+        // only this adapter-created child, then require a second finite exit
+        // confirmation before forgetting its runtime lookup.
+        try { child.kill('SIGKILL'); } catch { /* the child may have exited meanwhile */ }
+        await waitForRuntimeExit(child, 'Codex app-server', RETIREMENT_CONFIRM_MS);
+      }
+    }
     runtime.retiringChild = null;
     this.runtimes.delete(runtime.session);
     this.runtimes.delete(session);

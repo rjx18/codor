@@ -11,6 +11,7 @@ import type {
   AcpLaunchConfig,
   AgentLimit,
   AgentUsage,
+  AdapterTurnHooks,
   ModelCatalog,
   AskCard,
   Attachment,
@@ -2445,7 +2446,7 @@ export class Daemon {
    * The reset lease is acquired synchronously before the first await so a later
    * delivery stays queued and becomes the first delivery through sessionFor.
    */
-  async clearMemberContext(room: string, memberId: string, byMemberId: string): Promise<void> {
+  async clearMemberContext(room: string, memberId: string, byMemberId: string): Promise<Member> {
     const actor = this.store.getMember(room, byMemberId);
     if (actor?.kind !== 'human' || (actor.role !== 'owner' && actor.role !== 'admin')) {
       throw new Error('forbidden: only owners and admins can clear an agent context');
@@ -2503,6 +2504,7 @@ export class Daemon {
         room,
         `@${actor.handle} cleared @${member.handle}'s native context; channel history and configuration were preserved`,
       );
+      return cleared;
     } finally {
       this.resettingContext.delete(memberId);
       this.track(this.maybeStartTurn(room, memberId));
@@ -2734,6 +2736,47 @@ export class Daemon {
       this.sessions.set(member.id, session);
     }
     return session;
+  }
+
+  /** Native callbacks and events are accepted only from the retained session
+   * and never while its reset lease is retiring that runtime. */
+  private ownsCurrentSession(memberId: string, session: Session | undefined): boolean {
+    return session !== undefined
+      && this.sessions.get(memberId) === session
+      && !this.resettingContext.has(memberId);
+  }
+
+  private fencedRuntimeHooks(
+    memberId: string,
+    session: Session,
+    hooks: AdapterTurnHooks,
+  ): AdapterTurnHooks {
+    const accepts = (): boolean => this.ownsCurrentSession(memberId, session);
+    return {
+      ...hooks,
+      onStarted: (process) => {
+        if (accepts()) hooks.onStarted?.(process);
+      },
+      onSessionRef: (sessionRef) => {
+        if (accepts()) hooks.onSessionRef?.(sessionRef);
+      },
+      onSessionLifecycle: (support) => {
+        if (accepts()) hooks.onSessionLifecycle?.(support);
+      },
+      onSessionRuntime: (runtime) => {
+        if (accepts()) hooks.onSessionRuntime?.(runtime);
+      },
+    };
+  }
+
+  private async *fencedRuntimeEvents(
+    memberId: string,
+    session: Session,
+    events: AsyncIterable<WireEvent>,
+  ): AsyncIterable<WireEvent> {
+    for await (const event of events) {
+      if (this.ownsCurrentSession(memberId, session)) yield event;
+    }
   }
 
   // ── posting ───────────────────────────────────────────────────────────
@@ -3908,7 +3951,10 @@ export class Daemon {
               );
             },
           })
-        : adapter!.deliver(session!, payload, {
+        : this.fencedRuntimeEvents(
+          member.id,
+          session!,
+          adapter!.deliver(session!, payload, this.fencedRuntimeHooks(member.id, session!, {
         // harn:assume attempt-start-evidence-persisted ref=attempt-start-evidence
         onStarted: (process) => {
           this.noteRunActivity(room, runMsg.id);
@@ -3951,7 +3997,8 @@ export class Daemon {
           );
         },
         // harn:end attempt-start-evidence-persisted
-      });
+          })),
+        );
       for await (const event of events) {
         this.noteRunActivity(room, runMsg.id);
         let journalEvent = event;

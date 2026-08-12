@@ -83,5 +83,18 @@ console.log(JSON.stringify({type:'response.completed',status:'completed',usage:{
       new GrokAdapter().spawn({ cwd: process.cwd() }), 'hello')) events.push(event);
     expect(events.at(-1)).toMatchObject({ type: 'run.completed', status: 'failed' });
   });
+
+  it('keeps supervision when a completed child still has an active delivery', async () => {
+    const adapter = new GrokAdapter();
+    const session = adapter.spawn({ cwd: process.cwd() });
+    const child = { exitCode: 0, signalCode: null };
+    const children = (adapter as unknown as {
+      children: WeakMap<object, typeof child>;
+    }).children;
+    children.set(session, child);
+
+    await expect(adapter.resetSession(session)).rejects.toThrow('still retiring');
+    expect(children.get(session)).toBe(child);
+  });
   // harn:end adapter-process-lifecycle-supervised
 });

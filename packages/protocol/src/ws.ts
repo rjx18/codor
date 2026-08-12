@@ -357,6 +357,16 @@ export const ActFrameSchema = z.object({
   // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
   ref: ManagementRefSchema.optional(),
   // harn:end management-frames-correlate-one-result
+}).superRefine((frame, ctx) => {
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-protocol
+  if (frame.act.act === 'clear_member_context' && frame.ref === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ref'],
+      message: 'clear_member_context requires an explicit correlation ref',
+    });
+  }
+  // harn:end context-reset-requests-settle-by-explicit-ref
 });
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 
