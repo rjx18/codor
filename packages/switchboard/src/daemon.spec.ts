@@ -231,6 +231,40 @@ describe('scheduled-message daemon state machine', () => {
     expect(daemon.store.listDeliveries('eng', { recipient: target.id })).toHaveLength(1);
   });
 
+  it('reconciles the queued delivery left by a post-commit dispatch interruption exactly once', async () => {
+    const target = spawnAgent('dispatch-recovery-agent');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', '[send_in=1s] @dispatch-recovery-agent dispatch recovery', owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    const scheduler = daemon as unknown as {
+      dispatchScheduledCreatedDeliveries: (room: string, deliveries: unknown[]) => void;
+    };
+    vi.spyOn(scheduler, 'dispatchScheduledCreatedDeliveries').mockImplementationOnce(() => {
+      throw new Error('injected dispatch interruption');
+    });
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    const sent = daemon.store.getSchedule('eng', scheduled.id)!;
+    expect(sent.state).toBe('sent');
+    const queued = daemon.store.listDeliveries('eng', { recipient: target.id });
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.state).toBe('queued');
+    fake.enqueue({ kind: 'complete', final_text: 'recovered once' });
+    await daemon.close({ force: true });
+    frames = [];
+    daemon = newDaemon();
+    await daemon.reconcile();
+    await until(() => fake.deliveries.length === 1 ? true : undefined);
+    await daemon.settle();
+    expect(fake.deliveries).toHaveLength(1);
+    expect(daemon.store.getSchedule('eng', scheduled.id)?.state).toBe('sent');
+    expect(daemon.store.listMessages('eng').filter((message) =>
+      message.id === sent.delivered_message_id)).toHaveLength(1);
+    expect(daemon.store.listDeliveries('eng', { recipient: target.id })
+      .filter((delivery) => delivery.message_id === sent.delivered_message_id)).toHaveLength(1);
+  });
+
   it('persists a qualified agent author scope through a delayed foreign-target delivery', async () => {
     const authorWorktree = registerQualifiedFixture('author-source', 'author-source');
     const targetWorktree = registerQualifiedFixture('author-destination', 'author-destination');
@@ -336,6 +370,70 @@ describe('scheduled-message daemon state machine', () => {
     expect(daemon.store.listDeliveries('eng', { recipient: configured.id })).toHaveLength(0);
   });
 
+  it('fails a same-handle replacement without retargeting to the replacement id', async () => {
+    const worktree = registerQualifiedFixture('replacement-target', 'replacement-target');
+    const child = worktree.conversation_id!;
+    const original = daemon.spawnMember(child, {
+      harness: 'fake', handle: 'same-handle', cwd: testCwd('same-handle-original'),
+    });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', ` [send_in=1s] ~${worktree.alias}:@same-handle no replacement retarget`, owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    daemon.store.updateMember(child, original.id, { removed_ts: new Date().toISOString(), state: 'dead' });
+    const replacement = daemon.store.addMember(child, {
+      kind: 'agent', handle: 'same-handle', display_name: 'Replacement', harness: 'fake', cwd: testCwd('same-handle-replacement'),
+    });
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    expect(daemon.store.getSchedule(child, scheduled.id)?.state).toBe('failed');
+    expect(daemon.store.listDeliveries(child, { recipient: replacement.id })).toHaveLength(0);
+    expect(daemon.store.listMessages(child).some((message) => message.body === 'no replacement retarget')).toBe(false);
+  });
+
+  it('keeps a locked qualified checkout usable and refuses missing, unregistered, and removed rows', async () => {
+    const locked = registerQualifiedFixture('locked-target', 'locked-target');
+    const lockedTarget = daemon.spawnMember(locked.conversation_id!, {
+      harness: 'fake', handle: 'locked-agent', cwd: testCwd('locked-agent'),
+    });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const lockedSchedule = daemon.scheduleMessage(
+      'eng', ` [send_in=1s] ~${locked.alias}:@${lockedTarget.handle} locked usable`, owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    daemon.store.refreshWorktreeObservation('eng', locked.id, {
+      path: locked.path, git_admin_id: locked.git_admin_id, primary: false,
+      availability: 'locked', locked: true, branch: locked.branch,
+    });
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    expect(daemon.store.getSchedule(locked.conversation_id!, lockedSchedule.id)?.state).toBe('sent');
+
+    for (const availability of ['missing', 'unregistered', 'removed'] as const) {
+      const worktree = registerQualifiedFixture(`scheduled-${availability}`, `scheduled-${availability}`);
+      const target = daemon.spawnMember(worktree.conversation_id!, {
+        harness: 'fake', handle: `${availability}-target`, cwd: testCwd(`${availability}-target`),
+      });
+      const schedule = daemon.scheduleMessage(
+        'eng', ` [send_in=1s] ~${worktree.alias}:@${target.handle} refuse ${availability}`, owner.id,
+        { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+      );
+      if (availability === 'missing') {
+        daemon.store.refreshWorktreeObservation('eng', worktree.id, {
+          path: worktree.path, git_admin_id: worktree.git_admin_id, primary: false,
+          availability, locked: false, branch: worktree.branch,
+        });
+      } else if (availability === 'unregistered') {
+        daemon.store.unregisterWorktree('eng', worktree.id);
+      } else {
+        daemon.store.removeWorktree('eng', worktree.id);
+      }
+      await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+      expect(daemon.store.getSchedule(worktree.conversation_id!, schedule.id)?.state).toBe('failed');
+      expect(daemon.store.listMessages(worktree.conversation_id!).some((message) =>
+        message.body === `refuse ${availability}`)).toBe(false);
+    }
+  });
+
   it('re-arms the sole bounded timer and clears it on shutdown', async () => {
     await daemon.close({ force: true });
     let scheduledTimers = 0;
@@ -359,6 +457,49 @@ describe('scheduled-message daemon state machine', () => {
     await daemon.close({ force: true });
     expect(clearedTimers).toBeGreaterThan(0);
     expect(target.id).toBeTruthy();
+  });
+
+  it('orders tied due rows and keeps one unrefed timer bounded to 24 hours', async () => {
+    await daemon.close({ force: true });
+    let clockNow = new Date('2026-08-12T00:00:00.000Z');
+    const timers: { handler: () => void; timeout: number; unrefs: number; active: boolean }[] = [];
+    const handles = new Map<NodeJS.Timeout, { active: boolean }>();
+    let clears = 0;
+    daemon = newDaemon({
+      clock: () => clockNow,
+      scheduleSetTimeout: (handler, timeout) => {
+        const timer = { handler, timeout, unrefs: 0, active: true };
+        timers.push(timer);
+        const handle = { unref: () => { timer.unrefs += 1; } } as unknown as NodeJS.Timeout;
+        handles.set(handle, timer);
+        return handle;
+      },
+      scheduleClearTimeout: (handle) => { clears += 1; handles.get(handle)!.active = false; },
+    });
+    const target = spawnAgent('tied-due-target');
+    daemon.store.updateMember('eng', target.id, { state: 'paused' });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const first = daemon.scheduleMessage('eng', '[send_in=2h] @tied-due-target tied first', owner.id, {
+      now: clockNow, hostOffsetMinutes: 480,
+    });
+    const second = daemon.scheduleMessage('eng', '[send_in=2h] @tied-due-target tied second', owner.id, {
+      now: clockNow, hostOffsetMinutes: 480,
+    });
+    const current = timers.filter((timer) => timer.active);
+    expect(current).toHaveLength(1);
+    expect(timers.at(-1)?.timeout).toBe(2 * 60 * 60 * 1_000);
+    expect(timers.at(-1)?.timeout).toBeLessThanOrEqual(24 * 60 * 60 * 1_000);
+    expect(timers.at(-1)?.unrefs).toBe(1);
+    frames = [];
+    clockNow = new Date(Date.parse(second.due_ts) + 1);
+    await daemon.runDueSchedules(clockNow);
+    const messageBodies = frames.filter(({ frame }) => frame.type === 'message')
+      .map(({ frame }) => frame.type === 'message' ? frame.message.body : '');
+    const expected = [first, second].sort((left, right) => left.id.localeCompare(right.id))
+      .map((schedule) => schedule.body);
+    expect(messageBodies).toEqual(expected);
+    await daemon.close({ force: true });
+    expect(clears).toBeGreaterThan(0);
   });
 
   it('reopens a claimed schedule and commits one message/delivery after a daemon restart', async () => {
@@ -385,6 +526,51 @@ describe('scheduled-message daemon state machine', () => {
       .filter((message) => message.id === sent.delivered_message_id)).toHaveLength(1);
     expect(daemon.store.listDeliveries('eng', { recipient: target.id })
       .filter((delivery) => delivery.message_id === sent.delivered_message_id)).toHaveLength(1);
+  });
+
+  it('reopens every durable schedule state without illegal transitions or duplicate rows', async () => {
+    const target = spawnAgent('state-matrix-target');
+    daemon.store.updateMember('eng', target.id, { state: 'paused' });
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const pendingDue = new Date(Date.now() + 4 * 60 * 60 * 1_000).toISOString();
+    const claimDue = new Date(Date.now() + 60 * 60 * 1_000).toISOString();
+    const make = (body: string, due_ts = claimDue) => daemon.store.createSchedule({
+      origin_room: 'eng', room: 'eng', author_id: owner.id, author_handle: owner.handle,
+      target: { member_id: target.id, conversation_id: 'eng', handle: target.handle },
+      body, mentions: [{ member_id: target.id, start: 0, end: target.handle.length + 1 }],
+      due_ts, host_offset_minutes: 480,
+    });
+    const pending = make('@state-matrix-target pending', pendingDue);
+    const sending = make('@state-matrix-target sending');
+    const sent = make('@state-matrix-target sent');
+    const failed = make('@state-matrix-target failed');
+    const cancelled = make('@state-matrix-target cancelled');
+    daemon.store.cancelSchedule('eng', cancelled.id, owner.id);
+    daemon.store.claimDueSchedules(new Date(Date.parse(claimDue) + 1).toISOString());
+    daemon.store.commitScheduledMessage('eng', sent.id, {
+      now: new Date().toISOString(),
+      message: { author: owner.id, kind: 'chat', body: sent.body, mentions: sent.mentions },
+      plan: () => ({ fanout: [] }),
+    });
+    daemon.store.failSchedule('eng', failed.id, 'matrix failure');
+    const messagesBefore = daemon.store.listMessages('eng').length;
+    await daemon.close({ force: true });
+    frames = [];
+    daemon = newDaemon();
+    await until(() => daemon.store.getSchedule('eng', sending.id)?.state === 'sent');
+    const afterRecoverySeq = daemon.store.currentSeq('eng');
+    expect(daemon.store.getSchedule('eng', pending.id)?.state).toBe('pending');
+    expect(daemon.store.getSchedule('eng', sending.id)?.state).toBe('sent');
+    expect(daemon.store.getSchedule('eng', sent.id)?.state).toBe('sent');
+    expect(daemon.store.getSchedule('eng', failed.id)?.state).toBe('failed');
+    expect(daemon.store.getSchedule('eng', cancelled.id)?.state).toBe('cancelled');
+    expect(daemon.store.listMessages('eng').length).toBe(messagesBefore + 1);
+    await daemon.close({ force: true });
+    frames = [];
+    daemon = newDaemon();
+    await daemon.settle();
+    expect(daemon.store.currentSeq('eng')).toBe(afterRecoverySeq);
+    expect(daemon.store.listMessages('eng').length).toBe(messagesBefore + 1);
   });
 });
 // harn:end scheduled-message-commit-is-exactly-once

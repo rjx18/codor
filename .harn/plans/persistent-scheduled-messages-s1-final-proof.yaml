@@ -1,0 +1,252 @@
+id: persistent-scheduled-messages-s1-final-proof
+title: Prove the complete S1 authorization, recovery, and replay matrix
+notes: >
+  Final S1 acceptance proof after independent review of
+  b7df32a0a03d52d124f2505175fd24f098de2cde. The runtime corrections for frozen
+  attribution, ordered agent inbox fanout, and duplicate terminal schedule
+  publication are present, but the committed evidence does not match the locked
+  acceptance plan or Lane C S1 requirements. The socket role test named
+  owner/admin/member/observer exercises only a member cancelling its own
+  schedule and an observer denial; it does not exercise owner/admin authority,
+  agent own/other cancellation, origin versus destination administration, or a
+  cancellation/claim race. The only daemon restart case begins in sending and
+  does not cover pending, sent, failed, cancelled, or the queued delivery left
+  by a post-commit dispatch interruption. The reconnect case disconnects before
+  due processing and therefore does not reconnect from every message/inbox/
+  terminal-schedule frame boundary. Target coverage proves rename and removal
+  but not same-handle replacement or worktree unregistered/removed/missing/
+  locked behavior. Qualified agent-author coverage calls a daemon method by a
+  type cast rather than authenticated ingress. Close these proof gaps, fix only
+  defects the missing tests expose, and retain all accepted S1 behavior and S2
+  exclusions.
+assumptions:
+  reviewed:
+    - id: scheduled-target-identity-is-frozen-at-creation
+      outcome: unchanged
+      reason: The frozen identity contract remains correct and now needs same-handle
+        and complete worktree-lifecycle proof.
+    - id: scheduled-message-commit-is-exactly-once
+      outcome: unchanged
+      reason: The atomic commit remains authoritative; prove post-commit queued work
+        recovers once without another message, delivery, or schedule transition.
+    - id: scheduled-state-machine-recovers-from-one-next-due-alarm
+      outcome: unchanged
+      reason: Prove every durable state, the bounded 24-hour wake, one timer,
+        shutdown, and dispatch-interruption recovery rather than one sending
+        restart.
+    - id: scheduled-cancellation-is-authorized-before-claim
+      outcome: unchanged
+      reason: Prove the complete authenticated human/agent/room matrix and a
+        deterministic one-winner cancellation/claim race.
+    - id: changelog-is-sync-cursor-v2
+      outcome: unchanged
+      reason: Reconnect after each due live-frame boundary must converge without
+        skipping the linked message or terminal schedule.
+    - id: changelog-covers-every-visible-entity-v2
+      outcome: unchanged
+      reason: Recovery and terminal no-ops must not append or publish duplicate entity
+        mutations.
+    - id: scheduled-state-streams-through-room-seq-v2
+      outcome: unchanged
+      reason: Prove live ordering and cold/warm replay for every message, human/agent
+        inbox, and schedule boundary.
+    - id: agent-orchestration-is-repository-scoped
+      outcome: unchanged
+      reason: Qualified agent-authored scheduling must pass through authenticated
+        repository-scoped ingress, not only a direct helper.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: Authenticated qualified schedules and all replay remain solely in the
+        selected target conversation.
+    - id: target-worktree-turn-is-local-and-isolated
+      outcome: unchanged
+      reason: The scheduled delivery starts and recovers through the exact
+        target-local runtime.
+    - id: target-owned-qualified-execution-requires-usable-checkout
+      outcome: unchanged
+      reason: Every registered worktree lifecycle and availability state must either
+        deliver to the exact stable target or fail explicitly without fallback.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Scheduled queued agent inbox state remains live and boot-recoverable
+        exactly once.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: Boot reconciliation owns a queued or interrupted delivery after the
+        schedule transaction has committed.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: Owner/admin/member/observer capabilities and the narrower agent-own rule
+        require actual socket proof.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: Every authorized or refused cancellation must produce exactly one
+        success or error carrying its submitted ref.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: All live, replay, and cancellation projections remain redacted during
+        the expanded matrix.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: The same schedule/cancellation frames and correlation rules must be
+        proven on the local socket transport.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Each replay finishes at the authoritative snapshot cursor after all
+        requested rows are projected.
+    - id: agent-sync-hydrates-only-own-queued-inbox
+      outcome: unchanged
+      reason: Agent reconnect proof must see only its own scheduled queued delivery.
+anchors:
+  scheduled-target-identity-is-frozen-at-creation:
+    scheduled-target-resolution:
+      action: change
+      reason: Correct only any stable-id or lifecycle defect exposed by the full
+        target matrix.
+    scheduled-target-regression:
+      action: change
+      reason: Add same-handle replacement and unregistered/removed/missing/locked
+        worktree cases for local and qualified targets.
+  scheduled-message-commit-is-exactly-once:
+    atomic-scheduled-message-commit:
+      action: change
+      reason: Surface post-commit dispatch failure to the ordinary recovery boundary
+        if required by the red reproduction.
+    exactly-once-schedule-regression:
+      action: change
+      reason: Prove one message, delivery, link, dispatch, and terminal frame across
+        post-commit interruption and restart.
+  scheduled-state-machine-recovers-from-one-next-due-alarm:
+    durable-schedule-store:
+      action: change
+      reason: Correct only a state/no-op persistence defect exposed by reopen coverage.
+    one-next-due-alarm:
+      action: change
+      reason: Prove one unrefed bounded timer, 24-hour re-arm, due wake, shutdown, and
+        finally-safe recovery.
+    schedule-recovery-regression:
+      action: change
+      reason: Cover pending, sending, sent, failed, cancelled, post-commit queued
+        work, tied due rows, and repeated boot.
+  scheduled-cancellation-is-authorized-before-claim:
+    cancel-schedule-transaction:
+      action: change
+      reason: Correct only an authorization or race defect exposed by authenticated
+        integration tests.
+    cancel-schedule-race-regression:
+      action: change
+      reason: Exercise owner, admin, author-member, nonauthor member, observer,
+        own/other agent, origin/destination/unrelated rooms, race outcomes, and
+        terminal no-ops over real sockets.
+  changelog-is-sync-cursor-v2:
+    ordered-live-entity-fanout:
+      action: change
+      reason: Correct only a cursor defect exposed by reconnecting after each
+        delivered due frame.
+    ordered-live-entity-regression:
+      action: change
+      reason: Capture every due frame boundary and replay from each cursor without
+        gaps or regressions.
+  changelog-covers-every-visible-entity-v2:
+    schedule-change-accounting-regression:
+      action: change
+      reason: Assert exact mutation rows and absence of duplicate live no-op frames
+        across every terminal/recovery case.
+  scheduled-state-streams-through-room-seq-v2:
+    schedule-sync-and-fanout-v2:
+      action: change
+      reason: Correct only live/hydration ordering or projection defects exposed by
+        the complete replay matrix.
+    schedule-sync-regression-v2:
+      action: change
+      reason: Prove cold, warm, human, agent, redacted, and every-boundary replay with
+        linked transcript state.
+  agent-orchestration-is-repository-scoped:
+    repository-scoped-agent-authorization:
+      action: change
+      reason: Admit and attribute a qualified scheduled request through an
+        authenticated agent socket and deny unrelated repositories.
+  target-worktree-owns-qualified-conversation:
+    qualified-conversation-regression:
+      action: change
+      reason: Prove scheduled acceptance, message, delivery, hydration, and live
+        frames stay only in the target conversation.
+  target-worktree-turn-is-local-and-isolated:
+    qualified-local-turn-orchestration:
+      action: change
+      reason: Correct only a target-local scheduled execution defect exposed by
+        authenticated delivery/restart proof.
+  target-owned-qualified-execution-requires-usable-checkout:
+    qualified-target-usability-daemon-regression:
+      action: change
+      reason: Extend delayed execution coverage over locked, missing, unregistered,
+        removed, and restored target states.
+  delivery-attempt-wal-reconcile:
+    boot-reconcile:
+      action: change
+      reason: Prove a committed scheduled queued delivery resumes once after dispatch
+        interruption and repeated restart.
+  roles-gate-human-acts-not-agents:
+    role-matrix-integration:
+      action: change
+      reason: Replace the mislabeled partial test with the complete authenticated
+        cancellation matrix.
+  management-frames-correlate-one-result:
+    management-correlation-server:
+      action: change
+      reason: Assert exactly one same-ref success/error for every cancellation role
+        and race outcome.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: keep
+      reason: Expanded schedule tests must continue through the unchanged projector.
+files:
+  - docs/PROTOCOL.md
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/ws.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/store.ts
+verification: >
+  Lock clean on exact base b7df32a0a03d52d124f2505175fd24f098de2cde. First
+  record the current proof failures: the role test has no owner/admin path, no
+  agent cancellation or claim race exists, only sending is restarted, the
+  dispatch-failure test never recovers or dispatches its queued row, the
+  reconnect test disconnects before every due frame, qualified author ingress is
+  a direct cast, and replacement/worktree-state cases are absent. Add
+  deterministic red-first tests where the new cases expose behavior defects,
+  then make the smallest S1-only correction. The required green matrix is
+  literal: authenticated socket cancellation by author member, owner, origin
+  admin, destination admin, and own agent succeeds; nonauthor member, observer,
+  unrelated-room/repository admin, and other agent fail; all success/errors echo
+  one exact ref; cancellation before claim wins with no message, claim before
+  cancellation returns sending/sent and exactly one message;
+  pending/sending/sent/failed/cancelled rows survive reopen and repeated daemon
+  boot without illegal transitions or duplicate change/live frames; a
+  post-commit dispatch interruption leaves one sent link and one queued
+  delivery, is observable, and boot reconciliation dispatches it exactly once;
+  tied due rows and the sole timer remain ordered, unrefed, bounded to 24 hours,
+  re-armed, and cleared on close; local rename delivers the same id, same-handle
+  replacement fails, and qualified locked targets remain usable while
+  missing/unregistered/removed targets fail explicitly without fallback; an
+  authenticated agent schedules a qualified target with exact durable
+  author/recipient coordinates; capture ordered message/human-or-agent
+  inbox/terminal schedule frames and reconnect from every received cursor, plus
+  cold and warm human and recipient-agent hydration, proving redaction, no gaps,
+  no duplicates, and exact target-room ownership. Run protocol tests/build,
+  isolated switchboard tests/build, recursive workspace build, serialized
+  workspace tests, Harn working/staged/apply checks, and git diff --check
+  without mutating shared host links. Make one final-proof commit and finish
+  clean. Do not integrate Q1, start S2, alter browser/CLI/cards/ composer
+  behavior, add recurrence/cron/edit/bulk/scripts/external queues, mutate shared
+  node_modules, delegate, poll peers, push, merge, deploy, publish, release, or
+  update the host. Tag the local orchestrator once on a genuine blocker or
+  completion with exact red/green evidence, commit, Harn result, and clean
+  status, then stop.
+applied:
+  applied_at: 2026-08-12T17:53:49.011Z

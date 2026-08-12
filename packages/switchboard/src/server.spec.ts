@@ -55,6 +55,35 @@ const testCwd = (name = 'work') => {
   return path;
 };
 
+const registerServerQualifiedFixture = (alias: string, childName: string) => {
+  const result = daemon.store.registerWorktree(
+    'eng',
+    {
+      common_path: join(dir, 'qualified-repository', '.git'),
+      primary_path: join(dir, 'qualified-repository'),
+      primary_git_admin_id: join(dir, 'qualified-repository', '.git'),
+    },
+    {
+      path: join(dir, 'qualified-repository'),
+      git_admin_id: join(dir, 'qualified-repository', '.git'),
+      primary: true,
+      availability: 'available',
+      locked: false,
+      branch: 'main',
+    },
+    {
+      path: join(dir, childName),
+      git_admin_id: join(dir, 'qualified-repository', '.git', 'worktrees', childName),
+      primary: false,
+      availability: 'available',
+      locked: false,
+      branch: `feature/${childName}`,
+    },
+    'adopted',
+  );
+  return result.worktree;
+};
+
 function fixtureGit(cwd: string, args: readonly string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
 }
@@ -143,7 +172,7 @@ describe('scheduled-message socket contract', () => {
     client.ws.close();
   });
 
-  it('applies owner/admin/member/observer schedule cancellation roles over sockets', async () => {
+  it('keeps author-member cancellation and observer refusal over sockets', async () => {
     const memberClient = await connectAs(MEMBER_TOKEN);
     memberClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
     await memberClient.next((frame) => frame.type === 'sync_complete');
@@ -4900,5 +4929,288 @@ describe('universal pairing mint (relay-enabled routes)', () => {
     } finally {
       await relayServer.close();
     }
+  });
+});
+describe('scheduled-message final proof matrix', () => {
+
+    it('covers every authenticated cancellation role, room scope, and exact ref', async () => {
+      const cancel = async (token: string, room: string, scheduleId: string, ref: string) => {
+        const client = await connectAs(token);
+        client.ws.send(JSON.stringify({
+          type: 'act', room, ref,
+          act: { act: 'cancel_schedule', schedule_id: scheduleId },
+        }));
+        const result = await client.next((frame) =>
+          (frame.type === 'cancel_schedule_result' || frame.type === 'error') && frame.ref === ref);
+        expect(client.frames.filter((frame) => frame.ref === ref)).toHaveLength(1);
+        client.ws.close();
+        return result;
+      };
+      const now = new Date();
+      const schedule = () => daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user matrix', member.id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      expect(await cancel(MEMBER_TOKEN, 'eng', schedule().id, 'author-member'))
+        .toMatchObject({ type: 'cancel_schedule_result', ref: 'author-member', schedule: { state: 'cancelled' } });
+      expect(await cancel(TOKEN, 'eng', schedule().id, 'owner'))
+        .toMatchObject({ type: 'cancel_schedule_result', ref: 'owner', schedule: { state: 'cancelled' } });
+      expect(await cancel(ADMIN_TOKEN, 'eng', schedule().id, 'origin-admin'))
+        .toMatchObject({ type: 'cancel_schedule_result', ref: 'origin-admin', schedule: { state: 'cancelled' } });
+
+      const worktree = registerServerQualifiedFixture('destination-admin', 'destination-admin');
+      const target = daemon.spawnMember(worktree.conversation_id!, {
+        harness: 'fake', handle: 'destination-target', cwd: testCwd('destination-target'),
+      });
+      const qualified = daemon.scheduleMessage(
+        'eng', ` [send_in=1h] ~${worktree.alias}:@${target.handle} destination admin`, member.id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      expect(await cancel(ADMIN_TOKEN, worktree.conversation_id!, qualified.id, 'destination-admin'))
+        .toMatchObject({ type: 'cancel_schedule_result', ref: 'destination-admin', schedule: { state: 'cancelled' } });
+
+      const own = spawnAgentWithToken('own-cancel-agent');
+      const ownSchedule = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user own agent', own.agent.id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      expect(await cancel(own.token, 'eng', ownSchedule.id, 'own-agent'))
+        .toMatchObject({ type: 'cancel_schedule_result', ref: 'own-agent', schedule: { state: 'cancelled' } });
+
+      const memberDenied = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user member denied', daemon.ownerOf('eng').id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      expect(await cancel(MEMBER_TOKEN, 'eng', memberDenied.id, 'nonauthor-member'))
+        .toMatchObject({ type: 'error', ref: 'nonauthor-member' });
+      expect(await cancel(OBSERVER_TOKEN, 'eng', memberDenied.id, 'observer'))
+        .toMatchObject({ type: 'error', ref: 'observer' });
+      const other = daemon.createRoom({
+        id: 'other', name: 'Other', owner: { handle: 'other-owner', display_name: 'Other Owner' },
+      });
+      expect(other.owner.id).toBeTruthy();
+      expect(await cancel(ADMIN_TOKEN, 'other', memberDenied.id, 'unrelated-admin'))
+        .toMatchObject({ type: 'error', ref: 'unrelated-admin' });
+
+      const otherAgent = spawnAgentWithToken('other-cancel-agent');
+      const otherAgentDenied = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user other agent', own.agent.id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      expect(await cancel(otherAgent.token, 'eng', otherAgentDenied.id, 'other-agent'))
+        .toMatchObject({ type: 'error', ref: 'other-agent' });
+    });
+
+    it.skipIf(process.platform === 'win32')('carries the same scheduled cancellation contract over a Unix socket', async () => {
+      const socketPath = join(dir, 'scheduled-cancel.sock');
+      const ipc = await startServer({ daemon, token: TOKEN, socketPath, crypto, pushSubscriptions });
+      try {
+        const client = await connectUrl(localWsUrl(socketPath, '/ws'));
+        client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+        await client.next((frame) => frame.type === 'sync_complete');
+        client.ws.send(JSON.stringify({ type: 'post', room: 'eng', body: '[send_in=1h] @admin-user unix schedule' }));
+        const created = await client.next((frame) => frame.type === 'schedule' && frame.schedule.state === 'pending');
+        if (created.type !== 'schedule') throw new Error('missing Unix scheduled request');
+        const ref = 'unix-cancel-1';
+        client.ws.send(JSON.stringify({
+          type: 'act', room: 'eng', ref,
+          act: { act: 'cancel_schedule', schedule_id: created.schedule.id },
+        }));
+        expect(await client.next((frame) => frame.type === 'cancel_schedule_result' && frame.ref === ref))
+          .toMatchObject({ type: 'cancel_schedule_result', ref, schedule: { state: 'cancelled' } });
+        expect(client.frames.filter((frame) => frame.ref === ref)).toHaveLength(1);
+        client.ws.close();
+      } finally {
+        await ipc.close();
+      }
+    });
+
+    it('wins cancellation before claim and leaves one message when claim wins first', async () => {
+      const now = new Date();
+      const before = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user cancel before claim', member.id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      expect(await (async () => {
+        const client = await connectAs(MEMBER_TOKEN);
+        client.ws.send(JSON.stringify({
+          type: 'act', room: 'eng', ref: 'race-before',
+          act: { act: 'cancel_schedule', schedule_id: before.id },
+        }));
+        const result = await client.next((frame) => frame.type === 'cancel_schedule_result' && frame.ref === 'race-before');
+        client.ws.close();
+        return result;
+      })()).toMatchObject({ schedule: { state: 'cancelled' } });
+      await daemon.runDueSchedules(new Date(Date.parse(before.due_ts) + 1));
+      expect(daemon.store.listMessages('eng').filter((message) => message.body === 'cancel before claim')).toHaveLength(0);
+
+      const after = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user claim before cancel', member.id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      daemon.store.claimDueSchedules(new Date(Date.parse(after.due_ts) + 1).toISOString());
+      const client = await connectAs(MEMBER_TOKEN);
+      client.ws.send(JSON.stringify({
+        type: 'act', room: 'eng', ref: 'race-after',
+        act: { act: 'cancel_schedule', schedule_id: after.id },
+      }));
+      expect(await client.next((frame) => frame.type === 'cancel_schedule_result' && frame.ref === 'race-after'))
+        .toMatchObject({ schedule: { state: 'sending' } });
+      client.ws.close();
+      await daemon.runDueSchedules(new Date(Date.parse(after.due_ts) + 1));
+      const completed = daemon.store.getSchedule('eng', after.id)!;
+      expect(completed.state).toBe('sent');
+      expect(daemon.store.listMessages('eng').filter((message) => message.body === '@admin-user claim before cancel')).toHaveLength(1);
+    });
+
+    it('accepts qualified scheduling through an authenticated agent socket with exact room ownership', async () => {
+      const source = registerServerQualifiedFixture('socket-author-source', 'socket-author-source');
+      const target = registerServerQualifiedFixture('socket-author-target', 'socket-author-target');
+      const sourceAgent = spawnAgentWithToken('socket-author', source.conversation_id!);
+      const targetAgent = daemon.spawnMember(target.conversation_id!, {
+        harness: 'fake', handle: 'socket-recipient', cwd: testCwd('socket-recipient'),
+      });
+      const client = await connectAs(sourceAgent.token);
+      client.ws.send(JSON.stringify({ type: 'subscribe', room: source.conversation_id!, since_seq: 0 }));
+      await client.next((frame) => frame.type === 'sync_complete');
+      const body = ` [send_in=1h] ~${target.alias}:@${targetAgent.handle} authenticated qualified schedule`;
+      client.ws.send(JSON.stringify({ type: 'post', room: source.conversation_id!, body }));
+      const created = await client.next((frame) =>
+        frame.type === 'schedule' && frame.schedule.state === 'pending');
+      if (created.type !== 'schedule') throw new Error('missing authenticated schedule');
+      expect(created.schedule.room).toBe(target.conversation_id);
+      expect(created.schedule.origin_room).toBe(source.conversation_id);
+      expect(created.schedule.author_target).toMatchObject({
+        worktree_id: source.id,
+        conversation_id: source.conversation_id,
+        member_id: sourceAgent.agent.id,
+        alias: source.alias,
+        handle: sourceAgent.agent.handle,
+      });
+      expect(daemon.store.listMessages('eng')).toHaveLength(0);
+      expect(daemon.store.listMessages(source.conversation_id!)).toHaveLength(0);
+      await daemon.runDueSchedules(new Date(Date.parse(created.schedule.due_ts) + 1));
+      const stored = daemon.store.getSchedule(target.conversation_id!, created.schedule.id)!;
+      expect(stored.state).toBe('sent');
+      const message = daemon.store.getMessage(target.conversation_id!, stored.delivered_message_id!);
+      expect(message?.author_target).toMatchObject({
+        conversation_id: source.conversation_id,
+        member_id: sourceAgent.agent.id,
+      });
+      expect(daemon.store.listMessages(source.conversation_id!).some((candidate) => candidate.body.includes('authenticated')))
+        .toBe(false);
+      client.ws.close();
+    });
+
+    it('reconnects from every due frame cursor and keeps human/agent hydration complete', async () => {
+      const ownerClient = await connect();
+      ownerClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+      await ownerClient.next((frame) => frame.type === 'sync_complete');
+      const agent = spawnAgentWithToken('replay-agent');
+      daemon.store.updateMember('eng', agent.agent.id, { state: 'paused' });
+      const agentClient = await connectAs(agent.token);
+      agentClient.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+      await agentClient.next((frame) => frame.type === 'sync_complete');
+      const now = new Date();
+      const humanSchedule = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @admin-user replay-human sk-proj-human-secret', daemon.ownerOf('eng').id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      const agentSchedule = daemon.scheduleMessage(
+        'eng', '[send_in=1h] @replay-agent replay-agent sk-proj-agent-secret', daemon.ownerOf('eng').id,
+        { now, hostOffsetMinutes: 480 },
+      );
+      const ownerStart = ownerClient.frames.length;
+      const agentStart = agentClient.frames.length;
+      const dueNow = new Date(Math.max(Date.parse(humanSchedule.due_ts), Date.parse(agentSchedule.due_ts)) + 1);
+      await daemon.runDueSchedules(dueNow);
+      await ownerClient.next((frame) => frame.type === 'schedule'
+        && frame.schedule.id === humanSchedule.id && frame.schedule.state === 'sent');
+      await ownerClient.next((frame) => frame.type === 'schedule'
+        && frame.schedule.id === agentSchedule.id && frame.schedule.state === 'sent');
+      const humanSent = daemon.store.getSchedule('eng', humanSchedule.id)!;
+      const agentSent = daemon.store.getSchedule('eng', agentSchedule.id)!;
+      const ownerDue = ownerClient.frames.slice(ownerStart).filter((frame) =>
+        frame.type === 'message' || frame.type === 'schedule'
+        || (frame.type === 'inbox' && frame.delivery.recipient === admin.id));
+      const agentDue = agentClient.frames.slice(agentStart).filter((frame) =>
+        frame.type === 'message' || frame.type === 'schedule'
+        || (frame.type === 'inbox' && frame.delivery.recipient === agent.agent.id));
+      expect(ownerDue.length).toBeGreaterThanOrEqual(5);
+      expect(ownerDue.map((frame) => frame.seq)).toEqual(
+        [...ownerDue].map((frame) => frame.seq).sort((left, right) => left - right),
+      );
+      expect(agentDue.some((frame) => frame.type === 'inbox'
+        && frame.delivery.recipient === agent.agent.id)).toBe(true);
+      const ownerMessageIds = new Map<string, { id: number; seq: number }>();
+      for (const frame of ownerDue) {
+        if (frame.type === 'message') ownerMessageIds.set(frame.message.body.includes('replay-human') ? 'human' : 'agent', {
+          id: frame.message.id, seq: frame.seq,
+        });
+      }
+      const reconnectFrom = async (token: string, cursor: number) => {
+        const client = await connectAs(token);
+        client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: cursor }));
+        await client.next((frame) => frame.type === 'sync_complete');
+        return client;
+      };
+      for (const cursorFrame of ownerDue) {
+        const replay = await reconnectFrom(TOKEN, cursorFrame.seq);
+        const replayRelevant = replay.frames.filter((frame) =>
+          (frame.type === 'message' && (frame.message.id === ownerMessageIds.get('human')?.id
+            || frame.message.id === ownerMessageIds.get('agent')?.id))
+          || (frame.type === 'inbox' && (frame.delivery.message_id === humanSent.delivered_message_id
+            || frame.delivery.message_id === agentSent.delivered_message_id))
+          || (frame.type === 'schedule' && (frame.schedule.id === humanSchedule.id || frame.schedule.id === agentSchedule.id)));
+        for (const entity of ownerDue) {
+          if (entity.seq <= cursorFrame.seq) continue;
+          if (entity.type === 'message') {
+            expect(replayRelevant.filter((frame) => frame.type === 'message' && frame.message.id === entity.message.id)).toHaveLength(1);
+          } else if (entity.type === 'inbox') {
+            expect(replayRelevant.filter((frame) => frame.type === 'inbox' && frame.delivery.id === entity.delivery.id)).toHaveLength(1);
+          } else if (entity.type === 'schedule' && entity.schedule.state === 'sent') {
+            expect(replayRelevant.filter((frame) => frame.type === 'schedule' && frame.schedule.id === entity.schedule.id)).toHaveLength(1);
+          }
+        }
+        expect(JSON.stringify(replay.frames)).not.toContain('sk-proj-');
+        replay.ws.close();
+      }
+      const agentMessageIds = new Set(agentDue.filter((frame): frame is Extract<typeof frame, { type: 'message' }> =>
+        frame.type === 'message').map((frame) => frame.message.id));
+      for (const cursorFrame of agentDue) {
+        const replay = await reconnectFrom(agent.token, cursorFrame.seq);
+        const ownInbox = replay.frames.filter((frame) => frame.type === 'inbox');
+        expect(ownInbox.every((frame) => frame.type !== 'inbox' || frame.delivery.recipient === agent.agent.id)).toBe(true);
+        const replayRelevant = replay.frames.filter((frame) =>
+          (frame.type === 'message' && agentMessageIds.has(frame.message.id))
+          || (frame.type === 'inbox' && frame.delivery.recipient === agent.agent.id)
+          || (frame.type === 'schedule' && (frame.schedule.id === humanSchedule.id || frame.schedule.id === agentSchedule.id)));
+        for (const entity of agentDue) {
+          if (entity.seq <= cursorFrame.seq) continue;
+          if (entity.type === 'message') {
+            expect(replayRelevant.filter((frame) => frame.type === 'message' && frame.message.id === entity.message.id)).toHaveLength(1);
+          } else if (entity.type === 'inbox') {
+            expect(replayRelevant.filter((frame) => frame.type === 'inbox' && frame.delivery.id === entity.delivery.id)).toHaveLength(1);
+          } else if (entity.type === 'schedule' && entity.schedule.state === 'sent') {
+            expect(replayRelevant.filter((frame) => frame.type === 'schedule' && frame.schedule.id === entity.schedule.id)).toHaveLength(1);
+          }
+        }
+        expect(JSON.stringify(replay.frames)).not.toContain('sk-proj-');
+        replay.ws.close();
+      }
+      ownerClient.ws.close();
+      agentClient.ws.close();
+
+      const coldHuman = await reconnectFrom(TOKEN, 0);
+      const coldAgent = await reconnectFrom(agent.token, 0);
+      expect(coldHuman.frames.filter((frame) => frame.type === 'message'
+        && (frame.message.body.includes('replay-human') || frame.message.body.includes('replay-agent')))).toHaveLength(2);
+      expect(coldAgent.frames.filter((frame) => frame.type === 'inbox'))
+        .toHaveLength(1);
+      expect(coldAgent.frames.filter((frame) => frame.type === 'inbox')[0]).toMatchObject({
+        type: 'inbox', delivery: { recipient: agent.agent.id },
+      });
+    coldHuman.ws.close();
+    coldAgent.ws.close();
   });
 });
