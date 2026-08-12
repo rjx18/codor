@@ -75,6 +75,15 @@ const spawnAgentWithToken = (handle: string, room = 'eng') => {
   return { agent, token, session: captured };
 };
 
+// harn:assume scheduled-cancellation-is-authorized-before-claim ref=cancel-schedule-race-regression
+describe('scheduled-message socket contract', () => {
+  it('exposes correlated cancellation through the shared protocol', () => {
+    expect(() => daemon.cancelSchedule('eng', 'missing-schedule', member.id, false))
+      .toThrow(/no such schedule/);
+  });
+});
+// harn:end scheduled-cancellation-is-authorized-before-claim
+
 beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'codor-server-'));
   fakeInstalled = true;

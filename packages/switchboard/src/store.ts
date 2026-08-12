@@ -32,6 +32,10 @@ import {
   MemberSchema,
   type Message,
   MessageSchema,
+  type Schedule,
+  ScheduleSchema,
+  type ScheduledTarget,
+  ScheduleStateSchema,
   type PendingInteraction,
   PendingInteractionSchema,
   type Room,
@@ -450,6 +454,49 @@ function migrateMemberCredential(db: Database.Database): void {
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS member_credential_hash_unique
     ON members (credential_hash) WHERE credential_hash IS NOT NULL
+  `);
+}
+
+function migrateScheduleStore(db: Database.Database): void {
+  const columns = db.pragma('table_info(schedules)') as { name: string }[];
+  if (columns.length > 0 && !columns.some((column) => column.name === 'origin_room')) {
+    db.exec('ALTER TABLE schedules ADD COLUMN origin_room TEXT');
+  }
+  if (columns.length > 0 && !columns.some((column) => column.name === 'refs')) {
+    db.exec('ALTER TABLE schedules ADD COLUMN refs TEXT');
+  }
+  if (columns.length > 0 && !columns.some((column) => column.name === 'ledger_refs')) {
+    db.exec('ALTER TABLE schedules ADD COLUMN ledger_refs TEXT');
+  }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      room TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      origin_room TEXT,
+      author_id TEXT NOT NULL,
+      author_handle TEXT NOT NULL,
+      target_member_id TEXT NOT NULL,
+      target_conversation_id TEXT NOT NULL,
+      target_worktree_id TEXT,
+      target_alias TEXT,
+      target_handle TEXT NOT NULL,
+      target_display_name TEXT,
+      body TEXT NOT NULL,
+      mentions TEXT NOT NULL,
+      refs TEXT,
+      ledger_refs TEXT,
+      due_ts TEXT NOT NULL,
+      host_offset_minutes INTEGER NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'sending', 'sent', 'failed', 'cancelled')),
+      created_ts TEXT NOT NULL,
+      updated_ts TEXT NOT NULL,
+      claimed_ts TEXT,
+      completed_ts TEXT,
+      error TEXT,
+      delivered_message_id INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS schedules_due ON schedules (state, due_ts, id);
+    CREATE INDEX IF NOT EXISTS schedules_room_state ON schedules (room, state, due_ts, id);
   `);
 }
 // harn:end agent-member-credentials-stay-secret
@@ -1422,6 +1469,33 @@ interface MeterRow {
   uncosted_tokens: number;
 }
 
+interface ScheduleRow {
+  id: string;
+  room: string;
+  origin_room: string | null;
+  author_id: string;
+  author_handle: string;
+  target_member_id: string;
+  target_conversation_id: string;
+  target_worktree_id: string | null;
+  target_alias: string | null;
+  target_handle: string;
+  target_display_name: string | null;
+  body: string;
+  mentions: string;
+  refs: string | null;
+  ledger_refs: string | null;
+  due_ts: string;
+  host_offset_minutes: number;
+  state: string;
+  created_ts: string;
+  updated_ts: string;
+  claimed_ts: string | null;
+  completed_ts: string | null;
+  error: string | null;
+  delivered_message_id: number | null;
+}
+
 function agentPresetFromRow(row: AgentPresetRow): AgentPreset {
   return AgentPresetSchema.parse({
     id: row.id,
@@ -1653,7 +1727,38 @@ function roomFromRow(row: RoomRow): Room {
   });
 }
 // harn:end every-channel-has-a-visible-accent
+// harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=durable-schedule-store
 
+function scheduleFromRow(row: ScheduleRow): Schedule {
+  return ScheduleSchema.parse({
+    id: row.id,
+    room: row.room,
+    ...(row.origin_room !== null && { origin_room: row.origin_room }),
+    author_id: row.author_id,
+    author_handle: row.author_handle,
+    target: {
+      member_id: row.target_member_id,
+      conversation_id: row.target_conversation_id,
+      ...(row.target_worktree_id !== null && { worktree_id: row.target_worktree_id }),
+      ...(row.target_alias !== null && { alias: row.target_alias }),
+      handle: row.target_handle,
+      ...(row.target_display_name !== null && { display_name: row.target_display_name }),
+    },
+    body: row.body,
+    mentions: JSON.parse(row.mentions),
+    ...(row.refs !== null && { refs: JSON.parse(row.refs) }),
+    ...(row.ledger_refs !== null && { ledger_refs: JSON.parse(row.ledger_refs) }),
+    due_ts: row.due_ts,
+    host_offset_minutes: row.host_offset_minutes,
+    state: ScheduleStateSchema.parse(row.state),
+    created_ts: row.created_ts,
+    updated_ts: row.updated_ts,
+    ...(row.claimed_ts !== null && { claimed_ts: row.claimed_ts }),
+    ...(row.completed_ts !== null && { completed_ts: row.completed_ts }),
+    ...(row.error !== null && { error: row.error }),
+    ...(row.delivered_message_id !== null && { delivered_message_id: row.delivered_message_id }),
+  });
+}
 function repositoryFromRow(row: RepositoryRow): RepositoryRecord {
   return RepositoryRecordSchema.parse({
     id: row.id,
@@ -1781,6 +1886,7 @@ export interface SyncResult {
   members: Member[];
   inbox: Delivery[];
   meters: RoomMeter[];
+  schedules?: Schedule[];
   support?: RoomSupport;
 }
 
@@ -1831,6 +1937,29 @@ export interface RoutedMessagePlan {
     participants: CollaborationRoundParticipantInput[];
   };
   markMisaddressed?: boolean;
+}
+
+export interface NewSchedule {
+  origin_room?: string;
+  room: string;
+  author_id: string;
+  author_handle: string;
+  target: ScheduledTarget;
+  body: string;
+  mentions: Message['mentions'];
+  refs?: number[];
+  ledger_refs?: string[];
+  due_ts: string;
+  host_offset_minutes: number;
+  created_ts?: string;
+}
+
+export interface AtomicScheduledMessage {
+  schedule: Schedule;
+  message?: Message;
+  deliveries: Delivery[];
+  member?: Member;
+  collaboration?: CollaborationRoundProjection;
 }
 
 export interface AtomicRoutedMessage {
@@ -1902,6 +2031,7 @@ export class Store {
       migrateMemberContextWindow(this.db);
       migrateMemberAcpProvider(this.db);
       migrateMemberCredential(this.db);
+      migrateScheduleStore(this.db);
       migrateMessageAck(this.db);
       migrateMessagePinned(this.db);
       migrateMessageDeleted(this.db);
@@ -3604,6 +3734,260 @@ export class Store {
     })();
   }
   // harn:end eligible-multi-agent-routing-starts-one-group
+
+  // harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=durable-schedule-store
+  // harn:assume scheduled-state-streams-through-room-seq ref=schedule-change-log-storage
+  /** Persist one validated schedule before any message or delivery write. */
+  createSchedule(input: NewSchedule, createdTs = input.created_ts ?? new Date().toISOString()): Schedule {
+    return this.db.transaction(() => {
+      const target = input.target;
+      const targetMember = this.getMember(target.conversation_id, target.member_id);
+      if (targetMember === undefined || targetMember.removed_ts !== undefined) {
+        throw new Error(`scheduled target is not active: ${target.member_id}`);
+      }
+      if (target.worktree_id !== undefined && target.alias !== undefined) {
+        const qualified = {
+          worktree_id: target.worktree_id,
+          conversation_id: target.conversation_id,
+          member_id: target.member_id,
+          alias: target.alias,
+          handle: target.handle,
+        } satisfies ScopedMemberTarget;
+        if (!this.routingTargetIsActive(qualified, input.origin_room ?? input.room)) {
+          throw new Error(`scheduled target is not active: ${target.alias}:@${target.handle}`);
+        }
+      }
+      const schedule = ScheduleSchema.parse({
+        id: randomUUID(),
+        room: input.room,
+        ...(input.origin_room !== undefined && { origin_room: input.origin_room }),
+        author_id: input.author_id,
+        author_handle: input.author_handle,
+        target,
+        body: input.body,
+        mentions: input.mentions,
+        ...(input.refs !== undefined && { refs: input.refs }),
+        ...(input.ledger_refs !== undefined && { ledger_refs: input.ledger_refs }),
+        due_ts: input.due_ts,
+        host_offset_minutes: input.host_offset_minutes,
+        state: 'pending',
+        created_ts: createdTs,
+        updated_ts: createdTs,
+      });
+      this.db.prepare(
+        `INSERT INTO schedules
+         (id, room, origin_room, author_id, author_handle, target_member_id,
+          target_conversation_id, target_worktree_id, target_alias, target_handle,
+         target_display_name, body, mentions, due_ts, host_offset_minutes, state,
+         refs, ledger_refs, created_ts, updated_ts, claimed_ts, completed_ts, error, delivered_message_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        schedule.id,
+        schedule.room,
+        schedule.origin_room ?? null,
+        schedule.author_id,
+        schedule.author_handle,
+        schedule.target.member_id,
+        schedule.target.conversation_id,
+        schedule.target.worktree_id ?? null,
+        schedule.target.alias ?? null,
+        schedule.target.handle,
+        schedule.target.display_name ?? null,
+        schedule.body,
+        JSON.stringify(schedule.mentions),
+        schedule.due_ts,
+        schedule.host_offset_minutes,
+        schedule.state,
+        schedule.refs === undefined ? null : JSON.stringify(schedule.refs),
+        schedule.ledger_refs === undefined ? null : JSON.stringify(schedule.ledger_refs),
+        schedule.created_ts,
+        schedule.updated_ts,
+        null,
+        null,
+        null,
+        null,
+      );
+      this.appendChange(schedule.room, 'schedule', schedule.id);
+      return schedule;
+    })();
+  }
+  // harn:end scheduled-state-streams-through-room-seq
+
+  getSchedule(room: string, id: string): Schedule | undefined {
+    const row = this.db.prepare('SELECT * FROM schedules WHERE room = ? AND id = ?')
+      .get(room, id) as ScheduleRow | undefined;
+    return row === undefined ? undefined : scheduleFromRow(row);
+  }
+
+  findSchedule(id: string, preferredRoom?: string): Schedule | undefined {
+    if (preferredRoom !== undefined) {
+      const local = this.getSchedule(preferredRoom, id);
+      if (local !== undefined) return local;
+    }
+    const row = this.db.prepare('SELECT * FROM schedules WHERE id = ?').get(id) as ScheduleRow | undefined;
+    return row === undefined ? undefined : scheduleFromRow(row);
+  }
+
+  listSchedules(room: string, options: { state?: Schedule['state']; limit?: number } = {}): Schedule[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM schedules WHERE room = ?
+       AND (? IS NULL OR state = ?)
+       ORDER BY due_ts, id LIMIT ?`,
+    ).all(room, options.state ?? null, options.state ?? null, options.limit ?? 10_000) as ScheduleRow[];
+    return rows.map(scheduleFromRow);
+  }
+
+  listRecoverableSchedules(): Schedule[] {
+    const rows = this.db.prepare(
+      `SELECT * FROM schedules WHERE state IN ('pending', 'sending') ORDER BY due_ts, id`,
+    ).all() as ScheduleRow[];
+    return rows.map(scheduleFromRow);
+  }
+
+  nextScheduleDue(): string | undefined {
+    const row = this.db.prepare(
+      `SELECT due_ts FROM schedules WHERE state IN ('pending', 'sending') ORDER BY due_ts, id LIMIT 1`,
+    ).get() as { due_ts: string } | undefined;
+    return row?.due_ts;
+  }
+
+  claimDueSchedules(now = new Date().toISOString()): Schedule[] {
+    return this.db.transaction(() => {
+      const rows = this.db.prepare(
+        `SELECT * FROM schedules WHERE state = 'pending' AND due_ts <= ? ORDER BY due_ts, id`,
+      ).all(now) as ScheduleRow[];
+      const claimed: Schedule[] = [];
+      for (const row of rows) {
+        const result = this.db.prepare(
+          `UPDATE schedules SET state = 'sending', claimed_ts = ?, updated_ts = ?
+           WHERE id = ? AND state = 'pending'`,
+        ).run(now, now, row.id);
+        if (result.changes !== 1) continue;
+        this.appendChange(row.room, 'schedule', row.id);
+        claimed.push(this.getSchedule(row.room, row.id)!);
+      }
+      return claimed;
+    })();
+  }
+
+  private updateScheduleTerminal(
+    room: string,
+    id: string,
+    state: Schedule['state'],
+    now: string,
+    patch: { error?: string; delivered_message_id?: number } = {},
+  ): Schedule {
+    const existing = this.getSchedule(room, id);
+    if (existing === undefined) throw new Error(`no such schedule: ${id}`);
+    if (existing.state === state) return existing;
+    if (existing.state !== 'sending' && existing.state !== 'pending') return existing;
+    this.db.prepare(
+      `UPDATE schedules SET state = ?, updated_ts = ?, completed_ts = ?, error = ?,
+       delivered_message_id = COALESCE(?, delivered_message_id)
+       WHERE room = ? AND id = ? AND state IN ('pending', 'sending')`,
+    ).run(
+      state, now, now, patch.error ?? null, patch.delivered_message_id ?? null, room, id,
+    );
+    this.appendChange(room, 'schedule', id);
+    return this.getSchedule(room, id)!;
+  }
+
+  cancelSchedule(
+    room: string,
+    id: string,
+    actorId: string,
+    options: { admin?: boolean; now?: string } = {},
+  ): Schedule {
+    return this.db.transaction(() => {
+      const existing = this.getSchedule(room, id);
+      if (existing === undefined) throw new Error(`no such schedule: ${id}`);
+      if (!options.admin && existing.author_id !== actorId) {
+        throw new Error('forbidden: only the schedule author or a room administrator may cancel it');
+      }
+      if (existing.state !== 'pending') return existing;
+      const now = options.now ?? new Date().toISOString();
+      const result = this.db.prepare(
+        `UPDATE schedules SET state = 'cancelled', updated_ts = ?, completed_ts = ?
+         WHERE room = ? AND id = ? AND state = 'pending'`,
+      ).run(now, now, room, id);
+      if (result.changes === 1) this.appendChange(room, 'schedule', id);
+      return this.getSchedule(room, id)!;
+    })();
+  }
+
+  failSchedule(room: string, id: string, reason: string, now = new Date().toISOString()): Schedule {
+    return this.db.transaction(() => this.updateScheduleTerminal(
+      room, id, 'failed', now, { error: reason.slice(0, 1_000) },
+    ))();
+  }
+
+  // harn:assume scheduled-message-commit-is-exactly-once ref=atomic-scheduled-message-commit
+  /** Commit the ordinary message, its deliveries, and terminal schedule link in one transaction. */
+  commitScheduledMessage(
+    room: string,
+    id: string,
+    opts: {
+      message: NewMessage;
+      plan: (message: Message) => RoutedMessagePlan;
+      now?: string;
+      failureReason?: string;
+    },
+  ): AtomicScheduledMessage {
+    return this.db.transaction(() => {
+      const schedule = this.getSchedule(room, id);
+      if (schedule === undefined) throw new Error(`no such schedule: ${id}`);
+      if (schedule.state === 'sent' || schedule.state === 'failed' || schedule.state === 'cancelled') {
+        return { schedule, message: schedule.delivered_message_id === undefined
+          ? undefined : this.getMessage(room, schedule.delivered_message_id), deliveries: [] } as AtomicScheduledMessage;
+      }
+      if (schedule.state !== 'sending') throw new Error(`schedule ${id} is not claimed`);
+      const target = schedule.target;
+      const active = this.getMember(target.conversation_id, target.member_id)?.removed_ts === undefined
+        && this.getMember(target.conversation_id, target.member_id) !== undefined
+        && (target.worktree_id === undefined || target.alias === undefined || this.routingTargetIsActive({
+          worktree_id: target.worktree_id,
+          conversation_id: target.conversation_id,
+          member_id: target.member_id,
+          alias: target.alias,
+          handle: target.handle,
+        }, schedule.origin_room ?? room));
+      if (!active) {
+        const failed = this.updateScheduleTerminal(
+          room, id, 'failed', opts.now ?? new Date().toISOString(),
+          { error: opts.failureReason ?? 'frozen target is no longer active' },
+        );
+        return { schedule: failed, message: undefined, deliveries: [] };
+      }
+      const message = this.postMessage(room, opts.message);
+      const plan = opts.plan(message);
+      const member = plan.markMisaddressed
+        ? this.updateMember(room, message.author, { misaddressed: true })
+        : undefined;
+      const deliveries = plan.fanout.map((delivery) => this.createDelivery(room, {
+        message_id: message.id,
+        recipient: delivery.recipient,
+        state: delivery.state,
+        payload_snapshot: delivery.payload_snapshot,
+        hop_count: delivery.hop_count,
+        target: delivery.target,
+      }));
+      const collaboration = plan.collaboration === undefined
+        ? undefined
+        : this.createCollaborationGroup(room, {
+            groupId: plan.collaboration.groupId,
+            rootMessageId: message.id,
+            participants: plan.collaboration.participants,
+          });
+      if (collaboration) deliveries.push(...collaboration.deliveries);
+      const sent = this.updateScheduleTerminal(
+        room, id, 'sent', opts.now ?? new Date().toISOString(),
+        { delivered_message_id: message.id },
+      );
+      return { schedule: sent, message, deliveries, member, collaboration };
+    })();
+  }
+  // harn:end scheduled-message-commit-is-exactly-once
+  // harn:end scheduled-state-machine-recovers-from-one-next-due-alarm
 
   postBridgeMessage(
     room: string,
@@ -5987,7 +6371,7 @@ export class Store {
       if (sinceSeq === 0 && opts.hydrateLimit !== undefined) {
         const roomRow = this.getRoom(room);
         if (!roomRow) throw new Error(`no such room: ${room}`);
-        return this.boundedColdSnapshot(
+        const snapshot = this.boundedColdSnapshot(
           room,
           roomRow,
           seq,
@@ -5996,6 +6380,7 @@ export class Store {
           opts.strictTail === true,
           opts.supportFor,
         );
+        return { ...snapshot, schedules: this.listSchedules(room) };
       }
       const changes = this.getChangesSince(room, sinceSeq);
       const wanted = new Map<ChangeEntity, Set<string>>();
@@ -6021,6 +6406,9 @@ export class Store {
         meters: [...(wanted.get('meter') ?? [])]
           .map((day) => this.getMeter(room, day))
           .filter((meter): meter is RoomMeter => meter !== undefined),
+        schedules: [...(wanted.get('schedule') ?? [])]
+          .map((id) => this.getSchedule(room, id))
+          .filter((schedule): schedule is Schedule => schedule !== undefined),
         ...(opts.supportFor !== undefined && {
           support: this.roomSupport(room, opts.supportFor),
         }),

@@ -123,6 +123,27 @@ const resultMessageFor = (root: Message) => daemon.store.getMessage(
   root.run?.result_message_id ?? root.id,
 )!;
 
+// harn:assume scheduled-target-identity-is-frozen-at-creation ref=scheduled-target-regression
+// harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=schedule-recovery-regression
+// harn:assume scheduled-message-commit-is-exactly-once ref=exactly-once-schedule-regression
+describe('scheduled-message daemon state machine', () => {
+  it('freezes one target and delivers one ordinary routed message', async () => {
+    const target = spawnAgent('scheduled-sol');
+    const owner = daemon.store.getMemberByHandle('eng', 'richard')!;
+    const scheduled = daemon.scheduleMessage(
+      'eng', '[send_in=1s] @scheduled-sol ship it', owner.id,
+      { now: new Date('2026-08-12T00:00:00.000Z'), hostOffsetMinutes: 480 },
+    );
+    expect(scheduled.target.member_id).toBe(target.id);
+    await daemon.runDueSchedules(new Date('2026-08-12T00:00:01.000Z'));
+    expect(daemon.store.listMessages('eng', { limit: 100 })
+      .filter((message) => message.body === '@scheduled-sol ship it')).toHaveLength(1);
+  });
+});
+// harn:end scheduled-message-commit-is-exactly-once
+// harn:end scheduled-state-machine-recovers-from-one-next-due-alarm
+// harn:end scheduled-target-identity-is-frozen-at-creation
+
 // harn:assume agent-add-selects-public-adapter-or-detached-preset ref=daemon-spawn-control-regression
 // harn:assume agent-pause-refuses-active-turn ref=agent-pause-daemon-regression
 // harn:assume agent-management-does-not-invent-work ref=agent-management-no-work-regression

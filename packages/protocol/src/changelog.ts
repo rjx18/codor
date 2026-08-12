@@ -10,7 +10,7 @@ import { RoomIdSchema, SeqSchema } from './ids.js';
  * clients reconnect with `since_seq` and hydrate changed rows from the log
  * (message-id cursors cannot express in-place run finalizations).
  */
-export const ChangeEntitySchema = z.enum(['message', 'member', 'inbox', 'meter', 'room']);
+export const ChangeEntitySchema = z.enum(['message', 'member', 'inbox', 'meter', 'room', 'schedule']);
 export type ChangeEntity = z.infer<typeof ChangeEntitySchema>;
 
 export const ChangeLogEntrySchema = z.object({

@@ -116,6 +116,40 @@ RunSummary {
 }
 ```
 
+<!-- harn:assume scheduling-directive-is-bounded-and-canonical ref=scheduled-directive-documentation -->
+### Durable scheduled messages (S1)
+
+A scheduled request is text-only and is recognized only when its first non-whitespace
+token is a complete directive:
+
+```text
+[send_in=2h30m]@sol deploy the change
+[send_at=8:30PM]@sol check the build
+[send_at=2026-08-13T08:30:00+08:00]@sol check the build
+```
+
+`send_in` accepts ordered compound days, hours, minutes, and seconds (`d`, `h`, `m`,
+`s`). A clock-only `send_at` means the next occurrence in the switchboard host's
+numeric UTC offset captured at creation. ISO-8601 `send_at` values must carry `Z` or
+an explicit numeric offset. The directive is at most 256 characters; the clean body is
+at most 65,536 UTF-8 bytes; the due instant is strictly in the future and no more than
+365 days away. Malformed directive-like first tokens, empty bodies, replies,
+attachments, voice metadata, waits, groups, `@all`, self-targets, multiple or
+unavailable targets are refused before any SQLite write. S1 has no recurrence, cron,
+editing, bulk operations, scripts, external queues, cards, composer behavior, or CLI
+presentation. Accepted rows freeze the author, one resolved member/worktree identity,
+mention span, clean body, and absolute due instant; later aliases or same-handle
+members cannot retarget them.
+
+Each insert or state transition is a room-scoped `schedule` change-log entity. The
+daemon exposes redacted `schedule` frames during live fanout and hydration; durable
+states are `pending`, `sending`, `sent`, `failed`, and `cancelled`. A correlated
+`cancel_schedule` act is authorized for the schedule author or a human room admin
+and can win only while the row is pending. Delivery claims and the ordinary routed
+message commit share one SQLite transaction, so restart may delay work but cannot
+duplicate the visible message or its deliveries.
+<!-- harn:end scheduling-directive-is-bounded-and-canonical -->
+
 **A turn owns one lifecycle root and may append chronological output rows.** The switchboard
 posts one running `run` root before starting the adapter. That root is reused by crash recovery
 and exclusively owns status, timing, usage, retry controls, `events_ref`, and aggregate

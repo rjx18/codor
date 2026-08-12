@@ -20,6 +20,7 @@ const actSamples = {
   release_hold: { act: 'release_hold', delivery_id: 'd' },
   mark_read: { act: 'mark_read', delivery_id: 'd' },
   mark_room_read: { act: 'mark_room_read', through_seq: 1 },
+  cancel_schedule: { act: 'cancel_schedule', schedule_id: 'schedule-1' },
   join: { act: 'join', harness: 'fake', handle: 'joined', session_ref: 's', cwd: '/w' },
   adopt: { act: 'adopt', member_id: '01J00000000000000000000000' },
   attach_acquire: { act: 'attach_acquire', member_id: '01J00000000000000000000000', cli_pid: 1 },
@@ -156,3 +157,11 @@ describe('agent member credential capability matrix', () => {
   });
 });
 // harn:end agent-network-authority-is-narrow
+
+// harn:assume roles-gate-human-acts-not-agents ref=role-matrix-integration
+describe('schedule cancellation authorization', () => {
+  it('lets members request cancellation while retaining daemon ownership checks', () => {
+    expect(roleAllows('member', 'cancel_schedule')).toBe(true);
+  });
+});
+// harn:end roles-gate-human-acts-not-agents

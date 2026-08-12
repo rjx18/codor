@@ -1,0 +1,18 @@
+id: scheduled-state-streams-through-room-seq
+hash: a-bc1207cdf5d3
+title: Schedule state is a room-scoped durable sync entity
+state: active
+statement: >
+  Every schedule insert or state transition must append exactly one schedule
+  change with the destination room's monotonic seq in the same transaction, and
+  subscribe hydration plus live fanout must project the bounded redacted
+  Schedule row before sync_complete, so reconnect and restart expose Pending,
+  Sending, Failed, Cancelled, or sent linkage without a polling API and S2 can
+  render cards from authoritative state.
+depends_on:
+  - changelog-is-sync-cursor
+  - changelog-covers-every-visible-entity
+  - sync-cursor-commits-after-hydration
+  - redaction-before-fanout
+  - unix-socket-same-protocol
+created_by: persistent-scheduled-messages-s1

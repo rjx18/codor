@@ -1,0 +1,14 @@
+id: scheduled-state-machine-recovers-from-one-next-due-alarm
+hash: a-be9598f72527
+title: One next-due alarm recovers every durable schedule state
+state: active
+statement: >
+  The daemon must maintain at most one unrefed next-due timeout, re-arm it after
+  every schedule mutation and bounded long-delay wake, atomically claim all
+  pending rows due at the observed instant, resume claimed rows on boot, and
+  leave sent, failed, and cancelled rows terminal; simultaneous due rows are
+  processed deterministically and shutdown clears the timer, so memory owns only
+  wake-up timing while SQLite owns all scheduling truth.
+depends_on:
+  - scheduled-message-commit-is-exactly-once
+created_by: persistent-scheduled-messages-s1

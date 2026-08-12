@@ -23,6 +23,7 @@ import type {
   Member,
   MemberStatusResponse,
   Message,
+  Schedule,
   PendingInteraction,
   ProducedArtifact,
   ProducedArtifactError,
@@ -52,6 +53,7 @@ import {
   ProducedArtifactSchema,
   ProducedArtifactErrorSchema,
   deriveRoomId,
+  parseScheduleDirective,
   parseRunItemPayload,
 } from '@codor/protocol';
 
@@ -362,6 +364,11 @@ export interface DaemonOptions {
   onBackgroundError?: (error: Error) => void;
   homeDir?: string;
   socketPath?: string;
+  /** Injectable scheduler clock for deterministic due/recovery tests. */
+  clock?: () => Date;
+  /** Injectable timeout primitive for deterministic scheduler tests. */
+  scheduleSetTimeout?: (handler: () => void, timeout: number) => NodeJS.Timeout;
+  scheduleClearTimeout?: (timer: NodeJS.Timeout) => void;
 }
 
 export interface MemberDetails {
@@ -591,6 +598,10 @@ export class Daemon {
   private readonly attachLeaseTimer: NodeJS.Timeout;
   private readonly stallTimer: NodeJS.Timeout;
   private readonly limitsProbeTimer: NodeJS.Timeout;
+  private readonly scheduleClock: () => Date;
+  private readonly scheduleSetTimeout: (handler: () => void, timeout: number) => NodeJS.Timeout;
+  private readonly scheduleClearTimeout: (timer: NodeJS.Timeout) => void;
+  private scheduleTimer: NodeJS.Timeout | undefined;
   private probingLimits = false;
   private lastLimitsProbeAt = 0;
   private readonly manualUsageRefreshCooldownMs: number;
@@ -630,6 +641,9 @@ export class Daemon {
     this.onBackgroundError = options.onBackgroundError ?? (() => undefined);
     this.homeDir = serviceHome;
     this.socketPath = options.socketPath ?? localSocketPath(dataRoot);
+    this.scheduleClock = options.clock ?? (() => new Date());
+    this.scheduleSetTimeout = options.scheduleSetTimeout ?? ((handler, timeout) => setTimeout(handler, timeout));
+    this.scheduleClearTimeout = options.scheduleClearTimeout ?? ((timer) => clearTimeout(timer));
     this.attachmentsRoot = attachmentsRoot;
     this.artifactsRoot = artifactsRoot;
     this.artifactErrorsRoot = artifactErrorsRoot;
@@ -685,6 +699,10 @@ export class Daemon {
     // harn:end account-usage-limits-are-probed-periodically-and-honestly-refreshable
     this.stopResidencyReachability = this.residency?.onReachability((peerId, connected) =>
       this.handleResidentReachability(peerId, connected));
+    this.armScheduleTimer();
+    this.track(this.runDueSchedules(this.scheduleClock()).catch((error: unknown) => {
+      this.onBackgroundError(error instanceof Error ? error : new Error(String(error)));
+    }));
   }
 
   // harn:assume agent-member-credentials-stay-secret ref=member-session-environment
@@ -748,6 +766,10 @@ export class Daemon {
     clearInterval(this.attachLeaseTimer);
     clearInterval(this.stallTimer);
     clearInterval(this.limitsProbeTimer);
+    if (this.scheduleTimer !== undefined) {
+      this.scheduleClearTimeout(this.scheduleTimer);
+      this.scheduleTimer = undefined;
+    }
     this.stopResidencyReachability?.();
     if (options.force !== true) {
       // harn:assume lifecycle-retries-only-live-collaboration-work ref=recovery-requeue-contract
@@ -918,6 +940,16 @@ export class Daemon {
   private emitMessage(room: string, message: Message): void {
     this.emit(room, { type: 'message', seq: message.seq, message });
   }
+
+  // harn:assume scheduled-state-streams-through-room-seq ref=schedule-sync-and-fanout
+  private emitSchedule(schedule: Schedule): void {
+    this.emit(schedule.room, {
+      type: 'schedule',
+      seq: this.store.currentSeq(schedule.room),
+      schedule,
+    });
+  }
+  // harn:end scheduled-state-streams-through-room-seq
 
   // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-member-projection
   // harn:assume last-agent-usage-is-transient-and-seeded ref=last-usage-seeding
@@ -2737,6 +2769,177 @@ export class Daemon {
   }
 
   // ── posting ───────────────────────────────────────────────────────────
+
+  // harn:assume scheduled-target-identity-is-frozen-at-creation ref=scheduled-target-resolution
+  /** Validate and persist a text-only scheduled request without creating a message yet. */
+  scheduleMessage(
+    originRoom: string,
+    body: string,
+    authorId: string,
+    options: {
+      now?: Date;
+      hostOffsetMinutes?: number;
+      replyTo?: number;
+      attachments?: readonly Attachment[];
+      voice?: VoiceNote;
+      awaitingReply?: boolean;
+    } = {},
+  ): Schedule {
+    if (options.replyTo !== undefined || (options.attachments?.length ?? 0) > 0
+      || options.voice !== undefined || options.awaitingReply === true) {
+      throw new Error('scheduled requests are text-only and cannot carry replies, attachments, voice, or waits');
+    }
+    const parsedDirective = parseScheduleDirective(body, {
+      now: options.now ?? this.scheduleClock(),
+      hostOffsetMinutes: options.hostOffsetMinutes,
+    });
+    if (parsedDirective === undefined) throw new Error('not a scheduling directive');
+    const author = this.store.getMember(originRoom, authorId);
+    if (author === undefined || (author.kind !== 'human' && author.kind !== 'agent')
+      || author.removed_ts !== undefined) {
+      throw new Error(`no active schedule author: ${authorId}`);
+    }
+    const routingState = this.routingState(originRoom);
+    const parsed = parseBody(parsedDirective.clean_body, this.store.listMembers(originRoom), {
+      qualifiedTargets: routingState.catalog,
+    });
+    if ((parsed.qualified_issues?.length ?? 0) > 0) {
+      throw new Error(
+        `qualified target refused: ${parsed.qualified_issues!.map((issue) => issue.token).join(', ')}`,
+      );
+    }
+    if (parsed.unresolved.length > 0) {
+      throw new Error(`scheduled target refused: unresolved @${parsed.unresolved[0]}`);
+    }
+    if (parsed.mentions.length !== 1) {
+      throw new Error('scheduled requests must target exactly one direct member');
+    }
+    if (/(^|[^\w@])@all\b/i.test(parsedDirective.clean_body)) {
+      throw new Error('scheduled requests cannot target @all or groups');
+    }
+    const mention = parsed.mentions[0]!;
+    if (mention.member_id === author.id) throw new Error('scheduled requests cannot target the author');
+    const targetMember = routingState.members.get(mention.member_id)
+      ?? this.store.getMember(originRoom, mention.member_id);
+    if (targetMember === undefined || targetMember.removed_ts !== undefined
+      || (targetMember.kind !== 'human' && targetMember.kind !== 'agent')) {
+      throw new Error('scheduled target is unavailable');
+    }
+    const destination = mention.target?.conversation_id ?? originRoom;
+    const target = {
+      member_id: targetMember.id,
+      conversation_id: destination,
+      handle: targetMember.handle,
+      display_name: targetMember.display_name,
+      ...(mention.target?.worktree_id !== undefined && { worktree_id: mention.target.worktree_id }),
+      ...(mention.target?.alias !== undefined && { alias: mention.target.alias }),
+    };
+    const schedule = this.store.createSchedule({
+      origin_room: originRoom,
+      room: destination,
+      author_id: author.id,
+      author_handle: author.handle,
+      target,
+      body: parsedDirective.clean_body,
+      mentions: parsed.mentions,
+      refs: parsed.refs,
+      ledger_refs: parsed.ledger_refs,
+      due_ts: parsedDirective.due_ts,
+      host_offset_minutes: parsedDirective.host_offset_minutes,
+      created_ts: (options.now ?? this.scheduleClock()).toISOString(),
+    });
+    this.emitSchedule(schedule);
+    this.armScheduleTimer();
+    return schedule;
+  }
+  // harn:end scheduled-target-identity-is-frozen-at-creation
+
+  // harn:assume scheduled-message-commit-is-exactly-once ref=atomic-scheduled-message-commit
+  async runDueSchedules(now = this.scheduleClock()): Promise<void> {
+    const nowTs = now.toISOString();
+    const claimed = this.store.claimDueSchedules(nowTs);
+    for (const schedule of claimed) this.emitSchedule(schedule);
+    const sending = this.store.listRecoverableSchedules()
+      .filter((schedule) => schedule.state === 'sending');
+    const work = [...sending, ...claimed]
+      .filter((schedule, index, all) => all.findIndex((candidate) => candidate.id === schedule.id) === index)
+      .sort((left, right) => left.due_ts.localeCompare(right.due_ts) || left.id.localeCompare(right.id));
+    for (const candidate of work) {
+      const current = this.store.getSchedule(candidate.room, candidate.id);
+      if (current?.state !== 'sending') continue;
+      try {
+        const committed = this.store.commitScheduledMessage(candidate.room, candidate.id, {
+          now: nowTs,
+          message: {
+            author: current.author_id,
+            kind: 'chat',
+            body: current.body,
+            mentions: current.mentions,
+            refs: current.refs,
+            ledger_refs: current.ledger_refs,
+          },
+          plan: (message) => this.planRoutedMessage(
+            candidate.room,
+            message,
+            undefined,
+            undefined,
+            false,
+            true,
+            candidate.room,
+          ).plan,
+        });
+        this.emitSchedule(committed.schedule);
+        if (committed.message !== undefined) {
+          this.emitMessage(candidate.room, committed.message);
+          if (committed.member !== undefined) this.emitMember(candidate.room, committed.member);
+          this.dispatchCreatedDeliveries(candidate.room, committed.deliveries);
+        }
+      } catch (error) {
+        const failed = this.store.failSchedule(
+          candidate.room,
+          candidate.id,
+          String(error).slice(0, 1_000),
+          nowTs,
+        );
+        this.emitSchedule(failed);
+      }
+    }
+    this.armScheduleTimer();
+  }
+  // harn:end scheduled-message-commit-is-exactly-once
+
+  // harn:assume scheduled-cancellation-is-authorized-before-claim ref=cancel-schedule-transaction
+  cancelSchedule(room: string, scheduleId: string, actorId: string, agent = false): Schedule {
+    const located = this.store.findSchedule(scheduleId, room);
+    if (located === undefined) throw new Error(`no such schedule: ${scheduleId}`);
+    const actor = this.store.getMember(room, actorId) ?? this.store.getMember(located.room, actorId);
+    if (actor === undefined || actor.removed_ts !== undefined) throw new Error(`no active actor: ${actorId}`);
+    const admin = !agent && actor.kind === 'human' && (actor.role === 'admin' || actor.role === 'owner');
+    const cancelled = this.store.cancelSchedule(located.room, scheduleId, actorId, { admin });
+    this.emitSchedule(cancelled);
+    this.armScheduleTimer();
+    return cancelled;
+  }
+  // harn:end scheduled-cancellation-is-authorized-before-claim
+
+  // harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=one-next-due-alarm
+  private armScheduleTimer(): void {
+    if (this.closed || this.closing) return;
+    if (this.scheduleTimer !== undefined) {
+      this.scheduleClearTimeout(this.scheduleTimer);
+      this.scheduleTimer = undefined;
+    }
+    const due = this.store.nextScheduleDue();
+    if (due === undefined) return;
+    const delta = Math.max(0, Date.parse(due) - this.scheduleClock().getTime());
+    const timeout = Math.min(delta, 24 * 60 * 60 * 1_000);
+    this.scheduleTimer = this.scheduleSetTimeout(() => {
+      this.scheduleTimer = undefined;
+      this.track(this.runDueSchedules(this.scheduleClock()));
+    }, timeout);
+    this.scheduleTimer.unref?.();
+  }
+  // harn:end scheduled-state-machine-recovers-from-one-next-due-alarm
 
   private postChatMessage(
     room: string,

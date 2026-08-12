@@ -12,6 +12,33 @@ import { estimateCostUsd } from './pricing.js';
 let dir: string;
 let store: Store;
 
+// harn:assume scheduled-state-machine-recovers-from-one-next-due-alarm ref=schedule-recovery-regression
+// harn:assume scheduled-message-commit-is-exactly-once ref=exactly-once-schedule-regression
+describe('durable scheduled-message store', () => {
+  it('persists, atomically claims, cancels, and reopens schedules', () => {
+    const { owner } = openRoom(store);
+    const target = store.addMember('eng', {
+      kind: 'agent', handle: 'sol', display_name: 'Sol', harness: 'fake', cwd: dir,
+    });
+    const schedule = store.createSchedule({
+      room: 'eng', author_id: owner.id, author_handle: owner.handle,
+      target: { member_id: target.id, conversation_id: 'eng', handle: target.handle },
+      body: '@sol ship it', mentions: [{ member_id: target.id, start: 0, end: 4 }],
+      due_ts: '2026-08-13T00:00:00.000Z', host_offset_minutes: 480,
+    }, '2026-08-12T00:00:00.000Z');
+    expect(store.claimDueSchedules('2026-08-13T00:00:00.000Z')).toEqual([
+      expect.objectContaining({ id: schedule.id, state: 'sending' }),
+    ]);
+    store.close();
+    store = new Store(join(dir, 'test.sqlite'));
+    expect(store.listRecoverableSchedules()).toEqual([
+      expect.objectContaining({ id: schedule.id, state: 'sending' }),
+    ]);
+  });
+});
+// harn:end scheduled-message-commit-is-exactly-once
+// harn:end scheduled-state-machine-recovers-from-one-next-due-alarm
+
 const openRoom = (s: Store) =>
   s.createRoom({ id: 'eng', name: 'Engineering', owner: { handle: 'richard', display_name: 'Richard' } });
 

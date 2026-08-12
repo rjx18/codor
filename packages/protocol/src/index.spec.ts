@@ -38,6 +38,9 @@ describe('@codor/protocol barrel', () => {
       'WireEventSchema',
       'ClientFrameSchema',
       'ServerFrameSchema',
+      'ScheduleSchema',
+      'ScheduleStateSchema',
+      'parseScheduleDirective',
     ] as const) {
       expect(protocol[name], name).toBeDefined();
     }
@@ -64,6 +67,38 @@ describe('@codor/protocol barrel', () => {
     expect(parsed.unresolved).toEqual([]);
   });
 });
+
+// harn:assume scheduling-directive-is-bounded-and-canonical ref=scheduled-directive-regression
+describe('scheduled directive protocol', () => {
+  const now = new Date('2026-08-12T12:00:00.000Z');
+
+  it('parses only a complete leading directive into a bounded canonical instant', () => {
+    expect(protocol.parseScheduleDirective('  [send_in=2h30m]@sol ship it', {
+      now, hostOffsetMinutes: 480,
+    })).toMatchObject({
+      clean_body: '@sol ship it',
+      due_ts: '2026-08-12T14:30:00.000Z',
+      host_offset_minutes: 480,
+    });
+    expect(protocol.parseScheduleDirective('example [send_in=2h] @sol')).toBeUndefined();
+    expect(() => protocol.parseScheduleDirective('[send_in=2h30m1h] @sol', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/malformed scheduling directive/);
+  });
+
+  it('uses a fixed host offset for clocks and requires offsets on ISO input', () => {
+    expect(protocol.parseScheduleDirective('[send_at=8:30PM]@sol evening', {
+      now, hostOffsetMinutes: 480,
+    })?.due_ts).toBe('2026-08-12T12:30:00.000Z');
+    expect(protocol.parseScheduleDirective('[send_at=2026-08-13T08:30:00+08:00] @sol', {
+      now, hostOffsetMinutes: 480,
+    })?.due_ts).toBe('2026-08-13T00:30:00.000Z');
+    expect(() => protocol.parseScheduleDirective('[send_at=2026-08-13T08:30:00] @sol', {
+      now, hostOffsetMinutes: 480,
+    })).toThrow(/explicit offset/);
+  });
+});
+// harn:end scheduling-directive-is-bounded-and-canonical
 
 // harn:assume workspace-packages-use-codor-scope ref=codor-package-scope-regression
 it('uses the codor scope for every scoped workspace package', () => {

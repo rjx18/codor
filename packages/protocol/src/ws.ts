@@ -12,6 +12,7 @@ import { MemberIdSchema, MessageIdSchema, RoomIdSchema, SeqSchema, TimestampSche
 import { AssignableHandleSchema } from './member.js';
 import { MemberSchema } from './member.js';
 import { MessageSchema, VoiceNoteSchema } from './message.js';
+import { ScheduleIdSchema, ScheduleSchema } from './schedule.js';
 import {
   CreateRoomRequestSchema,
   RoomMeterSchema,
@@ -200,6 +201,9 @@ export const ActSchema = z.discriminatedUnion('act', [
   z.object({ act: z.literal('redeliver'), delivery_id: z.string().min(1) }),
   z.object({ act: z.literal('release_hold'), delivery_id: z.string().min(1) }),
   z.object({ act: z.literal('mark_read'), delivery_id: z.string().min(1) }),
+  // harn:assume scheduled-cancellation-is-authorized-before-claim ref=cancel-schedule-protocol
+  z.object({ act: z.literal('cancel_schedule'), schedule_id: ScheduleIdSchema }),
+  // harn:end scheduled-cancellation-is-authorized-before-claim
   // harn:assume human-room-read-cursors-are-durable-and-monotonic ref=mark-room-read-contract
   z.object({ act: z.literal('mark_room_read'), through_seq: SeqSchema }),
   // harn:end human-room-read-cursors-are-durable-and-monotonic
@@ -476,6 +480,14 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
     adopted: z.boolean().optional(),
   }),
   z.object({ type: z.literal('message'), seq: SeqSchema, message: MessageSchema }),
+  // harn:assume scheduled-state-streams-through-room-seq ref=schedule-protocol-schema
+  z.object({ type: z.literal('schedule'), seq: SeqSchema, schedule: ScheduleSchema }),
+  z.object({
+    type: z.literal('cancel_schedule_result'),
+    ref: ManagementRefSchema,
+    schedule: ScheduleSchema,
+  }),
+  // harn:end scheduled-state-streams-through-room-seq
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-frame-contract
   z.object({
     type: z.literal('member'),
