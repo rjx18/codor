@@ -185,6 +185,7 @@ test.describe('multi-computer pairing', () => {
     expect(initialAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
 
     // harn:assume managed-computer-activation-revalidates-destination-history ref=destination-history-activation-browser-regression
+    // harn:assume selected-room-activation-reconciles-destination-history ref=selected-room-source-isolation-regression
     // A finalizes while same-room B is selected. The inactive A connector may
     // retain live context, but immutable result evidence remains page-owned and
     // must be reconciled by A's deliberate activation.
@@ -250,7 +251,11 @@ test.describe('multi-computer pairing', () => {
         __codorRelayAppOpens: Array<{ session: string; generation: number }>;
       }
     ).__codorRelayAppOpens])).toEqual(initialAppOpens);
+    // The unresolved A-owned activation cannot redirect its response into B:
+    // B stays free of A's same-named room result, while a later A activation
+    // retries the captured source and renders exactly one copy.
     // harn:end managed-computer-activation-revalidates-destination-history
+    // harn:end selected-room-activation-reconciles-destination-history
     await expect(page.getByTestId('timeline')).not.toContainText('hi from computer two');
     // Post round-trips over computer A's tunnel.
     // harn:assume composer-enter-uses-live-draft-state ref=composer-live-mention-switch-regression

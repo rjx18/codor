@@ -19,7 +19,13 @@ import {
 } from '../app/session.js';
 import { relayConnectExtras } from '@runtime/relay-mode.js';
 import { useRoomSummaries, type RoomSummary } from '../app/summary.js';
-import { roleAtLeast, roomSlice, useClientStore } from '../app/store.js';
+import {
+  roleAtLeast,
+  roomSlice,
+  sourceClientStore,
+  useClientStore,
+  type ClientStore,
+} from '../app/store.js';
 import {
   useWorktreeGroup,
   WorktreeCreateDialog,
@@ -45,6 +51,28 @@ import {
 
 const EMPTY_COMPUTER_SNAPSHOT: ComputerSessionsSnapshot = { computers: [] };
 const noComputerSubscription = (): (() => void) => () => undefined;
+
+// harn:assume selected-room-activation-reconciles-destination-history ref=selected-room-ready-head-reconciliation
+export function reconcileSelectedRoomHistory(
+  connection: Pick<RoomConnector, 'roomReadiness'>,
+  room: string,
+  roomLive: boolean,
+  store: ClientStore,
+  credential: string,
+): void {
+  if (!roomLive || connection.roomReadiness(room) !== 'connected') return;
+  const destination = {
+    store: sourceClientStore(store),
+    room,
+    credential,
+  };
+  void refreshTranscriptHistoryHead(
+    destination.store,
+    destination.room,
+    () => destination.credential,
+  );
+}
+// harn:end selected-room-activation-reconciles-destination-history
 
 export function RoomPage(props: {
   room: string;
@@ -123,6 +151,16 @@ function MountedRoomPage(props: {
   const connection = managed?.connector ?? connectorRef.current;
   if (!connection) throw new Error('RoomPage requires a room connector');
   const [pageSurface, setPageSurface] = useState<'room' | 'settings'>('room');
+  const roomLive = useClientStore((state) => state.roomLive[room] === true);
+
+  // A selected room is the one lifecycle owner for terminal-history recovery.
+  // Wait for this connector generation's own addressed sync evidence before
+  // capturing the concrete store, room, and credential. The history controller
+  // deduplicates concurrent activations by that captured source and room, while
+  // a later activation remains a fresh retry after a failed request.
+  useEffect(() => {
+    reconcileSelectedRoomHistory(connection, room, roomLive, useClientStore, token());
+  }, [connection, room, roomLive, token]);
 
   // harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-navigation
   // The store-only group projection drives both the hidden-room observation set
