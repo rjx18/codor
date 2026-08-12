@@ -11,6 +11,10 @@ export interface ContinuationAllocation {
 export interface ContinuationProjection {
   resultMessageId: number;
   bodies: Map<number, string>;
+  /** Type-aware prose in journal order, including cross-output boundaries. */
+  aggregate: string;
+  /** Raw prose concatenated in journal order, without block separators. */
+  rawAggregate: string;
   referencedMessageIds: Set<number>;
   substantiveMessageIds: Set<number>;
 }
@@ -61,6 +65,14 @@ function completionResidual(
   return finalText;
 }
 
+function appendResidualToRow(body: string, residual: string): string {
+  // The journal-wide aggregate owns the paragraph separator. A newly
+  // allocated continuation row starts with the residual text itself, so do
+  // not leak that separator as a leading row delimiter.
+  if (body.length === 0 && residual.startsWith('\n\n')) return residual.slice(2);
+  return `${body}${residual}`;
+}
+
 // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-segmentation-engine
 /**
  * Assigns normalized run events to permanent output messages. The Store-owned
@@ -75,6 +87,8 @@ export class ContinuationWriter {
   private streamedText = '';
   private readonly visibleText = new Map<number, string>();
   private readonly lastProseType = new Map<number, ProseItemType>();
+  private visibleAggregate = '';
+  private lastJournalProseType: ProseItemType | undefined;
 
   constructor(
     readonly rootMessageId: number,
@@ -129,7 +143,7 @@ export class ContinuationWriter {
         && completionResidual(
           event.final_text,
           this.streamedText,
-          this.visibleText.get(event.output_message_id ?? this.currentOutputId) ?? '',
+          this.visibleAggregate,
         ).length > 0
       ) {
         allocateAfterInterleave();
@@ -159,6 +173,9 @@ export class ContinuationWriter {
           const boundary = kind === 'text_block' || this.lastProseType.get(target) === 'text_block';
           this.visibleText.set(target, `${previous}${boundary && previous.length > 0 ? '\n\n' : ''}${text}`);
           this.lastProseType.set(target, kind);
+          const aggregateBoundary = kind === 'text_block' || this.lastJournalProseType === 'text_block';
+          this.visibleAggregate = `${this.visibleAggregate}${aggregateBoundary && this.visibleAggregate.length > 0 ? '\n\n' : ''}${text}`;
+          this.lastJournalProseType = kind;
         }
       }
       if (event.item_type !== 'tool_result' && event.item_type !== 'reasoning_summary') {
@@ -190,8 +207,10 @@ export function projectContinuationOutputs(
   const referencedMessageIds = new Set<number>([rootMessageId]);
   const substantiveMessageIds = new Set<number>();
   let streamed = '';
+  let aggregate = '';
   let resultMessageId = rootMessageId;
   const lastProseType = new Map<number, ProseItemType>();
+  let lastJournalProseType: ProseItemType | undefined;
 
   for (const event of events) {
     if (event.type !== 'run.item' && event.type !== 'timeline' && event.type !== 'run.completed') continue;
@@ -208,6 +227,9 @@ export function projectContinuationOutputs(
         const boundary = kind === 'text_block' || lastProseType.get(target) === 'text_block';
         bodies.set(target, `${previous}${boundary && previous.length > 0 ? '\n\n' : ''}${text}`);
         if (kind !== undefined) lastProseType.set(target, kind);
+        const aggregateBoundary = kind === 'text_block' || lastJournalProseType === 'text_block';
+        aggregate = `${aggregate}${aggregateBoundary && aggregate.length > 0 ? '\n\n' : ''}${text}`;
+        if (kind !== undefined) lastJournalProseType = kind;
         streamed += text;
         substantiveMessageIds.add(target);
       } else if (event.item_type !== 'reasoning_summary') {
@@ -222,14 +244,22 @@ export function projectContinuationOutputs(
 
     const residual = event.status === 'failed'
       ? ''
-      : completionResidual(event.final_text, streamed, bodies.get(target) ?? '');
+      : completionResidual(event.final_text, streamed, aggregate);
     if (residual.length > 0) {
-      bodies.set(target, (bodies.get(target) ?? '') + residual);
+      bodies.set(target, appendResidualToRow(bodies.get(target) ?? '', residual));
+      aggregate += residual;
       substantiveMessageIds.add(target);
     }
   }
 
-  return { resultMessageId, bodies, referencedMessageIds, substantiveMessageIds };
+  return {
+    resultMessageId,
+    bodies,
+    aggregate,
+    rawAggregate: streamed,
+    referencedMessageIds,
+    substantiveMessageIds,
+  };
 }
 // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 // harn:end continuation-writer-follows-journaled-output-ownership

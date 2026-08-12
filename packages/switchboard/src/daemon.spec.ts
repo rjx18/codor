@@ -315,6 +315,71 @@ describe('chronological continuation writer', () => {
     });
     expect(daemon.store.countUnreadMessages('eng', owner.id)).toBe(2);
   });
+
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-writer-regression
+  // harn:assume finalized-turn-routes-aggregate-from-terminal-output ref=aggregate-routing-regression
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=continuation-prose-boundary-aggregate-regression
+  it('keeps block rows prefix-free while routing one cross-output aggregate after an interjection', async () => {
+    const alpha = spawnAgent('cross-output-alpha');
+    const beta = spawnAgent('cross-output-beta');
+    daemon.pauseMember('eng', beta.id);
+    fake.enqueue({
+      kind: 'complete',
+      final_text: 'First\n\nSecond @richard @cross-output-beta',
+      items: [
+        { type: 'run.item', item_type: 'text_block', payload: { text: 'First' } },
+        {
+          type: 'run.item', item_type: 'text_block',
+          payload: { text: 'Second @richard @cross-output-beta' },
+        },
+      ],
+      item_delay_ms: 50,
+    });
+
+    daemon.postHumanMessage('eng', '@cross-output-alpha start');
+    const root = await until(() => daemon.store.listRunMessages('eng', {
+      author: alpha.id, limit: 1,
+    })[0]);
+    await until(() => daemon.blobs.read('eng', root.run!.events_ref)
+      .some((event) => event.type === 'run.item' && event.item_type === 'text_block')
+      ? true
+      : undefined);
+    daemon.postHumanMessage('eng', 'human interjection');
+    await daemon.settle();
+
+    const continuations = daemon.store.listRunContinuations('eng', root.id);
+    const terminal = continuations.at(-1)!;
+    expect(daemon.store.getMessage('eng', root.id)).toMatchObject({
+      body: 'First',
+      run: {
+        status: 'completed', output_mode: 'messages', result_message_id: terminal.id,
+        final_text: 'First\n\nSecond @richard @cross-output-beta',
+      },
+    });
+    expect(continuations).toEqual([
+      expect.objectContaining({
+        id: terminal.id,
+        body: 'Second @richard @cross-output-beta',
+        run_parent_id: root.id,
+      }),
+    ]);
+
+    const onward = daemon.store.listDeliveries('eng', { recipient: beta.id })
+      .find((delivery) => delivery.message_id === terminal.id)!;
+    expect(onward).toBeDefined();
+    expect(JSON.parse(daemon.store.getDeliveryPayloadSnapshot('eng', onward.id)!)).toMatchObject({
+      context: {
+        message: {
+          id: terminal.id,
+          body: 'First\n\nSecond @richard @cross-output-beta',
+          run: { result_message_id: terminal.id },
+        },
+      },
+    });
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
+  // harn:end finalized-turn-routes-aggregate-from-terminal-output
+  // harn:end continuation-writer-follows-journaled-output-ownership
 });
 // harn:end finalized-turn-routes-aggregate-from-terminal-output
 // harn:end continuation-writer-follows-journaled-output-ownership

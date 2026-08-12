@@ -4525,10 +4525,9 @@ export class Daemon {
     const failure = rawFailure?.trim() === '' ? undefined : rawFailure;
     const journal = this.blobs.read(room, runMsg.run!.events_ref);
     const projection = projectContinuationOutputs(runMsgId, journal);
-    const projectedAggregate = [...projection.bodies]
-      .sort(([left], [right]) => left - right)
-      .map(([, text]) => text)
-      .join('');
+    // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=continuation-prose-boundary-aggregate-finalization
+    const projectedAggregate = projection.aggregate;
+    // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
     // The journal projection is the one complete, normalized answer. Some
     // adapters report the whole response in final_text; others report only the
     // final suffix after streaming interim narration. Persisting the native
