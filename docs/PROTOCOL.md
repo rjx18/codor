@@ -279,13 +279,18 @@ context. Use <ACK_OK> as your entire reply only when a message needs no action a
 answer; never append it after doing work or as a sign-off.]
 ```
 <!-- harn:end agent-briefings-distinguish-invocation-from-discussion -->
-<!-- harn:end live-collaboration-contract-is-public-v5 -->
 
-The conventions trailer is included on an agent's **first** delivery in a channel and thereafter
-only if it has misaddressed (posted an unresolvable mention). Both facts are persisted per
-member (`conventions_sent`, `misaddressed` flags), so restarts don't re-spam. Keep payloads
-lean — sessions pay tokens for every byte. The same adapter-independent workflow reaches every
-first-party native prompt boundary.
+<!-- harn:assume compaction-reinjects-codor-briefing ref=protocol-briefing-reinjection-contract -->
+The conventions trailer is included on an agent's **first** delivery in a channel, after it
+misaddresses (posts an unresolvable mention), and on the next delivery after a successful
+automatic or manual native compaction. The existing persisted flag gate (`conventions_sent`,
+`misaddressed`, and `roster_stale`) preserves this lifecycle across restarts: compaction re-arms
+the next ordinary delivery only, never injects mid-turn, duplicates a briefing, or re-arms after
+failed compaction. Keep payloads lean — sessions pay tokens for every byte. The same
+adapter-independent workflow reaches every first-party native prompt boundary.
+<!-- harn:end compaction-reinjects-codor-briefing -->
+
+<!-- harn:end live-collaboration-contract-is-public-v5 -->
 
 ### Queueing
 
