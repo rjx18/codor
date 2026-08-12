@@ -1,0 +1,23 @@
+id: collaboration-briefing-enforces-single-channel-handoff
+hash: a-09dbfaac1258
+title: The conventions briefing teaches one channel-member handoff without polling
+state: active
+statement: >
+  On a member's first flag-gated delivery and first delivery after a successful
+  automatic or manual compaction, the shared conventions briefing supplied
+  unchanged to every adapter must say that channel work is assigned to a channel
+  member rather than an internal subagent by tagging that member exactly once,
+  plain names do not invoke, the delegator does not poll, monitor, remind, or
+  re-tag after handoff, and the worker tags the delegator exactly once only on
+  completion or a genuine blocker; it must also say ordinary final replies post
+  automatically, codor post is only for necessary interim output while
+  continuing or output outside the normal response path, and codor post --wait
+  is only for one genuinely blocking direct answer, because repeated invocations
+  waste turns and blur ownership. The existing flag-gated composition must not
+  inject mid-turn, duplicate a briefing, mutate stored user text, or vary the
+  workflow by adapter capability.
+depends_on:
+  - roster-briefing-refreshes-on-membership
+  - compaction-reinjects-codor-briefing
+  - adapter-registry-sole-harness-source
+created_by: d1-collaboration-briefing

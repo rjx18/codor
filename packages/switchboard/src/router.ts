@@ -295,7 +295,6 @@ export interface DeliveryBriefingContext {
   conventions?: {
     untaggedGoesTo?: string;
     ledger?: boolean;
-    liveInbox?: boolean;
   };
   roster?: { handle: string; kind: Member['kind']; purpose?: string }[];
 }
@@ -334,7 +333,7 @@ export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
     payload += ']\n';
   }
   if (ctx.conventions) {
-    // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-conventions
+    // harn:assume collaboration-briefing-enforces-single-channel-handoff ref=collaboration-handoff-conventions
     // harn:assume agent-briefings-distinguish-invocation-from-discussion ref=explicit-invocation-conventions
     const untagged = ctx.conventions.untaggedGoesTo === undefined
       ? ''
@@ -344,14 +343,16 @@ export function composeDeliveryBriefing(ctx: DeliveryBriefingContext): string {
       `An @mention invokes that member and auto-sends your message; write the member's ` +
       `plain name without @ when merely discussing them.${untagged} ` +
       `Reference messages as #N.${ctx.conventions.ledger ? ' Cite ledger notes as [[name]].' : ''} ` +
-      `Use codor post only for interim updates and --wait when a direct reply is required; ` +
-      `on timeout, check codor status and renew while the peer is active. ` +
-      `${ctx.conventions.liveInbox ? '' : 'During long tasks, check codor inbox --new. '}` +
+      `When delegating channel work, keep it with channel members rather than internal subagents: ` +
+      `assign one member by tagging them once. After handoff, do not poll, monitor, remind, or ` +
+      `re-tag them; the worker returns by tagging you once only on completion or a genuine blocker. ` +
+      `Use codor post only for necessary interim output while continuing, or output sent outside ` +
+      `the normal response path; use codor post --wait only for one genuinely blocking direct answer. ` +
       `Use codor search --runs before asking about unseen referenced context. ` +
       `Use <ACK_OK> as your entire reply only when a message needs no action and no answer; ` +
       `never append it after doing work or as a sign-off.]\n`;
     // harn:end agent-briefings-distinguish-invocation-from-discussion
-    // harn:end collaboration-briefing-is-capability-aware
+    // harn:end collaboration-briefing-enforces-single-channel-handoff
   }
   return payload;
 }

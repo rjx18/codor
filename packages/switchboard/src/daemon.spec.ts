@@ -4411,6 +4411,11 @@ describe('barriered collaboration rounds', () => {
       expect(payload).toContain('[roster:');
       expect(payload).toContain('[conventions:');
       expect(payload).toContain('@mention invokes');
+      expect(payload).toContain('assign one member by tagging them once');
+      expect(payload).toContain('do not poll, monitor, remind, or re-tag');
+      expect(payload).not.toContain('codor status');
+      expect(payload).not.toContain('codor inbox --new');
+      expect(payload.match(/\[conventions:/g)).toHaveLength(1);
     }
 
     const roundTwoPayloads = fake.deliveries.slice(2).map((delivery) => delivery.payload);
@@ -7587,6 +7592,16 @@ describe('codor briefing re-injection after compaction', () => {
     fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>' });
     daemon.postHumanMessage('eng', `@${handle} establish context`);
     await daemon.settle();
+    const payload = fake.deliveries.at(-1)!.payload;
+    expect(payload).toContain('channel members rather than internal subagents');
+    expect(payload).toContain('assign one member by tagging them once');
+    expect(payload).toContain('do not poll, monitor, remind, or re-tag');
+    expect(payload).toContain(
+      'worker returns by tagging you once only on completion or a genuine blocker',
+    );
+    expect(payload).toContain('codor post --wait only for one genuinely blocking direct answer');
+    expect(payload).not.toContain('codor status');
+    expect(payload).not.toContain('codor inbox --new');
     const member = daemon.store.getMember('eng', agent.id)!;
     expect(member.conventions_sent).toBe(true);
     expect(member.roster_stale).toBe(false);
@@ -7599,8 +7614,14 @@ describe('codor briefing re-injection after compaction', () => {
     // The compaction boundary rides the live deliver() iterator of an active
     // turn — exactly how auto-compaction surfaces for both runtimes.
     fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>', items: [compactionCompleted] });
-    daemon.postHumanMessage('eng', '@compact-alpha do work');
+    const activeTurn = daemon.postHumanMessage('eng', '@compact-alpha do work');
     await daemon.settle();
+
+    // Compaction re-arms only after this payload was admitted: never inject
+    // into the middle of the active turn or mutate its stored user message.
+    const activePayload = fake.deliveries.at(-1)!.payload;
+    expect(activePayload).not.toContain('[conventions:');
+    expect(daemon.store.getMessage('eng', activeTurn.id)?.body).toBe('@compact-alpha do work');
 
     const rearmed = daemon.store.getMember('eng', agent.id)!;
     expect(rearmed.conventions_sent).toBe(false);
@@ -7613,6 +7634,8 @@ describe('codor briefing re-injection after compaction', () => {
     const followup = fake.deliveries.at(-1)!.payload;
     expect(followup).toContain('[conventions:');
     expect(followup).toContain('[roster:');
+    expect(followup).toContain('do not poll, monitor, remind, or re-tag');
+    expect(followup.match(/\[conventions:/g)).toHaveLength(1);
 
     // Gates close again after the re-injected delivery.
     const settled = daemon.store.getMember('eng', agent.id)!;
@@ -7644,7 +7667,10 @@ describe('codor briefing re-injection after compaction', () => {
     fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>' });
     daemon.postHumanMessage('eng', '@compact-beta after compaction');
     await daemon.settle();
-    expect(fake.deliveries.at(-1)!.payload).toContain('[conventions:');
+    const payload = fake.deliveries.at(-1)!.payload;
+    expect(payload).toContain('[conventions:');
+    expect(payload).toContain('assign one member by tagging them once');
+    expect(payload).not.toContain('codor status');
   });
 
   it('preserves a concurrently raised misaddress flag through the re-arm', async () => {
@@ -7713,6 +7739,29 @@ describe('codor briefing re-injection after compaction', () => {
     const member = daemon.store.getMember('eng', agent.id)!;
     expect(member.conventions_sent).toBe(false);
     expect(member.roster_stale).toBe(true);
+  });
+
+  it('persists a re-armed briefing across a real Store and Daemon restart', async () => {
+    const agent = await establishBriefing('compact-restart');
+    await daemon.compactMember('eng', agent.id, owner().id);
+    await daemon.close();
+
+    fake = new FakeAdapter('fake', { interactiveAttach: true });
+    daemon = newDaemon();
+    expect(daemon.store.getMember('eng', agent.id)).toMatchObject({
+      conventions_sent: false,
+      roster_stale: true,
+    });
+
+    fake.enqueue({ kind: 'complete', final_text: '<ACK_OK>' });
+    const message = daemon.postHumanMessage('eng', '@compact-restart after restart');
+    await daemon.settle();
+    const payload = fake.deliveries.at(-1)!.payload;
+    expect(payload).toContain('[conventions:');
+    expect(payload).toContain('worker returns by tagging you once only on completion');
+    expect(payload.match(/\[conventions:/g)).toHaveLength(1);
+    expect(daemon.store.getMessage('eng', message.id)?.body)
+      .toBe('@compact-restart after restart');
   });
 });
 // harn:end compaction-reinjects-codor-briefing

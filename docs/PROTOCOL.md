@@ -268,12 +268,15 @@ before submitting. (…full body verbatim…)
 [conventions: your normal final reply posts to the channel automatically. An
 @mention invokes that member and auto-sends your message; write the member's plain
 name without @ when merely discussing them. An untagged reply goes to @richard.
-Reference messages as #N. Cite ledger notes as [[name]]. Use codor post only for
-interim updates and --wait when a direct reply is required; on timeout, check codor
-status and renew while the peer is active. During long tasks, check codor inbox
---new. Use codor search --runs before asking about unseen referenced context. Use
-<ACK_OK> as your entire reply only when a message needs no action and no answer;
-never append it after doing work or as a sign-off.]
+Reference messages as #N. Cite ledger notes as [[name]]. When delegating channel
+work, keep it with channel members rather than internal subagents: assign one member
+by tagging them once. After handoff, do not poll, monitor, remind, or re-tag them;
+the worker returns by tagging you once only on completion or a genuine blocker. Use
+codor post only for necessary interim output while continuing, or output sent
+outside the normal response path; use codor post --wait only for one genuinely
+blocking direct answer. Use codor search --runs before asking about unseen referenced
+context. Use <ACK_OK> as your entire reply only when a message needs no action and no
+answer; never append it after doing work or as a sign-off.]
 ```
 <!-- harn:end agent-briefings-distinguish-invocation-from-discussion -->
 <!-- harn:end live-collaboration-contract-is-public-v5 -->
@@ -281,9 +284,8 @@ never append it after doing work or as a sign-off.]
 The conventions trailer is included on an agent's **first** delivery in a channel and thereafter
 only if it has misaddressed (posted an unresolvable mention). Both facts are persisted per
 member (`conventions_sent`, `misaddressed` flags), so restarts don't re-spam. Keep payloads
-lean — sessions pay tokens for every byte. For an adapter with `live_inbox: true`, the trailer
-omits only the inbox-polling sentence; every other collaboration and exact-acknowledgement rule
-remains.
+lean — sessions pay tokens for every byte. The same adapter-independent workflow reaches every
+first-party native prompt boundary.
 
 ### Queueing
 
@@ -316,7 +318,8 @@ the posted message's effective mentions but does not finalize or replace the run
 latest-finalized-agent fallback, or gain acknowledgement semantics. `post --wait` also snapshots
 `awaiting_reply` into each delivery header, then registers the addressed peers and accepts only the
 first queued reply authored by one of them that directly mentions the sender. An untagged
-default-routed reply does not satisfy the wait.
+default-routed reply does not satisfy the wait. Use it only when one direct answer genuinely blocks
+the continuing turn, never to poll or monitor delegated channel work.
 
 <!-- harn:assume group-round-routing-instruction-is-always-on ref=protocol-group-routing-contract -->
 When a finalized message invokes two or more agents, Codor creates a durable collaboration group.
