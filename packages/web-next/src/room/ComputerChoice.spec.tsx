@@ -96,6 +96,7 @@ describe('ComputerChoice status and activity presentation', () => {
   it('keeps the status outline independent from active selection and exposes the full palette', () => {
     expect(COMPUTER_GLYPHS).toHaveLength(18);
     expect(COMPUTER_COLORS).toHaveLength(16);
+    expect(COMPUTER_GLYPHS).toEqual(expect.arrayContaining(['cat', 'ghost', 'coffee', 'leaf', 'star', 'orbit', 'package', 'zap']));
     const html = renderToStaticMarkup(
       <ComputerChoice
         computer={computer({ id: 'C', active: true, connected: false })}
@@ -106,6 +107,22 @@ describe('ComputerChoice status and activity presentation', () => {
     );
     expect(html).toContain('class="nx-computer-avatar is-active is-reconnecting"');
     expect(html).toContain('--nx-computer-avatar-color:#334155');
+  });
+
+  it('renders a playful Lucide choice and leaves an unavailable status ring visible when disabled', () => {
+    const html = renderToStaticMarkup(
+      <ComputerChoice
+        computer={computer({ id: 'C', authRefused: true })}
+        variant="avatar"
+        appearance={{ glyph: 'cat', color: '#3730a3' }}
+        disabled
+        onSelect={() => undefined}
+      />,
+    );
+    expect(html).toContain('class="nx-computer-avatar is-repair"');
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('lucide-cat');
+    expect(html).toContain('--nx-computer-avatar-color:#3730a3');
   });
   // harn:end hosted-computer-hostname-tooltip-is-focus-visible
   // harn:end hosted-computer-status-outline-is-independent-from-selection

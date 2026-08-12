@@ -1,22 +1,22 @@
 import {
-  Bot,
-  Boxes,
-  Cloud,
-  Code,
+  Cat,
+  Coffee,
   Cpu,
-  Database,
+  Ghost,
   Gamepad2,
-  Globe,
   HardDrive,
+  Leaf,
   Laptop,
   Monitor,
-  Network,
-  Rocket,
+  Orbit,
+  Package,
   Router,
   Server,
   Smartphone,
+  Star,
   Tablet,
   Terminal,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import type { CSSProperties, KeyboardEventHandler, MouseEventHandler, PointerEventHandler, ReactNode } from 'react';
@@ -38,8 +38,8 @@ export interface ComputerAppearance {
 /** Small, intentionally finite choices so appearance metadata is harmless to persist. */
 export const COMPUTER_GLYPHS = [
   'monitor', 'laptop', 'cpu', 'terminal', 'server', 'router', 'smartphone',
-  'tablet', 'gamepad', 'hard-drive', 'globe', 'cloud', 'bot', 'boxes',
-  'code', 'database', 'network', 'rocket',
+  'tablet', 'gamepad', 'hard-drive', 'cat', 'ghost', 'coffee', 'leaf', 'star',
+  'orbit', 'package', 'zap',
 ] as const;
 
 export const COMPUTER_COLORS = [
@@ -61,14 +61,14 @@ export const COMPUTER_GLYPH_ICONS: Record<ComputerGlyph, LucideIcon> = {
   tablet: Tablet,
   gamepad: Gamepad2,
   'hard-drive': HardDrive,
-  globe: Globe,
-  cloud: Cloud,
-  bot: Bot,
-  boxes: Boxes,
-  code: Code,
-  database: Database,
-  network: Network,
-  rocket: Rocket,
+  cat: Cat,
+  ghost: Ghost,
+  coffee: Coffee,
+  leaf: Leaf,
+  star: Star,
+  orbit: Orbit,
+  package: Package,
+  zap: Zap,
 };
 
 export const COMPUTER_GLYPH_LABELS: Record<ComputerGlyph, string> = {
@@ -82,14 +82,14 @@ export const COMPUTER_GLYPH_LABELS: Record<ComputerGlyph, string> = {
   tablet: 'Tablet',
   gamepad: 'Gamepad',
   'hard-drive': 'Hard drive',
-  globe: 'Globe',
-  cloud: 'Cloud',
-  bot: 'Bot',
-  boxes: 'Boxes',
-  code: 'Code',
-  database: 'Database',
-  network: 'Network',
-  rocket: 'Rocket',
+  cat: 'Cat',
+  ghost: 'Ghost',
+  coffee: 'Coffee',
+  leaf: 'Leaf',
+  star: 'Star',
+  orbit: 'Orbit',
+  package: 'Package',
+  zap: 'Lightning',
 };
 
 const APPEARANCE_STORAGE_KEY = 'codor.computer-appearance.v1';

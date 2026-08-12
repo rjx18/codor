@@ -104,7 +104,7 @@ test.describe('computer switcher UI', () => {
 
     await current.click({ button: 'right' });
     await expect(customize).toBeVisible();
-    await page.getByRole('button', { name: 'Use Laptop icon' }).click();
+    await page.getByRole('button', { name: 'Use Cat icon' }).click();
     await page.getByRole('button', { name: /Use #0f766e avatar color/ }).click();
     await page.keyboard.press('Escape');
 
@@ -167,6 +167,39 @@ test.describe('computer switcher UI', () => {
 
     const current = page.getByTestId('computer-current');
     await expect(current).toHaveClass(/is-connected/);
+    const iconContrast = await current.evaluate((element) => {
+      const root = document.documentElement;
+      const previousTheme = root.getAttribute('data-theme');
+      const luminance = (value: string): number => {
+        const match = value.match(/rgba?\((\d+),?\s*(\d+),?\s*(\d+)/);
+        if (!match) return 0;
+        const channels = [Number(match[1]), Number(match[2]), Number(match[3])].map((channel) => {
+          const normalized = channel / 255;
+          return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
+      };
+      const read = () => {
+        const style = getComputedStyle(element);
+        const foreground = luminance(style.color);
+        const background = luminance(style.backgroundColor);
+        return {
+          color: style.color,
+          contrast: (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05),
+        };
+      };
+      root.dataset.theme = 'light';
+      const light = read();
+      root.dataset.theme = 'dark';
+      const dark = read();
+      if (previousTheme === null) root.removeAttribute('data-theme');
+      else root.setAttribute('data-theme', previousTheme);
+      return { light, dark };
+    });
+    expect(iconContrast.light.color).toBe('rgb(255, 255, 255)');
+    expect(iconContrast.dark.color).toBe('rgb(255, 255, 255)');
+    expect(iconContrast.light.contrast).toBeGreaterThanOrEqual(4.5);
+    expect(iconContrast.dark.contrast).toBeGreaterThanOrEqual(4.5);
     await current.focus();
     await page.keyboard.press('Shift+F10');
     const customize = page.getByTestId('computer-customize-modal');
@@ -188,5 +221,16 @@ test.describe('computer switcher UI', () => {
     expect(customizeA11y.violations).toEqual([]);
     await page.keyboard.press('Escape');
     await expect(customize).toHaveCount(0);
+
+    const disabledStatus = await current.evaluate((element) => {
+      element.classList.remove('is-connected');
+      element.classList.add('is-repair');
+      (element as HTMLButtonElement).disabled = true;
+      const style = getComputedStyle(element);
+      return { opacity: style.opacity, borderColor: style.borderTopColor };
+    });
+    expect(disabledStatus.opacity).toBe('1');
+    expect(disabledStatus.borderColor).not.toBe('rgba(0, 0, 0, 0)');
+    expect(disabledStatus.borderColor).not.toBe('transparent');
   });
 });

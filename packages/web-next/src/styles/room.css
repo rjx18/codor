@@ -3525,7 +3525,7 @@
   border: 2px solid var(--nx-computer-status-color);
   border-radius: var(--r-full);
   background: var(--nx-computer-avatar-color);
-  color: var(--c-surface);
+  color: #fff;
   cursor: pointer;
   transition: border-color 120ms ease, transform 120ms ease, background 120ms ease;
 }
@@ -3536,7 +3536,7 @@
 .nx-computer-avatar.is-connected { --nx-computer-status-color: var(--c-live); }
 .nx-computer-avatar.is-reconnecting { --nx-computer-status-color: var(--c-warn); }
 .nx-computer-avatar.is-repair { --nx-computer-status-color: var(--c-error); }
-.nx-computer-avatar:disabled { opacity: 0.55; cursor: not-allowed; }
+.nx-computer-avatar:disabled { cursor: not-allowed; }
 .nx-computer-avatar-glyph { display: grid; place-items: center; line-height: 1; }
 .nx-computer-avatar-tooltip {
   position: absolute;
@@ -3722,7 +3722,6 @@
   .nx-computer-add-step + .nx-computer-add-step { padding-top: var(--sp-4); }
   .nx-modal[data-testid='computer-customize-modal'] {
     width: calc(100vw - 16px);
-    max-height: calc(100dvh - 16px);
     padding: var(--sp-4);
   }
 }

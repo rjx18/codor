@@ -1,0 +1,88 @@
+id: computer-rail-phase2-review-fix
+title: Computer avatar palette and unavailable-status contrast correction
+notes: >
+  Apply only the contained Phase 2 review correction from the clean integrated
+  5ce1c058 base. Diversify the finite browser-local Lucide choices with playful
+  icons while retaining core computer icons; use one contrast-safe monochrome
+  foreground in light and dark themes; keep the truthful green/amber/red status
+  outline fully visible when an unavailable avatar is disabled; and remove the
+  duplicate customization-modal max-height declaration. Preserve rail order,
+  local persistence and legacy fallback, selection/activity semantics, dialog
+  behavior, and all session, relay, transport, protocol, server, release, and
+  deployment behavior.
+assumptions:
+  reviewed:
+    - id: hosted-computer-avatar-uses-monochrome-icon-palette
+      outcome: unchanged
+      reason: The finite browser-local Lucide palette, selected background color, and
+        safe legacy-value fallback remain the contract; this correction only
+        diversifies choices and makes their foreground contrast-safe.
+    - id: hosted-computer-status-outline-is-independent-from-selection
+      outcome: unchanged
+      reason: Connected, reconnecting, and repair-required outlines remain truthful
+        and independent from active selection; disabled presentation must not
+        hide the outline.
+    - id: hosted-computer-customization-dialog-is-viewport-safe
+      outcome: unchanged
+      reason: The modal remains bounded, scrollable, keyboard-safe, 44px-targeted, and
+        Axe-clean; only a duplicate responsive declaration is removed.
+    - id: hosted-computer-avatar-rail-is-local-and-accessible
+      outcome: unchanged
+      reason: The rail remains hosted-only, local, warm, isolated, and accessible;
+        this correction changes presentation choices and contrast only.
+    - id: hosted-computer-avatar-badges-are-actionable
+      outcome: unchanged
+      reason: Unread and working/attention badge visibility and semantics remain
+        unchanged.
+    - id: hosted-computer-hostname-tooltip-is-focus-visible
+      outcome: unchanged
+      reason: Hostname tooltip and accessible-name behavior remain unchanged.
+anchors:
+  hosted-computer-avatar-uses-monochrome-icon-palette:
+    computer-avatar-icon-palette:
+      action: change
+      reason: Replace infrastructure-heavy choices with a balanced core/playful Lucide
+        palette and keep every icon foreground legible in both themes.
+    computer-avatar-appearance-regression:
+      action: change
+      reason: Cover a playful icon choice and light/dark computed foreground contrast
+        without changing local persistence semantics.
+  hosted-computer-status-outline-is-independent-from-selection:
+    computer-avatar-status-outline:
+      action: change
+      reason: Preserve the truthful status ring when an unavailable avatar is disabled
+        instead of dimming the whole control.
+    computer-avatar-status-regression:
+      action: change
+      reason: Cover the disabled repair outline and retain independent selection and
+        activity assertions.
+  hosted-computer-customization-dialog-is-viewport-safe:
+    computer-customization-dialog-layout:
+      action: change
+      reason: Remove the duplicate responsive max-height declaration while keeping the
+        bounded scroll region.
+    computer-customization-dialog-regression:
+      action: change
+      reason: Keep the desktop/phone dialog bounds and Axe coverage alongside the
+        corrected palette.
+  hosted-computer-avatar-rail-is-local-and-accessible:
+    computer-avatar-rail-accessibility-regression:
+      action: change
+      reason: Add browser assertions for computed light/dark icon foreground and the
+        unfaded unavailable status outline.
+files:
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/room/ComputerChoice.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room36-computer-ui.e2e.spec.ts
+verification: >
+  Before editing, verify the exact 5ce1c058 base and clean-lock this review
+  plan. Run focused ComputerChoice and ComputerSwitcher units, all web-next
+  units, the production/PWA build, and Room 36 phone and desktop journeys with
+  persistence, playful-choice, computed light/dark foreground, unavailable
+  status-ring, geometry, keyboard, and Axe assertions. Run Harn working/staged
+  checks and apply, git diff checks, and create exactly one implementation
+  commit. Do not change session, relay, database, transport, credential,
+  protocol, server, release, deployment, or scrolling behavior.
+applied:
+  applied_at: 2026-08-12T01:50:49.006Z
