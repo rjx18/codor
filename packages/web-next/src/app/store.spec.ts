@@ -140,6 +140,62 @@ describe('room-keyed client state', () => {
     expect(Object.keys(alpha.messages)).toEqual(['10', '12']);
   });
 
+  // harn:assume combined-history-opening-sync-stays-cold ref=cached-sync-cold-classification-regression
+  it('keeps an opening snapshot cold after a faster head lands but keeps later frames live', () => {
+    const cached = createClientStore();
+    const other = createClientStore();
+    for (const [store, cachedId] of [[cached, 30], [other, 80]] as const) {
+      store.getState().hydrateLastGoodRoom(room('shared'), [], {
+        messages: { [cachedId]: message('shared', cachedId) },
+        journals: {},
+        units: [{ kind: 'message', message_id: cachedId }],
+        beforeCursor: null,
+        hasMore: false,
+      });
+      expect(roomSlice(store.getState(), 'shared').hydrated).toBe(true);
+      store.getState().applyFrame(frame({ type: 'self', room: 'shared', member_id: `human-${String(cachedId)}` }));
+      store.getState().updateTranscriptHistory('shared', (history) => ({
+        ...history,
+        // Model the ordering race: authenticated head already completed, but
+        // this generation's opening socket snapshot has not committed yet.
+        headNeedsRevalidation: false,
+      }));
+      store.getState().applyFrame(frame({ type: 'room', seq: cachedId, room: room('shared') }));
+      store.getState().applyFrame(frame({
+        type: 'message',
+        seq: cachedId + 1,
+        message: message('shared', cachedId + 1),
+      }));
+      store.getState().applyFrame(frame({
+        type: 'sync_complete', room: 'shared', seq: cachedId + 1, history_floor: cachedId + 1,
+      }));
+    }
+
+    expect(roomSlice(cached.getState(), 'shared').transcriptHistory.coldMessageIds).toEqual({
+      30: true,
+      31: true,
+    });
+    expect(roomSlice(other.getState(), 'shared').transcriptHistory.coldMessageIds).toEqual({
+      80: true,
+      81: true,
+    });
+
+    cached.getState().applyFrame(frame({
+      type: 'message', seq: 32, message: message('shared', 32),
+    }));
+    expect(roomSlice(cached.getState(), 'shared').messages[32]).toBeDefined();
+    expect(roomSlice(cached.getState(), 'shared').transcriptHistory.coldMessageIds?.[32]).toBeUndefined();
+    expect(roomSlice(other.getState(), 'shared').messages[32]).toBeUndefined();
+
+    const firstSync = createClientStore();
+    firstSync.getState().setActiveRoom('shared');
+    firstSync.getState().applyFrame(frame({ type: 'self', room: 'shared', member_id: 'direct-human' }));
+    firstSync.getState().applyFrame(frame({ type: 'message', seq: 4, message: message('shared', 4) }));
+    firstSync.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 4 }));
+    expect(roomSlice(firstSync.getState(), 'shared').transcriptHistory.coldMessageIds).toBeUndefined();
+  });
+  // harn:end combined-history-opening-sync-stays-cold
+
   // harn:assume paged-history-live-message-reconciliation ref=live-history-pin-delete-regression
   it('reconciles pin, unpin, and deletion frames into a materialized history row', () => {
     const store = useClientStore.getState();

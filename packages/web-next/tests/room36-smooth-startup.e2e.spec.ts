@@ -190,6 +190,144 @@ test.describe('hosted smooth startup budgets', () => {
     await expect(page.getByTestId('composer-send')).toBeEnabled();
     console.info('[hosted-cached-render-metrics]', JSON.stringify({ cachedRenderMs }));
   });
+
+  // harn:assume combined-history-opening-sync-stays-cold ref=hosted-cache-replay-browser-regression
+  // harn:assume transcript-tail-follow-has-one-prepaint-owner ref=transcript-prepaint-geometry-regression
+  test('cached hosted replay never appends an older row or moves the transcript while typing', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    await expect.poll(async () => await page.evaluate(async () => {
+      const opened = indexedDB.open('codor-last-good-room-v1');
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        opened.onsuccess = () => resolve(opened.result);
+        opened.onerror = () => reject(opened.error);
+      });
+      const count = await new Promise<number>((resolve, reject) => {
+        const request = database.transaction('rooms').objectStore('rooms').count();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
+      return count;
+    })).toBeGreaterThan(0);
+
+    await control('/relay-down');
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
+    const probe = await page.evaluate(async () => {
+      const opened = indexedDB.open('codor-last-good-room-v1');
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        opened.onsuccess = () => resolve(opened.result);
+        opened.onerror = () => reject(opened.error);
+      });
+      const transaction = database.transaction('rooms', 'readwrite');
+      const store = transaction.objectStore('rooms');
+      const keys = await new Promise<IDBValidKey[]>((resolve, reject) => {
+        const request = store.getAllKeys();
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const key = keys[0];
+      if (key === undefined) throw new Error('missing cached computer snapshot');
+      const snapshot = await new Promise<any>((resolve, reject) => {
+        const request = store.get(key);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const candidates = snapshot.history.units.flatMap((unit: any, index: number) => {
+        if (unit.kind !== 'message') return [];
+        const message = snapshot.history.messages[unit.message_id];
+        return message?.kind === 'chat' && message.deleted !== true
+          ? [{ id: unit.message_id as number, body: message.body as string, index }]
+          : [];
+      });
+      if (candidates.length < 2) throw new Error('cached head needs two ordinary rows');
+      const removed = candidates.at(-2)!;
+      const later = candidates.at(-1)!;
+      snapshot.history.units.splice(removed.index, 1);
+      delete snapshot.history.messages[removed.id];
+      await new Promise<void>((resolve, reject) => {
+        const request = store.put(snapshot, key);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+      await new Promise<void>((resolve, reject) => {
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+        transaction.onabort = () => reject(transaction.error);
+      });
+      database.close();
+      return { removed, later };
+    });
+
+    await page.reload();
+    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 1_000 });
+    await expect(page.getByTestId(`msg-${String(probe.later.id)}`)).toBeVisible();
+    await expect(page.getByTestId(`msg-${String(probe.removed.id)}`)).toHaveCount(0);
+    await page.evaluate(({ removedId }) => {
+      const runtime = window as unknown as {
+        __hostedReplay?: {
+          liveReplayCount: number;
+          gaps: number[];
+          stopped: boolean;
+          observer: MutationObserver;
+        };
+      };
+      const state = {
+        liveReplayCount: 0,
+        gaps: [] as number[],
+        stopped: false,
+        observer: undefined as unknown as MutationObserver,
+      };
+      const capture = (): void => {
+        const row = document.querySelector<HTMLElement>(`[data-testid="msg-${String(removedId)}"]`);
+        if (row !== null && row.dataset.transcriptUnit === undefined) state.liveReplayCount += 1;
+      };
+      state.observer = new MutationObserver(capture);
+      state.observer.observe(document.querySelector('[data-testid="timeline"]')!, {
+        childList: true,
+        subtree: true,
+      });
+      const sample = (): void => {
+        if (state.stopped) return;
+        const timeline = document.querySelector<HTMLElement>('[data-testid="timeline"]');
+        if (timeline) state.gaps.push(timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight);
+        capture();
+        requestAnimationFrame(sample);
+      };
+      runtime.__hostedReplay = state;
+      requestAnimationFrame(sample);
+    }, { removedId: probe.removed.id });
+
+    await control('/relay-up');
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId(`msg-${String(probe.removed.id)}`)).toHaveAttribute(
+      'data-transcript-unit',
+      `message:${String(probe.removed.id)}`,
+    );
+    const input = page.getByTestId('composer-input');
+    await input.fill('one\ntwo\nthree\nfour\nfive\nsix');
+    await input.fill('one');
+    await page.waitForTimeout(300);
+    const evidence = await page.evaluate(() => {
+      const state = (window as unknown as {
+        __hostedReplay: {
+          liveReplayCount: number;
+          gaps: number[];
+          stopped: boolean;
+          observer: MutationObserver;
+        };
+      }).__hostedReplay;
+      state.stopped = true;
+      state.observer.disconnect();
+      return { liveReplayCount: state.liveReplayCount, gaps: state.gaps };
+    });
+    expect(evidence.liveReplayCount).toBe(0);
+    expect(evidence.gaps.length).toBeGreaterThan(5);
+    expect(Math.max(...evidence.gaps)).toBeLessThanOrEqual(2);
+    expect(Math.min(...evidence.gaps)).toBeGreaterThanOrEqual(-1);
+  });
+  // harn:end transcript-tail-follow-has-one-prepaint-owner
+  // harn:end combined-history-opening-sync-stays-cold
   // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection

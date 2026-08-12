@@ -267,7 +267,7 @@ const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHist
  *  the exported singleton below remains the unchanged direct/self-hosted path. */
 export function createClientStore(): ClientStore {
   const staging = new Map<string, HydrationStaging>();
-  const store = create<ClientState>((set, get) => ({
+  const store = create<ClientState>((set) => ({
   connected: false,
   authRefused: false,
   activeRoom: '',
@@ -294,11 +294,13 @@ export function createClientStore(): ClientStore {
 
     const roomId = frameRoom(frame, fallbackRoom);
     if (roomId === undefined) return;
-    const existing = get().rooms[roomId] ?? EMPTY_ROOM;
 
-    // Every addressed cold snapshot starts with self. Keep each room's frames
-    // outside visible Zustand state until that room's sync_complete arrives.
-    if (frame.type === 'self' && !existing.hydrated) {
+    // harn:assume combined-history-opening-sync-stays-cold ref=cached-sync-cold-classification
+    // Every addressed subscription snapshot starts with self. Keep its frames
+    // outside visible Zustand state until sync_complete even when retained or
+    // cached content is already readable: hydrated is last-good presentation,
+    // not proof that this generation's opening snapshot is live delta traffic.
+    if (frame.type === 'self') {
       const stage = freshStaging();
       stage.selfMemberId = frame.member_id;
       staging.set(roomId, stage);
@@ -335,9 +337,6 @@ export function createClientStore(): ClientStore {
       const bump = 'seq' in frame ? Math.max(current.seq, frame.seq) : current.seq;
       let next = current;
       switch (frame.type) {
-        case 'self':
-          next = { ...current, selfMemberId: frame.member_id };
-          break;
         case 'room':
           next = { ...current, seq: bump, room: frame.room };
           break;
@@ -358,6 +357,23 @@ export function createClientStore(): ClientStore {
           for (const member of Object.values(members)) {
             memberHistory = observeMember(memberHistory, member);
           }
+          // Once combined history establishes a cold set, every later opening
+          // socket snapshot is context rather than new tail activity. Extend
+          // the set before publishing the atomic sync—even if a fast head
+          // response already cleared headNeedsRevalidation. Frames received
+          // after sync_complete bypass staging and remain live.
+          const transcriptHistory = current.transcriptHistory.coldMessageIds !== undefined
+            ? {
+                ...current.transcriptHistory,
+                coldMessageIds: {
+                  ...current.transcriptHistory.coldMessageIds,
+                  ...Object.fromEntries(
+                    Object.keys(hydrated.messages).map((id) => [Number(id), true as const]),
+                  ),
+                },
+              }
+            : current.transcriptHistory;
+          // harn:end combined-history-opening-sync-stays-cold
           next = {
             ...current,
             hydrated: true,
@@ -370,6 +386,7 @@ export function createClientStore(): ClientStore {
             inbox,
             meter: current.meter ?? hydrated.meter,
             support: current.support ?? hydrated.support,
+            transcriptHistory,
             historyCursor: frame.history_floor
               ?? Object.values(messages).sort((a, b) => a.id - b.id)[0]?.id,
           };

@@ -1,0 +1,17 @@
+id: combined-history-opening-sync-stays-cold
+hash: a-d7dbd381c6d4
+title: Combined-history opening sync snapshots remain cold context
+state: active
+statement: >
+  Once a room has established a combined-history cold set, every message
+  delivered in a later subscription generation's atomic opening snapshot must be
+  added to that cold set before sync_complete publishes the snapshot, regardless
+  of whether a concurrent head request has already completed, while message
+  frames received after sync_complete remain live, so socket replay cannot
+  appear temporarily beneath the newest page-owned transcript unit or move a
+  pinned reader during revalidation.
+depends_on:
+  - cached-transcript-head-stays-stale-until-revalidated
+  - finalized-browser-history-is-combined-page-owned
+  - transcript-tail-follow-has-one-prepaint-owner
+created_by: hosted-cached-sync-replay-stability
