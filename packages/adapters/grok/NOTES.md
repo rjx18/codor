@@ -49,8 +49,9 @@ names and the common CLI aliases used by current builds. A scrubbed live capture
 should be added before advertising additional tool, subagent, or usage behavior.
 
 <!-- harn:assume native-prose-completeness-is-explicit ref=grok-prose-classification-contract -->
-Delta-named records (`response.output_text.delta`, `text_delta`, and
-`assistant.message_delta`) emit `run.item/text_delta`. Non-delta `message`,
-`assistant`, and `text` aliases emit complete `run.item/text_block` events.
-Classification comes from the native record name, never timing or row boundaries.
+All accepted Grok streaming-json prose records — Responses delta names
+(`response.output_text.delta`, `text_delta`, and `assistant.message_delta`) plus
+the compatibility `message`, `assistant`, and `text` aliases — emit
+`run.item/text_delta`. xAI's streaming-json contract defines these as incremental
+events as they arrive; no verified Grok completed-block path exists in this phase.
 <!-- harn:end native-prose-completeness-is-explicit -->

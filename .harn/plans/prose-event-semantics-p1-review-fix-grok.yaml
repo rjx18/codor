@@ -1,0 +1,65 @@
+id: prose-event-semantics-p1-review-fix-grok
+title: P1 review fix keeps Grok streaming JSON prose incremental
+notes: >-
+  Independent review of ce0553901e7545f3cb443a84141e456a155866e7 found that the
+  checked-in Grok streaming-native fixture's repeated type:text records were
+  reclassified as text_block. That conflicts with the program's explicit
+  Grok-delta path and xAI's first-party Headless & Scripting contract, which
+  says streaming-json emits incremental events as they arrive. Generic
+  message/assistant/text are compatibility aliases accepted inside that same
+  streaming translator, not evidence of completed prose blocks. They must all
+  remain text_delta; Grok has no verified text_block path in this phase.
+
+  Red-first: restore the native fixture's expected items to text_delta and run
+  the Grok suite before source changes. It must fail because the current P1
+  translator returns text_block for both type:text records. Then make the
+  smallest translator and documentation correction and prove both the native
+  alias and Responses-style delta-name cases remain fragments with unchanged
+  final_text.
+
+  The P1 commit also added text_block to web-next's exhaustive ITEM_LABELS map
+  solely to keep the recursive TypeScript build compiling. Add an explicit
+  comment recording that this is generic fallback labeling only; do not parse,
+  coalesce, split, unitize, or otherwise present text_block here. P2 remains the
+  owner of all live and historical presentation semantics after H2 integration.
+
+  Verification: Grok red/green, all first-party adapter and protocol suites,
+  complete switchboard suite, recursive build, Harn changed/plan/check/apply/
+  staged checks, git diff --check, one review-fix commit, and clean status.
+assumptions:
+  reviewed:
+    - id: native-prose-completeness-is-explicit
+      outcome: unchanged
+      reason: Correcting Grok's streaming aliases to text_delta enforces the existing
+        native-path-only rule; all verified completed-block paths remain intact.
+    - id: grok-capability-truth
+      outcome: unchanged
+      reason: Grok streaming-json continues to normalize its bounded text, reasoning,
+        tool, usage, session, and terminal evidence; only the incorrect prose
+        completeness classification is corrected.
+files:
+  - docs/PROTOCOL.md
+  - packages/adapters/grok/NOTES.md
+  - packages/adapters/grok/src/fixtures.spec.ts
+  - packages/adapters/grok/src/translate.ts
+  - packages/web-next/src/runtime/run-presenter.ts
+anchors:
+  native-prose-completeness-is-explicit:
+    prose-event-protocol-contract:
+      action: change
+      reason: Correct the Grok matrix to show all verified streaming-json prose as
+        deltas.
+    grok-prose-classification-contract:
+      action: change
+      reason: Document that accepted Grok prose aliases belong to its incremental
+        stream.
+  grok-capability-truth:
+    grok-event-translation:
+      action: change
+      reason: Emit text_delta for every accepted Grok streaming prose record.
+    grok-event-translation-regression:
+      action: change
+      reason: Restore the native fixture's incremental expectations and retain
+        final-text proof.
+applied:
+  applied_at: 2026-08-12T15:43:51.132Z

@@ -52,6 +52,7 @@ const ITEM_LABELS: Record<RunItemType, string> = {
   tool_result: 'Tool result',
   reasoning_summary: 'Reasoning',
   text_delta: 'Response',
+  // Compile-only fallback label for the additive protocol kind; P2 owns text_block presentation.
   text_block: 'Response',
   commit: 'Commit',
   file_change: 'File change',

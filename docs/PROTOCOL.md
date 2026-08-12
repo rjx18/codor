@@ -478,7 +478,7 @@ remain valid without migration. The audited first-party classification is:
 | Copilot | `assistant.message_delta` | non-stream `assistant.message` fallback |
 | Cursor | timestamped assistant fragment | — |
 | Gemini | assistant message with `delta:true` | assistant message not marked as a delta |
-| Grok | delta-named record | non-delta `message`/`assistant`/`text` alias |
+| Grok | delta-named and compatibility `message`/`assistant`/`text` records | — |
 | OpenCode | — | completed text part |
 | Antigravity | stdout chunk | — |
 <!-- harn:end native-prose-completeness-is-explicit -->

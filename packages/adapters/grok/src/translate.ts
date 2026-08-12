@@ -167,17 +167,13 @@ export function createTurnTranslator(initialSessionId?: string): TurnTranslator 
         }];
       }
 
-      const proseKind = type === 'response.output_text.delta' || type === 'text_delta' ||
-        type === 'assistant.message_delta'
-        ? 'text_delta'
-        : type === 'message' || type === 'assistant' || type === 'text'
-          ? 'text_block'
-          : undefined;
-      if (proseKind !== undefined) {
+      if (type === 'response.output_text.delta' || type === 'text_delta' ||
+        type === 'assistant.message_delta' || type === 'message' || type === 'assistant' ||
+        type === 'text') {
         const text = textFrom(event) ?? '';
         if (text === '') return [];
         finalText += text;
-        return [{ type: 'run.item', item_type: proseKind, payload: { text } }];
+        return [{ type: 'run.item', item_type: 'text_delta', payload: { text } }];
       }
 
       if (isTerminal(type, event)) {
