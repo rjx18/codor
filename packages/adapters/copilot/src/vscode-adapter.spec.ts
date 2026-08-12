@@ -325,6 +325,7 @@ describe('VS Code Copilot adapter bridge', () => {
       await bridge.close();
     }
   });
+  // harn:end context-reset-retirement-is-bounded-owned-and-confirmed
 
   // harn:assume context-reset-retirement-is-bounded-owned-and-confirmed ref=reset-retirement-regression
   it('retires idle local history and checkpoints without bridge work and permits a fresh session', async () => {
@@ -373,6 +374,7 @@ describe('VS Code Copilot adapter bridge', () => {
       await bridge.close();
     }
   });
+  // harn:end context-reset-retirement-is-bounded-owned-and-confirmed
 
   it('requires the live bridge generation for the explicit cache revive and never attaches a native ref', async () => {
     const bridge = await fixture([]);
