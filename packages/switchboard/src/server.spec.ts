@@ -4198,6 +4198,49 @@ describe('clear_member_context act', () => {
     owner.ws.close();
     denied.ws.close();
   });
+
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-regression
+  it('keeps a started reset daemon-owned across requester disconnect and reconnects to authoritative state', async () => {
+    const agent = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'disconnect-reset', cwd: testCwd('disconnect-reset'),
+    });
+    daemon.store.updateMember('eng', agent.id, { session_ref: 'native-retained' });
+    const requester = await connect();
+    const observerClient = await connect();
+    for (const client of [requester, observerClient]) {
+      client.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+      await client.next((frame) => frame.type === 'sync_complete');
+    }
+
+    fake.holdResets();
+    requester.ws.send(JSON.stringify({
+      type: 'act', room: 'eng', ref: 'reset-disconnect',
+      act: { act: 'clear_member_context', member_id: agent.id },
+    }));
+    await vi.waitFor(() => expect(fake.resets).toHaveLength(1));
+    requester.ws.close();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    fake.releaseResets();
+
+    const broadcast = await observerClient.next((frame) =>
+      frame.type === 'member'
+      && frame.member.id === agent.id
+      && frame.member.session_ref === undefined
+      && frame.ref === undefined);
+    expect(broadcast).toMatchObject({ type: 'member', member: { id: agent.id } });
+    expect(fake.resets).toHaveLength(1);
+    expect(observerClient.frames.some((frame) => frame.ref === 'reset-disconnect')).toBe(false);
+
+    const reconnected = await connect();
+    reconnected.ws.send(JSON.stringify({ type: 'subscribe', room: 'eng', since_seq: 0 }));
+    await reconnected.next((frame) => frame.type === 'sync_complete');
+    expect(reconnected.frames.some((frame) =>
+      frame.type === 'member' && frame.member.id === agent.id && frame.member.session_ref === undefined,
+    )).toBe(true);
+    expect(reconnected.frames.some((frame) => frame.ref === 'reset-disconnect')).toBe(false);
+    observerClient.ws.close();
+    reconnected.ws.close();
+  });
   // harn:end context-reset-requests-settle-by-explicit-ref
 });
 // harn:end member-context-reset-is-authorized-atomic-and-lazy

@@ -195,6 +195,16 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
     await expect(codex.steer!({ harness: 'codex', cwd: '/' }, 'idle')).resolves.toBe(false);
   });
 
+  it('keeps the context-reset hook reachable on every built-in production adapter', async () => {
+    const adapters = await loadAdapterRegistry();
+    for (const id of BUILTIN_ADAPTER_IDS) {
+      const adapter = adapters.find((candidate) => candidate.id === id);
+      expect(adapter, `built-in adapter '${id}' must be registered`).toBeDefined();
+      expect(adapter?.resetSession, `wrapper must carry resetSession for '${id}'`)
+        .toBeTypeOf('function');
+    }
+  });
+
   it('carries every declared member of the contract through the wrapper', async () => {
     // Guards the next member somebody adds to HarnessAdapter and forgets here.
     const wrapped = (await loadAdapterRegistry())
@@ -203,7 +213,7 @@ describe('the registry wrapper preserves the whole adapter contract', () => {
       'id', 'capabilities', 'spawn', 'attach', 'deliver',
       'respondInteraction', 'interrupt', 'discoverSessions', 'listModels',
       // Existence only — probing here would hit a real provider.
-      'probeLimits', 'peekContextUsage', 'compactSession',
+      'probeLimits', 'peekContextUsage', 'compactSession', 'resetSession',
     ]) {
       expect(wrapped, `wrapper must carry ${member}`).toHaveProperty(member);
     }

@@ -47,6 +47,8 @@ interface BridgeEvent {
 interface VscodeSession extends Session {
   history?: Array<{ role: 'user' | 'assistant'; text: string }>;
   active_turn_id?: string;
+  active_request?: boolean;
+  retired?: boolean;
   bridge_generation?: string;
   failure_checkpoint?: {
     prompt: string;
@@ -299,7 +301,9 @@ export class CopilotVscodeAdapter implements HarnessAdapter {
   /** Used only by the daemon's explicit adapter-id-gated revive branch. */
   canReviveSession(session: Session): boolean {
     const runtime = session as VscodeSession;
-    return runtime.harness === this.id && this.client.sameGeneration(runtime.bridge_generation);
+    return runtime.harness === this.id
+      && runtime.retired !== true
+      && this.client.sameGeneration(runtime.bridge_generation);
   }
 
   // harn:assume vscode-copilot-native-agent-auto-approves-and-streams-evidence ref=vscode-copilot-model-catalog
@@ -318,6 +322,23 @@ export class CopilotVscodeAdapter implements HarnessAdapter {
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
     const runtime = session as VscodeSession;
+    if (runtime.retired === true) {
+      yield {
+        type: 'run.completed',
+        status: 'failed',
+        error: 'VS Code Copilot session was retired by an explicit context reset',
+      };
+      return;
+    }
+    if (runtime.active_request === true || runtime.active_turn_id !== undefined) {
+      yield {
+        type: 'run.completed',
+        status: 'failed',
+        error: 'VS Code Copilot session already has an active turn in flight',
+      };
+      return;
+    }
+    runtime.active_request = true;
     let finalText = '';
     let partialText = '';
     let finished = false;
@@ -480,6 +501,7 @@ export class CopilotVscodeAdapter implements HarnessAdapter {
         error: (error instanceof Error ? error.message : String(error)).slice(0, 1000),
       };
     } finally {
+      runtime.active_request = false;
       runtime.active_turn_id = undefined;
     }
   }
@@ -497,6 +519,21 @@ export class CopilotVscodeAdapter implements HarnessAdapter {
       body: '{}',
     }).catch(() => undefined);
   }
+
+  // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=copilot-vscode-session-reset
+  /** Retire only this adapter's local conversation; the shared bridge is foreign. */
+  async resetSession(session: Session | undefined): Promise<void> {
+    if (session === undefined) return;
+    const runtime = session as VscodeSession;
+    if (runtime.harness !== this.id || runtime.retired === true) return;
+    if (runtime.active_request === true || runtime.active_turn_id !== undefined) {
+      throw new Error('cannot clear VS Code Copilot context while an active turn is in-flight');
+    }
+    runtime.history = [];
+    runtime.failure_checkpoint = undefined;
+    runtime.retired = true;
+  }
+  // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
   discoverSessions(): SessionRef[] {
     return [];
