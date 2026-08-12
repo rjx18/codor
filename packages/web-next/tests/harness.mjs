@@ -1459,6 +1459,11 @@ createServer((req, res) => {
         fake.failNextReset('fixture native retirement failed');
         payload = { ok: true };
       }
+      // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-browser-fixture
+      if (url.pathname === '/reset-stats') {
+        payload = { attempts: fake.resets.length };
+      }
+      // harn:end context-reset-confirmation-is-anchored-and-member-local
       if (url.pathname === '/release-hold-fixture') {
         const body = raw === '' ? {} : JSON.parse(raw);
         if (body.resetAttempts === true) releaseHoldAttempts = 0;

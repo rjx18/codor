@@ -12,11 +12,11 @@ const PNG = Buffer.from(
   'base64',
 );
 
-async function control<T = unknown>(path: string): Promise<T> {
+async function control<T = unknown>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: '{}',
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`control ${path} failed: ${response.status}`);
   return (await response.json()) as T;
@@ -105,6 +105,27 @@ test.describe('relay tunnel journey', () => {
     const initialAppOpens = await page.evaluate(() =>
       (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length);
     expect(initialAppOpens).toBe(1);
+
+    // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-hosted-browser-regression
+    // The same anchored flow must use the authenticated hosted connector and
+    // never escape to the SPA origin's direct REST fallback.
+    await page.getByTestId('room-link-context-reset').click();
+    await expect(page.getByTestId('member-eraser-clear-context')).toBeVisible({ timeout: 30_000 });
+    const hostedCard = page.getByTestId('member-eraser');
+    await hostedCard.getByTestId('member-eraser-clear-context').click();
+    const hostedConfirmation = hostedCard.getByTestId('clear-context-confirmation');
+    await expect(page.getByTestId('clear-context-dialog')).toHaveCount(0);
+    await expect(hostedConfirmation.getByTestId('clear-context-confirm')).toBeFocused();
+    await control('/fail-reset');
+    await hostedConfirmation.getByTestId('clear-context-confirm').click();
+    await expect(hostedCard.getByTestId('member-eraser-clear-error')).toContainText(
+      'fixture native retirement failed',
+      { timeout: 20_000 },
+    );
+    await expect(hostedCard.getByTestId('member-eraser-clear-retry')).toBeVisible();
+    await expect(page.getByTestId('composer-input')).toBeEnabled();
+    // harn:end context-reset-confirmation-is-anchored-and-member-local
+    await page.getByTestId('room-link-eng').click();
 
     // Post over the tunnel and see it echoed back over the tunnel.
     // Address a HUMAN member so the post satisfies the composer's "say who this

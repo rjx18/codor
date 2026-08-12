@@ -8,7 +8,10 @@ export interface Connection {
     body: string,
     opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
   ): void;
-  act(act: Act): void;
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-transport
+  /** Send an act with its caller-owned bounded correlation ref when supplied. */
+  act(act: Act, ref?: string): void;
+  // harn:end context-reset-requests-settle-by-explicit-ref
   disconnect(): void;
   reconnect(): void;
 }
@@ -112,7 +115,14 @@ export function connect(options: ConnectOptions): Connection {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
-    act: (act) => send({ type: 'act', room: options.room, act }),
+    // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
+    act: (act, ref) => send({
+      type: 'act',
+      room: options.room,
+      ...(ref !== undefined && { ref }),
+      act,
+    }),
+    // harn:end context-reset-confirmation-is-anchored-and-member-local
     disconnect: () => {
       manuallyClosed = true;
       socket?.close();

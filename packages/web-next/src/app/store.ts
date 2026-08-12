@@ -94,7 +94,22 @@ export interface RoomSlice {
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
   errorRefs: Record<string, number>;
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-projection
+  /** Correlated management results retained until their owning card consumes them. */
+  actionResults: Record<string, ActionResult>;
+  /** Client-owned ref → member target, used to keep errors member-local. */
+  actionTargets: Record<string, string>;
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
 }
+
+// harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
+export interface ActionResult {
+  ref: string;
+  status: 'success' | 'error';
+  memberId?: string;
+  message?: string;
+}
+// harn:end context-reset-requests-settle-by-explicit-ref
 
 // harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-state
 /** The last successful root-scoped registration projection. Transient
@@ -133,6 +148,12 @@ export interface ClientState {
     room: string,
     update: (current: TranscriptHistoryState) => TranscriptHistoryState,
   ): void;
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-projection
+  /** Remember the exact target before a correlated management act is sent. */
+  registerActionRef(room: string, ref: string, memberId: string): void;
+  /** Read and remove one bounded correlated result from its source room. */
+  consumeActionResult(room: string, ref: string): ActionResult | undefined;
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
   setActiveRoom(room: string): void;
   setConnected(connected: boolean): void;
   setAuthRefused(authRefused: boolean): void;
@@ -163,6 +184,10 @@ const emptyRunEvents: Record<number, RunEventBuffer> = {};
 const emptyMemberHistory: Record<string, MemberStateObservation[]> = {};
 const emptyErrors: string[] = [];
 const emptyErrorRefs: Record<string, number> = {};
+const emptyActionResults: Record<string, ActionResult> = {};
+const emptyActionTargets: Record<string, string> = {};
+const MAX_ACTION_RESULTS = 64;
+const MAX_ACTION_TARGETS = 64;
 
 const EMPTY_ROOM: RoomSlice = {
   hydrated: false,
@@ -180,6 +205,8 @@ const EMPTY_ROOM: RoomSlice = {
   transcriptHistory: EMPTY_TRANSCRIPT_HISTORY,
   errors: emptyErrors,
   errorRefs: emptyErrorRefs,
+  actionResults: emptyActionResults,
+  actionTargets: emptyActionTargets,
 };
 
 const freshRoom = (room?: Room): RoomSlice => ({
@@ -198,7 +225,35 @@ const freshRoom = (room?: Room): RoomSlice => ({
   transcriptHistory: freshTranscriptHistory(),
   errors: [],
   errorRefs: {},
+  actionResults: {},
+  actionTargets: {},
 });
+
+function projectActionResult(current: RoomSlice, result: ActionResult): RoomSlice {
+  const actionResults = { ...current.actionResults, [result.ref]: result };
+  const resultRefs = Object.keys(actionResults);
+  while (resultRefs.length > MAX_ACTION_RESULTS) {
+    const oldest = resultRefs.shift();
+    if (oldest !== undefined) delete actionResults[oldest];
+  }
+  const actionTargets = { ...current.actionTargets };
+  delete actionTargets[result.ref];
+  return { ...current, actionResults, actionTargets };
+}
+
+function retainActionTarget(
+  current: RoomSlice,
+  ref: string,
+  memberId: string,
+): RoomSlice {
+  const actionTargets = { ...current.actionTargets, [ref]: memberId };
+  const targetRefs = Object.keys(actionTargets);
+  while (targetRefs.length > MAX_ACTION_TARGETS) {
+    const oldest = targetRefs.shift();
+    if (oldest !== undefined) delete actionTargets[oldest];
+  }
+  return { ...current, actionTargets };
+}
 
 interface HydrationStaging {
   selfMemberId?: string;
@@ -326,6 +381,17 @@ export function createClientStore(): ClientStore {
           return;
         case 'member':
           stage.members[frame.member.id] = frame.member;
+          if (frame.ref !== undefined) {
+            set((state) => {
+              const current = state.rooms[roomId] ?? freshRoom();
+              const next = projectActionResult(current, {
+                ref: frame.ref!,
+                status: 'success',
+                memberId: frame.member.id,
+              });
+              return { rooms: { ...state.rooms, [roomId]: next } };
+            });
+          }
           return;
         case 'message':
           stage.messages[frame.message.id] = frame.message;
@@ -406,12 +472,21 @@ export function createClientStore(): ClientStore {
           break;
         }
         case 'member':
+          // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-projection
+          const memberCurrent = frame.ref === undefined
+            ? current
+            : projectActionResult(current, {
+                ref: frame.ref,
+                status: 'success',
+                memberId: frame.member.id,
+              });
           next = {
-            ...current,
+            ...memberCurrent,
             seq: bump,
-            members: { ...current.members, [frame.member.id]: frame.member },
-            memberHistory: observeMember(current.memberHistory, frame.member),
+            members: { ...memberCurrent.members, [frame.member.id]: frame.member },
+            memberHistory: observeMember(memberCurrent.memberHistory, frame.member),
           };
+          // harn:end context-reset-confirmation-is-anchored-and-member-local
           break;
         // harn:assume paged-history-live-message-reconciliation ref=live-history-message-map
         case 'message': {
@@ -495,6 +570,24 @@ export function createClientStore(): ClientStore {
               },
             }),
           };
+          // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
+          if (frame.ref !== undefined) {
+            next = projectActionResult(current, {
+              ref: frame.ref,
+              status: 'error',
+              memberId: current.actionTargets[frame.ref],
+              message: frame.message,
+            });
+            next = {
+              ...next,
+              errors: [...current.errors, frame.message],
+              errorRefs: {
+                ...current.errorRefs,
+                [frame.ref]: (current.errorRefs[frame.ref] ?? 0) + 1,
+              },
+            };
+          }
+          // harn:end context-reset-requests-settle-by-explicit-ref
           // harn:end member-context-reset-is-authorized-atomic-and-lazy
           break;
         default:
@@ -548,6 +641,28 @@ export function createClientStore(): ClientStore {
       };
     });
   },
+
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-projection
+  registerActionRef: (roomId, ref, memberId) => {
+    set((state) => {
+      const current = state.rooms[roomId] ?? freshRoom();
+      const next = retainActionTarget(current, ref, memberId);
+      return { rooms: { ...state.rooms, [roomId]: next } };
+    });
+  },
+  consumeActionResult: (roomId, ref) => {
+    let consumed: ActionResult | undefined;
+    set((state) => {
+      const current = state.rooms[roomId] ?? freshRoom();
+      consumed = current.actionResults[ref];
+      if (consumed === undefined) return {};
+      const actionResults = { ...current.actionResults };
+      delete actionResults[ref];
+      return { rooms: { ...state.rooms, [roomId]: { ...current, actionResults } } };
+    });
+    return consumed;
+  },
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
 
   setActiveRoom: (roomId) => {
     set((state) => {
