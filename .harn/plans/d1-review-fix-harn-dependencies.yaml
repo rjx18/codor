@@ -1,0 +1,219 @@
+id: d1-review-fix-harn-dependencies
+title: D1 review fix - replace stale briefing dependents in Harn truth
+notes: >
+  Independent review after commits 320aa2b and 55fe4f8 found that D1 retired
+  collaboration-briefing-is-capability-aware, but Harn apply does not rewrite a
+  reviewed assumption's depends_on list. Three active assumptions therefore
+  still depend on the retired node, and two statements still say the briefing is
+  capability-aware and appears only on first delivery/misaddress. Retire those
+  stale assumptions and create narrowly named successors with the same
+  observable obligations updated for the adapter-independent single-handoff
+  briefing and successful auto/manual compaction refresh. Re-home their existing
+  source anchors by changing Harn comment IDs only. Runtime TypeScript, tests,
+  public prose, and emitted prompt bytes must remain otherwise identical.
+assumptions:
+  retire:
+    - id: agent-briefings-distinguish-invocation-from-discussion
+      reason: >
+        Its first-delivery/misaddress-only statement and dependency on the
+        retired capability-aware briefing no longer describe D1 truth.
+    - id: grouped-deliveries-retain-agent-briefings
+      reason: >
+        Its capability-aware and first-delivery/misaddress-only statement omits
+        the adapter-independent post-compaction refresh now accepted by D1.
+    - id: live-collaboration-contract-is-public-v5
+      reason: >
+        Its exact-briefing obligation still depends on the retired
+        capability-aware assumption; replace it so public wait/status/inbox
+        capabilities stay distinct from the no-polling briefing guidance.
+  create:
+    - id: agent-briefings-enforce-single-invocation
+      title: Agent briefings distinguish discussion from one intentional invocation
+      statement: >
+        On first delivery, after misaddress, and on the next delivery after a
+        successful automatic or manual compaction, the conventions briefing must
+        state that an ordinary final reply posts automatically, an @mention
+        invokes and auto-sends to that member exactly once, a plain member name
+        discusses them without invocation, and codor post is only for necessary
+        interim output while continuing or output outside the normal response
+        path, because models must not accidentally schedule or repeat paid
+        channel work while referring to a collaborator.
+      reason: >
+        This preserves the independently reviewable invocation/discussion edge
+        while aligning its lifecycle and dependency with D1.
+      depends_on:
+        - collaboration-briefing-enforces-single-channel-handoff
+        - substantive-routing-excludes-acknowledgements
+    - id: grouped-deliveries-retain-single-handoff-briefings
+      title: Grouped deliveries retain roster and single-handoff briefings
+      statement: >
+        Delivery-time composition for grouped work must append the active roster
+        when the recipient roster is stale and the adapter-independent
+        single-handoff conventions when their persisted gate is re-armed by
+        first delivery, misaddress, or successful automatic/manual compaction,
+        then clear each flag only after appending its block, while the immutable
+        group root and result bundle remains unchanged.
+      reason: >
+        Group delivery uses the same accepted D1 gate and must not retain the
+        retired capability-sensitive description.
+      depends_on:
+        - roster-briefing-refreshes-on-membership
+        - collaboration-briefing-enforces-single-channel-handoff
+        - delivery-payload-snapshotted
+        - group-round-payloads-share-one-ordered-view
+    - id: live-collaboration-contract-is-public-v6
+      title: The single-handoff live collaboration contract is public
+      statement: >
+        Public docs must describe member-attributed interim and blocking posts,
+        direct-reply wait mechanics, consuming inbox hooks, transient wait
+        visibility, member status, bounded redacted run-evidence search, and the
+        exact adapter-independent single-handoff conventions briefing agents
+        receive, while clearly distinguishing separately available observability
+        tools from briefing guidance that forbids polling delegated channel
+        work.
+      reason: >
+        The public surface still documents live collaboration capabilities, but
+        its briefing dependency must point to D1 rather than the retired polling
+        contract.
+      depends_on:
+        - collaboration-briefing-enforces-single-channel-handoff
+        - cli-waits-consume-only-matching-deliveries
+        - run-evidence-search-is-bounded-and-redacted
+        - web-waits-are-visible-across-live-surfaces-v5
+  reviewed:
+    - id: collaboration-briefing-enforces-single-channel-handoff
+      outcome: unchanged
+      reason: >
+        D1 runtime, lifecycle, and prompt wording are already accepted; this
+        plan only makes the dependent Harn graph point to that truth.
+    - id: compaction-reinjects-codor-briefing
+      outcome: unchanged
+      reason: >
+        The successful auto/manual re-arm hook and newly anchored public prose
+        remain unchanged.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: Roster stale-state composition and membership refresh are unchanged.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: Invocation guidance does not alter routing or acknowledgement semantics.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: Re-homing comments changes no immutable snapshot behavior.
+    - id: group-round-payloads-share-one-ordered-view
+      outcome: unchanged
+      reason: The immutable group core and stable result order remain unchanged.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: Direct-reply wait mechanics remain an available documented capability.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Public bounded search behavior remains unchanged.
+    - id: web-waits-are-visible-across-live-surfaces-v5
+      outcome: unchanged
+      reason: Existing wait visibility remains unchanged and distinct from polling
+        guidance.
+files:
+  - README.md
+  - docs/PROTOCOL.md
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+anchors:
+  agent-briefings-distinguish-invocation-from-discussion:
+    protocol-explicit-invocation-contract:
+      action: remove
+      reason: Re-home the public invocation anchor under the D1-aligned successor.
+    explicit-invocation-regression:
+      action: remove
+      reason: Re-home the existing unchanged regression under the successor.
+    explicit-invocation-conventions:
+      action: remove
+      reason: Re-home the emitted wording anchor under the successor.
+  agent-briefings-enforce-single-invocation:
+    protocol-explicit-invocation-contract:
+      action: change
+      reason: Change only the Harn assumption ID on the existing public anchor.
+    explicit-invocation-regression:
+      action: change
+      reason: Change only the Harn assumption ID on the existing regression anchor.
+    explicit-invocation-conventions:
+      action: change
+      reason: Change only the Harn assumption ID on the existing source anchor.
+  grouped-deliveries-retain-agent-briefings:
+    grouped-delivery-briefing:
+      action: remove
+      reason: Re-home the unchanged grouped gate under the D1-aligned successor.
+    grouped-delivery-briefing-regression:
+      action: remove
+      reason: Re-home the unchanged grouped regression under the successor.
+  grouped-deliveries-retain-single-handoff-briefings:
+    grouped-delivery-briefing:
+      action: change
+      reason: Change only the Harn assumption ID on the existing grouped gate anchor.
+    grouped-delivery-briefing-regression:
+      action: change
+      reason: Change only the Harn assumption ID on the existing grouped regression
+        anchor.
+  live-collaboration-contract-is-public-v5:
+    readme-live-collaboration:
+      action: remove
+      reason: Re-home the unchanged public overview under the D1-aligned successor.
+    protocol-conventions-example:
+      action: remove
+      reason: Re-home the exact prompt/lifecycle example under the successor.
+    protocol-live-collaboration-contract:
+      action: remove
+      reason: Re-home the unchanged live collaboration documentation under the
+        successor.
+  live-collaboration-contract-is-public-v6:
+    readme-live-collaboration:
+      action: change
+      reason: Change only the Harn assumption ID on the existing README anchor.
+    protocol-conventions-example:
+      action: change
+      reason: Change only the Harn assumption ID on the existing protocol example
+        anchor.
+    protocol-live-collaboration-contract:
+      action: change
+      reason: Change only the Harn assumption ID on the existing protocol contract
+        anchor.
+  collaboration-briefing-enforces-single-channel-handoff:
+    collaboration-handoff-conventions:
+      action: keep
+      reason: The outer D1 source contract stays byte-for-byte unchanged.
+    collaboration-handoff-regression:
+      action: keep
+      reason: The outer D1 regression stays byte-for-byte unchanged.
+    collaboration-handoff-boundary:
+      action: keep
+      reason: The nested D1 delivery boundary stays byte-for-byte unchanged.
+  compaction-reinjects-codor-briefing:
+    protocol-briefing-reinjection-contract:
+      action: keep
+      reason: The nested compaction lifecycle docs anchor stays unchanged.
+    compaction-reinject-regression:
+      action: keep
+      reason: Compaction regressions stay unchanged.
+    daemon-briefing-reinjection-helper:
+      action: keep
+      reason: The re-arm helper stays unchanged.
+    daemon-compaction-reinjects-briefing-auto:
+      action: keep
+      reason: The automatic compaction hook stays unchanged.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: keep
+      reason: The outer roster composer stays unchanged around renamed nested anchors.
+verification: >
+  Change only six assumption IDs in existing Harn source comments. Confirm a
+  word-diff excluding .harn shows no runtime, test assertion, or documentation
+  prose change. Run harn plan/check/staged/apply, harn find each retired and new
+  assumption, harn find --depended-by
+  collaboration-briefing-enforces-single-channel-handoff --depth 2, focused
+  router and grouped/compaction daemon tests, switchboard build, git diff
+  --check, and finish with one commit and a clean tree. Do not change behavior,
+  prose, test assertions, push, merge, deploy, release, or begin another lane.
+applied:
+  applied_at: 2026-08-12T12:38:31.029Z

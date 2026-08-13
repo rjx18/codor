@@ -1,0 +1,220 @@
+id: d1-collaboration-briefing
+title: D1 - teach the single-handoff channel workflow on first delivery and
+  after compaction
+notes: >
+  Lane D corrects the existing concise conventions briefing; it does not add a
+  second prompt injection or compaction mechanism. The current trailer tells a
+  worker to check status and renew while a peer is active and conditionally to
+  poll its inbox. That encourages the exact post-handoff polling/monitoring loop
+  the channel contract forbids. Replace the capability-sensitive polling
+  contract with one adapter-independent, single-handoff contract. It must say:
+  channel work stays with channel members rather than internal subagents; assign
+  one member by tagging once; plain names do not invoke; after handoff do not
+  poll, monitor, remind, or re-tag; the worker returns by tagging the
+  orchestrator once only on completion or a genuine blocker; ordinary final
+  replies post automatically; codor post is only necessary interim output while
+  continuing or output sent outside the normal response path; and codor post
+  --wait is only for one genuinely blocking direct answer. Preserve the
+  untagged-target, message-reference, ledger, search, and exact ACK_OK clauses.
+
+  The shared composeDeliveryBriefing boundary feeds every first-party adapter,
+  so the daemon must stop branching the briefing bytes on live_inbox. The
+  existing conventions_sent/misaddressed and roster_stale gates remain the only
+  injection mechanism. The existing successful auto/manual compaction re-arm
+  remains the only post-compaction hook. Regressions must cover fresh delivery,
+  automatic and manual compaction, repeated compaction, real Store/Daemon
+  restart persistence, grouped delivery, no mid-turn injection, exactly-once
+  consumption, and unchanged stored user text. Existing adapter prompt tests
+  remain the proof that the supplied string crosses each first-party native
+  prompt boundary exactly.
+assumptions:
+  retire:
+    - id: collaboration-briefing-is-capability-aware
+      reason: >
+        Its required timeout status renewal and capability-dependent inbox
+        polling contradict D1's single handoff followed by no polling or
+        monitoring. The replacement keeps the useful collaboration clauses but
+        makes the briefing identical across adapter capabilities.
+  create:
+    - id: collaboration-briefing-enforces-single-channel-handoff
+      title: The conventions briefing teaches one channel-member handoff without
+        polling
+      statement: >
+        On a member's first flag-gated delivery and first delivery after a
+        successful automatic or manual compaction, the shared conventions
+        briefing supplied unchanged to every adapter must say that channel work
+        is assigned to a channel member rather than an internal subagent by
+        tagging that member exactly once, plain names do not invoke, the
+        delegator does not poll, monitor, remind, or re-tag after handoff, and
+        the worker tags the delegator exactly once only on completion or a
+        genuine blocker; it must also say ordinary final replies post
+        automatically, codor post is only for necessary interim output while
+        continuing or output outside the normal response path, and codor post
+        --wait is only for one genuinely blocking direct answer, because
+        repeated invocations waste turns and blur ownership. The existing
+        flag-gated composition must not inject mid-turn, duplicate a briefing,
+        mutate stored user text, or vary the workflow by adapter capability.
+      reason: >
+        Compaction can remove the original orientation from native context, and
+        the previous polling guidance causes orchestrators to repeatedly inspect
+        or invoke an already-active worker instead of waiting for one terminal
+        handoff.
+      depends_on:
+        - roster-briefing-refreshes-on-membership
+        - compaction-reinjects-codor-briefing
+        - adapter-registry-sole-harness-source
+  reviewed:
+    - id: agent-briefings-distinguish-invocation-from-discussion
+      outcome: unchanged
+      depends_on:
+        - collaboration-briefing-enforces-single-channel-handoff
+        - substantive-routing-excludes-acknowledgements
+      reason: >
+        Automatic final posting, @ invocation, plain-name discussion, and
+        interim-only codor post remain true; the replacement makes the
+        single-invocation consequence explicit.
+    - id: grouped-deliveries-retain-agent-briefings
+      outcome: unchanged
+      depends_on:
+        - roster-briefing-refreshes-on-membership
+        - collaboration-briefing-enforces-single-channel-handoff
+        - delivery-payload-snapshotted
+        - group-round-payloads-share-one-ordered-view
+      reason: >
+        Grouped delivery still appends and consumes the same dynamic roster and
+        conventions flags without changing the immutable group core.
+    - id: live-collaboration-contract-is-public-v5
+      outcome: unchanged
+      depends_on:
+        - collaboration-briefing-enforces-single-channel-handoff
+        - cli-waits-consume-only-matching-deliveries
+        - run-evidence-search-is-bounded-and-redacted
+        - web-waits-are-visible-across-live-surfaces-v5
+      reason: >
+        The public exact example advances to the replacement briefing while the
+        documented CLI capabilities and observable wait behavior remain true.
+    - id: compaction-reinjects-codor-briefing
+      outcome: unchanged
+      depends_on:
+        - compaction-timeline-items-are-durable-run-evidence
+        - manual-compaction-is-an-operator-act
+      reason: >
+        Successful auto/manual compaction still re-arms only conventions_sent
+        and roster_stale for consumption by the next ordinary delivery; D1
+        changes the bytes behind that existing gate, not the hook.
+    - id: roster-briefing-refreshes-on-membership
+      outcome: unchanged
+      reason: >
+        First/stale roster delivery and persisted flag consumption do not
+        change; the conventions block nested beside it receives new text.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: >
+        Stored user messages, headers, and resolved references remain immutable;
+        the dynamic flag-gated briefing is still appended only at admission.
+    - id: adapter-registry-sole-harness-source
+      outcome: unchanged
+      reason: >
+        Every built-in/configured adapter continues receiving the same payload
+        string from the registry-owned deliver boundary; only the shared
+        upstream briefing bytes change.
+files:
+  - packages/switchboard/src/router.ts
+  - packages/switchboard/src/router.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - docs/PROTOCOL.md
+anchors:
+  collaboration-briefing-is-capability-aware:
+    collaboration-conventions:
+      action: remove
+      reason: Retire the capability-sensitive polling trailer anchor.
+    collaboration-briefing-regression:
+      action: remove
+      reason: Replace polling-variant expectations with the D1 handoff contract.
+    collaboration-capability-context:
+      action: remove
+      reason: Stop varying conventions bytes based on live_inbox capability.
+  collaboration-briefing-enforces-single-channel-handoff:
+    collaboration-handoff-conventions:
+      action: change
+      reason: Render the concise D1 single-tag, no-polling, completion/blocker, post,
+        and wait rules.
+    collaboration-handoff-regression:
+      action: change
+      reason: >
+        Add the red-first exact/negative regression for every required D1 clause
+        and prove capability values cannot change the briefing.
+    collaboration-handoff-boundary:
+      action: change
+      reason: >
+        Compose one adapter-independent conventions context at the existing
+        delivery gate without changing stored message snapshots.
+  agent-briefings-distinguish-invocation-from-discussion:
+    explicit-invocation-conventions:
+      action: change
+      reason: Keep automatic final, @ invocation, and plain-name semantics inside the
+        new wording.
+    explicit-invocation-regression:
+      action: change
+      reason: Pin retained invocation/discussion behavior together with single handoff.
+    protocol-explicit-invocation-contract:
+      action: change
+      reason: Synchronize the public exact prompt example.
+  live-collaboration-contract-is-public-v5:
+    protocol-conventions-example:
+      action: change
+      reason: Replace the old polling/status-renewal example with the exact D1
+        briefing.
+    protocol-live-collaboration-contract:
+      action: change
+      reason: Clarify that post --wait is for a genuinely blocking direct answer, not
+        monitoring.
+    readme-live-collaboration:
+      action: keep
+      reason: The general capability overview remains true and need not reproduce the
+        injected bytes.
+  grouped-deliveries-retain-agent-briefings:
+    grouped-delivery-briefing:
+      action: keep
+      reason: The enclosing grouped flag gate stays structurally unchanged around the
+        replacement nested boundary.
+    grouped-delivery-briefing-regression:
+      action: change
+      reason: Assert grouped first delivery receives the same no-polling handoff
+        briefing once.
+  roster-briefing-refreshes-on-membership:
+    roster-payload-block:
+      action: keep
+      reason: The enclosing roster composition and stale-flag behavior must not change.
+  compaction-reinjects-codor-briefing:
+    daemon-briefing-reinjection-helper:
+      action: keep
+      reason: Preserve the one existing two-flag re-arm helper.
+    daemon-compaction-reinjects-briefing-auto:
+      action: keep
+      reason: Preserve the existing completed-compaction event hook without a second
+        mechanism.
+    compaction-reinject-regression:
+      action: change
+      reason: >
+        Extend auto/manual/repeated coverage with exact D1 text, no mid-turn or
+        duplicate injection, unchanged stored user text, and a real restart
+        persistence case.
+verification: >
+  Red first: add the D1 required/forbidden-phrase regression and run the focused
+  router test to observe failure because the accepted baseline recommends status
+  renewal/polling and omits single-handoff rules. Then implement the smallest
+  shared-composer/boundary correction. Run focused router and daemon
+  D1/compaction tests, the complete @codor/switchboard suite and build, and all
+  first-party adapter package test suites and builds to verify their exact
+  prompt boundaries. Run harn find --plan d1-collaboration-briefing, harn check
+  d1-collaboration-briefing, harn find --changed, git diff --check, stage, harn
+  check --staged, harn apply d1-collaboration-briefing, restage generated Harn
+  truth, harn check --staged again, and make one implementation commit. Stop
+  after tagging the local orchestrator once with red evidence, focused/full
+  evidence, commit, and clean status. Do not delegate internally, push, merge,
+  deploy, release, alter group routing, add a compaction path, or begin another
+  lane.
+applied:
+  applied_at: 2026-08-12T08:50:12.523Z

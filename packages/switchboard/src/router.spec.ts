@@ -781,12 +781,14 @@ describe('delivery payload template (byte-exact goldens)', () => {
         '[conventions: your normal final reply posts to the channel automatically. An @mention ' +
         "invokes that member and auto-sends your message; write the member's plain name without @ " +
         'when merely discussing them. An untagged reply goes to @richard. Reference messages as ' +
-        '#N. Cite ledger notes as [[name]]. Use codor post only for interim updates and --wait ' +
-        'when a direct reply is required; on timeout, check codor status and renew while the peer ' +
-        'is active. During long tasks, check codor inbox --new. Use codor search --runs before ' +
+        '#N. Cite ledger notes as [[name]]. When delegating channel work, keep it with channel ' +
+        'members rather than internal subagents: assign one member by tagging them once. After ' +
+        'handoff, do not poll, monitor, remind, or re-tag them; the worker returns by tagging you ' +
+        'once only on completion or a genuine blocker. Use codor post only for necessary interim ' +
+        'output while continuing, or output sent outside the normal response path; use codor post ' +
+        '--wait only for one genuinely blocking direct answer. Use codor search --runs before ' +
         'asking about unseen referenced context. Use <ACK_OK> as your entire reply only when a ' +
-        'message needs no action and no answer; never append it after doing work or as a ' +
-        'sign-off.]\n',
+        'message needs no action and no answer; never append it after doing work or as a sign-off.]\n',
     );
   });
 
@@ -849,33 +851,38 @@ describe('delivery payload template (byte-exact goldens)', () => {
   });
   // harn:end awaiting-reply-marker-is-delivery-context
 
-  // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-briefing-regression
-  // harn:assume agent-briefings-distinguish-invocation-from-discussion ref=explicit-invocation-regression
-  it('omits polling only for a live-inbox adapter and retains every collaboration rule', () => {
-    const polling = composePayload(payloadCtx, 'codex');
+  // harn:assume collaboration-briefing-enforces-single-channel-handoff ref=collaboration-handoff-regression
+  // harn:assume agent-briefings-enforce-single-invocation ref=explicit-invocation-regression
+  it('teaches one channel-member handoff without polling for every adapter', () => {
+    const baseline = composePayload(payloadCtx, 'codex');
     const live = composePayload({
       ...payloadCtx,
       conventions: { ...payloadCtx.conventions, liveInbox: true },
     }, 'codex');
-    expect(polling).toContain('codor inbox --new');
-    expect(live).not.toContain('codor inbox --new');
+
+    expect(live).toBe(baseline);
     for (const phrase of [
       'normal final reply posts',
       '@mention invokes',
       'plain name without @',
-      'codor post only for interim',
-      '--wait',
-      'codor status',
+      'channel members rather than internal subagents',
+      'assign one member by tagging them once',
+      'do not poll, monitor, remind, or re-tag',
+      'worker returns by tagging you once only on completion or a genuine blocker',
+      'codor post only for necessary interim output while continuing, or output sent outside the normal response path',
+      'codor post --wait only for one genuinely blocking direct answer',
       'codor search --runs',
       'Use <ACK_OK> as your entire reply only when a message needs no action and no answer',
       'never append it after doing work or as a sign-off',
     ]) {
       expect(live, phrase).toContain(phrase);
     }
-    expect(live).not.toContain('If no substantive reply is needed');
+    for (const phrase of ['codor status', 'codor inbox --new', 'on timeout', 'renew while']) {
+      expect(live, phrase).not.toContain(phrase);
+    }
   });
-  // harn:end agent-briefings-distinguish-invocation-from-discussion
-  // harn:end collaboration-briefing-is-capability-aware
+  // harn:end agent-briefings-enforce-single-invocation
+  // harn:end collaboration-briefing-enforces-single-channel-handoff
 });
 
 // ── brakes ──────────────────────────────────────────────────────────────

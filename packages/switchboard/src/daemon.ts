@@ -4731,7 +4731,7 @@ export class Daemon {
       const fresh = this.store.getMember(targetRoom, recipient.id)!;
       const needsConventions = !fresh.conventions_sent || fresh.misaddressed;
       const needsRoster = fresh.roster_stale;
-      // harn:assume grouped-deliveries-retain-agent-briefings ref=grouped-delivery-briefing
+      // harn:assume grouped-deliveries-retain-single-handoff-briefings ref=grouped-delivery-briefing
       const roster = needsRoster
         ? this.store.listMembers(targetRoom).map((member) => ({
             handle: member.handle,
@@ -4739,15 +4739,13 @@ export class Daemon {
             ...(member.purpose !== undefined && { purpose: member.purpose }),
           }))
         : undefined;
+      // harn:assume collaboration-briefing-enforces-single-channel-handoff ref=collaboration-handoff-boundary
       const conventions = needsConventions
         ? {
             ledger: this.ledger?.isEnabled(room) ?? false,
-            // harn:assume collaboration-briefing-is-capability-aware ref=collaboration-capability-context
-            liveInbox: fresh.harness !== undefined &&
-              this.adapters.get(fresh.harness)?.capabilities.live_inbox === true,
-            // harn:end collaboration-briefing-is-capability-aware
           }
         : undefined;
+      // harn:end collaboration-briefing-enforces-single-channel-handoff
       if (encoded !== undefined) {
         const candidate = JSON.parse(encoded) as DeliveryPayloadSnapshot | GroupDeliveryPayloadSnapshot;
         if ('kind' in candidate && candidate.kind === 'group') {
@@ -4762,7 +4760,7 @@ export class Daemon {
               }),
             );
           }
-          // harn:end grouped-deliveries-retain-agent-briefings
+          // harn:end grouped-deliveries-retain-single-handoff-briefings
           continue;
         }
       }

@@ -1,0 +1,71 @@
+id: d1-review-fix-compaction-doc
+title: D1 review fix - document post-compaction briefing reinjection
+notes: >
+  Independent review of D1 commit 320aa2b found one public-contract
+  contradiction in docs/PROTOCOL.md. The exact example now shows the correct
+  single-handoff briefing, but the paragraph immediately below still says that
+  after first delivery the trailer appears only following a misaddress. The
+  accepted runtime and D1 contract also re-inject it on the next delivery after
+  a successful automatic or manual native compaction. Correct only that prose,
+  explicitly preserving the same persisted flag gate, no mid-turn injection, no
+  duplicate briefing, no failed-compaction reinjection, and no second compaction
+  mechanism. Extend the public collaboration anchor over the explanatory
+  paragraph and add a nested compaction reinjection anchor so this edge cannot
+  drift untracked again.
+assumptions:
+  reviewed:
+    - id: collaboration-briefing-enforces-single-channel-handoff
+      outcome: unchanged
+      reason: >
+        The implemented D1 briefing bytes and single-handoff behavior are
+        accepted unchanged; only adjacent public prose is corrected to describe
+        when the existing flag-gated block reappears.
+    - id: live-collaboration-contract-is-public-v5
+      outcome: unchanged
+      reason: >
+        Public docs already own the exact conventions example and must describe
+        its real first-delivery, misaddress, and post-compaction lifecycle
+        without contradicting runtime behavior.
+    - id: compaction-reinjects-codor-briefing
+      outcome: unchanged
+      reason: >
+        Successful automatic/manual compaction continues to re-arm the existing
+        conventions_sent and roster_stale flags for the next delivery; failed
+        compaction and mid-turn delivery behavior remain unchanged.
+files:
+  - docs/PROTOCOL.md
+anchors:
+  live-collaboration-contract-is-public-v5:
+    protocol-conventions-example:
+      action: change
+      reason: >
+        Extend the public contract anchor over the explanatory lifecycle
+        paragraph and correct its false only-after-misaddress claim.
+  compaction-reinjects-codor-briefing:
+    protocol-briefing-reinjection-contract:
+      action: change
+      reason: >
+        Add a nested documentation anchor around the corrected successful
+        auto/manual compaction reinjection statement.
+  collaboration-briefing-enforces-single-channel-handoff:
+    collaboration-handoff-conventions:
+      action: keep
+      reason: The emitted briefing bytes remain unchanged.
+    collaboration-handoff-regression:
+      action: keep
+      reason: The passing D1 wording and negative polling regression remain unchanged.
+    collaboration-handoff-boundary:
+      action: keep
+      reason: The shared adapter-independent delivery boundary remains unchanged.
+verification: >
+  Confirm the corrected paragraph names first delivery, misaddress refresh, and
+  the next delivery after successful automatic/manual compaction; confirm it
+  excludes mid-turn/failed-compaction reinjection and names the existing
+  persisted flag gate. Run harn find --plan d1-review-fix-compaction-doc, harn
+  check d1-review-fix-compaction-doc, git diff --check, staged Harn checks, harn
+  apply, restage generated truth, repeat harn check --staged, and make one
+  docs-only review-fix commit. Finish with a clean tree. Do not change code,
+  tests, briefing bytes, assumptions' meaning, compaction behavior, push, merge,
+  deploy, release, or begin another lane.
+applied:
+  applied_at: 2026-08-12T12:33:26.280Z

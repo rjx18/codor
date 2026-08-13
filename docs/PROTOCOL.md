@@ -317,8 +317,8 @@ Parsing rules, applied to `body` (fenced code blocks and inline code are skipped
 What actually lands in each recipient session's next turn — exact template (identical for every
 recipient of the message except the `you=` field):
 
-<!-- harn:assume live-collaboration-contract-is-public-v5 ref=protocol-conventions-example -->
-<!-- harn:assume agent-briefings-distinguish-invocation-from-discussion ref=protocol-explicit-invocation-contract -->
+<!-- harn:assume live-collaboration-contract-is-public-v6 ref=protocol-conventions-example -->
+<!-- harn:assume agent-briefings-enforce-single-invocation ref=protocol-explicit-invocation-contract -->
 ```text
 [codor channel=traderjoe-eng msg=#93107 from=@richard (human)
  to=@codex @claude · you=@codex]
@@ -334,22 +334,29 @@ before submitting. (…full body verbatim…)
 [conventions: your normal final reply posts to the channel automatically. An
 @mention invokes that member and auto-sends your message; write the member's plain
 name without @ when merely discussing them. An untagged reply goes to @richard.
-Reference messages as #N. Cite ledger notes as [[name]]. Use codor post only for
-interim updates and --wait when a direct reply is required; on timeout, check codor
-status and renew while the peer is active. During long tasks, check codor inbox
---new. Use codor search --runs before asking about unseen referenced context. Use
-<ACK_OK> as your entire reply only when a message needs no action and no answer;
-never append it after doing work or as a sign-off.]
+Reference messages as #N. Cite ledger notes as [[name]]. When delegating channel
+work, keep it with channel members rather than internal subagents: assign one member
+by tagging them once. After handoff, do not poll, monitor, remind, or re-tag them;
+the worker returns by tagging you once only on completion or a genuine blocker. Use
+codor post only for necessary interim output while continuing, or output sent
+outside the normal response path; use codor post --wait only for one genuinely
+blocking direct answer. Use codor search --runs before asking about unseen referenced
+context. Use <ACK_OK> as your entire reply only when a message needs no action and no
+answer; never append it after doing work or as a sign-off.]
 ```
-<!-- harn:end agent-briefings-distinguish-invocation-from-discussion -->
-<!-- harn:end live-collaboration-contract-is-public-v5 -->
+<!-- harn:end agent-briefings-enforce-single-invocation -->
 
-The conventions trailer is included on an agent's **first** delivery in a channel and thereafter
-only if it has misaddressed (posted an unresolvable mention). Both facts are persisted per
-member (`conventions_sent`, `misaddressed` flags), so restarts don't re-spam. Keep payloads
-lean — sessions pay tokens for every byte. For an adapter with `live_inbox: true`, the trailer
-omits only the inbox-polling sentence; every other collaboration and exact-acknowledgement rule
-remains.
+<!-- harn:assume compaction-reinjects-codor-briefing ref=protocol-briefing-reinjection-contract -->
+The conventions trailer is included on an agent's **first** delivery in a channel, after it
+misaddresses (posts an unresolvable mention), and on the next delivery after a successful
+automatic or manual native compaction. The existing persisted flag gate (`conventions_sent`,
+`misaddressed`, and `roster_stale`) preserves this lifecycle across restarts: compaction re-arms
+the next ordinary delivery only, never injects mid-turn, duplicates a briefing, or re-arms after
+failed compaction. Keep payloads lean — sessions pay tokens for every byte. The same
+adapter-independent workflow reaches every first-party native prompt boundary.
+<!-- harn:end compaction-reinjects-codor-briefing -->
+
+<!-- harn:end live-collaboration-contract-is-public-v6 -->
 
 ### Queueing
 
@@ -367,7 +374,7 @@ delivery is reconciled against the run blob and the harness's native transcript:
 completed → finalize; provably never started (no events, clean spawn failure) → retry once;
 ambiguous → `held` with a system message for the operator to release or redeliver.
 
-<!-- harn:assume live-collaboration-contract-is-public-v5 ref=protocol-live-collaboration-contract -->
+<!-- harn:assume live-collaboration-contract-is-public-v6 ref=protocol-live-collaboration-contract -->
 ### Live collaboration within a turn
 
 An owned agent session receives `CODOR_SOCKET`, `CODOR_CHANNEL`, `CODOR_MEMBER_ID`, and a rotating
@@ -382,7 +389,8 @@ the posted message's effective mentions but does not finalize or replace the run
 latest-finalized-agent fallback, or gain acknowledgement semantics. `post --wait` also snapshots
 `awaiting_reply` into each delivery header, then registers the addressed peers and accepts only the
 first queued reply authored by one of them that directly mentions the sender. An untagged
-default-routed reply does not satisfy the wait.
+default-routed reply does not satisfy the wait. Use it only when one direct answer genuinely blocks
+the continuing turn, never to poll or monitor delegated channel work.
 
 <!-- harn:assume group-round-routing-instruction-is-always-on ref=protocol-group-routing-contract -->
 When a finalized message invokes two or more agents, Codor creates a durable collaboration group.
@@ -435,7 +443,7 @@ results the agent explicitly requests through `codor search`, `status`, `inbox`,
 It does not inject the entire channel transcript, another agent's streamed reasoning, arbitrary
 unsent messages, or a hidden model-generated routing decision. This keeps ordinary context bounded
 while making every next-round group recipient share the same complete prior-round result bundle.
-<!-- harn:end live-collaboration-contract-is-public-v5 -->
+<!-- harn:end live-collaboration-contract-is-public-v6 -->
 
 <!-- harn:assume agent-member-credentials-are-defense-in-depth ref=protocol-agent-trust-boundary -->
 The member capability matrix narrows what an agent does **by default**; it is not a sandbox. The
