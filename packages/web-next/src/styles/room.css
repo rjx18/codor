@@ -89,6 +89,72 @@
 }
 .nx-rail-search input::placeholder { color: var(--c-faded); }
 
+/* harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=responsive-schedule-card */
+.nx-schedule-card {
+  display: grid;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+  padding: var(--sp-3);
+  border: 1px solid var(--c-border);
+  border-inline-start: 3px solid var(--c-accent);
+  border-radius: var(--r-card);
+  background: var(--c-raised);
+  color: var(--c-ink);
+  min-width: 0;
+}
+.nx-schedule-card-head,
+.nx-schedule-card-target {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.nx-schedule-card-time,
+.nx-schedule-card-target,
+.nx-schedule-card-preview,
+.nx-schedule-card-error {
+  overflow-wrap: anywhere;
+}
+.nx-schedule-card-time { font: var(--t-ui-strong); }
+.nx-schedule-card-clock { color: var(--c-accent); }
+.nx-schedule-card-state {
+  margin-inline-start: auto;
+  color: var(--c-secondary);
+  font: var(--t-caption);
+}
+.nx-schedule-card-target {
+  color: var(--c-secondary);
+  font: var(--t-caption);
+}
+.nx-schedule-card-preview {
+  margin: 0;
+  color: var(--c-ink);
+  font: var(--t-ui);
+}
+.nx-schedule-card-error {
+  margin: 0;
+  color: var(--c-error-text);
+  font: var(--t-caption);
+}
+.nx-schedule-card-cancel {
+  justify-self: start;
+  min-width: 44px;
+  min-height: 44px;
+}
+.nx-schedule-card-cancel:focus-visible {
+  outline: 2px solid var(--c-link);
+  outline-offset: 2px;
+}
+.nx-schedule-card.is-failed,
+.nx-schedule-card.is-cancelled { border-inline-start-color: var(--c-secondary); }
+.nx-schedule-card.is-sending { border-inline-start-color: var(--c-link); }
+@media (max-width: 600px) {
+  .nx-schedule-card { margin-inline: 0; padding: var(--sp-2); }
+  .nx-schedule-card-head { align-items: flex-start; }
+  .nx-schedule-card-state { white-space: nowrap; }
+}
+/* harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating */
+
 .nx-rail-label {
   display: flex;
   align-items: center;

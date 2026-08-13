@@ -135,9 +135,9 @@ an explicit numeric offset. The directive is at most 256 characters; the clean b
 at most 65,536 UTF-8 bytes; the due instant is strictly in the future and no more than
 365 days away. Malformed directive-like first tokens, empty bodies, replies,
 attachments, voice metadata, waits, groups, `@all`, self-targets, multiple or
-unavailable targets are refused before any SQLite write. S1 has no recurrence, cron,
-editing, bulk operations, scripts, external queues, cards, composer behavior, or CLI
-presentation. Accepted rows freeze the author, one resolved member/worktree identity,
+unavailable targets are refused before any SQLite write. The server still has no
+recurrence, cron, editing, bulk operations, scripts, external queues, or polling API.
+Accepted rows freeze the author, one resolved member/worktree identity,
 mention span, clean body, and absolute due instant; later aliases or same-handle
 members cannot retarget them. When an agent schedules from a registered worktree,
 the row also snapshots its qualified author coordinate so the eventual destination
@@ -154,6 +154,32 @@ origin or destination room (never an unrelated room)
 and can win only while the row is pending. Delivery claims and the ordinary routed
 message commit share one SQLite transaction, so restart may delay work but cannot
 duplicate the visible message or its deliveries.
+
+<!-- harn:assume friendly-schedule-clocks-canonicalize-at-client-boundary ref=scheduled-client-documentation -->
+The browser and `codor post` share one client-boundary canonicalizer. It rewrites
+only a complete leading clock-only `send_at` to the next occurrence in the
+submitting client's local zone, serialized as an explicit ISO instant with its
+numeric offset. `send_in`, explicit-offset ISO, malformed directive-like text, and
+non-leading prose retain their accepted wire form; the switchboard remains the
+authority for bounds, targeting, persistence, and execution.
+<!-- harn:end friendly-schedule-clocks-canonicalize-at-client-boundary -->
+
+Browser state keeps schedules in isolated room maps and renders every non-sent row
+as one compact, accessible card with the viewer-local date/time and named zone,
+exact local or qualified target, bounded clean-body preview, and honest pending,
+sending, failed, or cancelled state. A pending Cancel is exposed only to the
+authenticated author or human owner/admin, carries the schedule id as its one
+correlation ref, and settles from the authoritative result/error stream. Sent rows
+render only as their ordinary delivered message. The composer retains the exact
+raw draft separately from the canonical wire body and acknowledges schedules only
+from a new destination-room row authored by that room's authenticated self.
+
+`codor post` snapshots existing message and schedule ids, submits the shared
+canonical body once, preserves `posted #N` for ordinary messages, and exits once on
+one matching self-authored schedule with its stable id and due instant. Scheduled
+`--wait` remains explicitly refused; recurrence, cron, edit/reschedule, bulk,
+script, attachment/reply/voice scheduling, offline queues, and history redesign
+remain out of scope.
 <!-- harn:end scheduling-directive-is-bounded-and-canonical -->
 
 **A turn owns one lifecycle root and may append chronological output rows.** The switchboard

@@ -8,7 +8,10 @@ export interface Connection {
     body: string,
     opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
   ): void;
-  act(act: Act): void;
+  // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel
+  /** Schedule cancellation uses the stable schedule id as its one ref. */
+  act(act: Act, ref?: string): void;
+  // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
   disconnect(): void;
   reconnect(): void;
 }
@@ -112,7 +115,13 @@ export function connect(options: ConnectOptions): Connection {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
-    act: (act) => send({ type: 'act', room: options.room, act }),
+    act: (act, ref) => {
+      const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
+      send({
+        type: 'act', room: options.room, act,
+        ...(correlationRef !== undefined && { ref: correlationRef }),
+      });
+    },
     disconnect: () => {
       manuallyClosed = true;
       socket?.close();

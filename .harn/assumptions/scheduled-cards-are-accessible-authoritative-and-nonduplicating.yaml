@@ -1,0 +1,23 @@
+id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+hash: a-b670a2e99584
+title: Scheduled cards are accessible, authoritative, and never duplicate sent
+  messages
+state: active
+statement: >
+  The transcript must present each non-sent schedule once in deterministic
+  due-time, creation-time, then id order as a compact framed card naming its
+  exact local or worktree-qualified target, viewer-local date, time, and zone,
+  bounded clean-body preview, and Pending, Sending, Failed, or Cancelled state;
+  sent schedules render no card, failed/cancelled cards remain honest, and only
+  a pending schedule's authenticated author or human owner/admin sees a
+  focus-visible 44px Cancel target whose one correlated request disables until
+  an authoritative result or visible error, so desktop, mobile, light/dark,
+  screen-reader, reload, and claim races never invent success or duplicate the
+  ordinary delivered message.
+depends_on:
+  - browser-schedules-follow-authoritative-room-state
+  - scheduled-cancellation-is-authorized-before-claim
+  - web-theme-accessible-modes
+  - web-room-targets-meet-minimum-hit-size
+  - room-action-errors-are-visible
+created_by: persistent-scheduled-messages-s2

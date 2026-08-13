@@ -77,6 +77,13 @@ export interface ParseScheduleDirectiveOptions {
   hostOffsetMinutes?: number;
 }
 
+export interface ScheduleCanonicalizationOptions {
+  /** Fixed instant for deterministic browser/CLI tests; defaults to now. */
+  now?: Date;
+  /** Submitting client numeric UTC offset, in minutes east of UTC. */
+  offsetMinutes?: number;
+}
+
 export interface ParsedScheduleDirective {
   kind: 'send_in' | 'send_at';
   directive: string;
@@ -193,4 +200,50 @@ export function parseScheduleDirective(
     host_offset_minutes: offsetMinutes,
   };
 }
+
+// harn:assume friendly-schedule-clocks-canonicalize-at-client-boundary ref=client-schedule-canonicalizer
+/**
+ * Canonicalize only the friendly, clock-only `send_at` form at the submitting
+ * client boundary. The switchboard remains authoritative: malformed,
+ * incomplete, non-leading, relative, and already-offset directives are left
+ * byte-for-byte unchanged so it can report the same protocol error or apply
+ * its accepted semantics.
+ */
+export function canonicalizeScheduleRequest(
+  body: string,
+  options: ScheduleCanonicalizationOptions = {},
+): string {
+  const leading = body.match(/^\s*/)?.[0].length ?? 0;
+  const first = body.slice(leading);
+  const match = /^\[send_at=([^\]\r\n]+)\]/.exec(first);
+  if (match === null) return body;
+  const value = match[1]!;
+  // Do not reinterpret explicit instants, send_in, case variants, or malformed
+  // clock text. `parseScheduleDirective` below remains the single bounds/
+  // future/horizon validator for the one friendly form we do recognize.
+  const clockOnly = /^(?:(0?[1-9]|1[0-2]):([0-5]\d)(?::[0-5]\d)?\s*[AaPp][Mm]|(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?)$/;
+  if (!clockOnly.test(value)) return body;
+  const now = options.now ?? new Date();
+  const offsetMinutes = options.offsetMinutes ?? -now.getTimezoneOffset();
+  if (!Number.isInteger(offsetMinutes) || offsetMinutes < -840 || offsetMinutes > 840) return body;
+  let parsed: ParsedScheduleDirective;
+  try {
+    parsed = parseScheduleDirective(body, { now, hostOffsetMinutes: offsetMinutes })
+      ?? (() => { throw new Error('not a schedule'); })();
+  } catch {
+    return body;
+  }
+  const due = Date.parse(parsed.due_ts);
+  if (!Number.isFinite(due)) return body;
+  const local = new Date(due + offsetMinutes * 60_000);
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  const sign = offsetMinutes < 0 ? '-' : '+';
+  const absoluteOffset = Math.abs(offsetMinutes);
+  const offset = `${sign}${pad(Math.floor(absoluteOffset / 60))}:${pad(absoluteOffset % 60)}`;
+  const explicit = `${local.getUTCFullYear().toString().padStart(4, '0')}-${pad(local.getUTCMonth() + 1)}-${pad(local.getUTCDate())}`
+    + `T${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}:${pad(local.getUTCSeconds())}${offset}`;
+  const directiveEnd = leading + match[0].length;
+  return `${body.slice(0, leading)}[send_at=${explicit}]${body.slice(directiveEnd)}`;
+}
+// harn:end friendly-schedule-clocks-canonicalize-at-client-boundary
 // harn:end scheduling-directive-is-bounded-and-canonical

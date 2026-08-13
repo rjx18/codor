@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import {
   AcpProviderIdSchema,
   AgentPresetInputSchema,
+  canonicalizeScheduleRequest,
+  parseScheduleDirective,
   MemberStatusResponseSchema,
   MessageSchema,
   RunSearchHitSchema,
@@ -15,6 +17,7 @@ import {
   type Message,
   type Policy,
   type RunSearchHit,
+  type Schedule,
   type ServerFrame,
   type ThinkingLevel,
 } from '@codor/protocol';
@@ -225,6 +228,7 @@ interface RoomSnapshot {
   self: string;
   members: Map<string, Member>;
   messages: Map<number, Message>;
+  schedules: Map<string, Schedule>;
   deliveries: Map<string, Delivery>;
 }
 
@@ -233,6 +237,7 @@ async function syncRoom(client: ProtocolClient, room: string): Promise<RoomSnaps
   let self: string | undefined;
   const members = new Map<string, Member>();
   const messages = new Map<number, Message>();
+  const schedules = new Map<string, Schedule>();
   const deliveries = new Map<string, Delivery>();
   client.send({ type: 'subscribe', room, since_seq: 0 });
   for (;;) {
@@ -241,10 +246,12 @@ async function syncRoom(client: ProtocolClient, room: string): Promise<RoomSnaps
     if (frame.type === 'self') self = frame.member_id;
     else if (frame.type === 'member') members.set(frame.member.id, frame.member);
     else if (frame.type === 'message') messages.set(frame.message.id, frame.message);
+    else if (frame.type === 'schedule') schedules.set(frame.schedule.id, frame.schedule);
+    else if (frame.type === 'cancel_schedule_result') schedules.set(frame.schedule.id, frame.schedule);
     else if (frame.type === 'inbox') deliveries.set(frame.delivery.id, frame.delivery);
     else if (frame.type === 'sync_complete') {
       if (!self) throw new Error('channel subscription did not identify the caller');
-      return { self, members, messages, deliveries };
+      return { self, members, messages, schedules, deliveries };
     }
   }
 }
@@ -1145,26 +1152,48 @@ defaultRosterManagement
         const room = channel(options);
         const initial = await syncRoom(client, room);
         const lastMessageId = Math.max(0, ...initial.messages.keys());
+        const knownScheduleIds = new Set(initial.schedules.keys());
+        const wireBody = canonicalizeScheduleRequest(message);
+        let scheduled: ReturnType<typeof parseScheduleDirective>;
+        try {
+          scheduled = parseScheduleDirective(wireBody);
+        } catch {
+          scheduled = undefined;
+        }
+        if (scheduled !== undefined && options.wait) {
+          throw new Error('post --wait is not supported for scheduled messages');
+        }
         client.send({
           type: 'post',
           room,
-          body: message,
+          body: wireBody,
           ...(options.wait && { awaiting_reply: true }),
         });
-        let posted: Message;
+        // harn:assume cli-post-acknowledges-messages-or-schedules ref=cli-scheduled-post-regression
+        let posted: Message | undefined;
         for (;;) {
           const frame = await client.next();
           if (frame.type === 'error') throw new Error(frame.message);
+          if (frame.type === 'schedule'
+            && !knownScheduleIds.has(frame.schedule.id)
+            && (frame.schedule.origin_room === room || frame.schedule.room === room)
+            && frame.schedule.author_id === initial.self
+            && scheduled !== undefined
+            && frame.schedule.body === scheduled.clean_body) {
+            out(`scheduled ${frame.schedule.id} due ${frame.schedule.due_ts}`);
+            return;
+          }
           if (
             frame.type === 'message' &&
             (frame.message.room !== room || frame.message.id > lastMessageId) &&
             frame.message.author === initial.self &&
-            frame.message.body === message
+            frame.message.body === wireBody
           ) {
             posted = frame.message;
             break;
           }
         }
+        if (posted === undefined) throw new Error('post acknowledgement disappeared');
         out(`posted #${posted.id}`);
         if (!options.wait) return;
         if (!env.CODOR_MEMBER_TOKEN) throw new Error('post --wait requires CODOR_MEMBER_TOKEN');
@@ -1206,6 +1235,7 @@ defaultRosterManagement
         }
       });
     });
+    // harn:end cli-post-acknowledges-messages-or-schedules
   // harn:end cli-waits-consume-only-matching-deliveries
 
   program

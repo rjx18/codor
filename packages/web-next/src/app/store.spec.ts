@@ -1,4 +1,4 @@
-import type { Message, Room, ServerFrame, TranscriptHistoryUnit } from '@codor/protocol';
+import type { Message, Room, Schedule, ServerFrame, TranscriptHistoryUnit } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -38,11 +38,47 @@ const message = (roomId: string, id: number): Message => ({
   pinned: false,
 });
 
+const schedule = (roomId: string, id: string, state: Schedule['state'] = 'pending', seq = 1): Schedule => ({
+  id,
+  room: roomId,
+  author_id: `${roomId}-human`,
+  author_handle: 'richard',
+  target: { member_id: `${roomId}-agent`, conversation_id: roomId, handle: 'agent' },
+  body: '@agent scheduled',
+  mentions: [{ member_id: `${roomId}-agent`, start: 0, end: 6 }],
+  due_ts: `2026-08-12T12:00:${String(10 + seq).padStart(2, '0')}.000Z`,
+  host_offset_minutes: 480,
+  state,
+  created_ts: '2026-08-12T12:00:00.000Z',
+  updated_ts: '2026-08-12T12:00:00.000Z',
+});
+
 const frame = (value: unknown): ServerFrame => value as ServerFrame;
 
 afterEach(resetClientStoreForTest);
 
 describe('room-keyed client state', () => {
+  // harn:assume browser-schedules-follow-authoritative-room-state ref=schedule-room-store-regression
+  it('upserts cold, warm, live, qualified, and cancel-result schedules by room and sequence', () => {
+    const store = createClientStore();
+    store.getState().applyFrame(frame({ type: 'self', room: 'eng', member_id: 'eng-human' }));
+    store.getState().applyFrame(frame({ type: 'schedule', seq: 2, schedule: schedule('eng', 'cold', 'pending', 2) }));
+    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'eng', seq: 2, history_floor: 1 }));
+    expect(roomSlice(store.getState(), 'eng').schedules.cold).toMatchObject({ state: 'pending' });
+    store.getState().applyFrame(frame({ type: 'schedule', seq: 3, schedule: schedule('eng', 'warm', 'sending', 3) }));
+    store.getState().applyFrame(frame({ type: 'schedule', seq: 4, schedule: schedule('child', 'qualified', 'pending', 4) }));
+    expect(roomSlice(store.getState(), 'child').schedules.qualified).toBeDefined();
+    expect(roomSlice(store.getState(), 'eng').schedules.qualified).toBeUndefined();
+    store.getState().applyFrame(frame({ type: 'cancel_schedule_result', ref: 'cancel', schedule: schedule('eng', 'cold', 'cancelled', 2) }));
+    expect(roomSlice(store.getState(), 'eng').schedules).toMatchObject({
+      cold: { state: 'cancelled' },
+      warm: { state: 'sending' },
+    });
+    expect(roomSlice(store.getState(), 'eng').seq).toBe(3);
+    store.getState().applyFrame(frame({ type: 'schedule', seq: 3, schedule: schedule('eng', 'warm', 'failed', 3) }));
+    expect(roomSlice(store.getState(), 'eng').schedules.warm).toMatchObject({ state: 'sending' });
+  });
+  // harn:end browser-schedules-follow-authoritative-room-state
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
   it('counts action errors by ref without changing the human-visible error list', () => {
     const store = useClientStore.getState();
@@ -192,8 +228,12 @@ describe('room-keyed client state', () => {
     warm.getState().applyFrame(frame({
       type: 'message', seq: 31, message: message('shared', 31),
     }));
-    warm.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 31 }));
+    warm.getState().applyFrame(frame({
+      type: 'schedule', seq: 32, schedule: schedule('shared', 'warm-schedule', 'failed', 32),
+    }));
+    warm.getState().applyFrame(frame({ type: 'sync_complete', room: 'shared', seq: 32 }));
     expect(roomSlice(warm.getState(), 'shared').messages[31]).toBeDefined();
+    expect(roomSlice(warm.getState(), 'shared').schedules['warm-schedule']).toMatchObject({ state: 'failed' });
     expect(roomSlice(warm.getState(), 'shared').transcriptHistory.coldMessageIds).toEqual({ 30: true });
 
     const emptyWarm = createClientStore();

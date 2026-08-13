@@ -472,6 +472,10 @@ docker run --rm --network none \
     grep -Fq '"handle":"worker"' <<<"$ADDED_AGENT"
     grep -Fq '"adapter":"housecat"' <<<"$ADDED_AGENT"
     grep -Fq '"policy":"read-only"' <<<"$ADDED_AGENT"
+    # harn:assume cli-post-acknowledges-messages-or-schedules ref=packed-scheduled-post-smoke
+    PACKED_SCHEDULED_OUTPUT="$($BIN --data-dir "$DATA" post -r fresh '[send_in=1h] @worker packed scheduled smoke')"
+    grep -Eq '^scheduled [^ ]+ due ' <<<"$PACKED_SCHEDULED_OUTPUT"
+    # harn:end cli-post-acknowledges-messages-or-schedules
     CONFIGURED_AGENT="$($BIN --data-dir "$DATA" agent configure worker --channel fresh --model packed-model --json)"
     grep -Fq '"model":"packed-model"' <<<"$CONFIGURED_AGENT"
     RENAMED_AGENT="$($BIN --data-dir "$DATA" agent rename worker worker-renamed --channel fresh --name 'Packed Worker' --json)"

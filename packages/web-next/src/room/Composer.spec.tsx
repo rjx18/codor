@@ -9,12 +9,14 @@ import {
   exactLocalMention,
   exactQualifiedMention,
   hasOwnPendingComposerEcho,
+  hasOwnPendingSchedule,
   insertQualifiedMentionText,
   pendingComposerResolution,
   qualifiedCompletionCandidates,
   qualifiedMentionQuery,
   resizeComposerTextarea,
   selectPendingDestinationMessages,
+  selectPendingDestinationSchedules,
 } from './Composer.js';
 
 // harn:assume composer-autogrow-measures-offscreen-before-live-height ref=offscreen-composer-measurement-regression
@@ -254,9 +256,51 @@ describe('raw composer acknowledgement ownership', () => {
     ...composerDispatchSnapshot(rawBody),
     targetRoom: 'eng',
     knownMessageIds: new Set<number>(),
+    knownScheduleIds: new Set<string>(),
     authorId: 'owner-eng',
     errorCount: 0,
   });
+
+  // harn:assume scheduled-composer-acknowledgement-preserves-raw-draft-ownership ref=scheduled-composer-acknowledgement-regression
+  const scheduledRow = (id: string, author = 'owner-eng', room = 'eng') => ({
+    id,
+    room,
+    author_id: author,
+    author_handle: 'owner',
+    target: { member_id: 'sol', conversation_id: room, handle: 'sol' },
+    body: 'please investigate @sol',
+    mentions: [{ member_id: 'sol', start: 20, end: 24 }],
+    due_ts: '2026-08-12T20:30:00.000Z',
+    host_offset_minutes: 480,
+    state: 'pending' as const,
+    created_ts: '2026-08-12T12:00:00.000Z',
+    updated_ts: '2026-08-12T12:00:00.000Z',
+  });
+
+  it('acknowledges only a new destination/self/clean-body schedule and preserves edits or collisions', () => {
+    const send = {
+      ...pending('[send_at=8:30PM] please investigate @sol '),
+      body: '[send_at=2026-08-12T20:30:00+08:00] please investigate @sol',
+      cleanScheduleBody: 'please investigate @sol',
+      targetRoom: 'eng',
+    };
+    const row = scheduledRow('new');
+    expect(hasOwnPendingSchedule({ new: row }, send)).toBe(true);
+    expect(pendingComposerResolution(undefined, send, send.rawBody, 0, { new: row })).toBe('clear');
+    expect(pendingComposerResolution(undefined, send, `${send.rawBody} edited`, 0, { new: row })).toBe('preserve');
+    expect(hasOwnPendingSchedule({ old: { ...row, id: 'old' } }, { ...send, knownScheduleIds: new Set(['old']) })).toBe(false);
+    expect(hasOwnPendingSchedule({ other: { ...row, id: 'other', author_id: 'sol' } }, send)).toBe(false);
+    expect(hasOwnPendingSchedule({ qualified: { ...row, id: 'qualified', room: 'wt-review', target: { ...row.target, conversation_id: 'wt-review' } } }, send)).toBe(false);
+  });
+
+  it('selects only destination schedules across unrelated room updates', () => {
+    const destination = { one: scheduledRow('one') };
+    const state = { rooms: { eng: { schedules: destination }, other: { schedules: {} } } };
+    expect(selectPendingDestinationSchedules(state, 'eng')).toBe(destination);
+    expect(selectPendingDestinationSchedules(state, 'other')).toEqual({});
+    expect(selectPendingDestinationSchedules(state, undefined)).toBeUndefined();
+  });
+  // harn:end scheduled-composer-acknowledgement-preserves-raw-draft-ownership
 
   it.each([
     'please investigate @sol ',

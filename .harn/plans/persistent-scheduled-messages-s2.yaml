@@ -1,0 +1,429 @@
+id: persistent-scheduled-messages-s2
+title: Canonical scheduled-message clients and accessible durable cards
+notes: >
+  Implement only Lane C phase S2 from the accepted parallel reliability and
+  collaboration program, on exact clean base
+  52cc30c54961d19cc11bfeee8be95b7e04edfd5e. That base is accepted S1 through
+  9b2a9136225672c37d79200cb5bef0d333aa8766 plus the exact accepted Q1 patch
+  ade86564c3cb7774b6dd1e421f56c4e7d6e7bb34 integrated as 52cc30c. Browser and
+  codor post must use one shared client-boundary canonicalizer: only a complete
+  leading clock-only send_at is rewritten to the next local occurrence as an
+  explicit ISO-8601 instant with the submitting client's numeric UTC offset;
+  send_in and already-offset ISO directives retain their accepted form, and
+  non-leading examples remain ordinary prose. The server remains the sole
+  authority for parsing, bounds, targeting, persistence, and execution. Preserve
+  Q1 by retaining the exact raw textarea snapshot separately from the canonical
+  wire body and by resolving an ordinary send only from its existing
+  authenticated self message echo. A scheduled send instead resolves only from a
+  newly observed authoritative schedule in the selected destination room,
+  authored by that room's authenticated self and carrying the canonical clean
+  body; it clears only an unchanged raw draft and preserves later edits or
+  refusal text. Add schedule entities to the isolated per-room browser store,
+  including cold/warm hydration, live upsert, qualified room attribution, and
+  authoritative cancel results. Render non-sent schedules as a compact,
+  deterministic transcript surface: clock, exact local or qualified target,
+  viewer-local date/time and named zone, bounded preview, and honest Pending,
+  Sending, Failed, or Cancelled state. A sent row renders no card regardless of
+  whether its linked message is currently paged in; the ordinary delivered
+  message is the only sent presentation. Pending Cancel is visible only to the
+  authenticated author or a human owner/admin, sends one correlated act, and
+  settles from the schedule/result/error stream so a claim race cannot leave a
+  false cancelled state. codor post must snapshot existing message and schedule
+  ids, submit the same canonical wire body, keep its ordinary `posted #N`
+  contract, and exit on a matching new self-authored schedule with one stable
+  scheduled acknowledgement instead of waiting forever. Keep recurrence, cron,
+  editing, rescheduling, bulk actions, attachment/reply/voice/wait support for
+  schedules, polling APIs, offline send queues, server state-machine changes,
+  transcript-history redesign, deployment, and release out of scope.
+assumptions:
+  create:
+    - id: friendly-schedule-clocks-canonicalize-at-client-boundary
+      title: Friendly client clocks become one explicit scheduled request
+      statement: >
+        The shared browser/CLI submission helper must recognize only a complete
+        send_at directive at the first non-whitespace token, convert a
+        clock-only value to the next occurrence in the submitting browser or
+        process local time zone, and serialize that instant with its applicable
+        numeric UTC offset before sending; relative send_in and explicit-offset
+        ISO input retain their accepted directive semantics, malformed or
+        non-leading text is not reinterpreted, and the switchboard still parses
+        and authorizes the resulting frame, so browser and codor post cannot
+        disagree merely because the switchboard runs in another zone.
+      reason: >
+        A friendly wall clock is user-local at the client surface; sending it
+        unchanged would silently reinterpret remote browser and CLI requests in
+        the host zone, while duplicating conversion in two clients would drift.
+      depends_on:
+        - scheduling-directive-is-bounded-and-canonical
+        - unix-socket-same-protocol
+    - id: scheduled-composer-acknowledgement-preserves-raw-draft-ownership
+      title: Scheduled composer acknowledgement preserves exact raw draft ownership
+      statement: >
+        A browser scheduled dispatch must retain its exact raw textarea value,
+        canonical wire body, canonical clean scheduled body, destination room,
+        authenticated destination self, and the schedule ids already known
+        there; only a newly observed schedule with matching destination, author,
+        and clean body acknowledges that dispatch, and acknowledgement clears
+        only when the live textarea still equals the raw snapshot, while
+        ordinary posts continue to resolve exclusively through Q1's canonical
+        authenticated message echo and all refusals preserve actionable text.
+      reason: >
+        Scheduled acceptance emits a schedule rather than an immediate chat, but
+        weakening Q1 to clear on arbitrary state or canonical text would erase
+        post-dispatch edits and allow another author or room to claim the draft.
+      depends_on:
+        - composer-acknowledgement-separates-raw-draft-from-canonical-echo
+        - scheduled-state-streams-through-room-seq-v2
+        - target-worktree-owns-qualified-conversation
+    - id: browser-schedules-follow-authoritative-room-state
+      title: Browser schedule state follows authoritative room frames
+      statement: >
+        Each isolated browser room slice must upsert schedules by stable id from
+        cold hydration, warm replay, live schedule frames, and correlated cancel
+        results using the schedule's own destination room, preserving per-room
+        sequence cursors and retained last-good state across direct or hosted
+        reconnects; schedule state is never inferred from timers, button clicks,
+        messages, or another room, so reload, qualified subscriptions, and
+        cancellation races converge on server truth without polling.
+      reason: >
+        Durable cards and composer acknowledgement are trustworthy only if the
+        existing sequenced schedule entity participates in the same isolated
+        browser state path as messages and other room entities.
+      depends_on:
+        - scheduled-state-streams-through-room-seq-v2
+        - client-syncs-by-seq
+        - multiplexed-subscriptions-identify-their-room
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      title: Scheduled cards are accessible, authoritative, and never duplicate sent
+        messages
+      statement: >
+        The transcript must present each non-sent schedule once in deterministic
+        due-time, creation-time, then id order as a compact framed card naming
+        its exact local or worktree-qualified target, viewer-local date, time,
+        and zone, bounded clean-body preview, and Pending, Sending, Failed, or
+        Cancelled state; sent schedules render no card, failed/cancelled cards
+        remain honest, and only a pending schedule's authenticated author or
+        human owner/admin sees a focus-visible 44px Cancel target whose one
+        correlated request disables until an authoritative result or visible
+        error, so desktop, mobile, light/dark, screen-reader, reload, and claim
+        races never invent success or duplicate the ordinary delivered message.
+      reason: >
+        A delayed action needs durable visible status and safe cancellation,
+        while a terminal sent card beside the routed chat would represent one
+        delivery twice and permission-blind controls would promise forbidden
+        actions.
+      depends_on:
+        - browser-schedules-follow-authoritative-room-state
+        - scheduled-cancellation-is-authorized-before-claim
+        - web-theme-accessible-modes
+        - web-room-targets-meet-minimum-hit-size
+        - room-action-errors-are-visible
+    - id: cli-post-acknowledges-messages-or-schedules
+      title: codor post acknowledges either the committed message or schedule
+      statement: >
+        codor post must snapshot the subscribed room's existing message and
+        schedule ids, send the shared canonical request once, retain the
+        existing exact self-authored canonical message acknowledgement and
+        `posted #N` output for ordinary posts, and for a scheduled request exit
+        only on a new self-authored matching schedule frame with one stable id
+        and due-instant acknowledgement; errors and the existing scheduled
+        `--wait` refusal remain explicit, and local socket, remote WebSocket,
+        qualified destination acknowledgement, and packed installed execution
+        share this one protocol path.
+      reason: >
+        S1 intentionally emits no immediate chat for an accepted schedule, so
+        the existing CLI loop otherwise waits forever even though the request is
+        durably committed.
+      depends_on:
+        - friendly-schedule-clocks-canonicalize-at-client-boundary
+        - scheduled-state-streams-through-room-seq-v2
+        - cli-waits-consume-only-matching-deliveries
+        - unix-socket-same-protocol
+  reviewed:
+    - id: scheduling-directive-is-bounded-and-canonical
+      outcome: unchanged
+      reason: >
+        S2 only canonicalizes a friendly client clock before submission; the
+        shared S1 parser and switchboard remain authoritative for recognition,
+        bounds, clean body, target, horizon, and host-zone fallback.
+    - id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
+      outcome: unchanged
+      reason: >
+        Ordinary posts retain Q1's exact raw ownership and authenticated
+        canonical message echo; schedule acknowledgement is a distinct typed
+        branch and may not broaden ordinary correlation.
+    - id: pending-composer-echo-is-destination-and-self-bound
+      outcome: unchanged
+      reason: >
+        Immediate messages remain bound to the selected destination and its
+        authenticated self; S2 adds the parallel schedule collection without
+        subscribing the composer to unrelated state.
+    - id: cli-waits-consume-only-matching-deliveries
+      outcome: unchanged
+      reason: >
+        Ordinary post --wait still registers and consumes only its exact
+        addressed delivery/reply set; S2 extends the initial snapshot and the
+        non-waiting acceptance branch without treating a schedule as a reply.
+    - id: scheduled-state-streams-through-room-seq-v2
+      outcome: unchanged
+      reason: >
+        S2 consumes the accepted schedule frames, producing sequences, ordered
+        due effects, and replay contract without changing server persistence or
+        fanout.
+    - id: scheduled-cancellation-is-authorized-before-claim
+      outcome: unchanged
+      reason: >
+        The browser exposes only capabilities already enforced by S1 and treats
+        cancel results as authoritative, including sending/sent race outcomes.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: >
+        Qualified schedule acknowledgement and cards live only in the resolved
+        child conversation; neither the composer nor store copies them into the
+        source transcript.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: >
+        Schedule frames join existing per-room upsert and cursor semantics;
+        reconnect still resumes solely from the highest committed seq.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: >
+        Existing addressed subscriptions remain unchanged; the client derives a
+        schedule frame's room from its embedded authoritative schedule.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: >
+        A refused cancellation uses its submitted schedule ref to release the
+        card's in-flight state and expose the existing visible room error.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: >
+        CLI scheduling and acknowledgement use the existing post, schedule,
+        error, and sync frames on local and remote transports.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: >
+        The new card consumes semantic tokens, visible focus, and existing
+        light/dark/reduced-motion behavior rather than adding raw colors.
+    - id: web-room-targets-meet-minimum-hit-size
+      outcome: unchanged
+      reason: >
+        The card's Cancel affordance joins the rendered mobile target sweep and
+        must meet the existing 44 by 44 CSS-pixel contract.
+    - id: e2e-gate-covers-every-spec-file
+      outcome: unchanged
+      reason: >
+        The new isolated scheduled-message browser spec is discovered by the
+        unchanged all-spec runner, while focused direct/hosted/worktree runs
+        provide phase evidence.
+    - id: packed-release-proof-runs-install-runtime
+      outcome: unchanged
+      reason: >
+        The existing clean packed-install proof remains the release artifact
+        gate; S2 adds one pending scheduled-post smoke to its installed runtime
+        without changing packaging, installation, or release policy.
+anchors:
+  scheduling-directive-is-bounded-and-canonical:
+    scheduled-directive-parser:
+      action: change
+      reason: >
+        Share its exact leading-directive grammar with the client canonicalizer
+        without weakening server-side parsing or host-zone fallback.
+    scheduled-directive-regression:
+      action: change
+      reason: >
+        Extend protocol regressions with client-local canonical requests while
+        retaining every S1 malformed, bound, and non-leading case.
+    scheduled-directive-documentation:
+      action: change
+      reason: >
+        Extend the S1 protocol section with the S2 client, card, and CLI surface
+        contract while preserving the authoritative backend rules.
+  composer-acknowledgement-separates-raw-draft-from-canonical-echo:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: >
+        Add a typed scheduled acknowledgement path while leaving the ordinary
+        raw snapshot and canonical self-message correlation exact.
+    raw-draft-acknowledgement-regression:
+      action: change
+      reason: >
+        Re-run and extend Q1's local, hosted, and qualified regressions under
+        scheduled canonicalization and acknowledgement.
+  cli-waits-consume-only-matching-deliveries:
+    collaboration-room-sync:
+      action: change
+      reason: >
+        Include schedule ids in the authoritative initial subscription snapshot
+        without altering queued delivery selection.
+    post-wait-command:
+      action: change
+      reason: >
+        Add typed schedule acceptance to the post loop while preserving the
+        exact ordinary message and reply-wait paths.
+  packed-release-proof-runs-install-runtime:
+    packed-install-script:
+      action: change
+      reason: >
+        Add one installed pending scheduled-post acknowledgement smoke inside
+        the existing clean artifact/runtime proof.
+  friendly-schedule-clocks-canonicalize-at-client-boundary:
+    client-schedule-canonicalizer:
+      action: change
+      reason: >
+        Add one exported, injected-clock-testable helper for leading friendly
+        clock conversion and explicit offset serialization without interpreting
+        non-leading examples.
+    client-schedule-canonicalization-regression:
+      action: change
+      reason: >
+        Record red-first browser/CLI-equivalent clock, midnight rollover,
+        positive/negative/half-hour offsets, send_in, explicit ISO, malformed,
+        and non-leading example cases.
+    scheduled-client-documentation:
+      action: change
+      reason: >
+        Document submitting-client local clock canonicalization, host fallback,
+        card states, CLI acknowledgement, and retained S1 exclusions.
+  scheduled-composer-acknowledgement-preserves-raw-draft-ownership:
+    scheduled-pending-composer-send:
+      action: change
+      reason: >
+        Keep raw, canonical wire, clean schedule, destination-self, and known-id
+        values distinct, resolving typed schedule and ordinary message paths
+        without broad store subscriptions.
+    scheduled-composer-acknowledgement-regression:
+      action: change
+      reason: >
+        Prove canonical wire submission and exact draft clearing/preservation
+        for local and qualified schedules, identical other-author/old rows,
+        errors, and ordinary Q1 echoes.
+  browser-schedules-follow-authoritative-room-state:
+    schedule-room-store:
+      action: change
+      reason: >
+        Add isolated room schedule maps, hydration staging, live/cancel-result
+        upserts, room attribution, and sequence-preserving merge/reset behavior.
+    schedule-room-store-regression:
+      action: change
+      reason: >
+        Cover cold/warm/live/result frames, cross-room multiplexing, retained
+        reconnect state, every durable state, and no schedule-derived messages.
+    correlated-browser-schedule-cancel:
+      action: change
+      reason: >
+        Allow a browser act to carry the schedule id as its bounded correlation
+        ref on both direct and scoped connector implementations.
+    correlated-browser-schedule-cancel-regression:
+      action: change
+      reason: >
+        Assert the exact one-ref cancel frame through direct and hosted/scoped
+        connector seams without altering other acts.
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    authoritative-schedule-card:
+      action: change
+      reason: >
+        Render exact target, local zoned time, bounded preview/state/error, and
+        permission/race-aware cancellation from authoritative schedule data.
+    authoritative-schedule-card-regression:
+      action: change
+      reason: >
+        Prove all visible states, sent suppression with or without its paged
+        message, deterministic same-instant order, local/qualified labels,
+        permissions, one cancel, result/error settlement, and timezone output.
+    responsive-schedule-card:
+      action: change
+      reason: >
+        Add token-only compact desktop/mobile layout, bounded prose, visible
+        focus, and a 44px phone cancel target without horizontal overflow.
+    scheduled-card-browser-regression:
+      action: change
+      reason: >
+        Prove direct creation/reload/delivery/cancellation, same-instant and
+        offset cards, mobile dimensions and Axe, hosted reconnect, and qualified
+        worktree ownership in isolated Playwright journeys.
+  cli-post-acknowledges-messages-or-schedules:
+    cli-scheduled-post-regression:
+      action: change
+      reason: >
+        Record the baseline hang, then cover ordinary, local/remote scheduled,
+        qualified, other-author/pre-existing collision, error, and --wait
+        refusal behavior with exact output and one submitted frame.
+    packed-scheduled-post-smoke:
+      action: change
+      reason: >
+        Exercise an installed tarball's public codor post scheduling path and
+        stable acknowledgement without waiting for the pending row to fire.
+files:
+  - docs/PROTOCOL.md
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/schedule.ts
+  - packages/cli/src/index.spec.ts
+  - packages/cli/src/program.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/ScheduleCard.spec.tsx
+  - packages/web-next/src/room/ScheduleCard.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room42-scheduled-messages.e2e.spec.ts
+  - scripts/packed-install-test.sh
+verification: >
+  Lock clean with dirty_at_lock false on exact base
+  52cc30c54961d19cc11bfeee8be95b7e04edfd5e. Before implementation, add and run
+  literal regressions that fail on the accepted base because the browser store
+  ignores schedule frames, the composer never clears from an accepted schedule,
+  codor post waits forever after the schedule frame, no cards exist, and browser
+  cancel acts carry no required ref. Use an injected fixed instant and zones to
+  record friendly `[send_at=8:30PM]@viewer ...` becoming the same explicit
+  offset-bearing request from browser and CLI; prove half-hour,
+  positive/negative offset and next-day cases while send_in, explicit ISO,
+  malformed directive-like input, and `example [send_at=8:30PM]` retain their S1
+  behavior. Then make the smallest S2-only implementation. The green unit matrix
+  must prove: cold, warm, live, qualified and cancel-result schedule upserts in
+  the correct room and at the correct cursor; Pending, Sending, Failed and
+  Cancelled cards with stable due/created/id ordering and exact local/qualified
+  labels; sent suppression both before and after its linked message is in the
+  bounded transcript; viewer-local date/time/zone and bounded preview;
+  author/owner/admin Cancel only, member/observer hidden, one exact schedule-id
+  ref, disabled in flight, server result wins a claim race, and error restores
+  an actionable control; scheduled composer clear only for a new matching
+  destination/self/clean-body row and only if the raw draft is unchanged, with
+  edit, other author, old id, qualified room, refusal and all existing Q1
+  ordinary cases preserved; CLI ordinary output unchanged, scheduled output
+  exits once, pre-existing/foreign rows cannot acknowledge, qualified acceptance
+  follows the target-owned frame, transport errors are explicit, and scheduled
+  --wait is refused rather than weakened. The direct schedule Playwright journey
+  must cover immediate card, offset display, same-instant order,
+  reload/reconnect, cancel-before-claim, due reconciliation into exactly one
+  ordinary message, 390px no-overflow/44px target, keyboard, light/dark and Axe;
+  the hosted relay journey must retain and update a pending card across a
+  host-generation reconnect without direct-origin leakage; the native worktree
+  journey must submit and render only in the selected qualified conversation and
+  preserve Q1 raw-draft behavior. Run focused protocol,
+  store/connector/composer/card/transcript and CLI tests first; then complete
+  protocol, CLI, and web-next tests/builds; run the direct Room 2 Q1 regression,
+  Room 5 mobile gate, Room 32 hosted relay, Room 40 native worktree, and new
+  Room 42 schedule Playwright specs in isolated harnesses; run the packed
+  installed CLI gate; run recursive workspace build and serialized workspace
+  tests if dependency resolution is isolated from shared host links. Run Harn
+  working check, apply, staged check, git diff --check, create exactly one S2
+  implementation commit containing applied plan/truth, and finish clean. Do not
+  change the S1 server scheduler/state machine or authorization, add a polling
+  API, recurrence/cron/edit/reschedule/bulk/script/attachment/reply/voice/wait
+  scheduling, offline queue, history redesign, raw colors, or unrelated UI; do
+  not mutate shared node_modules or host links, delegate, poll/remind peers,
+  push, merge, deploy, publish, release, or update the host. Tag the local
+  orchestrator once on genuine blocker or completion with exact red evidence,
+  green counts, Harn result, commit, and clean status, then stop.
+applied:
+  applied_at: 2026-08-13T00:39:09.331Z

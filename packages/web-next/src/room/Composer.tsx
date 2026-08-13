@@ -1,4 +1,14 @@
-import { parseBody, type Member, type Message, type WorktreeRoutingCatalog, type WorktreeRoutingMember, type WorktreeRoutingTarget } from '@codor/protocol';
+import {
+  canonicalizeScheduleRequest,
+  parseBody,
+  parseScheduleDirective,
+  type Member,
+  type Message,
+  type Schedule,
+  type WorktreeRoutingCatalog,
+  type WorktreeRoutingMember,
+  type WorktreeRoutingTarget,
+} from '@codor/protocol';
 import { ArrowUp, AtSign, Mic, Paperclip, X } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -219,6 +229,31 @@ export function selectPendingDestinationMessages(
 ): Record<number, Message> | undefined {
   return targetRoom === undefined ? undefined : state.rooms[targetRoom]?.messages;
 }
+
+export function selectPendingDestinationSchedules(
+  state: { rooms: Record<string, { schedules: Record<string, Schedule> }> },
+  targetRoom: string | undefined,
+): Record<string, Schedule> | undefined {
+  return targetRoom === undefined ? undefined : state.rooms[targetRoom]?.schedules;
+}
+
+export function hasOwnPendingSchedule(
+  schedules: Readonly<Record<string, Schedule>> | undefined,
+  pending: {
+    targetRoom: string;
+    cleanScheduleBody?: string;
+    knownScheduleIds?: ReadonlySet<string>;
+    authorId: string | undefined;
+  },
+): boolean {
+  if (schedules === undefined || pending.cleanScheduleBody === undefined || pending.authorId === undefined) return false;
+  return Object.values(schedules).some((schedule) =>
+    !(pending.knownScheduleIds ?? new Set<string>()).has(schedule.id)
+    && schedule.room === pending.targetRoom
+    && schedule.target.conversation_id === pending.targetRoom
+    && schedule.author_id === pending.authorId
+    && schedule.body === pending.cleanScheduleBody);
+}
 // harn:end pending-composer-echo-is-destination-and-self-bound
 
 // harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-and-canonical-pending-send
@@ -227,6 +262,8 @@ type PendingComposerSend = {
   body: string;
   targetRoom: string;
   knownMessageIds: Set<number>;
+  cleanScheduleBody?: string;
+  knownScheduleIds?: Set<string>;
   authorId: string | undefined;
   errorCount: number;
 };
@@ -240,12 +277,18 @@ export function pendingComposerResolution(
   pending: PendingComposerSend,
   currentRawBody: string,
   errorCount: number,
+  schedules?: Readonly<Record<string, Schedule>>,
 ): 'clear' | 'preserve' | 'error' | undefined {
+  // harn:assume scheduled-composer-acknowledgement-preserves-raw-draft-ownership ref=scheduled-pending-composer-send
+  if (hasOwnPendingSchedule(schedules, pending)) {
+    return currentRawBody === pending.rawBody ? 'clear' : 'preserve';
+  }
   if (hasOwnPendingComposerEcho(messages, pending)) {
     return currentRawBody === pending.rawBody ? 'clear' : 'preserve';
   }
   return errorCount > pending.errorCount ? 'error' : undefined;
 }
+// harn:end scheduled-composer-acknowledgement-preserves-raw-draft-ownership
 
 /** The spoken-message body: mention prefix (omitted when unaddressed — never a
  *  dangling `@`), then the plain newline-joined transcript. No marker glyphs —
@@ -300,6 +343,12 @@ export function Composer(props: { room: string; token: () => string; connection:
   // other room, therefore leaves the active composer alone while typing.
   const pendingDestinationMessages = useClientStore((state) =>
     selectPendingDestinationMessages(state, pendingSend?.targetRoom));
+  const pendingDestinationSchedules = useClientStore((state) =>
+    selectPendingDestinationSchedules(state, pendingSend?.targetRoom));
+  const pendingDestinationErrors = useClientStore((state) =>
+    pendingSend?.targetRoom === undefined
+      ? slice.errors
+      : roomSlice(state, pendingSend.targetRoom).errors);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [takes, setTakes] = useState<DictationTake[]>([]);
@@ -399,7 +448,8 @@ export function Composer(props: { room: string; token: () => string; connection:
       pendingDestinationMessages,
       pendingSend,
       areaRef.current?.value ?? draft,
-      slice.errors.length,
+      pendingDestinationErrors.length,
+      pendingDestinationSchedules,
     );
     if (resolution === 'clear' || resolution === 'preserve') {
       setPendingSend(undefined);
@@ -415,10 +465,10 @@ export function Composer(props: { room: string; token: () => string; connection:
       return;
     }
     if (resolution === 'error') {
-      setHint(slice.errors.at(-1) ?? 'Message was refused');
+      setHint(pendingDestinationErrors.at(-1) ?? 'Message was refused');
       setPendingSend(undefined);
     }
-  }, [draft, pendingDestinationMessages, pendingSend, slice.errors]);
+  }, [draft, pendingDestinationErrors, pendingDestinationMessages, pendingDestinationSchedules, pendingSend]);
   // harn:end invalid-qualified-targets-never-fallback
 
   // Until the operator edits, the seeded draft follows hydration as the latest
@@ -830,7 +880,7 @@ export function Composer(props: { room: string; token: () => string; connection:
     // so an overwritten seeded @mention can never be submitted from a stale
     // closure.
     const snapshot = composerDispatchSnapshot(areaRef.current?.value ?? draft);
-    const body = snapshot.body;
+    const body = canonicalizeScheduleRequest(snapshot.body);
     if (pendingSend !== undefined || !connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
     const parsed = parseBody(body, roster, {
       qualifiedTargets: routingCatalog,
@@ -852,15 +902,26 @@ export function Composer(props: { room: string; token: () => string; connection:
     }
     const targetRoom = parsed.qualified?.[0]?.target?.conversation_id ?? props.room;
     const targetSlice = roomSlice(useClientStore.getState(), targetRoom);
+    let cleanScheduleBody: string | undefined;
+    try {
+      cleanScheduleBody = parseScheduleDirective(body)?.clean_body;
+    } catch {
+      // The server remains authoritative for malformed scheduling directives;
+      // this dispatch stays an ordinary pending send until its error frame.
+      cleanScheduleBody = undefined;
+    }
     setPendingSend({
-      ...snapshot,
+      rawBody: snapshot.rawBody,
+      body,
       targetRoom,
       knownMessageIds: new Set(Object.keys(targetSlice.messages).map(Number)),
+      cleanScheduleBody,
+      knownScheduleIds: new Set(Object.keys(targetSlice.schedules)),
       // Multiplexed child subscriptions carry their own addressed `self`, so a
       // qualified echo is matched against the browser identity in that room —
       // never merely against identical prose from its agent.
       authorId: targetSlice.selfMemberId,
-      errorCount: slice.errors.length,
+      errorCount: targetSlice.errors.length,
     });
     props.connection.post(body, {
       ...(replyTo !== undefined && { replyTo }),

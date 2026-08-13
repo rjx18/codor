@@ -1,0 +1,18 @@
+id: scheduled-composer-acknowledgement-preserves-raw-draft-ownership
+hash: a-f3727ecdff17
+title: Scheduled composer acknowledgement preserves exact raw draft ownership
+state: active
+statement: >
+  A browser scheduled dispatch must retain its exact raw textarea value,
+  canonical wire body, canonical clean scheduled body, destination room,
+  authenticated destination self, and the schedule ids already known there; only
+  a newly observed schedule with matching destination, author, and clean body
+  acknowledges that dispatch, and acknowledgement clears only when the live
+  textarea still equals the raw snapshot, while ordinary posts continue to
+  resolve exclusively through Q1's canonical authenticated message echo and all
+  refusals preserve actionable text.
+depends_on:
+  - composer-acknowledgement-separates-raw-draft-from-canonical-echo
+  - scheduled-state-streams-through-room-seq-v2
+  - target-worktree-owns-qualified-conversation
+created_by: persistent-scheduled-messages-s2

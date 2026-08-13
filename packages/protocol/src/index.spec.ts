@@ -4,6 +4,43 @@ import { describe, expect, it } from 'vitest';
 
 import * as protocol from './index.js';
 
+// harn:assume friendly-schedule-clocks-canonicalize-at-client-boundary ref=client-schedule-canonicalization-regression
+describe('client schedule canonicalization', () => {
+  it('canonicalizes the same friendly clock across positive, negative, and half-hour offsets', () => {
+    const fixed = new Date('2026-08-12T12:00:00.000Z');
+    const cases = [
+      [480, '[send_at=2026-08-12T20:30:00+08:00]@viewer positive'],
+      [-300, '[send_at=2026-08-12T20:30:00-05:00]@viewer negative'],
+      [330, '[send_at=2026-08-12T20:30:00+05:30]@viewer half-hour'],
+    ] as const;
+    for (const [offsetMinutes, expected] of cases) {
+      expect(protocol.canonicalizeScheduleRequest('[send_at=8:30PM]' + expected.slice(expected.indexOf(']') + 1), {
+        now: fixed, offsetMinutes,
+      })).toBe(expected);
+    }
+    expect(protocol.canonicalizeScheduleRequest('[send_at=11:30PM]@viewer rollover', {
+      now: new Date('2026-08-12T18:00:00.000Z'), offsetMinutes: 330,
+    })).toBe('[send_at=2026-08-13T23:30:00+05:30]@viewer rollover');
+  });
+
+  it('keeps relative, explicit, malformed, and non-leading forms unchanged', () => {
+    const now = new Date('2026-08-12T12:00:00.000Z');
+    expect(protocol.canonicalizeScheduleRequest('[send_in=2h] @viewer relative', {
+      now, offsetMinutes: 480,
+    })).toBe('[send_in=2h] @viewer relative');
+    expect(protocol.canonicalizeScheduleRequest('[send_at=2026-08-13T08:30:00+08:00] @viewer explicit', {
+      now, offsetMinutes: 480,
+    })).toBe('[send_at=2026-08-13T08:30:00+08:00] @viewer explicit');
+    expect(protocol.canonicalizeScheduleRequest('[send_at=8:30PM @viewer malformed', {
+      now, offsetMinutes: 480,
+    })).toBe('[send_at=8:30PM @viewer malformed');
+    expect(protocol.canonicalizeScheduleRequest('example [send_at=8:30PM] @viewer prose', {
+      now, offsetMinutes: 480,
+    })).toBe('example [send_at=8:30PM] @viewer prose');
+  });
+});
+// harn:end friendly-schedule-clocks-canonicalize-at-client-boundary
+
 describe('@codor/protocol barrel', () => {
   it('exports every schema surface consumers build on', () => {
     for (const name of [
@@ -40,7 +77,7 @@ describe('@codor/protocol barrel', () => {
       'ServerFrameSchema',
       'ScheduleSchema',
       'ScheduleStateSchema',
-      'parseScheduleDirective',
+      'parseScheduleDirective', 'canonicalizeScheduleRequest',
     ] as const) {
       expect(protocol[name], name).toBeDefined();
     }

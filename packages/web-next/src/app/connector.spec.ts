@@ -136,6 +136,21 @@ afterEach(() => {
 
 // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-unit-regression
 describe('connector resume', () => {
+  // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
+  it('correlates direct and scoped cancellation with exactly one schedule ref', () => {
+    const connector = createConnector({
+      room: 'eng', token: 'token',
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    latest().accept();
+    connector.act({ act: 'cancel_schedule', schedule_id: 'schedule-red' });
+    expect(JSON.parse(latest().sent.at(-1)!)).toMatchObject({
+      type: 'act', room: 'eng', ref: 'schedule-red',
+      act: { act: 'cancel_schedule', schedule_id: 'schedule-red' },
+    });
+    connector.dispose();
+  });
+  // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
   it('writes only the injected computer store and token sink', () => {
     const isolated = createClientStore();
     const setToken = vi.fn((token: string) => token);

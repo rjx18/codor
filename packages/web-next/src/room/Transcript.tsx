@@ -4,6 +4,7 @@ import type {
   Member,
   Message,
   RunItemDiff,
+  Schedule,
   TranscriptHistoryIndexedEvent,
   TranscriptHistoryUnit,
   WireEvent,
@@ -30,6 +31,7 @@ import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { RunDiffDialog } from './RunDiffDialog.js';
+import { ScheduleCard } from './ScheduleCard.js';
 import { JUMP_ANCHOR_EVENT, jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
 import {
@@ -65,6 +67,17 @@ const REGLUE_DISTANCE_PX = 80;
 const READ_DWELL_MS = 300;
 const READ_MIN_VISIBLE_PX = 48;
 const SEGMENT_CACHE_ROOMS = 3;
+
+export function orderedVisibleSchedules(
+  schedules: Readonly<Record<string, Schedule>>,
+  room: string,
+): Schedule[] {
+  return Object.values(schedules)
+    .filter((schedule) => schedule.room === room && schedule.state !== 'sent')
+    .sort((left, right) => left.due_ts.localeCompare(right.due_ts)
+      || left.created_ts.localeCompare(right.created_ts)
+      || left.id.localeCompare(right.id));
+}
 
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-state-machine
 export interface TranscriptGroupingRow {
@@ -201,6 +214,7 @@ export function coldMessageSuppressed(
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
+  const schedules = slice.schedules;
   const members = slice.members;
   const selfId = slice.selfMemberId;
   const hydrated = slice.hydrated;
@@ -228,6 +242,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const [newCount, setNewCount] = useState(0);
   const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [cancelPending, setCancelPending] = useState<Record<string, number>>({});
   const historyRequestRef = useRef(false);
   const historyRestoreRef = useRef<HistoryRestore>();
   const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -457,6 +472,33 @@ export function Transcript(props: { room: string; token: () => string; connectio
     return selected;
   }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
   const entries = useMemo(() => buildTimelineEntries(liveVisible, new Map()), [liveVisible]);
+  const orderedSchedules = useMemo(
+    () => orderedVisibleSchedules(schedules, props.room),
+    [props.room, schedules],
+  );
+  const cancelSchedule = useCallback((scheduleId: string): void => {
+    if (cancelPending[scheduleId] !== undefined) return;
+    setCancelPending((current) => ({
+      ...current,
+      [scheduleId]: slice.errorRefs[scheduleId] ?? 0,
+    }));
+    props.connection.act({ act: 'cancel_schedule', schedule_id: scheduleId }, scheduleId);
+  }, [cancelPending, props.connection, slice.errorRefs]);
+  useEffect(() => {
+    setCancelPending((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [id, beforeErrors] of Object.entries(current)) {
+        const schedule = schedules[id];
+        if (schedule === undefined || schedule.state !== 'pending'
+          || (slice.errorRefs[id] ?? 0) > beforeErrors) {
+          delete next[id];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [schedules, slice.errorRefs]);
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
     initialBarrier.current = { room: props.room, ready: false };
@@ -902,6 +944,19 @@ export function Transcript(props: { room: string; token: () => string; connectio
           {!transcriptReady && !historyBlocked && <TranscriptSkeleton />}
           {transcriptReady && history.units.length === 0 && liveVisible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
+          )}
+          {transcriptReady && orderedSchedules.length > 0 && (
+            <section className="nx-schedule-list" aria-label="Scheduled messages" data-testid="schedule-list">
+              {orderedSchedules.map((schedule) => (
+                <ScheduleCard
+                  key={schedule.id}
+                  schedule={schedule}
+                  viewer={selfId === undefined ? undefined : members[selfId]}
+                  cancelPending={cancelPending[schedule.id] !== undefined}
+                  onCancel={cancelSchedule}
+                />
+              ))}
+            </section>
           )}
           {/* harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-rendering */}
           {transcriptReady && renderHistoricalTimeline(renderedHistory, {
