@@ -76,6 +76,24 @@ describe('authoritative scheduled cards', () => {
     expect(markup).toContain('not authorized');
   });
 
+  it('hides an older cancellation refusal while retrying or after terminal truth', () => {
+    const retry = renderToStaticMarkup(
+      <ScheduleCard
+        schedule={schedule()}
+        viewer={viewer('owner')}
+        cancelPending
+        cancelError="old refusal"
+      />,
+    );
+    expect(retry).not.toContain('old refusal');
+    for (const state of ['cancelled', 'sending', 'failed', 'sent'] as const) {
+      const markup = renderToStaticMarkup(
+        <ScheduleCard schedule={schedule(state)} viewer={viewer('owner')} cancelError="old refusal" />,
+      );
+      expect(markup).not.toContain('old refusal');
+    }
+  });
+
   it('keeps overlapping schedule-ref errors attached to their own card', () => {
     const first = renderToStaticMarkup(
       <ScheduleCard schedule={{ ...schedule(), id: 'first' }} viewer={viewer('owner')} cancelError="first refusal" />,

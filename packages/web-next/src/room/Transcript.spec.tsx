@@ -17,6 +17,8 @@ import {
   orderedVisibleSchedules,
   reserveScheduleCancel,
   scheduleCancelReady,
+  type ScheduleCancelAttempt,
+  settleScheduleCancelAttempt,
 } from './Transcript.js';
 
 describe('scheduled transcript projection', () => {
@@ -45,6 +47,18 @@ describe('scheduled transcript projection', () => {
     expect(reserveScheduleCancel(reservations, 'one')).toBe(true);
     expect(reserveScheduleCancel(reservations, 'one')).toBe(false);
     expect([...reservations]).toEqual(['one']);
+  });
+
+  it('settles one attempt from newer exact errors and clears stale or terminal evidence', () => {
+    const pending: ScheduleCancelAttempt = { errorCount: 2, settled: false };
+    const row = schedule('one', '2026-08-12T12:00:00.000Z', '2026-08-12T12:00:00.000Z', 'pending');
+    expect(settleScheduleCancelAttempt(pending, row, 2, 'old refusal', true)).toBe(pending);
+    expect(settleScheduleCancelAttempt(pending, row, 3, 'new refusal', true)).toEqual({
+      errorCount: 3, settled: true, error: 'new refusal',
+    });
+    expect(settleScheduleCancelAttempt(pending, { ...row, state: 'cancelled' }, 3, 'old refusal', true)).toBeUndefined();
+    expect(settleScheduleCancelAttempt(pending, undefined, 3, 'old refusal', true)).toBeUndefined();
+    expect(settleScheduleCancelAttempt(pending, row, 2, 'old refusal', false)).toBeUndefined();
   });
 });
 

@@ -64,6 +64,9 @@ export function ScheduleCard(props: ScheduleCardProps) {
   // understand the retained action; readiness disables it rather than hiding it.
   const canShowCancel = canCancelSchedule(schedule, viewer);
   const state = scheduleStateLabel(schedule.state);
+  const cancelError = schedule.state === 'pending' && props.cancelPending !== true
+    ? props.cancelError
+    : undefined;
   const localTime = useMemo(
     () => formatScheduleLocalTime(schedule.due_ts, props.timeZone),
     [props.timeZone, schedule.due_ts],
@@ -83,9 +86,9 @@ export function ScheduleCard(props: ScheduleCardProps) {
       <div className="nx-schedule-card-target">Target {scheduleTargetLabel(schedule)}</div>
       <p className="nx-schedule-card-preview">{schedulePreview(schedule.body)}</p>
       {schedule.error !== undefined && <p className="nx-schedule-card-error" role="alert">{schedule.error}</p>}
-      {props.cancelError !== undefined && props.cancelError !== schedule.error && (
+      {cancelError !== undefined && cancelError !== schedule.error && (
         <p className="nx-schedule-card-error" role="alert" data-testid={`schedule-cancel-error-${schedule.id}`}>
-          {props.cancelError}
+          {cancelError}
         </p>
       )}
       {canShowCancel && (

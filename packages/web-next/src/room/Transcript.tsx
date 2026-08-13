@@ -92,6 +92,31 @@ export function reserveScheduleCancel(reservations: Set<string>, scheduleId: str
   return true;
 }
 
+export interface ScheduleCancelAttempt {
+  errorCount: number;
+  settled: boolean;
+  error?: string;
+}
+
+/** Resolve one local cancellation attempt only from newer, same-ref error
+ * evidence or authoritative schedule state. Older store text is not an
+ * attempt result and therefore cannot keep an alert alive. */
+export function settleScheduleCancelAttempt(
+  attempt: ScheduleCancelAttempt | undefined,
+  schedule: Schedule | undefined,
+  errorCount: number,
+  errorText: string | undefined,
+  ready: boolean,
+): ScheduleCancelAttempt | undefined {
+  if (!ready || schedule === undefined || schedule.state !== 'pending') return undefined;
+  if (attempt === undefined || attempt.settled || errorCount <= attempt.errorCount) return attempt;
+  return {
+    errorCount,
+    settled: true,
+    error: errorText ?? 'Cancellation was refused',
+  };
+}
+
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-state-machine
 export interface TranscriptGroupingRow {
   author: string;
@@ -260,7 +285,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const [newCount, setNewCount] = useState(0);
   const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
-  const [cancelPending, setCancelPending] = useState<Record<string, number>>({});
+  const [cancelAttempts, setCancelAttempts] = useState<Record<string, ScheduleCancelAttempt>>({});
   // React state is intentionally asynchronous; reserve the id synchronously so
   // two same-tick clicks cannot emit two cancellation acts.
   const cancelPendingRef = useRef(new Set<string>());
@@ -500,47 +525,42 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const cancelSchedule = useCallback((scheduleId: string): void => {
     if (!cancelReady || !reserveScheduleCancel(cancelPendingRef.current, scheduleId)) return;
     const beforeErrors = slice.errorRefs[scheduleId] ?? 0;
-    setCancelPending((current) => ({
+    setCancelAttempts((current) => ({
       ...current,
-      [scheduleId]: beforeErrors,
+      [scheduleId]: { errorCount: beforeErrors, settled: false },
     }));
-    // RoomConnector returns false when the socket closed between readiness
-    // observation and this action. The generic Connection contract remains void,
-    // so undefined means the act was accepted and awaits authoritative frames.
-    const act = props.connection.act as unknown as (
-      action: { act: 'cancel_schedule'; schedule_id: string }, ref?: string,
-    ) => boolean | void;
-    if (act({ act: 'cancel_schedule', schedule_id: scheduleId }, scheduleId) === false) {
-      cancelPendingRef.current.delete(scheduleId);
-      setCancelPending((current) => {
-        if (current[scheduleId] === undefined) return current;
-        const next = { ...current };
-        delete next[scheduleId];
-        return next;
-      });
-    }
+    props.connection.act({ act: 'cancel_schedule', schedule_id: scheduleId }, scheduleId);
   }, [cancelReady, props.connection, slice.errorRefs]);
   useEffect(() => {
     if (!cancelReady) {
       cancelPendingRef.current.clear();
-      setCancelPending((current) => Object.keys(current).length === 0 ? current : {});
+      setCancelAttempts((current) => Object.keys(current).length === 0 ? current : {});
       return;
     }
-    setCancelPending((current) => {
+    setCancelAttempts((current) => {
       let changed = false;
       const next = { ...current };
-      for (const [id, beforeErrors] of Object.entries(current)) {
-        const schedule = schedules[id];
-        if (schedule === undefined || schedule.state !== 'pending'
-          || (slice.errorRefs[id] ?? 0) > beforeErrors) {
+      for (const [id, attempt] of Object.entries(current)) {
+        const settled = settleScheduleCancelAttempt(
+          attempt,
+          schedules[id],
+          slice.errorRefs[id] ?? 0,
+          slice.errorTexts[id],
+          cancelReady,
+        );
+        if (settled === undefined) {
           cancelPendingRef.current.delete(id);
           delete next[id];
+          changed = true;
+        } else if (settled !== attempt) {
+          cancelPendingRef.current.delete(id);
+          next[id] = settled;
           changed = true;
         }
       }
       return changed ? next : current;
     });
-  }, [cancelReady, schedules, slice.errorRefs]);
+  }, [cancelReady, schedules, slice.errorRefs, slice.errorTexts]);
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
     initialBarrier.current = { room: props.room, ready: false };
@@ -994,9 +1014,12 @@ export function Transcript(props: { room: string; token: () => string; connectio
                   key={schedule.id}
                   schedule={schedule}
                   viewer={selfId === undefined ? undefined : members[selfId]}
-                  cancelPending={cancelPending[schedule.id] !== undefined}
+                  cancelPending={cancelAttempts[schedule.id] !== undefined
+                    && !cancelAttempts[schedule.id]!.settled}
                   cancelReady={cancelReady}
-                  cancelError={slice.errorTexts[schedule.id]}
+                  cancelError={cancelAttempts[schedule.id]?.settled
+                    ? cancelAttempts[schedule.id]?.error
+                    : undefined}
                   onCancel={cancelSchedule}
                 />
               ))}
