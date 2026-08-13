@@ -399,13 +399,14 @@ test.describe('member card responsive presentation', () => {
 test.describe('manual compaction', () => {
   const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 
-  const control = async (path: string, body: unknown = {}): Promise<void> => {
+  const control = async <T = unknown>(path: string, body: unknown = {}): Promise<T> => {
     const res = await fetch(`${CONTROL}${path}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`${path} failed: ${await res.text()}`);
+    return (await res.json()) as T;
   };
 
   test('compacting shows busy, then lands a new ring reading and re-enables', async ({ page }) => {
@@ -494,14 +495,16 @@ test.describe('manual compaction', () => {
 // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-browser-regression
 test.describe('clear member context', () => {
   const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
-  const control = async (path: string, body: unknown = {}): Promise<void> => {
+  const control = async <T = unknown>(path: string, body: unknown = {}): Promise<T> => {
     const response = await fetch(`${CONTROL}${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!response.ok) throw new Error(`${path} failed: ${await response.text()}`);
+    return (await response.json()) as T;
   };
 
-  test('confirms, recovers from retirement failure, waits for member truth, and starts fresh lazily', async ({ page }) => {
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-direct-browser-regression
+  test('anchors a non-modal confirmation, correlates failure, and starts fresh lazily', async ({ page }) => {
     await openRoom(page, '/?room=context-reset&token=next-e2e-token');
     const card = page.getByTestId('member-eraser');
     const clear = page.getByTestId('member-eraser-clear-context');
@@ -510,39 +513,61 @@ test.describe('clear member context', () => {
     await expect(card.getByTestId('member-eraser-tasks')).toContainText('Old native-session task');
 
     await clear.click();
-    const dialog = page.getByTestId('clear-context-dialog');
-    await expect(dialog).toContainText("permanently discards the agent's native session memory");
-    await expect(dialog).toContainText('Channel history, identity, configuration, usage limits, and spend remain');
-    const { default: AxeBuilder } = await import('@axe-core/playwright');
-    const { violations } = await new AxeBuilder({ page })
-      .include('[data-testid="clear-context-dialog"]')
-      .analyze();
-    expect(violations).toEqual([]);
+    const confirmation = card.getByTestId('clear-context-confirmation');
+    await expect(page.getByTestId('clear-context-dialog')).toHaveCount(0);
+    await expect(confirmation).toContainText("permanently discards the agent's native session memory");
+    await expect(confirmation).toContainText('Channel history, identity, configuration, usage limits, and spend remain');
+    await expect(confirmation.getByTestId('clear-context-confirm')).toBeFocused();
 
-    // A correlated action error keeps the confirmation and old member truth,
-    // but re-enables the action for an explicit retry.
+    // Escape restores the trigger; an outside pointer closes without dispatching
+    // and leaves the newly chosen composer target available to receive focus.
+    await page.keyboard.press('Escape');
+    await expect(confirmation).toHaveCount(0);
+    await expect(clear).toBeFocused();
+    await clear.click();
+    await page.getByTestId('composer-input').click();
+    await expect(card.getByTestId('clear-context-confirmation')).toHaveCount(0);
+    await expect(page.getByTestId('composer-input')).toBeFocused();
+
+    await clear.click();
+    const confirm = card.getByTestId('clear-context-confirm');
     await control('/fail-reset');
-    const confirm = dialog.getByTestId('clear-context-confirm');
     await confirm.click();
-    await expect(confirm).toBeEnabled();
-    await expect(dialog).toBeVisible();
+    await expect(card.getByTestId('clear-context-confirmation')).toHaveCount(0);
     await expect(clear).toBeVisible();
+    await expect(card.getByTestId('member-eraser-clear-error')).toContainText('fixture native retirement failed');
+    await expect(card.getByTestId('member-eraser-clear-retry')).toBeVisible();
     await expect(card.getByTestId('member-eraser-tasks')).toBeVisible();
 
-    // While retirement is held, duplicate dispatch is impossible and the old
-    // ring/control remain until the authoritative member frame clears them.
+    // While retirement is held, duplicate input cannot send another act and the
+    // old ring/control remain until the authoritative member frame clears them.
+    const beforeAttempts = (await control<{ attempts: number }>('/reset-stats')).attempts;
     await control('/hold-resets');
-    await confirm.click();
-    await expect(confirm).toBeDisabled();
-    await expect(clear).toBeVisible();
+    await clear.click();
+    await card.getByTestId('clear-context-confirm').click();
+    await expect(card.getByTestId('clear-context-confirmation')).toHaveCount(0);
+    const pending = card.getByTestId('member-eraser-clear-context');
+    await expect(pending).toHaveAttribute('data-clearing', 'true');
+    await expect(pending).toBeFocused();
+
+    // The source-room store owns the request. A remounted card must retain one
+    // spinner and refuse every duplicate click until this exact result arrives.
+    await page.getByTestId('room-link-eng').click();
+    await page.getByTestId('room-link-context-reset').click();
+    const remountedPending = page.getByTestId('member-eraser-clear-context');
+    await expect(remountedPending).toHaveAttribute('data-clearing', 'true');
+    await remountedPending.click({ force: true });
+    await remountedPending.click({ force: true });
+    expect((await control<{ attempts: number }>('/reset-stats')).attempts).toBe(beforeAttempts + 1);
+
+    await expect(remountedPending).toBeVisible();
     // An unrelated compact_member refusal lands in the same room while reset
     // remains held. Its correlated UI action recovers, but Clear stays pending.
     const compact = page.getByTestId('member-eraser-compact');
     await compact.click({ force: true });
     await expect(compact).toBeEnabled();
-    await expect(confirm).toBeDisabled();
+    expect((await control<{ attempts: number }>('/reset-stats')).attempts).toBe(beforeAttempts + 1);
     await control('/hold-resets', { held: false });
-    await expect(dialog).toBeHidden();
     await expect(clear).toHaveCount(0);
     await expect(card.getByTestId('member-eraser-tasks')).toHaveCount(0);
     await expect(card).toContainText('kept-model');
@@ -556,6 +581,43 @@ test.describe('clear member context', () => {
     await expect(page.getByTestId('member-eraser-clear-context')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('connection')).toHaveText(/Connected/);
   });
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
+
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-mobile-a11y-regression
+  // harn:assume web-room-targets-meet-minimum-hit-size ref=clear-context-mobile-target-regression
+  // harn:assume controls-fit-the-surface-they-sit-on ref=clear-context-mobile-fit-regression
+  test('keeps the anchored surface bounded and axe-clean on a 390px phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/?room=context-reset&token=next-e2e-token');
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await page.getByTestId('mobile-kebab').click();
+    const card = page.getByTestId('member-eraser');
+    const clear = card.getByTestId('member-eraser-clear-context');
+    await clear.click();
+    const confirmation = card.getByTestId('clear-context-confirmation');
+    const box = await confirmation.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+    for (const id of ['clear-context-cancel', 'clear-context-confirm']) {
+      const target = confirmation.getByTestId(id);
+      const targetBox = await target.boundingBox();
+      expect(targetBox).not.toBeNull();
+      expect(targetBox!.width).toBeGreaterThanOrEqual(44);
+      expect(targetBox!.height).toBeGreaterThanOrEqual(44);
+    }
+    const { default: AxeBuilder } = await import('@axe-core/playwright');
+    for (const theme of ['light', 'dark']) {
+      await page.evaluate((value) => { document.documentElement.dataset.theme = value; }, theme);
+      const { violations } = await new AxeBuilder({ page })
+        .include('[data-testid="clear-context-confirmation"]')
+        .analyze();
+      expect(violations).toEqual([]);
+    }
+  });
+  // harn:end controls-fit-the-surface-they-sit-on
+  // harn:end web-room-targets-meet-minimum-hit-size
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
 });
 // harn:end member-context-reset-is-authorized-atomic-and-lazy
 

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createConnector } from './connector.js';
-import { createClientStore, useClientStore } from './store.js';
+import { createClientStore, roomSlice, useClientStore } from './store.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 
 /**
@@ -632,6 +632,40 @@ describe('connector disposal', () => {
     expect(useClientStore.getState().connected).toBe(false);
   });
 });
+
+// harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
+// harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-transport
+// harn:assume hosted-app-streams-follow-tunnel-generations ref=clear-context-hosted-transport-regression
+it('carries a caller ref once and routes a late error to its originating room', () => {
+  const isolated = createClientStore();
+  const connector = createConnector({
+    room: 'source',
+    token: 'token',
+    store: isolated,
+    socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+  });
+  const socket = latest();
+  socket.accept();
+  socket.deliver({ type: 'rooms', rooms: [{ id: 'source' }, { id: 'other' }] });
+  isolated.getState().registerActionRef('source', 'clear-source-1', 'agent-source');
+
+  connector.act({ act: 'clear_member_context', member_id: 'agent-source' }, 'clear-source-1');
+  const acts = socket.sent
+    .map((raw) => JSON.parse(raw) as { type?: string; room?: string; ref?: string })
+    .filter((frame) => frame.type === 'act');
+  expect(acts).toEqual([{ type: 'act', room: 'source', ref: 'clear-source-1', act: { act: 'clear_member_context', member_id: 'agent-source' } }]);
+
+  connector.switchRoom('other');
+  socket.deliver({ type: 'error', ref: 'clear-source-1', message: 'source reset failed' });
+  expect(roomSlice(isolated.getState(), 'source').errors).toEqual(['source reset failed']);
+  expect(roomSlice(isolated.getState(), 'other').errors).toEqual([]);
+  expect(roomSlice(isolated.getState(), 'source').actionResults['clear-source-1'])
+    .toMatchObject({ status: 'error', memberId: 'agent-source' });
+  connector.dispose();
+});
+// harn:end hosted-app-streams-follow-tunnel-generations
+// harn:end context-reset-requests-settle-by-explicit-ref
+// harn:end context-reset-confirmation-is-anchored-and-member-local
 
 describe('foreground watchdog', () => {
   const visible = (): void => {

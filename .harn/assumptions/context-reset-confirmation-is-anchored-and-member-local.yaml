@@ -1,0 +1,23 @@
+id: context-reset-confirmation-is-anchored-and-member-local
+hash: a-29936b1d7f88
+title: Context reset confirmation and progress stay anchored to one member
+state: active
+statement: >
+  Clear context must use a small non-modal confirmation anchored below the exact
+  member control, preserve deliberate keyboard focus, cancel by Escape or
+  outside interaction before dispatch, and remain within desktop and
+  installed-phone bounds while the room and composer stay usable. Confirm
+  creates one unique bounded correlation ref, dispatches exactly once, closes
+  immediately, and changes only that member's control to an accessible compact
+  spinner. Pending settles only from that ref's result in the originating room
+  and source computer store: matching success hides Clear until a new native
+  session exists, while matching failure restores Clear and presents a concise
+  announced local Retry affordance.
+depends_on:
+  - context-reset-requests-settle-by-explicit-ref
+  - member-context-reset-is-authorized-atomic-and-lazy
+  - agent-member-card-composes-two-compact-rows
+  - hosted-computer-sessions-keep-state-isolated
+  - web-room-targets-meet-minimum-hit-size
+  - controls-fit-the-surface-they-sit-on
+created_by: context-reset-v2-c2-anchored-member-progress

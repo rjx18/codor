@@ -49,13 +49,20 @@ interface AcpRuntime {
   retiring: boolean;
 }
 
-function waitForRuntimeExit(child: ChildProcess, label: string): Promise<void> {
+const RETIREMENT_GRACE_MS = 5_000;
+const RETIREMENT_CONFIRM_MS = 5_000;
+
+function waitForRuntimeExit(
+  child: ChildProcess,
+  label: string,
+  timeoutMs = RETIREMENT_CONFIRM_MS,
+): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       child.off('exit', onExit);
       reject(new Error(`${label} did not exit after retirement`));
-    }, 10_000);
+    }, timeoutMs);
     timer.unref?.();
     const onExit = (): void => {
       clearTimeout(timer);
@@ -297,6 +304,14 @@ export class AcpAdapter implements HarnessAdapter {
       };
       return;
     }
+    if (runtime.retiring) {
+      yield {
+        type: 'run.completed',
+        status: 'failed',
+        error: 'previous ACP agent retirement is still pending',
+      };
+      return;
+    }
     if (runtime.active !== null) {
       yield { type: 'run.completed', status: 'failed', error: 'ACP agent already has an active turn' };
       return;
@@ -384,19 +399,28 @@ export class AcpAdapter implements HarnessAdapter {
     if (runtime === undefined) return;
     if (runtime.active !== null) throw new Error('cannot clear ACP context while a turn is in flight');
     const child = runtime.child;
-    const exited = waitForRuntimeExit(child, 'ACP agent process');
+    runtime.retiring = true;
     this.terminate(runtime);
-    await exited;
+    try {
+      await waitForRuntimeExit(child, 'ACP agent process', RETIREMENT_GRACE_MS);
+    } catch {
+      // This process group was created by this adapter. Escalate only that
+      // group, then require a second finite confirmation before forgetting it.
+      this.terminate(runtime, 'SIGKILL');
+      await waitForRuntimeExit(child, 'ACP agent process', RETIREMENT_CONFIRM_MS);
+    }
     this.runtimes.delete(session);
   }
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
-  private terminate(runtime: AcpRuntime): void {
+  private terminate(runtime: AcpRuntime, signal: NodeJS.Signals = 'SIGTERM'): void {
     if (runtime.child.exitCode !== null || runtime.child.signalCode !== null) return;
-    if (process.platform === 'win32') runtime.child.kill('SIGTERM');
+    if (process.platform === 'win32') runtime.child.kill(signal);
     else {
-      try { process.kill(-(runtime.child.pid!), 'SIGTERM'); }
-      catch { runtime.child.kill('SIGTERM'); }
+      try { process.kill(-(runtime.child.pid!), signal); }
+      catch { /* fall through to the owned leader below */ }
+      try { runtime.child.kill(signal); }
+      catch { /* the child may have exited between the two probes */ }
     }
   }
 

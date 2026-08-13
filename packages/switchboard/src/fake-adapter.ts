@@ -92,6 +92,7 @@ export class FakeAdapter implements HarnessAdapter {
 
   private script: FakeTurn[] = [];
   readonly deliveries: DeliverRecord[] = [];
+  readonly deliveredHooks: AdapterTurnHooks[] = [];
   // harn:assume active-turn-steering-is-ordered-and-durable ref=fake-active-turn-steering
   readonly steers: SteerRecord[] = [];
   steerDelayMs = 0;
@@ -179,6 +180,7 @@ export class FakeAdapter implements HarnessAdapter {
     payload: string,
     hooks: AdapterTurnHooks = {},
   ): AsyncIterable<WireEvent> {
+    this.deliveredHooks.push(hooks);
     hooks.onStarted?.({});
     if (session.session_ref === undefined) {
       session.session_ref = `fake-session-${++this.nextSession}`;

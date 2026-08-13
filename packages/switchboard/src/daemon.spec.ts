@@ -7936,6 +7936,25 @@ describe('explicit member context reset', () => {
     expect(fake.resets).toEqual([undefined]);
     expect(daemon.store.getMember('eng', agent.id)?.session_ref).toBeUndefined();
   });
+
+  // harn:assume context-reset-retirement-is-bounded-owned-and-confirmed ref=reset-retirement-regression
+  it('fences late old-runtime session and lifecycle callbacks after the reset boundary', async () => {
+    const agent = await establish('reset-stale-writer');
+    const oldHooks = fake.deliveredHooks.at(-1)!;
+    await daemon.clearMemberContext('eng', agent.id, owner().id);
+
+    oldHooks.onSessionRef?.('stale-native-session');
+    oldHooks.onSessionLifecycle?.({ load: true, resume: true });
+    oldHooks.onSessionRuntime?.({
+      session_ref: 'stale-runtime-session', lifecycle: { load: true, resume: true },
+    });
+
+    const current = daemon.store.getMember('eng', agent.id)!;
+    expect(current.session_ref).toBeUndefined();
+    expect(current.session_lifecycle).toBeUndefined();
+    expect(current.tasks).toBeUndefined();
+  });
+  // harn:end context-reset-retirement-is-bounded-owned-and-confirmed
 });
 // harn:end member-context-reset-is-authorized-atomic-and-lazy
 

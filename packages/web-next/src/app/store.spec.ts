@@ -98,6 +98,104 @@ describe('room-keyed client state', () => {
   });
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-regression
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-regression
+  it('projects only exact correlated results and consumes them from one room', () => {
+    const store = useClientStore.getState();
+    store.setActiveRoom('source');
+    store.registerActionRef('source', 'clear-source-1', 'member-source');
+    store.registerActionRef('source', 'clear-source-success', 'member-source');
+    store.registerActionRef('other', 'clear-other-1', 'member-other');
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 2, ref: 'unrelated-ref',
+      member: { id: 'member-source', session_ref: 'still-alive', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['unrelated-ref'])
+      .toMatchObject({ status: 'success', memberId: 'member-source' });
+
+    store.applyFrame(frame({ type: 'error', ref: 'clear-source-1', message: 'native reset failed' }), 'source');
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['clear-source-1'])
+      .toMatchObject({ status: 'error', memberId: 'member-source', message: 'native reset failed' });
+    expect(roomSlice(useClientStore.getState(), 'other').actionResults).toEqual({});
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 3, ref: 'clear-source-success',
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['clear-source-success'])
+      .toMatchObject({ status: 'success', memberId: 'member-source' });
+
+    expect(store.consumeActionResult('source', 'clear-source-success')).toMatchObject({ status: 'success' });
+    expect(store.consumeActionResult('source', 'clear-source-success')).toBeUndefined();
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults).toEqual({
+      'clear-source-1': expect.objectContaining({ status: 'error' }),
+      'unrelated-ref': expect.objectContaining({ status: 'success' }),
+    });
+    expect(roomSlice(useClientStore.getState(), 'source').errors).toEqual(['native reset failed']);
+  });
+  it('retains one member ref across an ordinary clear and source-room remount', () => {
+    const store = useClientStore.getState();
+    store.registerActionRef('source', 'clear-remount-1', 'member-source');
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 4,
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+
+    store.setActiveRoom('other');
+    store.setActiveRoom('source');
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 5, ref: 'different-ref',
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['different-ref'])
+      .toMatchObject({ status: 'success', memberId: 'member-source' });
+
+    store.applyFrame(frame({
+      type: 'member', room: 'source', seq: 6, ref: 'clear-remount-1',
+      member: { id: 'member-source', state: 'idle' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'source').actionResults['clear-remount-1'])
+      .toMatchObject({ status: 'success', memberId: 'member-source' });
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets)
+      .toMatchObject({ 'clear-remount-1': 'member-source' });
+    expect(store.consumeActionResult('source', 'clear-remount-1'))
+      .toMatchObject({ status: 'success' });
+    expect(roomSlice(useClientStore.getState(), 'source').actionTargets['clear-remount-1'])
+      .toBeUndefined();
+  });
+  // harn:end context-reset-requests-settle-by-explicit-ref
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
+
+  // harn:assume hosted-computer-sessions-keep-state-isolated ref=clear-context-store-isolation-regression
+  it('keeps identical room and ref results isolated between hosted computer stores', () => {
+    const a = createClientStore();
+    const b = createClientStore();
+    a.getState().registerActionRef('same-room', 'same-ref', 'agent-a');
+    b.getState().registerActionRef('same-room', 'same-ref', 'agent-b');
+    a.getState().applyFrame(frame({ type: 'error', ref: 'same-ref', message: 'A failed' }), 'same-room');
+    b.getState().applyFrame(frame({
+      type: 'member', room: 'same-room', seq: 1, ref: 'same-ref',
+      member: { id: 'agent-b', state: 'idle' },
+    }));
+
+    expect(roomSlice(a.getState(), 'same-room').actionResults['same-ref'])
+      .toMatchObject({ status: 'error', memberId: 'agent-a' });
+    expect(roomSlice(b.getState(), 'same-room').actionResults['same-ref'])
+      .toMatchObject({ status: 'success', memberId: 'agent-b' });
+    expect(a.getState().consumeActionResult('same-room', 'same-ref')).toMatchObject({ status: 'error' });
+    expect(roomSlice(b.getState(), 'same-room').actionResults['same-ref']).toBeDefined();
+  });
+  // harn:end hosted-computer-sessions-keep-state-isolated
+
   it('keeps same-named room hydration staging isolated across computer stores', () => {
     const a = createClientStore();
     const b = createClientStore();

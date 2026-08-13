@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   AcpUsageBaselineSchema,
+  ActFrameSchema,
   ActSchema,
   AcpLaunchConfigSchema,
   AgentTaskListSchema,
@@ -240,14 +241,23 @@ describe('messages', () => {
   });
 
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-act-schema
-  it('accepts only a targeted clear_member_context act', () => {
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-regression
+  it('requires one bounded explicit ref on every targeted clear_member_context act', () => {
     const memberId = '01J00000000000000000000000';
-    expect(ActSchema.parse({ act: 'clear_member_context', member_id: memberId }))
-      .toEqual({ act: 'clear_member_context', member_id: memberId });
+    const act = { act: 'clear_member_context' as const, member_id: memberId };
+    expect(ActSchema.parse(act)).toEqual(act);
+    expect(ActFrameSchema.parse({ type: 'act', room: 'eng', ref: 'reset-1', act }))
+      .toEqual({ type: 'act', room: 'eng', ref: 'reset-1', act });
+    expect(ActFrameSchema.safeParse({ type: 'act', room: 'eng', act }).success).toBe(false);
+    expect(ActFrameSchema.safeParse({ type: 'act', room: 'eng', ref: '', act }).success).toBe(false);
+    expect(ActFrameSchema.safeParse({
+      type: 'act', room: 'eng', ref: 'r'.repeat(129), act,
+    }).success).toBe(false);
     expect(ActSchema.safeParse({ act: 'clear_member_context' }).success).toBe(false);
     expect(ActSchema.safeParse({ act: 'clear_member_context', member_id: 'fable' }).success)
       .toBe(false);
   });
+  // harn:end context-reset-requests-settle-by-explicit-ref
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
   it('treats deleted as an additive optional marker', () => {

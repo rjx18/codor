@@ -205,6 +205,19 @@ interface PendingCompaction {
  * quiet surfaces as an error instead of a spinner that never resolves.
  */
 const COMPACTION_TIMEOUT_MS = 180_000;
+const RETIREMENT_GRACE_MS = 5_000;
+const RETIREMENT_CONFIRM_MS = 5_000;
+
+function bounded<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${String(timeoutMs)}ms`)), timeoutMs);
+    timer.unref?.();
+  });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
 
 export interface InboxHookContext {
   cwd: string;
@@ -547,7 +560,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   }
 
   private async prepareRuntime(runtime: ClaudeRuntime, session: Session): Promise<void> {
-    if (runtime.retiring !== null) await runtime.retiring;
+    if (runtime.retiring !== null) {
+      await bounded(runtime.retiring, RETIREMENT_CONFIRM_MS, 'Claude query retirement');
+    }
     const nextIdentity = queryIdentity(session);
     if (runtime.query !== null && !sameIdentity(runtime.identity, nextIdentity)) {
       await this.retireQuery(runtime);
@@ -558,7 +573,9 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   }
 
   private async ensureQuery(runtime: ClaudeRuntime): Promise<void> {
-    if (runtime.retiring !== null) await runtime.retiring;
+    if (runtime.retiring !== null) {
+      await bounded(runtime.retiring, RETIREMENT_CONFIRM_MS, 'Claude query retirement');
+    }
     if (runtime.query !== null) return;
     // A query that just exited clears runtime.query from inside its pump before
     // the pump's completion callback clears runtime.pump. Do not install the
@@ -748,7 +765,13 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
   }
 
   private async retireQuery(runtime: ClaudeRuntime, removeRuntime = false): Promise<void> {
-    if (runtime.retiring !== null) return await runtime.retiring;
+    if (runtime.retiring !== null) {
+      await bounded(runtime.retiring, RETIREMENT_CONFIRM_MS, 'Claude query retirement');
+      if (removeRuntime && runtime.memberKey !== undefined) {
+        this.memberRuntimes.delete(runtime.memberKey);
+      }
+      return;
+    }
     this.failCompaction(runtime, new Error('Claude query retired before compaction completed'));
     const query = runtime.query;
     const input = runtime.input;
@@ -758,15 +781,31 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
     this.rejectPendingPermissions(runtime, new Error('Claude SDK query retired'));
     const retiring = (async () => {
       if (query !== null) {
+        let interrupt: Promise<unknown>;
         try {
-          await query.interrupt();
+          interrupt = query.interrupt();
         } catch {
-          // A crashed query is already unavailable; close/return still release it.
+          interrupt = Promise.resolve();
         }
         input?.end();
-        query.close();
         try {
-          await query.return?.();
+          query.close();
+        } catch {
+          // The SDK may already have closed the query; pump confirmation remains
+          // the authoritative retirement boundary.
+        }
+        try {
+          await bounded(interrupt, RETIREMENT_GRACE_MS, 'Claude query interrupt');
+        } catch {
+          // A crashed or slow query was still closed above; the confirmation
+          // bound prevents its interrupt acknowledgement from wedging reset.
+        }
+        try {
+          await bounded(
+            Promise.resolve(query.return?.()),
+            RETIREMENT_CONFIRM_MS,
+            'Claude query close',
+          );
         } catch {
           // The iterator may already have failed.
         }
@@ -777,11 +816,13 @@ export class ClaudeCodeAdapter implements HarnessAdapter {
       }
     })();
     runtime.retiring = retiring;
-    try {
-      await retiring;
-    } finally {
+    // Keep the rejected/slow retirement promise attached to the runtime until
+    // the pump actually settles. A failed reset therefore cannot forget a
+    // retained writer and immediately create a second one.
+    void retiring.then(() => {
       if (runtime.retiring === retiring) runtime.retiring = null;
-    }
+    });
+    await bounded(retiring, RETIREMENT_GRACE_MS + RETIREMENT_CONFIRM_MS, 'Claude query retirement');
   }
   // harn:end claude-agent-sdk-query-is-the-session-runtime
 

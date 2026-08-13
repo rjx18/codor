@@ -1,0 +1,20 @@
+id: context-reset-retirement-is-bounded-owned-and-confirmed
+hash: a-84fd2554ecb8
+title: Context reset clears durable state only after bounded owned retirement
+state: active
+statement: >
+  A first-party adapter reset must retire every retained writer for the selected
+  idle member within finite graceful and confirmation bounds, escalating only a
+  subprocess or process group created and owned by that adapter. Success means
+  the prior runtime can no longer emit, mutate, resume, or be found through any
+  session/member cache; an unconfirmed exit, timeout, disconnect, close failure,
+  or foreign/unowned runtime rejects while retaining supervision and the old
+  durable session reference. A restarted daemon with no retained runtime
+  confirms absence without creating a replacement session.
+depends_on:
+  - member-context-reset-is-authorized-atomic-and-lazy
+  - adapter-process-lifecycle-supervised
+  - claude-agent-sdk-query-is-the-session-runtime
+  - codex-app-server-is-the-member-runtime
+  - acp-v1-events-and-capabilities-are-negotiated
+created_by: context-reset-v2-c1-backend

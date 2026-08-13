@@ -1552,6 +1552,87 @@
 }
 .nx-member-actions .nx-member-clear { color: var(--c-error-text); }
 .nx-member-actions .nx-member-clear:hover:not(:disabled) { background: var(--c-error-tint); }
+/* harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-anchored-style */
+.nx-member-clear-wrap {
+  position: relative;
+  flex: none;
+  overflow: visible;
+}
+.nx-member-clear[aria-busy='true'] {
+  opacity: 0.78;
+  cursor: progress;
+}
+.nx-clear-confirmation {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 70;
+  box-sizing: border-box;
+  width: min(286px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  padding: var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  box-shadow: var(--e-popover);
+  white-space: normal;
+}
+.nx-clear-confirmation-title {
+  display: block;
+  font: var(--t-ui-strong);
+}
+.nx-clear-confirmation-body {
+  margin: var(--sp-2) 0 0;
+  color: var(--c-body);
+  font: var(--t-caption);
+  line-height: 1.45;
+}
+.nx-clear-confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.nx-clear-confirmation-actions button,
+.nx-member-clear-retry {
+  min-height: 36px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--c-line-strong);
+  border-radius: var(--r-control);
+  background: var(--c-raised);
+  color: var(--c-ink);
+  font: var(--t-caption-strong);
+}
+.nx-clear-confirmation-actions button:hover { background: var(--c-muted); }
+.nx-clear-confirmation-confirm {
+  border-color: color-mix(in srgb, var(--c-error) 45%, var(--c-line-strong)) !important;
+  background: var(--c-error-tint) !important;
+  color: var(--c-error-text) !important;
+}
+.nx-member-clear-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0 calc(32px + var(--sp-3));
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid color-mix(in srgb, var(--c-error) 35%, var(--c-line));
+  border-radius: var(--r-control);
+  background: var(--c-error-tint);
+  color: var(--c-error-text);
+  font: var(--t-caption);
+}
+.nx-member-clear-error > span { min-width: 0; overflow-wrap: anywhere; }
+.nx-member-clear-retry {
+  flex: none;
+  border-color: color-mix(in srgb, var(--c-error) 45%, var(--c-line-strong));
+  background: var(--c-surface);
+  color: var(--c-error-text);
+  cursor: pointer;
+}
+.nx-member-clear-retry:hover { background: var(--c-error-tint); }
+/* harn:end context-reset-confirmation-is-anchored-and-member-local */
 .nx-member-actions .nx-member-revive {
   border: 1px solid var(--c-line);
   background: var(--c-raised);
@@ -2645,6 +2726,22 @@
   .nx-member-actions .nx-member-menu .nx-iconbtn {
     width: 44px;
   }
+  /* harn:assume web-room-targets-meet-minimum-hit-size ref=clear-context-mobile-target-regression */
+  .nx-clear-confirmation-actions button,
+  .nx-member-clear-retry {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  /* harn:assume controls-fit-the-surface-they-sit-on ref=clear-context-mobile-fit-regression */
+  .nx-clear-confirmation {
+    width: min(286px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+  }
+  .nx-member-clear-error {
+    max-width: calc(100vw - 32px);
+  }
+  /* harn:end controls-fit-the-surface-they-sit-on */
+  /* harn:end web-room-targets-meet-minimum-hit-size */
   .nx-mobile-context-close {
     align-self: flex-end;
     margin: var(--sp-3) var(--sp-3) 0;

@@ -1,0 +1,65 @@
+id: context-reset-v2-c1-review-fix-harn-anchor-closure
+title: Context reset v2 C1 review fix - restore Copilot reset anchor closure
+notes: >
+  Independent Harn audit of C1 correction commit abd5c92 found two
+  context-reset-retirement-is-bounded-owned-and-confirmed assumption anchors
+  opened around the new Copilot VS Code reset regressions without matching end
+  markers. Runtime tests pass, but Harn therefore omits both reset regression
+  anchors and the enclosing vscode-copilot adapter/bridge anchors from `harn
+  find --file`, leaving committed assumption truth incomplete.
+
+  Add only the two missing end markers at the exact end of their corresponding
+  tests. Red evidence is the current `harn find --file
+  packages/adapters/copilot/src/vscode-adapter.spec.ts`, which reports only the
+  recoverable-checkpoint anchor and omits reset-retirement, native-adapter, and
+  bridge-regression anchors. After the correction it must report the complete
+  nested anchor set, Harn scope/check/apply/staged checks must pass, the focused
+  Copilot reset tests must remain green, git diff --check must pass, and one
+  Harn commit must leave the worktree clean. No code, test assertion, runtime,
+  C2 UI, protocol, deployment, publication, push, merge, or release change is
+  allowed.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: context-reset-retirement-is-bounded-owned-and-confirmed
+      outcome: unchanged
+      reason: >
+        The new Copilot reset regressions already satisfy the runtime contract;
+        this correction restores their source-anchor discoverability only.
+    - id: vscode-copilot-native-agent-auto-approves-and-streams-evidence
+      outcome: unchanged
+      reason: >
+        Ordinary VS Code Copilot behavior is unchanged; its enclosing regression
+        anchor must remain discoverable after nested reset regressions close.
+    - id: vscode-copilot-bridge-is-manual-local-and-credential-private
+      outcome: unchanged
+      reason: >
+        Bridge behavior is untouched; its enclosing regression anchor must not
+        be swallowed by an unclosed nested reset anchor.
+    - id: vscode-copilot-recoverable-native-failure-preserves-context
+      outcome: unchanged
+      reason: >
+        The checkpoint regression and its already-balanced anchor remain
+        unchanged and provide the preceding nested-boundary reference.
+files:
+  - packages/adapters/copilot/src/vscode-adapter.spec.ts
+anchors:
+  context-reset-retirement-is-bounded-owned-and-confirmed:
+    reset-retirement-regression:
+      action: change
+      reason: Close each of the two new Copilot reset regression anchor regions.
+  vscode-copilot-native-agent-auto-approves-and-streams-evidence:
+    vscode-copilot-adapter-regression:
+      action: change
+      reason: Restore discovery of the enclosing adapter regression anchor.
+  vscode-copilot-bridge-is-manual-local-and-credential-private:
+    vscode-copilot-bridge-regression:
+      action: change
+      reason: Restore discovery of the outer bridge regression anchor.
+  vscode-copilot-recoverable-native-failure-preserves-context:
+    vscode-copilot-session-checkpoint-regression:
+      action: keep
+      reason: The balanced checkpoint regression region must remain byte-identical.
+applied:
+  applied_at: 2026-08-12T16:13:31.565Z

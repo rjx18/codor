@@ -218,10 +218,14 @@ export interface HarnessAdapter {
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=adapter-reset-contract
   /**
    * Optional: permanently retire and forget this member's retained native
-   * runtime without creating a replacement session. `session` is absent after
-   * a daemon restart, when there is no in-memory process to retire. Resolving
-   * means no retained runtime can reuse the cleared native context; rejecting
-   * means the durable session reference must remain untouched.
+   * runtime without creating a replacement session. The adapter must resolve
+   * only after its owned writer has stopped and finite graceful/confirmation
+   * bounds have completed; any escalation may target only a child or process
+   * group created by that adapter. `session` is absent after a daemon restart,
+   * when the adapter has no in-memory process to retire. Resolving means no
+   * retained runtime can reuse or emit from the cleared native context;
+   * rejecting means supervision and the durable session reference remain
+   * untouched.
    */
   resetSession?(session: Session | undefined): Promise<void>;
   // harn:end member-context-reset-is-authorized-atomic-and-lazy

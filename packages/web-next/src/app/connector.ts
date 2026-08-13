@@ -100,6 +100,18 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const setToken = options.setToken ?? setActiveBrowserAccessToken;
   let currentRoom = options.room;
   let socket: WebSocket | undefined;
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
+  /** Correlated acts keep their source room across in-place selection changes. */
+  const actionRooms = new Map<string, string>();
+  const rememberActionRoom = (ref: string, room: string): void => {
+    actionRooms.set(ref, room);
+    while (actionRooms.size > 64) {
+      const oldest = actionRooms.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      actionRooms.delete(oldest);
+    }
+  };
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
   let subscribed = new Set<string>();
   /** Highest cold-history budget requested in this socket generation. */
   let subscriptionBudgets = new Map<string, number>();
@@ -374,7 +386,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // that the server-side app socket is usable. Only now may the composer
       // trust `connected` and admit a post.
       clientStore.getState().setConnected(true);
-      clientStore.getState().applyFrame(frame, currentRoom);
+      // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
+      const frameRef = 'ref' in frame ? frame.ref : undefined;
+      const resultRoom = frameRef === undefined ? undefined : actionRooms.get(frameRef);
+      clientStore.getState().applyFrame(frame, resultRoom ?? currentRoom);
+      // One explicit result retires one source-room mapping. Unmatched refs are
+      // deliberately allowed to use the current-room fallback for legacy frames.
+      if (frameRef !== undefined && frame.type !== 'rooms') actionRooms.delete(frameRef);
+      // harn:end context-reset-requests-settle-by-explicit-ref
       if (frame.type === 'sync_complete') {
         // Only THIS room's own addressed completion marks it live — one frame
         // never stands in for a sibling's hydration. Frames from a retired
@@ -550,13 +569,17 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
+    // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act: Act, ref?: string): void => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
+      const sourceRoom = currentRoom;
+      if (correlationRef !== undefined) rememberActionRoom(correlationRef, sourceRoom);
       send({
-        type: 'act', room: currentRoom, act,
+        type: 'act', room: sourceRoom, act,
         ...(correlationRef !== undefined && { ref: correlationRef }),
       });
     },
+    // harn:end context-reset-confirmation-is-anchored-and-member-local
     // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
     disconnect: () => {
       // An operator-chosen park: lifecycle events must not undo it.
@@ -605,6 +628,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       window.removeEventListener('pageshow', onPageShow as EventListener);
       window.removeEventListener('online', onOnline);
       stopTunnel();
+      actionRooms.clear();
       retire(socket);
       socket = undefined;
     },

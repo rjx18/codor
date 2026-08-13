@@ -369,6 +369,15 @@ export const ActFrameSchema = z.object({
       message: 'cancel_schedule requires a correlation ref',
     });
   }
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-protocol
+  if (frame.act.act === 'clear_member_context' && frame.ref === undefined) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['ref'],
+      message: 'clear_member_context requires an explicit correlation ref',
+    });
+  }
+  // harn:end context-reset-requests-settle-by-explicit-ref
 });
 export type ActFrame = z.infer<typeof ActFrameSchema>;
 

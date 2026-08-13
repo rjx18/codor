@@ -1,0 +1,263 @@
+id: context-reset-v2-c2-anchored-member-progress
+title: Context reset v2 C2 - anchored confirmation and member-local progress
+notes: >
+  Implement only Lane F phase C2 on the independently accepted C1 base
+  d50d8677b7c4c2c895ecc578f2a7f6340246e8ac. Replace the Clear context room modal
+  with a small non-modal confirmation attached immediately below the selected
+  member's Clear control. Opening it must move focus deliberately; Cancel and
+  Escape restore the trigger, an outside pointer cancels before dispatch without
+  stealing the newly chosen target, and the surface must stay within the desktop
+  context rail and 390px installed-phone viewport. It must not scrim, trap,
+  inert, or otherwise block the room, composer, or other member controls.
+
+  Confirm must synchronously guard duplicate input, create one unique bounded
+  management ref, send clear_member_context exactly once with that ref, close
+  the confirmation immediately, and replace only that member's Clear glyph with
+  a compact labelled spinner. Keep the pending control focusable without
+  admitting another dispatch. Extend the direct and multiplexed/hosted
+  Connection act path to carry an optional caller ref and make the multiplexed
+  connector remember the originating room for a correlated result, so an error
+  arriving after an in-place room change cannot be attributed to the newly
+  selected room.
+
+  Project correlated member successes and errors into the exact source room's
+  isolated client store, preserve the existing human-visible error stream, and
+  expose bounded/consumable per-ref result state. The card may settle only its
+  own outstanding ref and target: unrelated errors, ordinary uncorrelated member
+  broadcasts, other refs, other rooms, and another hosted computer's same-named
+  room cannot end its spinner. A matching error restores Clear and shows a
+  concise announced member-local error with an explicit Retry affordance; a
+  matching success consumes the result and leaves the session-dependent Clear
+  control absent while session_ref is absent. The ordinary first fresh delivery
+  makes it reappear. Do not clear transcript, identity, configuration, limits,
+  spend, queue, or any additional durable state.
+
+  Red first: rewrite/add focused store and connector regressions plus direct,
+  hosted, mobile, keyboard, and Axe browser expectations before production
+  changes. Capture the current missing-ref/blocking-modal failure. Use the
+  existing reset hold/failure fixture, adding only an attempt-count/read seam if
+  required to prove one dispatch. Then make the smallest client-only fix. Run
+  focused units, all web-next units, the web-next production/PWA build, direct
+  Room 3 and hosted Room 32 Playwright journeys, and the relevant Room 34
+  multi-computer journey if its isolated result-state path changes. Run Harn
+  working/staged/apply checks and git diff checks. C1 protocol/server/adapter
+  retirement, other lifecycle dialogs, compaction/revive behavior, relay wire
+  protocol, database schema, unrelated UI polish, push, merge, deployment,
+  publication, and release are excluded.
+assumptions:
+  retire: []
+  create:
+    - id: context-reset-confirmation-is-anchored-and-member-local
+      title: Context reset confirmation and progress stay anchored to one member
+      statement: >
+        Clear context must use a small non-modal confirmation anchored below the
+        exact member control, preserve deliberate keyboard focus, cancel by
+        Escape or outside interaction before dispatch, and remain within desktop
+        and installed-phone bounds while the room and composer stay usable.
+        Confirm creates one unique bounded correlation ref, dispatches exactly
+        once, closes immediately, and changes only that member's control to an
+        accessible compact spinner. Pending settles only from that ref's result
+        in the originating room and source computer store: matching success
+        hides Clear until a new native session exists, while matching failure
+        restores Clear and presents a concise announced local Retry affordance.
+      reason: >
+        The room-level modal blocks unrelated work and the old constant error
+        counter cannot distinguish concurrent, stale, cross-room, or hosted
+        computer outcomes after C1 made reset correlation explicit.
+      depends_on:
+        - context-reset-requests-settle-by-explicit-ref
+        - member-context-reset-is-authorized-atomic-and-lazy
+        - agent-member-card-composes-two-compact-rows
+        - hosted-computer-sessions-keep-state-isolated
+        - web-room-targets-meet-minimum-hit-size
+        - controls-fit-the-surface-they-sit-on
+  reviewed:
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: fixed
+      reason: >
+        The browser currently omits the now-required clear ref and settles from
+        a constant action-name error count or any clearing member update; C2
+        carries one caller ref end to end and consumes only its exact result.
+    - id: member-context-reset-is-authorized-atomic-and-lazy
+      outcome: unchanged
+      reason: >
+        Authorization, custody, idle/session gates, atomic retirement, preserved
+        durable truth, and lazy fresh-session semantics stay server-owned; the
+        browser only changes confirmation and correlated progress presentation.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: >
+        C2 reuses the existing bounded opaque management-ref contract and does
+        not change protocol schemas or server result cardinality.
+    - id: agent-member-card-composes-two-compact-rows
+      outcome: unchanged
+      reason: >
+        The two-row card, trailing action order, icon-only labels,
+        authorization, visibility, and phone targets remain intact; the
+        confirmation is an anchored transient child of Clear and local error
+        sits below the row.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Correlated result projections live in the existing room slice owned by
+        each source computer store and never use the mirrored singleton as
+        shared mutable storage.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        The current direct/hosted connector lifecycle and tunnel generation
+        gates remain unchanged; only act payload correlation and result-room
+        attribution are extended.
+    - id: web-room-targets-meet-minimum-hit-size
+      outcome: unchanged
+      reason: >
+        Clear, Cancel, Confirm, and Retry retain at least 44px phone hit targets
+        and are verified from rendered mobile bounds.
+    - id: controls-fit-the-surface-they-sit-on
+      outcome: unchanged
+      reason: >
+        The anchored confirmation is explicitly measured against the narrow
+        context sheet and viewport instead of relying on desktop modal width.
+anchors:
+  context-reset-confirmation-is-anchored-and-member-local:
+    clear-context-anchored-control:
+      action: change
+      reason: >
+        Own non-modal focus/cancel behavior, one-dispatch guarding, member-only
+        spinner, exact-result settlement, local Retry, and fresh-session return.
+    clear-context-anchored-style:
+      action: change
+      reason: >
+        Anchor the compact confirmation below Clear, bound it to the rail and
+        viewport, keep phone targets large, and style local progress/error.
+    clear-context-result-projection:
+      action: change
+      reason: >
+        Store and consume correlated success/error state by ref in one room and
+        one source computer store without changing the visible error stream.
+    clear-context-result-router:
+      action: change
+      reason: >
+        Carry caller refs on direct and hosted acts and route late correlated
+        errors back to the room from which their request was sent.
+    clear-context-result-regression:
+      action: change
+      reason: >
+        Prove exact-ref success/error consumption, unrelated-frame immunity,
+        room attribution, cleanup, and isolated same-named computer stores.
+    clear-context-direct-browser-regression:
+      action: change
+      reason: >
+        Prove anchored cancellation, immediate close, usable composer, one local
+        spinner, matching failure/Retry, success hiding, and lazy return.
+    clear-context-hosted-browser-regression:
+      action: change
+      reason: >
+        Exercise the same correlated act/result through a separately hosted SPA
+        and authenticated relay connector without direct API escape.
+    clear-context-mobile-a11y-regression:
+      action: change
+      reason: >
+        Measure 390px bounds and targets and run Axe with the anchored surface
+        open in light and dark themes.
+    clear-context-browser-fixture:
+      action: change
+      reason: >
+        Preserve deterministic held/failing reset control and expose only the
+        minimal attempt evidence needed to assert exactly-once dispatch.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-transport:
+      action: change
+      reason: Send the UI-generated ref on direct and multiplexed hosted acts.
+    clear-context-ref-client-result:
+      action: change
+      reason: >
+        Retain the exact correlated member/error result for the originating room
+        until its member card consumes it.
+    clear-context-ref-client-regression:
+      action: change
+      reason: >
+        Fail on missing/constant refs and cross-settlement from unrelated or
+        differently referenced frames.
+  member-context-reset-is-authorized-atomic-and-lazy:
+    clear-context-web-control:
+      action: change
+      reason: >
+        Replace only the browser confirmation/progress flow while preserving
+        role, state, saved-session visibility, and lazy reappearance gates.
+    clear-context-client-error-correlation:
+      action: change
+      reason: >
+        Keep the global error list but replace action-name counting for Clear
+        with exact consumable result state.
+    clear-context-browser-regression:
+      action: change
+      reason: >
+        Retain failure preservation, successful session-scoped clearing, and
+        first-delivery fresh-session proof under the C2 interaction.
+  agent-member-card-composes-two-compact-rows:
+    member-card-compact-rows:
+      action: change
+      reason: Wrap only Clear in an anchored transient surface without reordering rows.
+    member-card-compact-rows-style:
+      action: change
+      reason: Keep trailing actions fixed and non-overlapping at desktop and phone
+        sizes.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Keep correlated result state and its cleanup owned by the source store.
+    clear-context-store-isolation-regression:
+      action: change
+      reason: >
+        Prove identical rooms/refs across two client stores cannot settle each
+        other, including the hosted browser path where applicable.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-app-connector:
+      action: change
+      reason: Preserve generation fencing while adding ref-to-origin-room routing.
+    clear-context-hosted-transport-regression:
+      action: change
+      reason: Prove the correlated clear frame and result use the active hosted
+        connector.
+  web-room-targets-meet-minimum-hit-size:
+    clear-context-mobile-target-regression:
+      action: change
+      reason: Measure Clear confirmation and Retry actions at the installed-phone
+        width.
+  controls-fit-the-surface-they-sit-on:
+    clear-context-mobile-fit-regression:
+      action: change
+      reason: Prove the anchored confirmation stays inside the narrow context surface.
+files:
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: >
+  Confirm the worktree is clean except for this plan, then run harn find for
+  every reviewed assumption and harn find --file for every declared file. Run
+  harn plan check and clean-lock this plan at d50d867. Capture red focused
+  store, connector, direct browser, and hosted browser evidence before
+  production edits. Run focused app/store and connector units, all
+  @codor/web-next units, its production/PWA build, isolated Playwright Rooms 3
+  and 32, and Room 34 when multi-computer browser coverage changes. The browser
+  gates must include keyboard focus/Escape/outside cancellation, composer
+  usability while held, one attempt under repeat input, differently referenced
+  error/member frames, local announced failure and Retry, success/fresh-session
+  visibility, 390px light/dark bounds, target measurements, and Axe. Run harn
+  find --changed, harn check, harn check --staged, harn apply, a staged recheck,
+  git diff --check, and one Harn-guarded implementation commit leaving a clean
+  worktree. Do not push, merge, deploy, publish, release, or change C1
+  backend/runtime code.
+applied:
+  applied_at: 2026-08-12T16:53:54.663Z

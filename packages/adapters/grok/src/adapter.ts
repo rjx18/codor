@@ -184,8 +184,8 @@ export class GrokAdapter implements HarnessAdapter {
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=first-party-cli-session-reset
   resetSession(session: Session | undefined): Promise<void> {
     const child = session === undefined ? undefined : this.children.get(session);
-    if (child !== undefined && child.exitCode === null && child.signalCode === null) {
-      return Promise.reject(new Error('cannot clear Grok context while a turn process exists'));
+    if (child !== undefined) {
+      return Promise.reject(new Error('cannot clear Grok context while a turn process is still retiring'));
     }
     if (session !== undefined) this.children.delete(session);
     return Promise.resolve();

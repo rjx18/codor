@@ -1,0 +1,157 @@
+id: context-reset-v2-c1-review-fix-runtime-reachability
+title: Context reset v2 C1 review fix - production wrapper and Copilot VS Code
+  retirement
+notes: >
+  Independent review of C1 commit 7fbf968 found that production never receives
+  the new reset hook. loadAdapterRegistry wraps every built-in and configured
+  adapter through withSpawnValidation, but that wrapper omits resetSession.
+  Direct adapter tests therefore pass while every production clear request still
+  refuses that the harness does not support clearing context. This is the same
+  member-dropping class guarded by adapter-wrappers-preserve-the-whole- contract
+  and is a release blocker.
+
+  The review also found one first-party runtime omitted from C1: copilot-vscode
+  retains bounded chat history, a recoverable checkpoint, bridge generation, and
+  a non-resumable live session object but implements no resetSession hook. Add
+  an honest local retirement boundary that makes the old session object unusable
+  and non-revivable, clears its retained conversational/checkpoint state,
+  refuses any request still active (including before a native turn id is
+  reported), does not kill or mutate the shared external VS Code bridge, makes
+  no bridge request or paid turn, and treats an absent post-restart session as
+  no retained local writer. The daemon remains responsible for deleting its
+  cache and atomically clearing durable state only after this hook succeeds.
+
+  Red first: extend the wrapped-adapter regression to require resetSession on
+  the production wrappers for every built-in; it must fail because the wrapper
+  drops the hook and copilot-vscode has none. Add direct copilot-vscode tests
+  proving reset refuses an active pre-start/started request, clears and retires
+  an idle old session without any bridge request, prevents reuse/revive, and
+  permits an independently spawned fresh session. Also close C1's stated
+  disconnect coverage with a requester-disconnect server regression proving the
+  already-started reset remains daemon-owned, completes exactly once, and is
+  visible authoritatively after reconnect without routing a result to another
+  connection. Implement only the contained adapter/wrapper fix, run the full
+  copilot, switchboard, protocol tests/builds and all affected adapter reset
+  suites, then apply Harn and commit exactly once. C2 UI, other adapter
+  behavior, protocol shape, deployment, publication, push, merge, and release
+  remain excluded.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: context-reset-retirement-is-bounded-owned-and-confirmed
+      outcome: unchanged
+      reason: >
+        C1 already requires every first-party adapter and production runtime to
+        expose an honest reset boundary; the wrapper and omitted VS Code adapter
+        must satisfy that existing truth.
+    - id: member-context-reset-is-authorized-atomic-and-lazy
+      outcome: unchanged
+      reason: >
+        Existing reset guards and atomic durable clearing remain unchanged; this
+        correction makes the selected production hook reachable and covers the
+        last built-in ephemeral runtime.
+    - id: adapter-wrappers-preserve-the-whole-contract
+      outcome: unchanged
+      reason: >
+        The wrapper contract already forbids dropping optional members and
+        explicitly requires regression coverage of the wrapped production
+        adapter; resetSession must be forwarded like compactSession and peek.
+    - id: vscode-copilot-native-agent-auto-approves-and-streams-evidence
+      outcome: unchanged
+      reason: >
+        Ordinary VS Code bridge turns, native execution, serialization, and
+        model discovery are unchanged; explicit idle reset only retires one
+        cached local conversation without contacting the shared bridge.
+    - id: vscode-copilot-recoverable-native-failure-preserves-context
+      outcome: unchanged
+      reason: >
+        Recoverable history/checkpoint remains exact-session state during normal
+        operation and is deliberately discarded only by successful explicit
+        context reset.
+    - id: copilot-vscode-revive-requires-exact-live-cache
+      outcome: unchanged
+      reason: >
+        A successfully reset session is no longer a valid live cache and cannot
+        revive; unrelated exact live sessions retain existing revive behavior.
+    - id: copilot-vscode-boot-admission-fails-closed-without-live-cache
+      outcome: unchanged
+      reason: >
+        Restart admission remains fail-closed; resetSession(undefined) confirms
+        there is no retained adapter-local writer and creates no replacement.
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: unchanged
+      reason: >
+        The added disconnect regression verifies a closed requester cannot
+        redirect or duplicate a correlated result while daemon-owned reset work
+        completes normally.
+files:
+  - packages/switchboard/src/adapter-registry.ts
+  - packages/switchboard/src/adapter-registry.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/adapters/copilot/src/vscode-adapter.ts
+  - packages/adapters/copilot/src/vscode-adapter.spec.ts
+anchors:
+  adapter-wrappers-preserve-the-whole-contract:
+    registry-wrapper-completeness:
+      action: change
+      reason: >
+        Forward optional resetSession through the production spawn-validation
+        wrapper for built-in and configured adapters.
+    registry-wrapper-regression:
+      action: change
+      reason: >
+        Prove wrapped production adapters retain resetSession and every built-in
+        exposes the C1 reset hook.
+  context-reset-retirement-is-bounded-owned-and-confirmed:
+    copilot-vscode-reset-retirement:
+      action: change
+      reason: >
+        Retire the VS Code adapter's bounded in-memory conversation/checkpoint
+        state without touching the shared foreign bridge or creating work.
+    reset-retirement-regression:
+      action: change
+      reason: >
+        Prove active refusal, idle retirement, no bridge request, old-session
+        non-reuse, absent-session success, and independent fresh-session use.
+  member-context-reset-is-authorized-atomic-and-lazy:
+    copilot-vscode-session-reset:
+      action: change
+      reason: >
+        Add the omitted first-party reset hook and make successful old session
+        objects unusable before daemon durable clearing.
+    first-party-cli-session-reset:
+      action: change
+      reason: >
+        Extend the production wrapper regression across all first-party adapter
+        ids rather than only directly constructed raw adapters.
+  vscode-copilot-native-agent-auto-approves-and-streams-evidence:
+    vscode-copilot-adapter-runtime:
+      action: change
+      reason: >
+        Track active and retired local sessions so reset never overlaps a bridge
+        request and a retired session cannot start another native turn.
+    vscode-copilot-adapter-regression:
+      action: change
+      reason: >
+        Preserve ordinary native turns while proving explicit reset issues no
+        native request and a separately spawned session remains usable.
+  vscode-copilot-recoverable-native-failure-preserves-context:
+    vscode-copilot-session-checkpoint:
+      action: change
+      reason: >
+        Clear retained history and failure checkpoint only at the explicit reset
+        boundary and reject reuse of that retired session object.
+    vscode-copilot-session-checkpoint-regression:
+      action: change
+      reason: >
+        Prove reset discards the selected old checkpoint/history without
+        affecting a fresh session.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-regression:
+      action: change
+      reason: >
+        Cover requester disconnect and reconnect visibility without correlated
+        result leakage to another socket.
+applied:
+  applied_at: 2026-08-12T16:09:02.854Z

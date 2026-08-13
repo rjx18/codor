@@ -104,6 +104,33 @@ describe('Claude Agent SDK query lifecycle', () => {
     await adapter.resetSession(session);
     await expect(adapter.resetSession(undefined)).resolves.toBeUndefined();
   });
+
+  // harn:assume context-reset-retirement-is-bounded-owned-and-confirmed ref=reset-retirement-regression
+  it('finishes bounded retirement when a retained query interrupt never settles', async () => {
+    const records: MockQueryRecord[] = [];
+    const factory = queryFactory(async function* (input) {
+      for await (const _user of input.prompt) yield result('done');
+    }, records, async () => await new Promise<void>(() => undefined));
+    const adapter = new ClaudeCodeAdapter({ queryFactory: factory });
+    const session = adapter.spawn({ cwd: process.cwd() });
+    session.env = { CODOR_MEMBER_ID: 'hung-reset-member' };
+    await collect(adapter.deliver(session, 'old context'));
+
+    vi.useFakeTimers();
+    try {
+      let outcome: 'resolved' | 'rejected' | undefined;
+      void adapter.resetSession(session).then(
+        () => { outcome = 'resolved'; },
+        () => { outcome = 'rejected'; },
+      );
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(outcome).toBe('resolved');
+      expect(records[0]!.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  // harn:end context-reset-retirement-is-bounded-owned-and-confirmed
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
   it('serves multiple turns through one streaming query and maps native options', async () => {

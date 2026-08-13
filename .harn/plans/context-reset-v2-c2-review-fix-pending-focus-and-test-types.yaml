@@ -1,0 +1,153 @@
+id: context-reset-v2-c2-review-fix-pending-focus-and-test-types
+title: Context reset v2 C2 review fix - durable exact-ref progress and focus
+notes: >
+  Correct only the independent-review defects in C2 commit
+  0475ccb9b2fa9f9c5830c57401016443d62eee98. The C1 server deliberately emits the
+  ordinary uncorrelated authoritative member broadcast before its
+  requester-local correlated member result. The current card hides Clear and its
+  spinner as soon as that ordinary broadcast removes session_ref, even though
+  its exact ref has not settled. Its outstanding ref and failure message also
+  live only in MemberCard React state, so an in-place room or hosted computer
+  switch unmounts the card, loses progress, permits a second dispatch on return,
+  and never presents the correctly routed matching error. Finally, confirming
+  unmounts the focused confirmation button without moving focus to the pending
+  Clear control, and the rewritten Room 3 control helper refers to an undeclared
+  generic T while still declaring Promise<void>.
+
+  Make the originating room slice's existing bounded actionTargets/actionResults
+  projection the source of member-local reset progress across remounts. While
+  one registered ref targets this member, render the labelled spinner even if an
+  uncorrelated authoritative broadcast has already removed session_ref, and
+  refuse every second dispatch. Only the result carrying that exact ref and
+  member may clear progress: matching success then hides Clear while session_ref
+  remains absent; matching failure restores Clear and leaves one announced local
+  Retry/error after returning to the source room/computer. A stale, unrelated,
+  differently referenced, differently targeted, or other-room result cannot
+  settle or render here. Consume handled results once without leaking stale
+  success/error entries.
+
+  On Confirm, close immediately, focus the still-mounted pending Clear control,
+  and send exactly once. Preserve existing Cancel/Escape restoration and
+  outside-pointer behavior. Repair the browser control helper to be a real
+  generic returning Promise<T> so a focused TypeScript check covers the new
+  attempt assertions. Red first: add a focused state regression plus direct and
+  hosted browser journeys that fail on pre-ref spinner removal, focus loss,
+  duplicate dispatch after room navigation, and lost matching error after
+  navigation. Then make the smallest client/test correction. Run focused and
+  complete web tests, web production/PWA build in a workspace-local dependency
+  view, Rooms 3 and 32 Playwright, Harn scope/staged/apply gates, and diff
+  checks. Do not change C1 protocol/server/daemon/adapter behavior, reset
+  retirement, relay generations, database schema, unrelated UI, push, merge,
+  deployment, publication, or release.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: context-reset-confirmation-is-anchored-and-member-local
+      outcome: fixed
+      reason: >
+        Pending/error ownership must survive card remounts, the pending control
+        must remain until the exact result rather than the earlier ordinary
+        broadcast, and Confirm must transfer focus to that control.
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: fixed
+      reason: >
+        The current store preserves exact results, but the visual pending state
+        still disappears on an uncorrelated member broadcast and is forgotten
+        across navigation; the UI must derive settlement from the registered ref
+        and its exact result.
+    - id: member-context-reset-is-authorized-atomic-and-lazy
+      outcome: unchanged
+      reason: >
+        C1 authorization, retirement, atomic clear, preserved durable truth, and
+        lazy fresh-session behavior stay untouched; the UI keeps showing pending
+        between its ordinary broadcast and exact requester result.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: fixed
+      reason: >
+        The originating source store already receives the result; the remounted
+        card must now recover and consume only that store's matching member ref.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        Connector generation and origin-room routing remain unchanged; the
+        hosted journey only proves source-store progress/error survives
+        navigation.
+anchors:
+  context-reset-confirmation-is-anchored-and-member-local:
+    clear-context-anchored-control:
+      action: change
+      reason: >
+        Derive pending and handled results from room state, retain the spinner
+        across the ordinary broadcast/remount, guard repeats, and transfer focus
+        on Confirm.
+    clear-context-result-projection:
+      action: change
+      reason: >
+        Expose one member's registered ref/result deterministically and consume
+        its exact handled result once across remounts.
+    clear-context-result-regression:
+      action: change
+      reason: >
+        Prove an ordinary member update and route remount cannot settle or lose
+        the registered ref, while the exact result does.
+    clear-context-direct-browser-regression:
+      action: change
+      reason: >
+        Assert Confirm focuses the spinner, room navigation retains pending,
+        repeat input cannot dispatch twice, and exact success alone hides it.
+    clear-context-hosted-browser-regression:
+      action: change
+      reason: >
+        Assert a matching hosted failure arriving while another room is active
+        appears only on the source member after return with Retry.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-result:
+      action: change
+      reason: >
+        Keep the registered ref authoritative through the earlier uncorrelated
+        member broadcast and component remount.
+    clear-context-ref-client-regression:
+      action: change
+      reason: >
+        Cover ordinary/different-ref/different-target frames before the exact
+        success or error.
+  member-context-reset-is-authorized-atomic-and-lazy:
+    clear-context-web-control:
+      action: change
+      reason: Preserve the pending control until exact success then honor session
+        visibility.
+    clear-context-browser-regression:
+      action: change
+      reason: Retain the existing preserved-state and lazy fresh-session proof.
+  hosted-computer-sessions-keep-state-isolated:
+    clear-context-store-isolation-regression:
+      action: change
+      reason: Prove a remounted card reads only its source store's pending/result
+        state.
+  hosted-app-streams-follow-tunnel-generations:
+    clear-context-hosted-transport-regression:
+      action: change
+      reason: Keep the active hosted connector and source-room result routing green.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/tests/room3-context.e2e.spec.ts
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+verification: >
+  Validate and clean-lock this plan at 0475ccb before source edits. Capture red
+  focused store/browser/type-check evidence first. Run focused store tests, the
+  complete @codor/web-next unit suite, a production/PWA build against this
+  worktree's protocol/switchboard artifacts, an explicit TypeScript check of
+  room3-context.e2e.spec.ts with no C2 helper errors, and isolated full Rooms 3
+  and 32 Playwright journeys. Verify Confirm leaves the pending Clear focused;
+  an uncorrelated session-cleared member frame and a room switch retain one
+  spinner and one attempt; matching success alone hides it; a hosted matching
+  error delivered while away becomes one source-member alert/Retry on return;
+  other refs/targets/stores do not settle it. Run harn check, staged check,
+  apply, staged recheck, git diff --check, and one Harn-guarded correction
+  commit leaving the worktree clean. Do not push, merge, deploy, publish, or
+  release.
+applied:
+  applied_at: 2026-08-12T17:25:25.727Z

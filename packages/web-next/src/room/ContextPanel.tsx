@@ -70,6 +70,18 @@ import { harnessLabel, harnessMark } from './harness-marks.js';
 
 type Tab = 'members' | 'diff' | 'preview';
 
+// harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-anchored-control
+let clearRefSequence = 0;
+function createClearRef(memberId: string): string {
+  clearRefSequence = (clearRefSequence + 1) % 1_000_000;
+  const random = typeof globalThis.crypto?.randomUUID === 'function'
+    ? globalThis.crypto.randomUUID().replaceAll('-', '').slice(0, 16)
+    : '';
+  // Keep the opaque caller ref comfortably inside ManagementRefSchema's bound.
+  return `clear-${memberId.slice(0, 32)}-${Date.now().toString(36)}-${String(clearRefSequence)}${random}`;
+}
+// harn:end context-reset-confirmation-is-anchored-and-member-local
+
 export function ContextPanel(props: {
   room: string;
   token: () => string;
@@ -437,15 +449,30 @@ function MemberCard(props: {
   // successful compaction — or on a new action error, which is the other way
   // the request can end. Both are edges, so a stale spinner cannot survive.
   const [compacting, setCompacting] = useState(false);
-  // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-web-control
+  // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-anchored-control
   const [confirmClear, setConfirmClear] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const clearStartedAt = useRef<{ errors: number; member: Member } | null>(null);
-  // harn:end member-context-reset-is-authorized-atomic-and-lazy
+  const [clearError, setClearError] = useState<string>();
+  const clearTriggerRef = useRef<HTMLButtonElement>(null);
+  const clearConfirmationRef = useRef<HTMLDivElement>(null);
+  const focusPendingClearRef = useRef(false);
+  // harn:end context-reset-confirmation-is-anchored-and-member-local
   const [reviving, setReviving] = useState(false);
   const errorCount = useClientStore((state) => roomSlice(state, props.room).errors.length);
-  const clearErrorCount = useClientStore((state) =>
-    roomSlice(state, props.room).errorRefs.clear_member_context ?? 0);
+  // The ref and result are owned by the originating room slice, rather than by
+  // this card instance. That source remains authoritative through room and
+  // hosted-computer remounts.
+  const clearRef = useClientStore((state) => {
+    const targets = roomSlice(state, props.room).actionTargets;
+    return Object.entries(targets).findLast(([, memberId]) => memberId === member.id)?.[0];
+  });
+  const clearResult = useClientStore((state) => clearRef === undefined
+    ? undefined
+    : roomSlice(state, props.room).actionResults[clearRef]);
+  const settledClearResult = clearResult !== undefined
+    && (clearResult.memberId === undefined || clearResult.memberId === member.id)
+    ? clearResult
+    : undefined;
+  const clearing = clearRef !== undefined && settledClearResult === undefined;
   const startedAt = useRef<{ errors: number; member: Member } | null>(null);
   const revivedAt = useRef<{ errors: number; member: Member } | null>(null);
   useEffect(() => {
@@ -461,25 +488,67 @@ function MemberCard(props: {
       setCompacting(false);
     }
   }, [compacting, errorCount, member]);
-  // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-web-control
   useEffect(() => {
-    const started = clearStartedAt.current;
-    if (!clearing || started === null) return;
-    if (clearErrorCount > started.errors) {
-      clearStartedAt.current = null;
-      setClearing(false); // keep the confirm open so the operator can retry or cancel
-      return;
+    if (clearRef === undefined || settledClearResult === undefined) return;
+    // A matching success is consumed once and removes the target. An error is
+    // retained in the source slice until Retry so a remounted card can still
+    // announce the same local failure without permitting a duplicate attempt.
+    if (settledClearResult.status === 'success') {
+      useClientStore.getState().consumeActionResult(props.room, clearRef);
+      setClearError(undefined);
+    } else {
+      setClearError(settledClearResult.message ?? 'Context reset failed.');
     }
-    // Success is authoritative only when the member frame has actually removed
-    // the native session reference. A coincidental member update cannot erase
-    // the old ring or dismiss the confirmation early.
-    if (member !== started.member && member.session_ref === undefined) {
-      clearStartedAt.current = null;
-      setClearing(false);
+  }, [clearRef, settledClearResult, member.id, props.room]);
+
+  useEffect(() => {
+    if (!focusPendingClearRef.current || clearRef === undefined) return;
+    focusPendingClearRef.current = false;
+    clearTriggerRef.current?.focus();
+  }, [clearRef]);
+
+  useEffect(() => {
+    if (!confirmClear) return;
+    const first = clearConfirmationRef.current
+      ?.querySelector<HTMLButtonElement>('[data-testid="clear-context-confirm"]');
+    first?.focus();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
       setConfirmClear(false);
+      clearTriggerRef.current?.focus();
+    };
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node;
+      if (clearConfirmationRef.current?.contains(target) || clearTriggerRef.current?.contains(target)) return;
+      // Outside cancellation deliberately does not restore focus: the pointer
+      // is allowed to focus the newly chosen control in the same interaction.
+      setConfirmClear(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [confirmClear]);
+
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
+  const dispatchClear = (): void => {
+    if (clearing || member.state !== 'idle') return;
+    const retrying = settledClearResult?.status === 'error' || clearError !== undefined;
+    if (member.session_ref === undefined && !retrying) return;
+    if (clearRef !== undefined && settledClearResult?.status === 'error') {
+      useClientStore.getState().consumeActionResult(props.room, clearRef);
     }
-  }, [clearing, clearErrorCount, member]);
-  // harn:end member-context-reset-is-authorized-atomic-and-lazy
+    const ref = createClearRef(member.id);
+    useClientStore.getState().registerActionRef(props.room, ref, member.id);
+    setClearError(undefined);
+    focusPendingClearRef.current = true;
+    setConfirmClear(false);
+    props.connection.act({ act: 'clear_member_context', member_id: member.id }, ref);
+  };
+  // harn:end context-reset-requests-settle-by-explicit-ref
   // Revive is guarded the same way: the button disables while the request is in
   // flight and re-enables on the next member update (a success flips the state
   // out of 'dead', removing the button) or on an action error.
@@ -608,23 +677,80 @@ function MemberCard(props: {
                   </button>
                 )}
                 {/* harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-web-control */}
-                {props.canManage && member.state !== 'dead' && member.session_ref !== undefined && (
-                  <button
-                    type="button"
-                    className="nx-member-clear"
-                    aria-label={`Clear @${member.handle}'s context`}
-                    data-testid={`member-${member.handle}-clear-context`}
-                    disabled={member.state !== 'idle' || clearing}
-                    title={member.state !== 'idle'
-                      ? `Only an idle agent context can be cleared — @${member.handle} is ${member.state}`
-                      : clearing
-                        ? `Clearing @${member.handle}'s native context…`
-                        : `Clear @${member.handle}'s native context`}
-                    onClick={() => setConfirmClear(true)}
-                  >
-                    <Eraser size={15} aria-hidden="true" />
-                  </button>
+                {/* harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-anchored-control */}
+                {props.canManage && member.state !== 'dead' && (
+                  member.session_ref !== undefined
+                  || clearing
+                  || clearError !== undefined
+                  || settledClearResult?.status === 'error'
+                ) && (
+                  <div className="nx-member-clear-wrap">
+                    <button
+                      ref={clearTriggerRef}
+                      type="button"
+                      className="nx-member-clear"
+                      aria-label={clearing
+                        ? `Clearing @${member.handle}'s native context`
+                        : `Clear @${member.handle}'s context`}
+                      aria-busy={clearing ? 'true' : undefined}
+                      data-testid={`member-${member.handle}-clear-context`}
+                      data-clearing={clearing ? 'true' : undefined}
+                      title={member.state !== 'idle'
+                        ? `Only an idle agent context can be cleared — @${member.handle} is ${member.state}`
+                        : clearing
+                          ? `Clearing @${member.handle}'s native context…`
+                          : `Clear @${member.handle}'s native context`}
+                      onClick={() => {
+                        if (clearing) return;
+                        setConfirmClear(true);
+                      }}
+                    >
+                      {clearing
+                        ? <LoaderCircle size={15} className="nx-spin" aria-hidden="true" />
+                        : <Eraser size={15} aria-hidden="true" />}
+                    </button>
+                    {confirmClear && (
+                      <div
+                        ref={clearConfirmationRef}
+                        className="nx-clear-confirmation"
+                        role="group"
+                        aria-label={`Clear @${member.handle}'s context confirmation`}
+                        data-testid="clear-context-confirmation"
+                      >
+                        <strong className="nx-clear-confirmation-title">
+                          Clear @{member.handle}&apos;s context?
+                        </strong>
+                        <p className="nx-clear-confirmation-body">
+                          This permanently discards the agent&apos;s native session memory. Channel history,
+                          identity, configuration, usage limits, and spend remain. The next delivery starts
+                          a fresh native session.
+                        </p>
+                        <div className="nx-clear-confirmation-actions">
+                          <button
+                            type="button"
+                            className="nx-clear-confirmation-cancel"
+                            data-testid="clear-context-cancel"
+                            onClick={() => {
+                              setConfirmClear(false);
+                              clearTriggerRef.current?.focus();
+                            }}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="nx-clear-confirmation-confirm"
+                            data-testid="clear-context-confirm"
+                            onClick={dispatchClear}
+                          >
+                            Clear context
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
+                {/* harn:end context-reset-confirmation-is-anchored-and-member-local */}
                 {/* harn:end member-context-reset-is-authorized-atomic-and-lazy */}
                 {props.canManage && member.state === 'dead' && (
                   <button
@@ -691,6 +817,23 @@ function MemberCard(props: {
         </div>
       </div>
       {/* harn:end agent-member-card-composes-two-compact-rows */}
+      {clearError !== undefined && (
+        <div
+          className="nx-member-clear-error"
+          role="alert"
+          data-testid={`member-${member.handle}-clear-error`}
+        >
+          <span>{clearError}</span>
+          <button
+            type="button"
+            className="nx-member-clear-retry"
+            data-testid={`member-${member.handle}-clear-retry`}
+            onClick={dispatchClear}
+          >
+            Retry
+          </button>
+        </div>
+      )}
       {member.limits !== undefined && member.limits.length > 0 && (
         <p className="nx-member-limits" data-testid={`member-${member.handle}-limits`}>
           {member.limits.map((limit) =>
@@ -743,40 +886,6 @@ function MemberCard(props: {
           </div>
         </Modal>
       )}
-
-      {/* harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-web-control */}
-      {confirmClear && (
-        <Modal
-          label={`Clear @${member.handle}'s context?`}
-          onClose={() => { if (!clearing) setConfirmClear(false); }}
-          alert
-          testid="clear-context-dialog"
-        >
-          <h2 className="nx-dialog-title">Clear @{member.handle}&apos;s context?</h2>
-          <p className="nx-dialog-body">
-            This permanently discards the agent&apos;s native session memory. Channel history,
-            identity, configuration, usage limits, and spend remain. The next delivery starts
-            a fresh native session.
-          </p>
-          <div className="nx-dialog-actions">
-            <Button variant="quiet" disabled={clearing} onClick={() => setConfirmClear(false)}>Cancel</Button>
-            <Button
-              variant="danger"
-              data-testid="clear-context-confirm"
-              disabled={clearing}
-              onClick={() => {
-                if (clearing) return;
-                clearStartedAt.current = { errors: clearErrorCount, member };
-                setClearing(true);
-                props.connection.act({ act: 'clear_member_context', member_id: member.id });
-              }}
-            >
-              {clearing ? 'Clearing…' : 'Clear context'}
-            </Button>
-          </div>
-        </Modal>
-      )}
-      {/* harn:end member-context-reset-is-authorized-atomic-and-lazy */}
 
       {renaming && (
         <RenameDialog

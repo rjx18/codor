@@ -9,8 +9,10 @@ export interface Connection {
     opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
   ): void;
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel
-  /** Schedule cancellation uses the stable schedule id as its one ref. */
+  // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-transport
+  /** Send an act with its caller-owned ref, defaulting schedule cancellation to its stable schedule id. */
   act(act: Act, ref?: string): void;
+  // harn:end context-reset-requests-settle-by-explicit-ref
   // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
   disconnect(): void;
   reconnect(): void;
@@ -115,6 +117,7 @@ export function connect(options: ConnectOptions): Connection {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
+    // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act, ref) => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
       send({
@@ -122,6 +125,7 @@ export function connect(options: ConnectOptions): Connection {
         ...(correlationRef !== undefined && { ref: correlationRef }),
       });
     },
+    // harn:end context-reset-confirmation-is-anchored-and-member-local
     disconnect: () => {
       manuallyClosed = true;
       socket?.close();
