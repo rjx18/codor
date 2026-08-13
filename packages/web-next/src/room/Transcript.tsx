@@ -15,6 +15,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
+import type { RunEventBuffer } from '@runtime/state.js';
 
 import { relayFetch } from '@runtime/relay-transport.js';
 import {
@@ -67,6 +68,27 @@ const REGLUE_DISTANCE_PX = 80;
 const READ_DWELL_MS = 300;
 const READ_MIN_VISIBLE_PX = 48;
 const SEGMENT_CACHE_ROOMS = 3;
+
+// harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=transcript-recovery-admission
+/**
+ * A contiguous live buffer is already the evidence source for a running turn.
+ * Read the journal only when that source is absent, indexed after the beginning
+ * of the journal, bounded, or otherwise missing a terminal marker. A complete
+ * live buffer waits for the combined page to become the finalized owner.
+ */
+export function runNeedsJournalRecovery(
+  live: RunEventBuffer | undefined,
+  running: boolean,
+  reconnectRequired = false,
+): boolean {
+  if (live === undefined || live.events.length === 0) return true;
+  if (reconnectRequired) return true;
+  if (live.dropped_count > 0) return true;
+  if (live.first_index !== undefined && live.first_index > 0) return true;
+  if (live.events.some((event) => event.type === 'run.completed')) return false;
+  return !running;
+}
+// harn:end subscribed-live-run-events-survive-switch-and-history-retirement
 
 export function orderedVisibleSchedules(
   schedules: Readonly<Record<string, Schedule>>,
@@ -1943,21 +1965,27 @@ function RunContent(props: {
   const live = useClientStore(
     (state) => roomSlice(state, props.room).runEvents[rootId],
   );
+  const reconnectRequired = useClientStore(
+    (state) => roomSlice(state, props.room).runEventRecovery[rootId] === true,
+  );
   const running = rootRun?.status === 'running';
   const isRoot = rootId === props.message.id;
   const version = useRunJournalVersion();
 
   // The journal covers whatever the live buffer missed (late joins, trimmed
   // buffers) — for running runs too, so a fresh viewer sees the evidence so far.
-  // A live run jumps the queue; when it settles, the effect re-runs once with
-  // terminal=true so the cache picks up the completed journal exactly once.
+  // A contiguous retained buffer is already complete enough for this viewer;
+  // terminal history refresh owns the transition after a live completion.
+  // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=transcript-recovery-admission
   useEffect(() => {
     if (props.historical !== undefined || props.preserveJournal === true) return;
+    if (!runNeedsJournalRecovery(live, running, reconnectRequired)) return;
     requestRunJournal(props.room, props.token, rootId, {
       terminal: !running,
       priority: running,
     });
-  }, [props.historical, props.preserveJournal, props.room, props.token, rootId, running]);
+  }, [live, props.historical, props.preserveJournal, props.room, props.token, reconnectRequired, rootId, running]);
+  // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
 
   const journalEvents = props.historical === undefined
     ? getRunJournal(props.room, rootId)

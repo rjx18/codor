@@ -1,4 +1,11 @@
-import type { Message, Room, Schedule, ServerFrame, TranscriptHistoryUnit } from '@codor/protocol';
+import type {
+  Message,
+  Room,
+  Schedule,
+  ServerFrame,
+  TranscriptHistoryJournal,
+  TranscriptHistoryUnit,
+} from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
@@ -6,6 +13,7 @@ import {
   createClientStore,
   resetClientStoreForTest,
   roomSlice,
+  suppressRunEventRecovery,
   useClientStore,
 } from './store.js';
 
@@ -472,9 +480,12 @@ describe('room-keyed client state', () => {
   });
   // harn:end paged-history-live-message-reconciliation
 
-  it('drops background evidence and clears a live buffer on demotion', () => {
+  // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-run-event-regressions
+  it('retains subscribed background evidence, appends after a switch, and retires only into history', () => {
     const store = useClientStore.getState();
     store.setActiveRoom('alpha');
+    store.applyFrame(frame({ type: 'self', room: 'alpha', member_id: 'alpha-human' }));
+    store.applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 1 }));
     store.applyFrame(frame({
       type: 'run_event', room: 'alpha', message_id: 4, index: 0,
       event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'alpha' } },
@@ -482,13 +493,93 @@ describe('room-keyed client state', () => {
     expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]?.events).toHaveLength(1);
 
     store.setActiveRoom('beta');
-    expect(roomSlice(useClientStore.getState(), 'alpha').runEvents).toEqual({});
     store.applyFrame(frame({
       type: 'run_event', room: 'alpha', message_id: 4, index: 1,
-      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'stale' } },
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'background append' } },
     }));
-    expect(roomSlice(useClientStore.getState(), 'alpha').runEvents).toEqual({});
+    store.applyFrame(frame({
+      type: 'run_event', room: 'beta', message_id: 9, index: 0,
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'beta' } },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]?.events)
+      .toHaveLength(2);
+    expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]?.events[1])
+      .toMatchObject({ payload: { text: 'background append' } });
+    expect(roomSlice(useClientStore.getState(), 'beta').runEvents[9]?.events)
+      .toHaveLength(1);
+
+    // A warm resubscribe is a genuine recovery boundary even when its first
+    // replacement event has not exposed an indexed gap yet.
+    store.applyFrame(frame({ type: 'message', seq: 1, message: message('alpha', 1) }));
+    store.applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 2 }));
+    expect(roomSlice(useClientStore.getState(), 'alpha').runEventRecovery[4]).toBe(true);
+
+    store.setActiveRoom('alpha');
+    store.applyFrame(frame({
+      type: 'run_event', room: 'alpha', message_id: 4, index: 2,
+      event: { type: 'run.completed', status: 'completed' },
+    }));
+    expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]).toBeDefined();
+
+    const journal: TranscriptHistoryJournal = {
+      root_message_id: 4,
+      events: [{
+        index: 0,
+        event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'alpha' } },
+      }],
+    };
+    const unit: TranscriptHistoryUnit = {
+      kind: 'prose', root_message_id: 4, output_message_id: 4, event_indices: [0],
+    };
+    store.updateTranscriptHistory('alpha', (history) => ({
+      ...history,
+      initialized: true,
+      messages: { 4: message('alpha', 4) },
+      journals: { 4: journal },
+      units: [unit],
+    }));
+    expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]).toBeUndefined();
   });
+
+  it('does not classify foreground promotion as recovery, but does classify the next replacement', () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('alpha');
+    store.getState().applyFrame(frame({ type: 'self', room: 'alpha', member_id: 'alpha-human' }));
+    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 1 }));
+    store.getState().applyFrame(frame({
+      type: 'run_event', room: 'alpha', message_id: 4, index: 0,
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'retained' } },
+    }));
+
+    suppressRunEventRecovery(store, 'alpha');
+    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 2 }));
+    expect(roomSlice(store.getState(), 'alpha').runEventRecovery[4]).toBeUndefined();
+
+    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 3 }));
+    expect(roomSlice(store.getState(), 'alpha').runEventRecovery[4]).toBe(true);
+  });
+
+  it('keeps direct and isolated hosted stores equivalent without cross-computer evidence', () => {
+    const direct = createClientStore();
+    const hosted = createClientStore();
+    direct.getState().setActiveRoom('shared');
+    hosted.getState().setActiveRoom('shared');
+    direct.getState().applyFrame(frame({
+      type: 'run_event', room: 'shared', message_id: 7, index: 0,
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'direct' } },
+    }));
+    hosted.getState().applyFrame(frame({
+      type: 'run_event', room: 'shared', message_id: 7, index: 0,
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'hosted' } },
+    }));
+
+    expect(roomSlice(direct.getState(), 'shared').runEvents[7]?.events[0])
+      .toMatchObject({ payload: { text: 'direct' } });
+    expect(roomSlice(hosted.getState(), 'shared').runEvents[7]?.events[0])
+      .toMatchObject({ payload: { text: 'hosted' } });
+    expect(roomSlice(useClientStore.getState(), 'shared').runEvents[7]).toBeUndefined();
+  });
+  // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
 });
 
 describe('resubscribe preserves a hydrated, paged room', () => {

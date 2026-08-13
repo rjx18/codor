@@ -1,0 +1,137 @@
+id: run-events-live-reconciliation
+title: Preserve subscribed live run evidence across room selection
+notes: This frontend phase keeps the existing indexed, bounded run-event buffer
+  as the live source for every subscribed room in both direct and hosted stores.
+  A room switch must not discard evidence or force a journal read merely because
+  the room was temporarily backgrounded. Journal recovery remains the existing
+  authority for a real indexed gap, a dropped bounded buffer, or a genuine
+  socket generation replacement. A foreground promotion of a zero-hydrated
+  subscription is not a reconnect and must not manufacture recovery. Finalized
+  combined history owns a buffer only after the authoritative page materializes
+  that run family, at which point the buffer may be retired without changing
+  unit membership or rendering a duplicate. No protocol, server, pagination,
+  journal format, or transport behavior is in scope.
+assumptions:
+  create:
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      title: Subscribed live run evidence survives selection and retires into history
+      statement: Each subscribed room in every isolated client store must retain its
+        indexed live run-event buffer, bounded by the existing 500-event limit,
+        while the operator views another room; subsequent events append in
+        journal order, and the buffer is retired only after finalized combined
+        history materializes the owning run family, because a selection change
+        is not a reconnect and must not lose evidence or create duplicate rows.
+        Journal recovery remains the fallback only for an indexed gap, dropped
+        buffer, or genuine socket-generation replacement; promoting a
+        zero-hydrated room is not recovery, and identical room/run ids in direct
+        and hosted computer stores remain isolated.
+      reason: The current store clears a demoted room's live buffer, drops its
+        background run_event frames, and the transcript immediately compensates
+        with a journal request. That loses live evidence on ordinary selection
+        changes and conflates background promotion with recovery.
+      depends_on:
+        - live-run-event-cache-bounded
+        - run-events-merge-by-journal-index
+        - live-runs-settle-beside-paged-history-once
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-computer-sessions-keep-state-isolated
+  retire: []
+  reviewed:
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: The existing per-run limit, cumulative dropped count, and authoritative
+        journal recovery affordance remain the same; this phase only preserves
+        the buffer while its room is backgrounded.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Indexed append and journal/live merge semantics remain the existing
+        source of truth; no protocol or presenter arithmetic changes.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: Terminal evidence remains frozen and reconciles into combined history
+        once; this phase makes retirement wait for that authoritative ownership.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: The normalized timeline and output ownership remain unchanged; only the
+        source buffer lifetime and recovery admission are corrected.
+    - id: run-context-selects-and-follows-live-evidence
+      outcome: unchanged
+      reason: Selecting a run still binds the same room-owned evidence and refreshes
+        on completion without changing inspector behavior.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized units and indexed excerpts remain the sole cold history
+        source; live buffers retire only after that source includes the family.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: Existing deduplicated combined-head recovery remains the path for missed
+        terminal evidence and failed/retryable head requests.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Each direct or hosted computer continues to own its client store, token,
+        room keys, and live buffers without cross-computer reuse.
+    - id: hosted-background-rooms-hydrate-metadata-until-promoted
+      outcome: unchanged
+      reason: Background subscription and zero-history hydration remain unchanged;
+        this phase consumes already subscribed room frames without eager
+        history.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Socket generations, reconnect admission, and tunnel ownership remain
+        unchanged; the connector only identifies promotion as distinct from a
+        generation replacement.
+anchors:
+  subscribed-live-run-events-survive-switch-and-history-retirement:
+    store-live-event-routing:
+      action: change
+      reason: Retain indexed run_event frames for existing subscribed room slices,
+        including background rooms, instead of dropping them or clearing them on
+        selection changes.
+    store-history-owned-retirement:
+      action: change
+      reason: Remove a per-run live buffer only after combined history contains the
+        owning finalized unit/journal, never merely when a terminal frame lands.
+    transcript-recovery-admission:
+      action: change
+      reason: Avoid a journal read for a contiguous retained live buffer on ordinary
+        room selection while preserving reads for missing/gapped evidence and
+        socket-generation recovery.
+    connector-recovery-boundary:
+      action: change
+      reason: Mark only genuine socket-generation replacements for recovery and keep
+        zero-hydrated foreground promotion separate from reconnect admission.
+    store-run-event-regressions:
+      action: change
+      reason: Cover append ordering, concurrent room and computer-store isolation,
+        terminal preservation, promotion-versus-reconnect recovery, and
+        retirement after authoritative history.
+    run-event-browser-regression:
+      action: change
+      reason: Exercise a subscribed background live turn, selection return, next-event
+        append, finalization, and exactly-once rendered evidence in a real
+        browser.
+  live-runs-settle-beside-paged-history-once:
+    live-history-settlement-cache:
+      action: keep
+      reason: Preserve existing observed terminal settlement ownership.
+    live-history-settlement-renderer:
+      action: keep
+      reason: Preserve existing renderer grouping and finalized-history ownership.
+files:
+  - .harn/plans/run-events-live-reconciliation.yaml
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/tests/room43-run-events-live.e2e.spec.ts
+verification: Run the focused store, connector, runtime presenter, run-journal,
+  transcript-history, and Transcript tests; run the new room43 browser spec plus
+  the relevant hosted multi-computer/recovery specs for direct and hosted
+  parity. Run the full web-next unit suite, the recursive workspace build, and
+  the production/PWA web-next build. Run harn find/find --changed, plan check,
+  harn check, stage only the planned files, harn check --staged, harn apply
+  through the pre-commit hook, and the final clean-tree/diff check. Commit
+  exactly once with generated assumption truth and the applied plan; do not
+  push, deploy, publish, or alter protocol/server behavior.
+applied:
+  applied_at: 2026-08-13T09:23:28.776Z

@@ -91,6 +91,9 @@ export interface RoomSlice {
   inbox: Record<string, Delivery>;
   meter: RoomMeter | undefined;
   runEvents: Record<number, RunEventBuffer>;
+  /** A warm socket replacement requires journal reconciliation for retained
+   *  live buffers even when no indexed gap is visible yet. */
+  runEventRecovery: Record<number, true>;
   support: RoomSupport | undefined;
   historyCursor: number | undefined;
   // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-store
@@ -192,6 +195,7 @@ const emptySchedules: Record<string, Schedule> = {};
 const emptyScheduleSeq: Record<string, number> = {};
 const emptyInbox: Record<string, Delivery> = {};
 const emptyRunEvents: Record<number, RunEventBuffer> = {};
+const emptyRunEventRecovery: Record<number, true> = {};
 const emptyMemberHistory: Record<string, MemberStateObservation[]> = {};
 const emptyErrors: string[] = [];
 const emptyErrorRefs: Record<string, number> = {};
@@ -214,6 +218,7 @@ const EMPTY_ROOM: RoomSlice = {
   inbox: emptyInbox,
   meter: undefined,
   runEvents: emptyRunEvents,
+  runEventRecovery: emptyRunEventRecovery,
   support: undefined,
   historyCursor: undefined,
   transcriptHistory: EMPTY_TRANSCRIPT_HISTORY,
@@ -237,6 +242,7 @@ const freshRoom = (room?: Room): RoomSlice => ({
   inbox: {},
   meter: undefined,
   runEvents: {},
+  runEventRecovery: {},
   support: undefined,
   historyCursor: undefined,
   transcriptHistory: freshTranscriptHistory(),
@@ -367,6 +373,56 @@ function mergeSchedulesBySequence(
   return { schedules, scheduleSeq };
 }
 
+// harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-history-owned-retirement
+function historyOwnsRunFamily(history: TranscriptHistoryState, rootId: number): boolean {
+  return history.journals[rootId] !== undefined
+    || history.units.some((unit) => unit.kind !== 'message' && unit.root_message_id === rootId);
+}
+
+function retireHistoryOwnedRunEvents(
+  runEvents: Record<number, RunEventBuffer>,
+  history: TranscriptHistoryState,
+): Record<number, RunEventBuffer> {
+  let next = runEvents;
+  for (const rootId of Object.keys(runEvents).map(Number)) {
+    if (!historyOwnsRunFamily(history, rootId)) continue;
+    if (next === runEvents) next = { ...runEvents };
+    delete next[rootId];
+  }
+  return next;
+}
+
+function markRunEventsForRecovery(
+  runEvents: Record<number, RunEventBuffer>,
+  prior: Record<number, true>,
+): Record<number, true> {
+  const ids = Object.keys(runEvents).map(Number);
+  if (ids.length === 0) return prior;
+  return {
+    ...prior,
+    ...Object.fromEntries(ids.map((id) => [id, true as const])),
+  };
+}
+
+const runEventRecoverySuppression = new WeakMap<object, Set<string>>();
+
+export function suppressRunEventRecovery(store: object, room: string): void {
+  const rooms = runEventRecoverySuppression.get(store) ?? new Set<string>();
+  rooms.add(room);
+  runEventRecoverySuppression.set(store, rooms);
+}
+
+function consumeRunEventRecoverySuppression(store: object, room: string): boolean {
+  const rooms = runEventRecoverySuppression.get(store);
+  if (rooms === undefined || !rooms.delete(room)) return false;
+  if (rooms.size === 0) runEventRecoverySuppression.delete(store);
+  return true;
+}
+
+function clearRunEventRecoverySuppression(store: object): void {
+  runEventRecoverySuppression.delete(store);
+}
+
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
 
 const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHistory'], ClientStore>();
@@ -468,8 +524,17 @@ export function createClientStore(): ClientStore {
         case 'sync_complete': {
           const hydrated = staging.get(roomId);
           staging.delete(roomId);
+          const promotion = consumeRunEventRecoverySuppression(store, roomId);
           if (hydrated === undefined) {
-            next = { ...current, seq: bump, hydrated: true };
+            next = {
+              ...current,
+              seq: bump,
+              hydrated: true,
+              runEventRecovery: current.hydrated
+                && !promotion
+                ? markRunEventsForRecovery(current.runEvents, current.runEventRecovery)
+                : current.runEventRecovery,
+            };
             break;
           }
           // The opening snapshot is the authoritative base. Retained records
@@ -518,6 +583,10 @@ export function createClientStore(): ClientStore {
             inbox,
             meter: hydrated.meter ?? current.meter,
             support: hydrated.support ?? current.support,
+            runEventRecovery: current.hydrated
+              && !promotion
+              ? markRunEventsForRecovery(current.runEvents, current.runEventRecovery)
+              : current.runEventRecovery,
             transcriptHistory,
             historyCursor: frame.history_floor
               ?? current.historyCursor
@@ -525,6 +594,7 @@ export function createClientStore(): ClientStore {
           };
           break;
         }
+        // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
         case 'member':
           // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-projection
           const memberCurrent = frame.ref === undefined
@@ -618,9 +688,11 @@ export function createClientStore(): ClientStore {
           next = { ...current, support: frame.support };
           break;
         case 'run_event':
-          // Background rooms need summary changes, not partial evidence buffers.
-          // A promotion reads the authoritative journal from scratch.
-          if (state.activeRoom !== roomId) return {};
+          // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-live-event-routing
+          // A frame can arrive for any room this client subscribed. Keep its
+          // bounded indexed evidence with that room even while another room is
+          // selected; the buffer is the live source until combined history owns
+          // the finalized family.
           next = {
             ...current,
             runEvents: {
@@ -632,6 +704,7 @@ export function createClientStore(): ClientStore {
               ),
             },
           };
+          // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
           break;
         case 'error':
           // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
@@ -701,12 +774,18 @@ export function createClientStore(): ClientStore {
   updateTranscriptHistory: (roomId, update) => {
     set((state) => {
       const current = state.rooms[roomId] ?? freshRoom();
+      const transcriptHistory = update(current.transcriptHistory);
       return {
         rooms: {
           ...state.rooms,
           [roomId]: {
             ...current,
-            transcriptHistory: update(current.transcriptHistory),
+            transcriptHistory,
+            runEvents: retireHistoryOwnedRunEvents(current.runEvents, transcriptHistory),
+            runEventRecovery: Object.fromEntries(
+              Object.entries(current.runEventRecovery)
+                .filter(([id]) => !historyOwnsRunFamily(transcriptHistory, Number(id))),
+            ),
           },
         },
       };
@@ -741,16 +820,19 @@ export function createClientStore(): ClientStore {
     set((state) => {
       if (state.activeRoom === roomId) return {};
       const rooms = { ...state.rooms };
-      const previous = rooms[state.activeRoom];
-      if (previous !== undefined && Object.keys(previous.runEvents).length > 0) {
-        rooms[state.activeRoom] = { ...previous, runEvents: {} };
-      }
+      // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-live-event-routing
+      // Selection changes presentation only. A subscribed room keeps its live
+      // evidence until the authoritative combined page owns that family.
       if (rooms[roomId] === undefined) rooms[roomId] = freshRoom();
+      // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
       return { activeRoom: roomId, rooms };
     });
   },
 
-  setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
+  setConnected: (connected) => {
+    if (!connected) clearRunEventRecoverySuppression(store);
+    set(connected ? { connected, authRefused: false } : { connected });
+  },
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
   // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
@@ -822,6 +904,7 @@ export function createClientStore(): ClientStore {
   // harn:end worktree-conversation-status-is-live-and-independent
   reset: () => {
     staging.clear();
+    clearRunEventRecoverySuppression(store);
     set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
   },
   }));

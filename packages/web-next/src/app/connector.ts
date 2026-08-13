@@ -12,7 +12,13 @@ import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 import type { Connection } from '@runtime/ws.js';
 
-import { HISTORY_PAGE_SIZE, roomSlice, useClientStore, type ClientStore } from './store.js';
+import {
+  HISTORY_PAGE_SIZE,
+  roomSlice,
+  suppressRunEventRecovery,
+  useClientStore,
+  type ClientStore,
+} from './store.js';
 import { requireBrowserUpgrade } from './compatibility.js';
 
 export interface RoomConnector extends Connection {
@@ -181,6 +187,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     subscribed.add(room);
     subscriptionBudgets.set(room, hydrateLimit);
     const sinceSeq = promote ? 0 : roomSlice(clientStore.getState(), room).seq;
+    if (promote) {
+      // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=connector-recovery-boundary
+      // A zero-hydrated room is being promoted, not reconnected. Its next
+      // sync_complete must not turn a preserved background buffer into a
+      // journal-recovery request.
+      suppressRunEventRecovery(clientStore, room);
+      // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
+    }
     if (typeof window !== 'undefined') {
       (window as unknown as {
         __codorRoomSubscribes?: Array<{ room: string; hydrateLimit: number; sinceSeq: number }>;

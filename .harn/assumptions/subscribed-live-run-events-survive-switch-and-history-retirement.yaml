@@ -1,0 +1,20 @@
+id: subscribed-live-run-events-survive-switch-and-history-retirement
+hash: a-5f3c87eeea10
+title: Subscribed live run evidence survives selection and retires into history
+state: active
+statement: Each subscribed room in every isolated client store must retain its
+  indexed live run-event buffer, bounded by the existing 500-event limit, while
+  the operator views another room; subsequent events append in journal order,
+  and the buffer is retired only after finalized combined history materializes
+  the owning run family, because a selection change is not a reconnect and must
+  not lose evidence or create duplicate rows. Journal recovery remains the
+  fallback only for an indexed gap, dropped buffer, or genuine socket-generation
+  replacement; promoting a zero-hydrated room is not recovery, and identical
+  room/run ids in direct and hosted computer stores remain isolated.
+depends_on:
+  - live-run-event-cache-bounded
+  - run-events-merge-by-journal-index
+  - live-runs-settle-beside-paged-history-once
+  - finalized-browser-history-is-combined-page-owned
+  - hosted-computer-sessions-keep-state-isolated
+created_by: run-events-live-reconciliation
