@@ -89,8 +89,10 @@ Every synthesized record uses GitHub's documented envelope:
 
 | Copilot event | Codor event |
 | --- | --- |
+<!-- harn:assume native-prose-completeness-is-explicit ref=copilot-prose-classification-contract -->
 | parent `assistant.message_delta` | `run.item/text_delta`; accumulate text |
-| parent `assistant.message` | final text; emit only if no deltas for that message |
+| parent `assistant.message` | `run.item/text_block` only if no deltas for that message; final text |
+<!-- harn:end native-prose-completeness-is-explicit -->
 | `assistant.reasoning` | `run.item/reasoning_summary` |
 | `tool.execution_start` | `run.item/tool_call` |
 | `tool.execution_complete` | `run.item/tool_result` |

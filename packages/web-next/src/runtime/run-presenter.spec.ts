@@ -56,6 +56,37 @@ describe('run presenter', () => {
       expect.objectContaining({ title: 'Tool call', icon: 'generic', status: 'info' }),
     ]);
   });
+
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=live-prose-boundary-presenter-regression
+  it('keeps complete blocks as distinct prose rows across compatible deltas and tools', () => {
+    const rows = presentRunEvents(indexed([
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'A' }, ts: '2026-08-08T00:00:01.000Z' },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'B' }, ts: '2026-08-08T00:00:02.000Z' },
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'Block one' }, ts: '2026-08-08T00:00:03.000Z' },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'C' }, ts: '2026-08-08T00:00:04.000Z' },
+      { type: 'run.item', item_type: 'text_block', payload: { text: 'Block two' }, ts: '2026-08-08T00:00:05.000Z' },
+      {
+        type: 'run.item', item_type: 'tool_call',
+        payload: { call_id: 'other', tool: 'Read', title: 'other output' }, ts: '2026-08-08T00:00:06.000Z',
+      },
+      {
+        type: 'run.item', item_type: 'tool_result',
+        payload: { call_id: 'other', status: 'ok' }, ts: '2026-08-08T00:00:07.000Z',
+      },
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'D' }, ts: '2026-08-08T00:00:08.000Z' },
+    ]));
+
+    expect(rows.filter((row) => row.kind === 'prose').map((row) => ({
+      id: row.id, text: row.text, eventIndex: row.eventIndex, ts: row.ts,
+    }))).toEqual([
+      { id: 'text-0', text: 'AB', eventIndex: 0, ts: '2026-08-08T00:00:01.000Z' },
+      { id: 'text-2', text: 'Block one', eventIndex: 2, ts: '2026-08-08T00:00:03.000Z' },
+      { id: 'text-3', text: 'C', eventIndex: 3, ts: '2026-08-08T00:00:04.000Z' },
+      { id: 'text-4', text: 'Block two', eventIndex: 4, ts: '2026-08-08T00:00:05.000Z' },
+      { id: 'text-7', text: 'D', eventIndex: 7, ts: '2026-08-08T00:00:08.000Z' },
+    ]);
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
   // harn:end normalized-run-items-presented-live
 
   it('merges a stale journal and capped live tail by absolute event index', () => {

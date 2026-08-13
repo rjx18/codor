@@ -1,0 +1,15 @@
+id: native-prose-completeness-is-explicit
+hash: a-1ba1a3838152
+title: Native prose completeness selects text delta or text block explicitly
+state: active
+statement: First-party adapters must emit text_delta only for incomplete native
+  streaming fragments and text_block for complete native prose blocks, selecting
+  solely from the documented native event path so consumers can concatenate
+  compatible deltas while retaining a paragraph boundary between consecutive
+  blocks; adapters may emit both on distinct paths, old text_delta journals
+  remain valid without migration, and tool, reasoning, status, usage, final-text
+  deduplication, and bounds remain unchanged.
+depends_on:
+  - normalized-run-item-payload-contract
+  - first-party-run-items-normalized
+created_by: prose-event-semantics-p1-protocol-adapters

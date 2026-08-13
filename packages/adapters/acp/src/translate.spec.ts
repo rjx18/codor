@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createAcpTurnTranslator } from './translate.js';
 
 describe('ACP event normalization', () => {
+  // harn:assume native-prose-completeness-is-explicit ref=acp-prose-classification-regression
   it('maps text, plans, tools, durable diffs, context and cached usage', () => {
     const translator = createAcpTurnTranslator();
     expect(translator.push({
@@ -51,6 +52,7 @@ describe('ACP event normalization', () => {
       baseline: { totalTokens: 20, inputTokens: 10, outputTokens: 5 },
     });
   });
+  // harn:end native-prose-completeness-is-explicit
 
   it('derives non-overlapping turn usage and treats lower totals as a reset', () => {
     const translator = createAcpTurnTranslator();

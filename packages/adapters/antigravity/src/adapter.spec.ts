@@ -149,6 +149,7 @@ describe('AntigravityAdapter', () => {
   // harn:end antigravity-session-resume-is-log-derived
 
   // harn:assume antigravity-plain-output-is-bounded ref=antigravity-output-bound-regression
+  // harn:assume native-prose-completeness-is-explicit ref=antigravity-prose-classification-regression
   it('bounds Unicode stdout and discloses truncation in exactly one terminal event', async () => {
     const adapter = new AntigravityAdapter(executable({ reply: 'é'.repeat(150_000) }));
     const events = await collect(adapter, adapter.spawn({ cwd: process.cwd() }), 'hello');
@@ -157,12 +158,15 @@ describe('AntigravityAdapter', () => {
       sum + Buffer.byteLength(String(event.payload.text), 'utf8')
     ), 0);
     const completed = events.filter((event) => event.type === 'run.completed');
+    expect(deltas.length).toBeGreaterThan(1);
+    expect(events.filter((event) => event.type === 'run.item')).toEqual(deltas);
     expect(liveBytes).toBeLessThanOrEqual(256 * 1024);
     expect(completed).toHaveLength(1);
     expect(Buffer.byteLength(String(completed[0]!.final_text), 'utf8')).toBeLessThanOrEqual(256 * 1024);
     expect(String(completed[0]!.final_text).endsWith('[output truncated]')).toBe(true);
     expect(String(completed[0]!.final_text)).not.toContain('\uFFFD');
   });
+  // harn:end native-prose-completeness-is-explicit
   // harn:end antigravity-plain-output-is-bounded
 
   // harn:assume adapter-children-inherit-session-env ref=antigravity-env-regression

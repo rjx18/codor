@@ -471,7 +471,7 @@ export function createTurnTranslator(
           for (const block of event.message?.content ?? []) {
             if (typeof block === 'string') continue;
             if (block.type === 'text' && block.text !== undefined && block.text !== '') {
-              events.push({ type: 'run.item', item_type: 'text_delta', payload: { text: block.text } });
+              events.push({ type: 'run.item', item_type: 'text_block', payload: { text: block.text } });
             } else if (block.type === 'thinking') {
               const text = block.thinking ?? block.text ?? '';
               events.push({ type: 'run.item', item_type: 'reasoning_summary', payload: { text } });

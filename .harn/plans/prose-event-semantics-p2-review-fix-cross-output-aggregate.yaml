@@ -1,0 +1,173 @@
+id: prose-event-semantics-p2-review-fix-cross-output-aggregate
+title: P2 review fix preserves prose boundaries across continuation rows
+notes: >
+  Correct one independently reproduced P2 review finding on implementation
+  commit c89703ea3e9d5c9663dac829bc132408e2cc0164. The implementation tracks
+  visible block boundaries only inside each permanent output row, then
+  reconstructs the lifecycle aggregate by sorting those row bodies and joining
+  them with an empty string. A text_block on output 1 followed by a text_block
+  or text_delta on output 2 therefore routes FirstSecond instead of
+  First\n\nSecond. If run.completed reports the full visible form
+  First\n\nSecond, completionResidual compares only output 2's visible text and
+  appends the whole final value again, producing the duplicated aggregate
+  FirstSecondFirst\n\nSecond.
+
+  Preserve two projections from the one journal: permanent output bodies keep
+  their own text without a leading synthetic delimiter, while a journal-order
+  visible aggregate retains block transitions across output ownership. Terminal
+  deduplication and ContinuationWriter allocation must compare the complete
+  journal-wide visible aggregate first and the complete raw aggregate second,
+  not only the settled output's visible body. Finalization must route, parse,
+  snapshot, and store that authoritative aggregate directly rather than
+  rebuilding it from the body map. Compatible deltas across output rows remain
+  exact concatenation; output allocation alone still creates no prose syntax.
+
+  Do not change P1 classification, protocol, adapters, individual row bodies,
+  result ownership, tool/compaction behavior, failure handling, acknowledgement
+  detection, mention/ref parsing, collaboration semantics, browser unitization,
+  H2 reconciliation, pagination, or presentation.
+assumptions:
+  reviewed:
+    - id: explicit-prose-boundaries-survive-transcript-lifecycle
+      outcome: unchanged
+      reason: >
+        The correction makes the implemented continuation aggregate match the
+        accepted requirement that block transitions survive even when permanent
+        output ownership changes.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Each journal event retains its permanent output id and each output body
+        remains prefix-free; only the additional journal-wide aggregate and
+        terminal comparison are corrected.
+    - id: finalized-turn-routes-aggregate-from-terminal-output
+      outcome: unchanged
+      reason: >
+        The terminal output continues routing one snapshotted complete answer,
+        now using the type-aware journal aggregate instead of an untyped
+        body-map join.
+    - id: failed-run-details-never-route-as-replies
+      outcome: unchanged
+      reason: >
+        Failed runs still persist empty body/final_text with no parsed targets
+        or reply fanout; the corrected aggregate is used only for nonfailed
+        output.
+    - id: run-failure-evidence-is-surfaced
+      outcome: unchanged
+      reason: >
+        Error selection and persistence are untouched while the enclosing
+        successful-body projection is corrected.
+    - id: substantive-routing-excludes-acknowledgements
+      outcome: unchanged
+      reason: >
+        ACK classification still operates on the complete projected answer and
+        acknowledgements remain non-substantive; prose row ownership is
+        unchanged.
+    - id: delivery-payload-snapshotted
+      outcome: unchanged
+      reason: >
+        Every onward delivery still receives an immutable snapshot under the
+        terminal result id, now containing the correct block-aware aggregate.
+    - id: turn-output-finalization-is-atomic
+      outcome: unchanged
+      reason: >
+        Output rows, lifecycle final_text, settlement, accounting, and fanout
+        remain in the same transaction; only the successful aggregate value is
+        corrected.
+anchors:
+  explicit-prose-boundaries-survive-transcript-lifecycle:
+    continuation-prose-boundary-projection:
+      action: change
+      reason: >
+        Return and deduplicate against a journal-wide visible aggregate while
+        retaining independent prefix-free output bodies.
+    continuation-prose-boundary-regression:
+      action: change
+      reason: >
+        Add red-first cross-output block transitions with raw and visible
+        terminal values, exact row bodies, and no duplicate residual.
+    continuation-prose-boundary-aggregate-finalization:
+      action: change
+      reason: >
+        Route and store the type-aware projection aggregate rather than joining
+        permanent row bodies without event semantics.
+    continuation-prose-boundary-aggregate-regression:
+      action: change
+      reason: >
+        Exercise a real delayed turn with an operator interjection and prove row
+        bodies, lifecycle final_text, target parsing, and onward payload all
+        retain the cross-output paragraph boundary.
+  continuation-writer-follows-journaled-output-ownership:
+    continuation-segmentation-engine:
+      action: change
+      reason: >
+        Maintain journal-wide visible prose state in addition to per-output
+        state without changing allocation or ownership.
+    continuation-segmentation-regression:
+      action: change
+      reason: |
+        Pin restart-safe cross-output projection and terminal result identity.
+    continuation-writer-regression:
+      action: change
+      reason: >
+        Extend the production finalization regression without weakening the
+        existing delta continuation case.
+  finalized-turn-routes-aggregate-from-terminal-output:
+    finalize-and-route:
+      action: change
+      reason: >
+        Consume the projection's authoritative visible aggregate for final_text,
+        parsing, and routed snapshots.
+    aggregate-routing-regression:
+      action: change
+      reason: >
+        Prove a block-native multi-row turn routes exactly one paragraph-aware
+        aggregate from the terminal output id.
+  failed-run-details-never-route-as-replies:
+    failed-run-finalization:
+      action: change
+      reason: >
+        Preserve the nested failure branch while replacing the successful
+        aggregate source inside the same finalization region.
+  run-failure-evidence-is-surfaced:
+    interrupted-error-evidence:
+      action: change
+      reason: >
+        Preserve interrupted/failed error evidence while correcting the nested
+        successful aggregate projection.
+files:
+  - packages/switchboard/src/continuation.ts
+  - packages/switchboard/src/continuation.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+verification: >
+  Before product edits, add a continuation regression with prose on two
+  permanent outputs. Record the current semantic failures: block-to-block and
+  block-to-delta aggregate as FirstSecond instead of First\n\nSecond, and a
+  run.completed final_text of First\n\nSecond is appended in full to output 2,
+  duplicating the answer. Add a real daemon regression before its fix: delay two
+  complete blocks around an operator interjection and expect prefix-free row
+  bodies First and Second, lifecycle final_text First\n\nSecond, unchanged
+  terminal result id, and an onward delivery snapshot whose body is exactly
+  First\n\nSecond. The failure must be an exact semantic assertion, not timing
+  or fixture infrastructure.
+
+  Green coverage must also prove delta-to-delta across outputs remains
+  FirstSecond; delta-to-block and block-to-delta retain one paragraph boundary;
+  consecutive blocks retain one boundary; raw native final_text and visible
+  joined final_text neither allocate nor duplicate a terminal row; a genuine
+  residual is appended once; output bodies never gain a leading delimiter;
+  mentions/refs are parsed from the corrected full aggregate; and failed,
+  interrupted, ACK, tool/result, compaction, result-id, collaboration, and
+  snapshot behavior remain unchanged.
+
+  Run focused continuation and chronological-continuation daemon tests, the
+  complete switchboard suite, all web units, the complete isolated Room 23
+  continuation suite, and recursive pnpm -r build. Run harn find --changed, harn
+  find --plan, harn check, staged Harn find/check, git diff --check, and the
+  shared pre-commit apply/stage/recheck flow. Create exactly one review-fix
+  commit consuming this plan, then stop for independent re-review without
+  starting other work, pushing, merging, deploying, publishing, releasing, or
+  updating a host.
+applied:
+  applied_at: 2026-08-12T17:55:40.727Z

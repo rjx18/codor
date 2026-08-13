@@ -47,3 +47,11 @@ intercept or redact provider traffic.
 The checked-in translator accepts the documented Responses-style streaming event
 names and the common CLI aliases used by current builds. A scrubbed live capture
 should be added before advertising additional tool, subagent, or usage behavior.
+
+<!-- harn:assume native-prose-completeness-is-explicit ref=grok-prose-classification-contract -->
+All accepted Grok streaming-json prose records — Responses delta names
+(`response.output_text.delta`, `text_delta`, and `assistant.message_delta`) plus
+the compatibility `message`, `assistant`, and `text` aliases — emit
+`run.item/text_delta`. xAI's streaming-json contract defines these as incremental
+events as they arrive; no verified Grok completed-block path exists in this phase.
+<!-- harn:end native-prose-completeness-is-explicit -->

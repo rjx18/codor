@@ -77,7 +77,7 @@ export function createTurnTranslator(sessionId: string): TurnTranslator {
           if (messageId !== undefined && streamedMessages.has(messageId)) return [];
           return content === ''
             ? []
-            : [{ type: 'run.item', item_type: 'text_delta', payload: { text: content } }];
+            : [{ type: 'run.item', item_type: 'text_block', payload: { text: content } }];
         }
         case 'assistant.reasoning':
           if (stringField(data, 'parentToolCallId') !== undefined) return [];

@@ -39,6 +39,7 @@ const completed = (events: WireEvent[]) =>
   >;
 
 describe('Codex 0.144.5 app-server fixture translation', () => {
+  // harn:assume native-prose-completeness-is-explicit ref=codex-prose-classification-regression
   const events = replay(fixture('app-server-turn.jsonl'));
 
   it('preserves normalized reasoning, command, file, and final text items', () => {
@@ -46,6 +47,11 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
       type: 'run.item',
       item_type: 'reasoning_summary',
       payload: { text: 'Inspecting the fixture' },
+    });
+    expect(events).toContainEqual({
+      type: 'run.item',
+      item_type: 'text_block',
+      payload: { text: 'DONE' },
     });
     expect(events).toContainEqual({
       type: 'run.item',
@@ -90,7 +96,10 @@ describe('Codex 0.144.5 app-server fixture translation', () => {
       status: 'completed',
       final_text: 'DONE',
     });
+    expect(events.filter((event) =>
+      event.type === 'run.item' && event.item_type === 'text_block')).toHaveLength(1);
   });
+  // harn:end native-prose-completeness-is-explicit
 
   // harn:assume codex-turn-and-manual-compaction-follow-native-events ref=codex-app-server-compaction-regression
   it('deduplicates the canonical item completion and compatibility notification', () => {

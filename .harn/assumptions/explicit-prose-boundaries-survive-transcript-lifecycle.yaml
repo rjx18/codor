@@ -1,0 +1,24 @@
+id: explicit-prose-boundaries-survive-transcript-lifecycle
+hash: a-013846c8fdb1
+title: Explicit prose event boundaries survive every transcript lifecycle
+state: active
+statement: >
+  Every transcript consumer must concatenate compatible text_delta fragments
+  exactly while presenting each text_block as one complete visible paragraph,
+  preserving a paragraph boundary at every transition to or from a block and
+  between consecutive blocks; time gaps and events owned by another permanent
+  output row never invent a prose boundary, final-text fallback compares the
+  appropriate raw or visible projection without duplication, and the same stable
+  units, anchors, order, and text must survive live display, settlement,
+  combined-head reconciliation, bounded paging, room switching, and reload for
+  old delta-only journals, block-native journals, and mixed text/tool evidence.
+depends_on:
+  - native-prose-completeness-is-explicit
+  - continuation-writer-follows-journaled-output-ownership
+  - normalized-run-items-presented-live
+  - historical-transcript-pages-match-output-scoped-rendering
+  - finalized-browser-history-is-combined-page-owned
+  - combined-head-adopts-authoritative-overlap-order
+  - combined-head-preserves-reader-unit-offset
+  - live-runs-settle-beside-paged-history-once
+created_by: prose-event-semantics-p2-presentation-parity

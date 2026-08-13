@@ -229,6 +229,25 @@ describe('continuation transcript semantics', () => {
     expect(continuationTrailingText('final answer', 'working', true, true)).toBe('');
     expect(continuationTrailingText('workingfinal answer', 'working', false, true)).toBe('');
   });
+
+  // harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=transcript-prose-boundary-rendering-regression
+  it('deduplicates terminal text against the browser-visible block join', () => {
+    expect(continuationTrailingText(
+      'first\n\ncomplete\n\nresidual',
+      'firstcomplete',
+      true,
+      true,
+      'first\n\ncomplete',
+    )).toBe('\n\nresidual');
+    expect(continuationTrailingText(
+      'first\n\ncomplete',
+      'firstcomplete',
+      true,
+      true,
+      'first\n\ncomplete',
+    )).toBe('');
+  });
+  // harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 });
 // harn:end continuation-writer-follows-journaled-output-ownership
 

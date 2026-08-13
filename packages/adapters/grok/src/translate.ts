@@ -167,8 +167,9 @@ export function createTurnTranslator(initialSessionId?: string): TurnTranslator 
         }];
       }
 
-      if (type === 'response.output_text.delta' || type === 'text_delta' || type === 'assistant.message_delta' ||
-        type === 'message' || type === 'assistant' || type === 'text') {
+      if (type === 'response.output_text.delta' || type === 'text_delta' ||
+        type === 'assistant.message_delta' || type === 'message' || type === 'assistant' ||
+        type === 'text') {
         const text = textFrom(event) ?? '';
         if (text === '') return [];
         finalText += text;

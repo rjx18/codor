@@ -33,9 +33,11 @@ workspace for workspace-write; full-access disables it.
   session id announced here -> `hooks.onSessionRef`. `login` = subscription auth.
 - `{type:'user', ...}` — input echo; ignored.
 - `{type:'thinking', subtype:'delta'|'completed', text}` -> `reasoning_summary`.
+<!-- harn:assume native-prose-completeness-is-explicit ref=cursor-prose-classification-contract -->
 - `{type:'assistant', message:{content:[{type:'text',text}]}, timestamp_ms?}` —
   events WITH `timestamp_ms` are incremental deltas -> `text_delta`; the one
   WITHOUT is the cumulative echo and is skipped (else text doubles).
+<!-- harn:end native-prose-completeness-is-explicit -->
 - `{type:'tool_call', subtype:'started'|'completed', call_id, tool_call:{<name>ToolCall:{args,result}}}`
   -> `tool_call` (started) / `tool_result` (completed). Tool name is the single
   key minus the `ToolCall` suffix (e.g. `shellToolCall` -> `shell`). `result` with

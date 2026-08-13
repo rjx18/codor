@@ -122,7 +122,7 @@ export function createTurnTranslator(): TurnTranslator {
         case 'text':
           if (part?.type !== 'text') return [];
           finalText += part.text ?? '';
-          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: part.text ?? '' } }];
+          return [{ type: 'run.item', item_type: 'text_block', payload: { text: part.text ?? '' } }];
         case 'reasoning':
           if (part?.type !== 'reasoning') return [];
           return [{ type: 'run.item', item_type: 'reasoning_summary', payload: { text: part.text ?? '' } }];

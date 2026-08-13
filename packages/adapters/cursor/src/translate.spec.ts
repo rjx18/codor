@@ -31,8 +31,10 @@ describe('cursor stream-json translation', () => {
     const replayed = replay('synthetic-success.jsonl');
     expect(replayed.sessionId).toBe('11111111-1111-4111-8111-111111111111');
 
+    // harn:assume native-prose-completeness-is-explicit ref=cursor-prose-classification-regression
     // Streaming deltas only — the trailing cumulative assistant echo is skipped.
     expect(textDeltas(replayed.events)).toEqual(['PO', 'NG']);
+    // harn:end native-prose-completeness-is-explicit
 
     expect(replayed.events).toContainEqual({
       type: 'run.item',

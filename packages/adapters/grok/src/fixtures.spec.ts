@@ -21,5 +21,12 @@ describe('native Grok streaming-json fixture', () => {
     expect(translator.sessionId()).toBe('22222222-2222-4222-8222-222222222222');
     expect(translator.end()).toEqual([]);
   });
+
+  it('keeps delta-named native records as incomplete fragments', () => {
+    const translator = createTurnTranslator();
+    expect(translator.push('{"type":"text_delta","data":"fragment"}')).toEqual([
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'fragment' } },
+    ]);
+  });
   // harn:end grok-capability-truth
 });

@@ -1,0 +1,219 @@
+id: prose-event-semantics-p1-protocol-adapters
+title: P1 classify native prose fragments and completed blocks explicitly
+notes: >-
+  Lane E P1 adds one additive run-item kind without changing presentation yet.
+  text_delta remains the backward-compatible incomplete-fragment event and old
+  journals remain valid without migration. text_block carries one complete
+  native prose block. Classification is determined only from the native event
+  path, never timestamps, delays, or output-row boundaries.
+
+  The audited first-party matrix is exact: ACP agent_message_chunk, Cursor
+  timestamped assistant deltas, Copilot assistant.message_delta, Gemini
+  assistant message records explicitly marked delta:true, Grok delta-named
+  records, and Antigravity stdout chunks emit text_delta. Completed Claude
+  assistant text blocks, Codex completed agentMessage items, Copilot's
+  assistant.message fallback when that message had no deltas, Gemini assistant
+  messages not marked as deltas, Grok's non-delta message/assistant/text
+  aliases, and OpenCode's completed text parts emit text_block. One adapter may
+  therefore emit both kinds on distinct native paths. ACP and Cursor remain
+  delta-only; Antigravity remains delta-only because each stdout read is an
+  incomplete fragment even though its transport is unstructured.
+
+  Red-first: update the focused protocol and adapter expectations before source
+  changes. The completed-path cases must fail on the accepted baseline because
+  they receive text_delta instead of text_block, while the fragment-path cases
+  continue to prove text_delta. Then add the schema/type and smallest translator
+  classifications. Preserve tool, reasoning, status, usage, final_text
+  accumulation/deduplication, stable call ids, bounds, and all other adapter
+  behavior. Do not change continuation, switchboard history unitization, live
+  presentation, or historical rendering; those belong to dependency-gated P2.
+
+  Verification: record the exact red failure; run every first-party adapter
+  suite, the complete protocol and switchboard suites, recursive build, harn
+  find --changed/--staged/--plan, harn check/apply/staged checks, and git diff
+  --check. Commit once through the Harn hook and leave a clean worktree.
+assumptions:
+  reviewed:
+    - id: normalized-run-item-payload-contract
+      outcome: unchanged
+      reason: The additive text_block payload uses the same permissive standalone
+        {text:string} parsing boundary; WireEvent payload stays unknown and old
+        text_delta journals remain valid.
+    - id: first-party-run-items-normalized
+      outcome: unchanged
+      reason: Every touched translator continues to emit bounded payloads accepted by
+        parseRunItemPayload and preserves non-prose evidence and final-text
+        semantics; only the explicit prose completeness kind changes.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: ACP agent_message_chunk is verified as an incomplete streaming path.
+    - id: claude-sdk-message-contract-preserves-normalized-runs
+      outcome: unchanged
+      reason: Claude SDK assistant text content is a completed native block; session,
+        usage, compaction, tool, permission, and terminal behavior are
+        unchanged.
+    - id: copilot-capability-truth
+      outcome: unchanged
+      reason: Copilot retains delta deduplication and uses text_block only for its
+        documented non-stream assistant.message fallback.
+    - id: gemini-capability-truth
+      outcome: unchanged
+      reason: Gemini message.delta is the native discriminator between incomplete
+        assistant fragments and completed assistant messages.
+    - id: grok-capability-truth
+      outcome: unchanged
+      reason: Grok keeps documented delta paths streaming and classifies only
+        non-delta message aliases as completed blocks.
+    - id: opencode-capability-truth
+      outcome: unchanged
+      reason: OpenCode run emits a completed text part with an end time, not a token
+        stream; its actual native seam is documented and otherwise unchanged.
+    - id: antigravity-plain-output-is-bounded
+      outcome: unchanged
+      reason: Each bounded stdout chunk remains an incomplete text_delta and all UTF-8
+        size and terminal truncation behavior stays intact.
+  create:
+    - id: native-prose-completeness-is-explicit
+      title: Native prose completeness selects text delta or text block explicitly
+      statement: First-party adapters must emit text_delta only for incomplete native
+        streaming fragments and text_block for complete native prose blocks,
+        selecting solely from the documented native event path so consumers can
+        concatenate compatible deltas while retaining a paragraph boundary
+        between consecutive blocks; adapters may emit both on distinct paths,
+        old text_delta journals remain valid without migration, and tool,
+        reasoning, status, usage, final-text deduplication, and bounds remain
+        unchanged.
+      reason: Collapsing completed native prose blocks into text_delta silently joins
+        separate paragraphs and loses semantics that timing cannot reconstruct.
+      depends_on:
+        - normalized-run-item-payload-contract
+        - first-party-run-items-normalized
+files:
+  - docs/PROTOCOL.md
+  - packages/protocol/src/events.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/adapters/acp/src/translate.spec.ts
+  - packages/adapters/claude-code/src/translate.ts
+  - packages/adapters/claude-code/src/translate.spec.ts
+  - packages/adapters/codex/src/translate.ts
+  - packages/adapters/codex/src/translate.spec.ts
+  - packages/adapters/copilot/NOTES.md
+  - packages/adapters/copilot/src/translate.ts
+  - packages/adapters/copilot/src/translate.spec.ts
+  - packages/adapters/cursor/NOTES.md
+  - packages/adapters/cursor/src/translate.spec.ts
+  - packages/adapters/gemini/NOTES.md
+  - packages/adapters/gemini/src/translate.ts
+  - packages/adapters/gemini/src/translate.spec.ts
+  - packages/adapters/grok/NOTES.md
+  - packages/adapters/grok/src/translate.ts
+  - packages/adapters/grok/src/fixtures.spec.ts
+  - packages/adapters/opencode/NOTES.md
+  - packages/adapters/opencode/src/translate.ts
+  - packages/adapters/opencode/src/translate.spec.ts
+  - packages/adapters/antigravity/src/adapter.spec.ts
+anchors:
+  normalized-run-item-payload-contract:
+    normalized-run-item-documentation:
+      action: change
+      reason: Document text_block beside the compatible text_delta payload contract.
+    standalone-run-item-payload-schemas:
+      action: change
+      reason: Add text_block to the enum, payload map, inferred types, and parser.
+  first-party-run-items-normalized:
+    claude-normalized-run-items:
+      action: change
+      reason: Classify completed Claude assistant text content as text_block.
+    codex-normalized-run-items:
+      action: change
+      reason: Classify completed Codex agentMessage items as text_block.
+    copilot-normalized-run-items:
+      action: change
+      reason: Keep deltas and classify only the non-stream fallback as text_block.
+    gemini-normalized-run-items:
+      action: change
+      reason: Use the native delta marker to select text_delta or text_block.
+    opencode-normalized-run-items:
+      action: change
+      reason: Classify the completed OpenCode text part as text_block.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-event-normalization:
+      action: keep
+      reason: ACP agent_message_chunk must remain text_delta.
+  claude-sdk-message-contract-preserves-normalized-runs:
+    claude-sdk-message-translation:
+      action: change
+      reason: The completed assistant content-block path changes prose kind only.
+  copilot-capability-truth:
+    copilot-event-translation:
+      action: change
+      reason: Distinguish the streaming delta and completed fallback paths.
+  gemini-capability-truth:
+    gemini-documented-event-translation:
+      action: change
+      reason: Classify assistant messages from their native delta field.
+  grok-capability-truth:
+    grok-event-translation:
+      action: change
+      reason: Separate delta-named records from completed prose aliases.
+    grok-event-translation-regression:
+      action: change
+      reason: Prove both native Grok paths and preserve terminal final text.
+  opencode-capability-truth:
+    opencode-event-translation:
+      action: change
+      reason: The verified OpenCode text event is a completed native part.
+  antigravity-plain-output-is-bounded:
+    antigravity-output-bound-regression:
+      action: change
+      reason: Prove bounded stdout fragments remain text_delta.
+  native-prose-completeness-is-explicit:
+    prose-event-protocol-contract:
+      action: change
+      reason: Anchor the additive schema, compatibility rule, and native-path matrix.
+    prose-event-protocol-regression:
+      action: change
+      reason: Prove both normalized payload kinds parse and malformed payloads fail.
+    acp-prose-classification-regression:
+      action: change
+      reason: Prove ACP message chunks remain text_delta.
+    claude-prose-classification-regression:
+      action: change
+      reason: Prove consecutive completed Claude blocks remain separate text_block
+        events.
+    codex-prose-classification-regression:
+      action: change
+      reason: Prove completed Codex agent messages emit text_block without final
+        duplication.
+    copilot-prose-classification-contract:
+      action: change
+      reason: Document Copilot delta and non-stream fallback classifications.
+    copilot-prose-classification-regression:
+      action: change
+      reason: Prove deltas remain fragments and fallback messages are blocks.
+    cursor-prose-classification-contract:
+      action: change
+      reason: Document timestamped Cursor fragments and skipped cumulative echoes.
+    cursor-prose-classification-regression:
+      action: change
+      reason: Prove Cursor's streamed native path remains text_delta.
+    gemini-prose-classification-contract:
+      action: change
+      reason: Document Gemini delta-marker classification.
+    gemini-prose-classification-regression:
+      action: change
+      reason: Prove marked fragments and completed messages select distinct kinds.
+    grok-prose-classification-contract:
+      action: change
+      reason: Document Grok delta-name versus completed-alias classification.
+    opencode-prose-classification-contract:
+      action: change
+      reason: Document the verified completed text-part seam explicitly.
+    opencode-prose-classification-regression:
+      action: change
+      reason: Prove a completed OpenCode text part emits text_block.
+    antigravity-prose-classification-regression:
+      action: change
+      reason: Prove consecutive stdout chunks remain fragment deltas within bounds.
+applied:
+  applied_at: 2026-08-12T12:40:12.672Z

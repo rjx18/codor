@@ -52,6 +52,8 @@ const ITEM_LABELS: Record<RunItemType, string> = {
   tool_result: 'Tool result',
   reasoning_summary: 'Reasoning',
   text_delta: 'Response',
+  // Compile-only fallback label for the additive protocol kind; P2 owns text_block presentation.
+  text_block: 'Response',
   commit: 'Commit',
   file_change: 'File change',
 };
@@ -114,6 +116,7 @@ const eventTs = (event: WireEvent): string | undefined =>
   event.type === 'run.item' ? event.ts : undefined;
 
 // harn:assume normalized-run-items-presented-live ref=normalized-run-presenter
+// harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=live-prose-boundary-presenter
 export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
   const rows: RunRow[] = [];
   const calls = new Map<string, number>();
@@ -176,14 +179,20 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
       continue;
     }
 
-    if (event.item_type === 'text_delta') {
-      const parsed = parseRunItemPayload('text_delta', event.payload);
+    if (event.item_type === 'text_delta' || event.item_type === 'text_block') {
+      const parsed = parseRunItemPayload(event.item_type, event.payload);
       if (!parsed.success) {
         rows.push(fallbackRow(item));
         continue;
       }
       const previous = rows.at(-1);
-      if (previous?.kind === 'prose' && previous.icon === 'text') {
+      if (
+        event.item_type === 'text_delta'
+        && previous?.kind === 'prose'
+        && previous.icon === 'text'
+        && previous.event.type === 'run.item'
+        && previous.event.item_type === 'text_delta'
+      ) {
         previous.text = `${previous.text ?? ''}${parsed.data.text}`;
         previous.event = event;
       } else {
@@ -268,6 +277,7 @@ export function presentRunEvents(items: readonly IndexedRunEvent[]): RunRow[] {
 
   return rows;
 }
+// harn:end explicit-prose-boundaries-survive-transcript-lifecycle
 // harn:end normalized-run-items-presented-live
 
 // harn:assume run-events-merge-by-journal-index ref=client-indexed-buffer-merge

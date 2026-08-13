@@ -67,7 +67,11 @@ export function createTurnTranslator(): TurnTranslator {
         case 'message':
           if (event.role !== 'assistant') return [];
           finalText += event.content ?? '';
-          return [{ type: 'run.item', item_type: 'text_delta', payload: { text: event.content ?? '' } }];
+          return [{
+            type: 'run.item',
+            item_type: event.delta === true ? 'text_delta' : 'text_block',
+            payload: { text: event.content ?? '' },
+          }];
         case 'tool_use':
           return [
             {

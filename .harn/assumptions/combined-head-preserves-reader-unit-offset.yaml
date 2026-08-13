@@ -1,0 +1,18 @@
+id: combined-head-preserves-reader-unit-offset
+hash: a-a3a032dc8b85
+title: Combined-head reconciliation preserves the reader's stable unit offset
+state: active
+statement: >
+  When a successful combined-head merge inserts or reorders history while the
+  reader is not tail-pinned, the mounted transcript must keep the first
+  pre-existing visible stable unit at the same viewport offset through the merge
+  and delayed evidence materialization, including when that unit is an
+  intra-message boundary, while a pinned reader continues following the true
+  tail and room switches, failures, or absent anchors cannot leak restoration
+  state into another transcript.
+depends_on:
+  - combined-head-adopts-authoritative-overlap-order
+  - transcript-history-prepends-one-deliberate-page
+  - transcript-tail-follow-has-one-prepaint-owner
+  - permalink-ids-stable
+created_by: hosted-transcript-reliability-h2-authoritative-order

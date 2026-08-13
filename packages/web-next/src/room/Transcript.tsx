@@ -122,6 +122,7 @@ interface HistoryRestore {
   fallbackHeight: number;
   fallbackTop: number;
   merged: boolean;
+  head?: boolean;
 }
 
 /** Highest durable activity sequence the reader can meaningfully see. A tall
@@ -588,7 +589,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     }, READ_DWELL_MS);
   }, [cancelReadTimer, connected, props.connection, support, transcriptReady]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     lastMarkedSeqRef.current = 0;
     cancelReadTimer();
     cancelHistorySettle();
@@ -637,6 +638,47 @@ export function Transcript(props: { room: string; token: () => string; connectio
     const node = scrollerRef.current;
     const column = columnRef.current;
     if (!node || !column) return;
+    // A non-initial head refresh can reorder an already-visible overlap. Capture
+    // the first stable unit before its response commits; the same geometry owner
+    // below then restores it before paint. Pinned readers deliberately skip the
+    // capture and continue following the true tail.
+    let pending = historyRestoreRef.current;
+    if (
+      history.loadingHead
+      && history.initialized
+      && !pinnedRef.current
+      && pending === undefined
+    ) {
+      const viewport = node.getBoundingClientRect();
+      const firstVisible = [...column.querySelectorAll<HTMLElement>('[data-transcript-unit]')]
+        .find((row) => row.getBoundingClientRect().bottom > viewport.top);
+      if (firstVisible !== undefined) {
+        pending = {
+          room: props.room,
+          anchorUnit: `unit:${firstVisible.dataset.transcriptUnit!}`,
+          anchorOffset: firstVisible.getBoundingClientRect().top - viewport.top,
+          fallbackHeight: node.scrollHeight,
+          fallbackTop: node.scrollTop,
+          merged: false,
+          head: true,
+        };
+        historyRestoreRef.current = pending;
+      }
+    }
+    // A failed head must not leave an anchor armed for a later room or retry.
+    // A successful response arms the existing restore path in this same layout
+    // owner, after React has committed the authoritative unit sequence.
+    if (pending?.head === true && pending.room === props.room && !history.loadingHead) {
+      if (history.failed) {
+        cancelHistorySettle();
+        historyRestoreRef.current = undefined;
+      } else if (!pending.merged) {
+        pending.merged = true;
+        cancelHistorySettle();
+        restoreHistoryAnchor();
+        settleHistoryAfterQuiet();
+      }
+    }
     // A newly mounted tail row needs correction in this commit's layout phase;
     // ResizeObserver owns later column/viewport geometry changes in the same
     // hook, so no second effect or deferred frame can expose an old position.
@@ -691,6 +733,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
   }, [
     cancelHistorySettle,
     entries,
+    history.failed,
+    history.initialized,
+    history.loadingHead,
+    history.units,
     journalVersion,
     lastId,
     markVisibleRowsRead,
@@ -1591,6 +1637,24 @@ function segmentTs(segment: RunSegment): string | undefined {
   return undefined;
 }
 
+// harn:assume explicit-prose-boundaries-survive-transcript-lifecycle ref=transcript-prose-boundary-rendering
+function visibleProseText(segments: readonly RunSegment[]): string {
+  let visible = '';
+  let previousBlock = false;
+  for (const segment of segments) {
+    if (segment.kind !== 'prose') continue;
+    const row = segment.row;
+    const block = row.event.type === 'run.item' && row.event.item_type === 'text_block';
+    const text = row.text ?? '';
+    if (text.length === 0) continue;
+    const boundary = visible.length > 0 && (block || previousBlock);
+    visible += `${boundary ? '\n\n' : ''}${text}`;
+    previousBlock = block;
+  }
+  return visible;
+}
+// harn:end explicit-prose-boundaries-survive-transcript-lifecycle
+
 /** Journals for a set of FINALIZED runs (complete, no live buffer needed),
  *  presented into segments so the transcript can interleave their blocks. Reads
  *  go through the shared room-scoped cache, so asking for the same journal from
@@ -1652,10 +1716,11 @@ export function continuationTrailingText(
   streamedText: string,
   outputMessages: boolean,
   hasProse: boolean,
+  visibleText = streamedText,
 ): string {
-  return outputMessages && hasProse && finalText.startsWith(streamedText)
-    ? finalText.slice(streamedText.length)
-    : '';
+  if (!outputMessages || !hasProse) return '';
+  if (finalText.startsWith(visibleText)) return finalText.slice(visibleText.length);
+  return finalText.startsWith(streamedText) ? finalText.slice(streamedText.length) : '';
 }
 
 /**
@@ -1819,7 +1884,14 @@ function RunContent(props: {
     .filter((segment): segment is Extract<RunSegment, { kind: 'prose' }> => segment.kind === 'prose')
     .map((segment) => segment.row.text ?? '')
     .join('');
-  const trailingText = continuationTrailingText(finalText, streamedText, outputMessages, hasProse);
+  const visibleText = visibleProseText(segments);
+  const trailingText = continuationTrailingText(
+    finalText,
+    streamedText,
+    outputMessages,
+    hasProse,
+    visibleText,
+  );
   // harn:assume run-failure-evidence-is-surfaced ref=web-next-run-error-evidence
   // Failed/interrupted runs have empty bodies by design — their reason lives
   // on run.error and must render, or failures are silently blank.
@@ -2065,6 +2137,7 @@ function historicalGroupingPresentation(
 }
 
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=historical-transcript-grouping-callsite
+// harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-rendering
 function renderHistoricalTimeline(
   history: TranscriptHistoryState,
   ctx: TimelineCtx,
@@ -2158,6 +2231,7 @@ function renderHistoricalTimeline(
   }
   return out;
 }
+// harn:end finalized-browser-history-is-combined-page-owned
 // harn:end visible-transcript-grouping-ignores-hidden-boundaries
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-presentation

@@ -1,0 +1,262 @@
+id: hosted-transcript-reliability-h2-authoritative-order
+title: Adopt authoritative transcript order with stable head reconciliation
+notes: >
+  Implement only Lane A phase H2 from the accepted parallel reliability program,
+  on accepted H1 commit 7c8c95e7474f4acf22eb1483a382f86861a888ac. The server
+  already returns permanent message/continuation order. Correct the browser head
+  merge, which currently keeps existing units ahead of an incoming authoritative
+  head and can therefore leave an interjection before an older first half. A
+  successful combined-head response must replace the order of its stable-key
+  overlap with the response order while preserving loaded older pages outside
+  that overlap and live records not represented by the response. Preserve the
+  first pre-existing visible unit's viewport offset across the
+  reorder/insertion, including a stable unit boundary nested inside an existing
+  message article and a response whose hosted materialization is delayed.
+  Preserve H1 activation/retry/store-token ownership, page bounds and cursors,
+  live message sequence reconciliation, stable ids and anchors, exact output
+  attribution, evidence ownership, pins, search, permalinks, grouping, and tail
+  follow. Do not sort by local receipt time, change server ordering, protocol,
+  relay, pagination, unitization, transcript copy, or transport lifecycle.
+assumptions:
+  create:
+    - id: combined-head-adopts-authoritative-overlap-order
+      title: Combined heads replace their overlap with authoritative stable-unit order
+      statement: >
+        Every successful combined-history head reconciliation must deduplicate
+        by stable transcript unit identity and adopt the server response's exact
+        order throughout the returned overlap, while retaining already-loaded
+        older units outside that overlap and live room records not yet
+        represented by the page, so a finalized family and an intervening
+        permanent message remain in permanent first-half, interjection,
+        continuation order through live display, settlement, refresh, room
+        return, reload, and cursor boundaries without a gap, duplicate, or
+        fallback to local receipt-time ordering.
+      reason: >
+        Appending missing response units after the current client range
+        preserves a stale partial order when a running family was excluded but
+        its interjection had already materialized.
+      depends_on:
+        - historical-transcript-pages-match-output-scoped-rendering
+        - transcript-history-cursors-cover-complete-established-order
+        - finalized-browser-history-is-combined-page-owned
+        - missed-terminal-history-refreshes-through-combined-head
+        - live-runs-settle-beside-paged-history-once
+        - continuation-writer-follows-journaled-output-ownership
+        - permalink-ids-stable
+    - id: combined-head-preserves-reader-unit-offset
+      title: Combined-head reconciliation preserves the reader's stable unit offset
+      statement: >
+        When a successful combined-head merge inserts or reorders history while
+        the reader is not tail-pinned, the mounted transcript must keep the
+        first pre-existing visible stable unit at the same viewport offset
+        through the merge and delayed evidence materialization, including when
+        that unit is an intra-message boundary, while a pinned reader continues
+        following the true tail and room switches, failures, or absent anchors
+        cannot leak restoration state into another transcript.
+      reason: >
+        Correcting authoritative overlap order can move existing DOM content,
+        and without a pre-merge stable-unit anchor the answer fix would visibly
+        yank an operator who is reading the reconciled range.
+      depends_on:
+        - combined-head-adopts-authoritative-overlap-order
+        - transcript-history-prepends-one-deliberate-page
+        - transcript-tail-follow-has-one-prepaint-owner
+        - permalink-ids-stable
+  reviewed:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      outcome: unchanged
+      reason: >
+        Server unitization and permanent output-message order remain
+        authoritative and are consumed without protocol or page-shape changes.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: >
+        Opaque cursor ceilings and complete server order remain unchanged; the
+        browser now retains that order when refreshed pages meet loaded pages.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Combined pages remain the only finalized membership, ordering, and
+        indexed evidence source, with no finalized full-journal fallback.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: >
+        H1 and resume signals keep using the existing bounded, retryable,
+        source-store-deduplicated head and overlap bridge.
+    - id: selected-room-activation-reconciles-destination-history
+      outcome: unchanged
+      reason: >
+        Exact-room readiness and captured source store, room, and credential
+        still own activation; H2 changes only successful materialization and
+        presentation.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: >
+        Mutable evidence remains uncapped by the page budget and hands off
+        exactly once to page-owned finalized evidence without terminal journal
+        reads.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: >
+        Newer live message records still win by protocol sequence for
+        page-contained ids, while page stable keys alone own finalized
+        membership and order.
+    - id: live-before-history-materialization-reconciles
+      outcome: unchanged
+      reason: >
+        Live records racing the response remain room-local and may update only
+        records represented by page ids, not page order or membership.
+    - id: transcript-history-prepends-one-deliberate-page
+      outcome: unchanged
+      reason: >
+        Older-page prepend, one-gesture latching, stable unit identities, and
+        its existing intra-message anchor contract remain intact and share no
+        second scroll owner.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        The existing synchronous geometry owner continues to follow pinned
+        readers and becomes the sole place that restores an unpinned head-merge
+        anchor.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Permanent output ids and indexed root-journal attribution remain the
+        order and evidence identity used by both live and historical rendering.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: >
+        Search, pins, inbox links, and permalinks keep resolving through the
+        same stable unit ids and bounded cursor walker after overlap
+        replacement.
+    - id: visible-transcript-grouping-ignores-hidden-boundaries
+      outcome: unchanged
+      reason: >
+        Presentation grouping consumes the corrected unit sequence but does not
+        invent, erase, or cross hidden visible-turn boundaries.
+anchors:
+  combined-head-adopts-authoritative-overlap-order:
+    authoritative-head-overlap-merge:
+      action: change
+      reason: >
+        Replace the current-first head union with a stable-key overlap splice
+        that adopts response order and retains only loaded units outside the
+        overlap.
+    authoritative-head-overlap-unit-regression:
+      action: change
+      reason: >
+        Prove current interjection plus authoritative first-half/interjection/
+        continuation response becomes exact server order with older pages
+        retained, live-only records untouched, and no gap or duplicate.
+    authoritative-order-lifecycle-browser-regression:
+      action: change
+      reason: >
+        Reproduce and assert stable unit-key order through live output,
+        interjection, settlement, head refresh, room switch-back, reload, and a
+        page boundary.
+  combined-head-preserves-reader-unit-offset:
+    head-reconciliation-reader-anchor:
+      action: change
+      reason: >
+        Capture the first pre-existing visible stable unit before a non-initial
+        head materializes and restore its offset through the existing geometry
+        owner.
+    head-reconciliation-reader-anchor-regression:
+      action: change
+      reason: >
+        Hold a head response, anchor an intra-message unit, release delayed
+        materialization, and prove its viewport offset stays pixel-stable
+        without changing pinned-tail behavior or leaking across rooms.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-materializer:
+      action: change
+      reason: >
+        Preserve server stable-unit order when a successful head overlaps a
+        partial client range rather than appending new keys after current units.
+    combined-history-rendering:
+      action: change
+      reason: >
+        Wire head-merge anchor capture and restoration around the existing
+        page-owned historical renderer.
+  live-before-history-materialization-reconciles:
+    history-materializer-uses-live-room-records:
+      action: change
+      reason: >
+        Retain newer page-contained live records while correcting only the
+        stable unit order and overlap membership.
+  missed-terminal-history-refreshes-through-combined-head:
+    combined-history-head-refresh:
+      action: change
+      reason: >
+        Expose the existing loading/success lifecycle needed to anchor a
+        non-initial head without changing request, retry, or source ownership.
+    combined-history-gap-bridge:
+      action: change
+      reason: >
+        Feed every newest-to-oldest bridged page into one chronological
+        authoritative overlap splice.
+    combined-history-head-regression:
+      action: change
+      reason: >
+        Add red-first authoritative-order coverage to existing deduplication,
+        retry, preservation, and isolation checks.
+  live-runs-settle-beside-paged-history-once:
+    live-history-settlement-cache:
+      action: change
+      reason: >
+        Allow a settled family's authoritative page units to replace stale
+        partial order without dropping preserved live evidence.
+    live-history-settlement-regression:
+      action: change
+      reason: >
+        Extend the production continuation journey across all H2 lifecycle
+        states.
+  transcript-history-prepends-one-deliberate-page:
+    deliberate-history-top-reach:
+      action: change
+      reason: >
+        Reuse the stable-unit restoration machinery for head reconciliation
+        while retaining one-request older-page latching.
+    deliberate-history-top-reach-regression:
+      action: change
+      reason: >
+        Cover an intra-message boundary and cursor page adjacent to
+        authoritative head reordering without regressing deliberate prepend
+        anchoring.
+  transcript-tail-follow-has-one-prepaint-owner:
+    transcript-prepaint-geometry:
+      action: change
+      reason: >
+        Integrate head-merge restoration into the single pre-paint geometry
+        owner; no competing observer, effect, or global scroll owner is added.
+files:
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room21-hydration.e2e.spec.ts
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+verification: >
+  Before product edits, add a focused unit reproduction on accepted H1 commit
+  7c8c95e7474f4acf22eb1483a382f86861a888ac: current stable units contain the
+  interjection while the successful combined head returns first-half,
+  interjection, continuation; record the exact failure as current-first order.
+  Add the browser lifecycle reproduction before its fix and record the same
+  ordering failure, not a timeout or fixture failure. Then implement the
+  smallest stable-key overlap merge and reader-anchor integration. Assert exact
+  stable keys at live rendering, settlement, head refresh, switch-back, reload,
+  and across a twenty-unit cursor boundary; assert no gaps or duplicates,
+  correct continuation attribution, preserved older pages and live-only records,
+  stable anchors/search/ pins/permalinks, no local-time sort, and no finalized
+  /runs/:id request. Hold one hosted-style response after capturing an
+  intra-message first-visible unit and keep its viewport offset within two
+  pixels through delayed materialization; also prove a pinned reader stays at
+  the tail and room changes clear pending restore state. Run focused
+  transcript-history and Transcript units, all web units, the recursive
+  production build, and complete isolated Room 21 hydration and Room 23
+  continuation Playwright specs. Run harn check, harn apply, staged Harn checks,
+  and git diff --check; create exactly one implementation commit consuming this
+  plan. Stop and return for review without starting other work, pushing,
+  merging, deploying, publishing, releasing, or updating a host.
+applied:
+  applied_at: 2026-08-12T16:11:21.644Z
