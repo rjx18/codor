@@ -157,8 +157,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     foregroundProbePending = false;
   };
 
-  const send = (frame: unknown): void => {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
+  const send = (frame: unknown): boolean => {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(frame));
+    return true;
   };
 
   // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion
@@ -550,9 +552,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
-    act: (act: Act, ref?: string) => {
+    act: (act: Act, ref?: string): boolean => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
-      send({
+      return send({
         type: 'act', room: currentRoom, act,
         ...(correlationRef !== undefined && { ref: correlationRef }),
       });

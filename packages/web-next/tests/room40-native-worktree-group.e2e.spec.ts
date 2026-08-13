@@ -88,6 +88,25 @@ test.describe('native worktree group navigation', () => {
   // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
   // harn:end exact-trailing-mentions-send-before-completion
 
+  test('routes a qualified scheduled draft to the selected child acknowledgement only', async ({ page }) => {
+    const review = await reviewChild(page);
+    await openRoom(page, `/?room=workspace&token=${TOKEN}`);
+    const input = page.getByTestId('composer-input');
+    const marker = `qualified-scheduled-${Date.now()}`;
+    const raw = `[send_in=1h] ~${review.alias}:@reviewer ${marker} `;
+    await input.fill(raw);
+    await input.press('Enter');
+    // The positive acknowledgement is target-owned: the source root has no
+    // schedule card, and the raw draft clears only after that child frame lands.
+    await expect(input).not.toHaveValue(raw, { timeout: 20_000 });
+    await expect(page.locator('[data-testid^="schedule-card-"]').filter({ hasText: marker })).toHaveCount(0);
+    expect(await page.getByTestId('timeline').textContent()).not.toContain(`~${review.alias}:@reviewer ${marker}`);
+    await page.getByTestId(`worktree-link-${review.id}`).click();
+    const card = page.locator('[data-testid^="schedule-card-"]').filter({ hasText: marker });
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(card).toContainText('Pending');
+  });
+
   // harn:assume merged-worktree-reliability-contracts-coexist ref=cross-stack-browser-regression
   test('renders worktree-qualified bounded history without a finalized journal fetch', async ({ page }) => {
     const historyRequests: string[] = [];

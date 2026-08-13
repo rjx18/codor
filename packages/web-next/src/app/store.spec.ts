@@ -90,6 +90,10 @@ describe('room-keyed client state', () => {
     expect(roomSlice(useClientStore.getState(), 'eng')).toMatchObject({
       errors: ['compact failed', 'reset failed', 'another reset failure', 'uncorrelated'],
       errorRefs: { compact_member: 1, clear_member_context: 2 },
+      errorTexts: {
+        compact_member: 'compact failed',
+        clear_member_context: 'another reset failure',
+      },
     });
   });
   // harn:end member-context-reset-is-authorized-atomic-and-lazy

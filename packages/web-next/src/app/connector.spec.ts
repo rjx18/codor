@@ -150,6 +150,23 @@ describe('connector resume', () => {
     });
     connector.dispose();
   });
+
+  it('reports a closed socket before emitting a cancellation act', () => {
+    const connector = createConnector({
+      room: 'eng', token: 'token',
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+    socket.drop();
+    const before = socket.sent.length;
+    const result = (connector.act as unknown as (
+      action: { act: 'cancel_schedule'; schedule_id: string }, ref?: string,
+    ) => boolean)({ act: 'cancel_schedule', schedule_id: 'closed-schedule' }, 'closed-schedule');
+    expect(result).toBe(false);
+    expect(socket.sent).toHaveLength(before);
+    connector.dispose();
+  });
   // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
   it('writes only the injected computer store and token sink', () => {
     const isolated = createClientStore();

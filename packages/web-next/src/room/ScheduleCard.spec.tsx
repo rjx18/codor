@@ -59,6 +59,36 @@ describe('authoritative scheduled cards', () => {
     expect(markup).toContain('Cancelling…');
   });
 
+  it('keeps an authorized retained card visible but disables cancellation without live evidence', () => {
+    expect(canCancelSchedule(schedule(), viewer('owner'), false)).toBe(false);
+    const markup = renderToStaticMarkup(
+      <ScheduleCard schedule={schedule()} viewer={viewer('owner')} cancelReady={false} />,
+    );
+    expect(markup).toContain('data-testid="schedule-cancel-pending"');
+    expect(markup).toContain('disabled=""');
+  });
+
+  it('renders the exact correlated cancellation refusal beside its card', () => {
+    const markup = renderToStaticMarkup(
+      <ScheduleCard schedule={schedule()} viewer={viewer('owner')} cancelError="not authorized" />,
+    );
+    expect(markup).toContain('data-testid="schedule-cancel-error-pending"');
+    expect(markup).toContain('not authorized');
+  });
+
+  it('keeps overlapping schedule-ref errors attached to their own card', () => {
+    const first = renderToStaticMarkup(
+      <ScheduleCard schedule={{ ...schedule(), id: 'first' }} viewer={viewer('owner')} cancelError="first refusal" />,
+    );
+    const second = renderToStaticMarkup(
+      <ScheduleCard schedule={{ ...schedule(), id: 'second' }} viewer={viewer('owner')} cancelError="second refusal" />,
+    );
+    expect(first).toContain('first refusal');
+    expect(first).not.toContain('second refusal');
+    expect(second).toContain('second refusal');
+    expect(second).not.toContain('first refusal');
+  });
+
   it('supports qualified labels, bounded prose, and named local zones', () => {
     const qualified = { ...schedule(), target: { ...schedule().target, alias: 'review' } };
     expect(scheduleTargetLabel(qualified)).toBe('~review:@reviewer');

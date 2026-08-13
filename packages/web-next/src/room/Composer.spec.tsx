@@ -339,6 +339,17 @@ describe('raw composer acknowledgement ownership', () => {
     const send = pending('please investigate @sol ');
     expect(pendingComposerResolution(undefined, send, send.rawBody, 1)).toBe('error');
   });
+
+  it('settles a qualified refusal from the selected source room while keeping destination echoes separate', () => {
+    const send = {
+      ...pending('please investigate ~review:@sol '),
+      targetRoom: 'wt-review',
+    };
+    // The source error count is the one passed to the resolution state machine;
+    // a destination-only error must not be able to settle an unrelated draft.
+    expect(pendingComposerResolution(undefined, send, send.rawBody, 1)).toBe('error');
+    expect(pendingComposerResolution(undefined, send, send.rawBody, 0)).toBeUndefined();
+  });
 });
 // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 

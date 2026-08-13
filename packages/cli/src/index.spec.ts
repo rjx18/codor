@@ -1142,6 +1142,22 @@ describe('@codor/cli', () => {
     expect(created).toMatchObject({ author_id: daemon.ownerOf('eng').id, target: { member_id: reviewer.id } });
 
     output = [];
+    const remoteBody = '[send_in=1h] @scheduled-reviewer remote cli schedule';
+    await runCli([
+      'node', 'codor', '--data-dir', dir,
+      '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'post', '-r', 'eng', remoteBody,
+    ], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+    });
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatch(/^scheduled [^ ]+ due \d{4}-\d{2}-\d{2}T/);
+    expect(daemon.store.listSchedules('eng')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ body: '@scheduled-reviewer remote cli schedule' })]),
+    );
+
+    output = [];
     await expect(cli('post', '--wait', '-r', 'eng', '[send_in=1h] @scheduled-reviewer refused wait'))
       .rejects.toThrow('post --wait is not supported for scheduled messages');
     expect(output).toEqual([]);

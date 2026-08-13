@@ -345,10 +345,10 @@ export function Composer(props: { room: string; token: () => string; connection:
     selectPendingDestinationMessages(state, pendingSend?.targetRoom));
   const pendingDestinationSchedules = useClientStore((state) =>
     selectPendingDestinationSchedules(state, pendingSend?.targetRoom));
-  const pendingDestinationErrors = useClientStore((state) =>
-    pendingSend?.targetRoom === undefined
-      ? slice.errors
-      : roomSlice(state, pendingSend.targetRoom).errors);
+  // Positive acknowledgements remain destination/self-bound, but refusals are
+  // emitted on the selected source connection. A qualified target can therefore
+  // never settle its raw draft by watching the child room's error list.
+  const pendingSourceErrors = useClientStore((state) => roomSlice(state, props.room).errors);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [takes, setTakes] = useState<DictationTake[]>([]);
@@ -448,7 +448,7 @@ export function Composer(props: { room: string; token: () => string; connection:
       pendingDestinationMessages,
       pendingSend,
       areaRef.current?.value ?? draft,
-      pendingDestinationErrors.length,
+      pendingSourceErrors.length,
       pendingDestinationSchedules,
     );
     if (resolution === 'clear' || resolution === 'preserve') {
@@ -465,10 +465,10 @@ export function Composer(props: { room: string; token: () => string; connection:
       return;
     }
     if (resolution === 'error') {
-      setHint(pendingDestinationErrors.at(-1) ?? 'Message was refused');
+      setHint(pendingSourceErrors.at(-1) ?? 'Message was refused');
       setPendingSend(undefined);
     }
-  }, [draft, pendingDestinationErrors, pendingDestinationMessages, pendingDestinationSchedules, pendingSend]);
+  }, [draft, pendingDestinationMessages, pendingDestinationSchedules, pendingSend, pendingSourceErrors]);
   // harn:end invalid-qualified-targets-never-fallback
 
   // Until the operator edits, the seeded draft follows hydration as the latest
@@ -921,7 +921,7 @@ export function Composer(props: { room: string; token: () => string; connection:
       // qualified echo is matched against the browser identity in that room —
       // never merely against identical prose from its agent.
       authorId: targetSlice.selfMemberId,
-      errorCount: targetSlice.errors.length,
+      errorCount: slice.errors.length,
     });
     props.connection.post(body, {
       ...(replyTo !== undefined && { replyTo }),

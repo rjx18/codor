@@ -15,6 +15,8 @@ import {
   qualifiedAuthorLabel,
   resolveRunningSince,
   orderedVisibleSchedules,
+  reserveScheduleCancel,
+  scheduleCancelReady,
 } from './Transcript.js';
 
 describe('scheduled transcript projection', () => {
@@ -33,6 +35,16 @@ describe('scheduled transcript projection', () => {
       sent: schedule('sent', '2026-08-12T11:00:00.000Z', '2026-08-12T11:00:00.000Z', 'sent'),
       other: { ...schedule('other', '2026-08-12T10:00:00.000Z', '2026-08-12T10:00:00.000Z', 'pending'), room: 'other' },
     }, 'eng').map((row) => row.id)).toEqual(['a', 'b']);
+  });
+
+  it('admits cancellation only with current room evidence and reserves one same-tick act', () => {
+    expect(scheduleCancelReady(false, false)).toBe(false);
+    expect(scheduleCancelReady(true, false)).toBe(false);
+    expect(scheduleCancelReady(true, true)).toBe(true);
+    const reservations = new Set<string>();
+    expect(reserveScheduleCancel(reservations, 'one')).toBe(true);
+    expect(reserveScheduleCancel(reservations, 'one')).toBe(false);
+    expect([...reservations]).toEqual(['one']);
   });
 });
 

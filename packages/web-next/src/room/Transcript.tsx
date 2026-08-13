@@ -79,6 +79,19 @@ export function orderedVisibleSchedules(
       || left.id.localeCompare(right.id));
 }
 
+/** Mutating schedule actions require both transport and this room's current
+ * generation evidence; retained hydration alone is read-only. */
+export function scheduleCancelReady(connected: boolean, roomLive: boolean): boolean {
+  return connected && roomLive;
+}
+
+/** Synchronous reservation used at the action edge before React can rerender. */
+export function reserveScheduleCancel(reservations: Set<string>, scheduleId: string): boolean {
+  if (reservations.has(scheduleId)) return false;
+  reservations.add(scheduleId);
+  return true;
+}
+
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-state-machine
 export interface TranscriptGroupingRow {
   author: string;
@@ -221,6 +234,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const support = slice.support;
   const history = slice.transcriptHistory;
   const connected = useClientStore((state) => state.connected);
+  // A retained schedule remains readable while reconnecting, but cancellation
+  // is a mutating action and needs this room's current socket generation to have
+  // delivered its own sync evidence.
+  const roomLive = useClientStore((state) => state.roomLive[props.room] === true);
+  const cancelReady = scheduleCancelReady(connected, roomLive);
 
   useEffect(() => activateRunJournalRoom(props.room), [props.room]);
   useEffect(() => {
@@ -243,6 +261,9 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
   const [cancelPending, setCancelPending] = useState<Record<string, number>>({});
+  // React state is intentionally asynchronous; reserve the id synchronously so
+  // two same-tick clicks cannot emit two cancellation acts.
+  const cancelPendingRef = useRef(new Set<string>());
   const historyRequestRef = useRef(false);
   const historyRestoreRef = useRef<HistoryRestore>();
   const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -477,14 +498,34 @@ export function Transcript(props: { room: string; token: () => string; connectio
     [props.room, schedules],
   );
   const cancelSchedule = useCallback((scheduleId: string): void => {
-    if (cancelPending[scheduleId] !== undefined) return;
+    if (!cancelReady || !reserveScheduleCancel(cancelPendingRef.current, scheduleId)) return;
+    const beforeErrors = slice.errorRefs[scheduleId] ?? 0;
     setCancelPending((current) => ({
       ...current,
-      [scheduleId]: slice.errorRefs[scheduleId] ?? 0,
+      [scheduleId]: beforeErrors,
     }));
-    props.connection.act({ act: 'cancel_schedule', schedule_id: scheduleId }, scheduleId);
-  }, [cancelPending, props.connection, slice.errorRefs]);
+    // RoomConnector returns false when the socket closed between readiness
+    // observation and this action. The generic Connection contract remains void,
+    // so undefined means the act was accepted and awaits authoritative frames.
+    const act = props.connection.act as unknown as (
+      action: { act: 'cancel_schedule'; schedule_id: string }, ref?: string,
+    ) => boolean | void;
+    if (act({ act: 'cancel_schedule', schedule_id: scheduleId }, scheduleId) === false) {
+      cancelPendingRef.current.delete(scheduleId);
+      setCancelPending((current) => {
+        if (current[scheduleId] === undefined) return current;
+        const next = { ...current };
+        delete next[scheduleId];
+        return next;
+      });
+    }
+  }, [cancelReady, props.connection, slice.errorRefs]);
   useEffect(() => {
+    if (!cancelReady) {
+      cancelPendingRef.current.clear();
+      setCancelPending((current) => Object.keys(current).length === 0 ? current : {});
+      return;
+    }
     setCancelPending((current) => {
       let changed = false;
       const next = { ...current };
@@ -492,13 +533,14 @@ export function Transcript(props: { room: string; token: () => string; connectio
         const schedule = schedules[id];
         if (schedule === undefined || schedule.state !== 'pending'
           || (slice.errorRefs[id] ?? 0) > beforeErrors) {
+          cancelPendingRef.current.delete(id);
           delete next[id];
           changed = true;
         }
       }
       return changed ? next : current;
     });
-  }, [schedules, slice.errorRefs]);
+  }, [cancelReady, schedules, slice.errorRefs]);
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
     initialBarrier.current = { room: props.room, ready: false };
@@ -953,6 +995,8 @@ export function Transcript(props: { room: string; token: () => string; connectio
                   schedule={schedule}
                   viewer={selfId === undefined ? undefined : members[selfId]}
                   cancelPending={cancelPending[schedule.id] !== undefined}
+                  cancelReady={cancelReady}
+                  cancelError={slice.errorTexts[schedule.id]}
                   onCancel={cancelSchedule}
                 />
               ))}

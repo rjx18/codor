@@ -99,6 +99,9 @@ export interface RoomSlice {
   errors: string[];
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
   errorRefs: Record<string, number>;
+  /** Exact latest text for each correlated action, so overlapping actions never
+   * borrow the room's generic latest error from one another. */
+  errorTexts: Record<string, string>;
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 }
 
@@ -171,6 +174,7 @@ const emptyRunEvents: Record<number, RunEventBuffer> = {};
 const emptyMemberHistory: Record<string, MemberStateObservation[]> = {};
 const emptyErrors: string[] = [];
 const emptyErrorRefs: Record<string, number> = {};
+const emptyErrorTexts: Record<string, string> = {};
 
 const EMPTY_ROOM: RoomSlice = {
   hydrated: false,
@@ -190,6 +194,7 @@ const EMPTY_ROOM: RoomSlice = {
   transcriptHistory: EMPTY_TRANSCRIPT_HISTORY,
   errors: emptyErrors,
   errorRefs: emptyErrorRefs,
+  errorTexts: emptyErrorTexts,
 };
 
 const freshRoom = (room?: Room): RoomSlice => ({
@@ -210,6 +215,7 @@ const freshRoom = (room?: Room): RoomSlice => ({
   transcriptHistory: freshTranscriptHistory(),
   errors: [],
   errorRefs: {},
+  errorTexts: {},
 });
 
 interface HydrationStaging {
@@ -560,6 +566,10 @@ export function createClientStore(): ClientStore {
               errorRefs: {
                 ...current.errorRefs,
                 [frame.ref]: (current.errorRefs[frame.ref] ?? 0) + 1,
+              },
+              errorTexts: {
+                ...current.errorTexts,
+                [frame.ref]: frame.message,
               },
             }),
           };
