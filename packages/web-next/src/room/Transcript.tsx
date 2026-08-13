@@ -236,6 +236,30 @@ export function continuationVisibleMessages(
 }
 // harn:end continuation-writer-follows-journaled-output-ownership
 
+// harn:assume hosted-support-active-run-transcript-projection ref=support-active-run-transcript-projection
+function projectActiveRunMessages(
+  messages: Readonly<Record<number, Message>>,
+  activeRuns: readonly Message[] | undefined,
+): Record<number, Message> {
+  const projected = { ...messages };
+  for (const activeRun of activeRuns ?? []) {
+    if (activeRun.kind !== 'run' || activeRun.run?.status !== 'running') continue;
+    // The ordinary message map is newer/authoritative when it already owns the
+    // root. Support-only roots are a live presentation projection; they never
+    // enter the durable store or the history page.
+    if (projected[activeRun.id] === undefined) projected[activeRun.id] = activeRun;
+  }
+  return projected;
+}
+
+export function transcriptMessagesWithActiveRuns(
+  messages: Readonly<Record<number, Message>>,
+  activeRuns: readonly Message[] | undefined,
+): Message[] {
+  return transcriptMessages(projectActiveRunMessages(messages, activeRuns));
+}
+// harn:end hosted-support-active-run-transcript-projection
+
 // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-cold-suppression
 export function coldMessageSuppressed(
   message: Message,
@@ -309,14 +333,18 @@ export function Transcript(props: { room: string; token: () => string; connectio
         .finally(() => heldTargetRequestsRef.current.delete(id));
     }
   }, [connected, heldMessageIds, history.initialized, history.messages, messages, props.room, props.token]);
-  const ordered = useMemo(() => transcriptMessages(messages), [messages]);
+  const projectedMessages = useMemo(
+    () => projectActiveRunMessages(messages, support?.active_runs),
+    [messages, support?.active_runs],
+  );
+  const ordered = useMemo(() => transcriptMessages(projectedMessages), [projectedMessages]);
   // Support state owns actionability; transcript messages stay the exact
   // contiguous history window and never absorb old correctness outliers.
   const visible = useMemo(() => continuationVisibleMessages(
     ordered,
-    messages,
+    projectedMessages,
     support?.interactions,
-  ), [messages, ordered, support]);
+  ), [ordered, projectedMessages, support]);
   const detachedInteractions = useMemo(
     () => support?.interactions.filter((message) => messages[message.id] === undefined) ?? [],
     [messages, support],

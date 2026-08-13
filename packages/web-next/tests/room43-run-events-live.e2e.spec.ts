@@ -82,4 +82,42 @@ test.describe('background live run evidence', () => {
     }
   });
   // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
+
+  // harn:assume hosted-support-active-run-transcript-projection ref=direct-support-active-run-browser-regression
+  test('renders a preconnection active support run through the direct journal path', async ({ page }) => {
+    test.setTimeout(120_000);
+    // This is the alpha.1-compatible shape: the running root remains in the
+    // support snapshot while the bounded message tail is filled past it.
+    const live = await control<{ room: string; root: number }>('/live-family', { handle: 'alpha-direct' });
+    await control('/live-family-step', { room: live.room, handle: 'alpha-direct', step: 'evidence' });
+    for (let index = 0; index < 25; index += 1) {
+      await control('/post-chat', {
+        room: live.room,
+        body: `bounded direct filler ${String(index + 1)}`,
+      });
+    }
+    const tail = await control<{ ids: number[] }>('/tail-ids', { room: live.room, limit: 20 });
+    expect(tail.ids).not.toContain(live.root);
+
+    const journalReads: string[] = [];
+    page.on('request', (request) => {
+      const match = /\/api\/rooms\/([^/]+)\/runs\//.exec(new URL(request.url()).pathname);
+      if (match?.[1] !== undefined) journalReads.push(match[1]);
+    });
+    await openRoom(page, live.room);
+    await expect(page.locator('.nx-column')).toContainText('Live root stretch.', { timeout: 30_000 });
+    await expect(page.locator('.nx-column').getByText('Live root stretch.', { exact: false })).toHaveCount(1);
+    await expect.poll(() => journalReads.filter((room) => room === live.room).length).toBeGreaterThan(0);
+
+    const later = 'Direct alpha later event';
+    await control('/live-family-step', {
+      room: live.room, handle: 'alpha-direct', step: 'continue', body: later,
+    });
+    await expect(page.locator('.nx-column').getByText(later, { exact: false })).toHaveCount(1);
+
+    await control('/live-family-step', { room: live.room, handle: 'alpha-direct', step: 'interrupt' });
+    await expect(page.locator('.nx-column').getByText('Live root stretch.', { exact: false })).toHaveCount(1);
+    await expect(page.locator('.nx-column').getByText(later, { exact: false })).toHaveCount(1);
+  });
+  // harn:end hosted-support-active-run-transcript-projection
 });

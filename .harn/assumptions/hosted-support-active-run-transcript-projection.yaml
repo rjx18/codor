@@ -1,0 +1,24 @@
+id: hosted-support-active-run-transcript-projection
+hash: a-de46b08cb93b
+title: Hosted support-only active roots enter only the live transcript projection
+state: active
+statement: >
+  When an addressed RoomSupport snapshot contains a running root that is absent
+  from the bounded room message map, the browser must include that root in the
+  current live transcript projection so the existing journal request and indexed
+  run_event merge can render output that began before connection. A message-map
+  root wins by id, each root remains subscribed to its owning room/computer
+  store, later events append once, and terminal reconciliation settles without
+  copying the support-only root into durable history, changing pagination,
+  adding a recovery or scroll owner, or replacing a healthy hosted tunnel/app
+  socket. Direct and Tailscale connections retain their existing behavior.
+depends_on:
+  - room-support-is-bounded-recipient-scoped-state
+  - subscribed-live-run-events-survive-switch-and-history-retirement
+  - live-runs-settle-beside-paged-history-once
+  - live-run-event-cache-bounded
+  - hosted-app-streams-follow-tunnel-generations
+  - hosted-computer-sessions-keep-state-isolated
+  - finalized-browser-history-is-combined-page-owned
+  - continuation-writer-follows-journaled-output-ownership
+created_by: hosted-support-active-run-recovery

@@ -398,6 +398,112 @@ test.describe('multi-computer pairing', () => {
     // harn:end hosted-computer-avatar-uses-monochrome-icon-palette
   });
 
+  // harn:assume hosted-support-active-run-transcript-projection ref=hosted-support-active-run-browser-regression
+  test('fresh hosted browser restores an alpha.1-shaped active run across a warm computer switch', async ({ page }) => {
+    test.setTimeout(240_000);
+
+    // Seed the running family, its complete preconnection journal, and enough
+    // ordinary rows to push the root out of the bounded message tail before
+    // any browser or tunnel connects. This is the support/frame shape served by
+    // the compatible alpha.1 daemon.
+    const live = await control<{ room: string; root: number }>('/live-family', { handle: 'alpha-hosted' });
+    await control('/live-family-step', { room: live.room, handle: 'alpha-hosted', step: 'evidence' });
+    for (let index = 0; index < 25; index += 1) {
+      await control('/post-chat', {
+        room: live.room,
+        body: `bounded hosted filler ${String(index + 1)}`,
+      });
+    }
+    const tail = await control<{ ids: number[] }>('/tail-ids', { room: live.room, limit: 20 });
+    expect(tail.ids).not.toContain(live.root);
+
+    const a = await control<{ code: string; relayUrl: string }>('/relay-pair');
+    await page.addInitScript((url) => {
+      (window as unknown as { __CODOR_RELAY_URL?: string }).__CODOR_RELAY_URL = url;
+      const NativeWebSocket = window.WebSocket;
+      const runtime = window as unknown as {
+        __relaySessionDials?: Record<string, number>;
+        __codorRelayAppOpens?: Array<{ session: string; generation: number }>;
+      };
+      runtime.__relaySessionDials = {};
+      runtime.__codorRelayAppOpens = [];
+      window.WebSocket = class extends NativeWebSocket {
+        constructor(target: string | URL, protocols?: string | string[]) {
+          super(target, protocols);
+          const value = String(target);
+          if (value.includes('/v1/session/')) {
+            const counts = (window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials;
+            counts[value] = (counts[value] ?? 0) + 1;
+          }
+        }
+      };
+    }, a.relayUrl);
+    await page.goto(`${SPA_ORIGIN}/`);
+    await expect(page.getByTestId('landing-page')).toBeVisible();
+    await pasteCode(page, a.code);
+    await page.getByTestId('pairing-code-submit').click();
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    await expect(page.getByTestId(`room-link-${live.room}`)).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId(`room-link-${live.room}`).click();
+    await expect(page).toHaveURL(new RegExp(`room=${live.room}`));
+    const root = page.locator(`[data-testid="run-${String(live.root)}"]`);
+    await expect(root).toBeVisible({ timeout: 30_000 });
+    await expect(root).toContainText('Live root stretch.');
+    await expect(root.getByTestId('tool-batch')).toHaveCount(1);
+
+    await control('/relay-up-b');
+    const b = await control<{ code: string }>('/relay-pair-b');
+    await page.getByTestId('computer-add').click();
+    await pasteCode(page, b.code);
+    await page.getByTestId('pairing-code-submit').click();
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
+    await page.getByTestId('room-link-eng').click();
+    await expect(page).toHaveURL(/room=eng/);
+    await expect(page.getByTestId('timeline')).not.toContainText('Live root stretch.');
+
+    const initialDials = await page.evaluate(() => ({
+      ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
+    }));
+    const initialAppOpens = await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens]);
+
+    await computerButton(page, 'codor-host-a').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    await expect(page.getByTestId(`room-link-${live.room}`)).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId(`room-link-${live.room}`).click();
+    await expect(page).toHaveURL(new RegExp(`room=${live.room}`));
+    const returnedRoot = page.locator(`[data-testid="run-${String(live.root)}"]`);
+    await expect(returnedRoot).toBeVisible({ timeout: 30_000 });
+    await expect(returnedRoot).toContainText('Live root stretch.');
+    await expect(returnedRoot.getByTestId('tool-batch')).toHaveCount(1);
+
+    const later = 'Hosted alpha later event';
+    await control('/live-family-step', {
+      room: live.room, handle: 'alpha-hosted', step: 'continue', body: later,
+    });
+    await expect(page.getByTestId('timeline').getByText(later, { exact: false })).toHaveCount(1);
+
+    await control('/live-family-step', { room: live.room, handle: 'alpha-hosted', step: 'interrupt' });
+    await expect(page.getByTestId(`room-working-${live.room}`)).toHaveCount(0, { timeout: 30_000 });
+    await expect(returnedRoot).toContainText('Live root stretch.');
+    await expect(returnedRoot.getByTestId('tool-batch')).toHaveCount(1);
+    await expect(page.getByTestId('timeline').getByText(later, { exact: false })).toHaveCount(1);
+    expect(await page.evaluate(() => ({
+      ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
+    }))).toEqual(initialDials);
+    expect(await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens])).toEqual(initialAppOpens);
+  });
+  // harn:end hosted-support-active-run-transcript-projection
+
   test('a switchboard-served SPA renders no computer switcher (direct-path unchanged)', async ({ page }) => {
     test.setTimeout(120_000);
     // No __CODOR_RELAY_URL: the switchboard serves its own SPA (direct path).
