@@ -297,6 +297,52 @@ test.describe('multi-computer pairing', () => {
     expect(recoveredAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
     // harn:end hosted-app-streams-follow-tunnel-generations
 
+    // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=managed-run-event-browser-regression
+    // Hosted A -> B -> A must use the two already-warm computer stores. A's
+    // background frames stay in A while B is selected, and returning to A
+    // must not replace either tunnel/app socket.
+    const managedDials = await page.evaluate(() => ({
+      ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
+    }));
+    const managedAppOpens = await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens]);
+    await computerButton(page, 'codor-host-a').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    const managedTurn = await control<{ room: string; root: number }>('/live-family', {
+      room: 'eng', handle: 'managed-runner',
+    });
+    expect(managedTurn.room).toBe('eng');
+    await expect(page.getByTestId('room-working-eng')).toBeVisible();
+    // Event 1 lands while A is selected before the real computer switch.
+    await control('/live-family-step', { room: 'eng', handle: 'managed-runner', step: 'evidence' });
+    await expect(page.getByTestId('timeline')).toContainText('Live root stretch.');
+    await page.waitForTimeout(250);
+
+    await computerButton(page, 'codor-host-b').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
+    // The run was emitted by A's daemon only; B's same-named room must not
+    // display A-owned evidence while its own store is active.
+    await expect(page.getByTestId('timeline')).not.toContainText('Live root stretch.');
+
+    await computerButton(page, 'codor-host-a').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    await expect(page.getByTestId('timeline')).toContainText('Live root stretch.');
+    await expect(page.getByTestId('timeline').getByText('Live root stretch.', { exact: false })).toHaveCount(1);
+    expect(await page.evaluate(() => ({
+      ...(window as unknown as { __relaySessionDials: Record<string, number> }).__relaySessionDials,
+    }))).toEqual(managedDials);
+    expect(await page.evaluate(() => [...(
+      window as unknown as {
+        __codorRelayAppOpens: Array<{ session: string; generation: number }>;
+      }
+    ).__codorRelayAppOpens])).toEqual(managedAppOpens);
+    await control('/live-family-step', { room: 'eng', handle: 'managed-runner', step: 'interrupt' });
+    await expect(page.getByTestId('timeline').getByText('Live root stretch.', { exact: false })).toHaveCount(1);
+    // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
+
     // Forget computer B → it disappears, A stays active.
     await customizeComputer(page, 'codor-host-b');
     // harn:assume hosted-computer-avatar-uses-monochrome-icon-palette ref=room34-cat-persistence-regression

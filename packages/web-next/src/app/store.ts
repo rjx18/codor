@@ -91,9 +91,6 @@ export interface RoomSlice {
   inbox: Record<string, Delivery>;
   meter: RoomMeter | undefined;
   runEvents: Record<number, RunEventBuffer>;
-  /** A warm socket replacement requires journal reconciliation for retained
-   *  live buffers even when no indexed gap is visible yet. */
-  runEventRecovery: Record<number, true>;
   support: RoomSupport | undefined;
   historyCursor: number | undefined;
   // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-store
@@ -195,7 +192,6 @@ const emptySchedules: Record<string, Schedule> = {};
 const emptyScheduleSeq: Record<string, number> = {};
 const emptyInbox: Record<string, Delivery> = {};
 const emptyRunEvents: Record<number, RunEventBuffer> = {};
-const emptyRunEventRecovery: Record<number, true> = {};
 const emptyMemberHistory: Record<string, MemberStateObservation[]> = {};
 const emptyErrors: string[] = [];
 const emptyErrorRefs: Record<string, number> = {};
@@ -218,7 +214,6 @@ const EMPTY_ROOM: RoomSlice = {
   inbox: emptyInbox,
   meter: undefined,
   runEvents: emptyRunEvents,
-  runEventRecovery: emptyRunEventRecovery,
   support: undefined,
   historyCursor: undefined,
   transcriptHistory: EMPTY_TRANSCRIPT_HISTORY,
@@ -242,7 +237,6 @@ const freshRoom = (room?: Room): RoomSlice => ({
   inbox: {},
   meter: undefined,
   runEvents: {},
-  runEventRecovery: {},
   support: undefined,
   historyCursor: undefined,
   transcriptHistory: freshTranscriptHistory(),
@@ -391,37 +385,7 @@ function retireHistoryOwnedRunEvents(
   }
   return next;
 }
-
-function markRunEventsForRecovery(
-  runEvents: Record<number, RunEventBuffer>,
-  prior: Record<number, true>,
-): Record<number, true> {
-  const ids = Object.keys(runEvents).map(Number);
-  if (ids.length === 0) return prior;
-  return {
-    ...prior,
-    ...Object.fromEntries(ids.map((id) => [id, true as const])),
-  };
-}
-
-const runEventRecoverySuppression = new WeakMap<object, Set<string>>();
-
-export function suppressRunEventRecovery(store: object, room: string): void {
-  const rooms = runEventRecoverySuppression.get(store) ?? new Set<string>();
-  rooms.add(room);
-  runEventRecoverySuppression.set(store, rooms);
-}
-
-function consumeRunEventRecoverySuppression(store: object, room: string): boolean {
-  const rooms = runEventRecoverySuppression.get(store);
-  if (rooms === undefined || !rooms.delete(room)) return false;
-  if (rooms.size === 0) runEventRecoverySuppression.delete(store);
-  return true;
-}
-
-function clearRunEventRecoverySuppression(store: object): void {
-  runEventRecoverySuppression.delete(store);
-}
+// harn:end subscribed-live-run-events-survive-switch-and-history-retirement
 
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
 
@@ -524,17 +488,8 @@ export function createClientStore(): ClientStore {
         case 'sync_complete': {
           const hydrated = staging.get(roomId);
           staging.delete(roomId);
-          const promotion = consumeRunEventRecoverySuppression(store, roomId);
           if (hydrated === undefined) {
-            next = {
-              ...current,
-              seq: bump,
-              hydrated: true,
-              runEventRecovery: current.hydrated
-                && !promotion
-                ? markRunEventsForRecovery(current.runEvents, current.runEventRecovery)
-                : current.runEventRecovery,
-            };
+            next = { ...current, seq: bump, hydrated: true };
             break;
           }
           // The opening snapshot is the authoritative base. Retained records
@@ -583,10 +538,6 @@ export function createClientStore(): ClientStore {
             inbox,
             meter: hydrated.meter ?? current.meter,
             support: hydrated.support ?? current.support,
-            runEventRecovery: current.hydrated
-              && !promotion
-              ? markRunEventsForRecovery(current.runEvents, current.runEventRecovery)
-              : current.runEventRecovery,
             transcriptHistory,
             historyCursor: frame.history_floor
               ?? current.historyCursor
@@ -594,7 +545,6 @@ export function createClientStore(): ClientStore {
           };
           break;
         }
-        // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
         case 'member':
           // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-projection
           const memberCurrent = frame.ref === undefined
@@ -782,10 +732,6 @@ export function createClientStore(): ClientStore {
             ...current,
             transcriptHistory,
             runEvents: retireHistoryOwnedRunEvents(current.runEvents, transcriptHistory),
-            runEventRecovery: Object.fromEntries(
-              Object.entries(current.runEventRecovery)
-                .filter(([id]) => !historyOwnsRunFamily(transcriptHistory, Number(id))),
-            ),
           },
         },
       };
@@ -829,10 +775,7 @@ export function createClientStore(): ClientStore {
     });
   },
 
-  setConnected: (connected) => {
-    if (!connected) clearRunEventRecoverySuppression(store);
-    set(connected ? { connected, authRefused: false } : { connected });
-  },
+  setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
   // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
@@ -904,7 +847,6 @@ export function createClientStore(): ClientStore {
   // harn:end worktree-conversation-status-is-live-and-independent
   reset: () => {
     staging.clear();
-    clearRunEventRecoverySuppression(store);
     set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
   },
   }));

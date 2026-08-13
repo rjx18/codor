@@ -15,7 +15,6 @@ import type { Connection } from '@runtime/ws.js';
 import {
   HISTORY_PAGE_SIZE,
   roomSlice,
-  suppressRunEventRecovery,
   useClientStore,
   type ClientStore,
 } from './store.js';
@@ -186,15 +185,11 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const promote = hydrateLimit > 0 && zeroHydrated.has(room) && !historyHydrated.has(room);
     subscribed.add(room);
     subscriptionBudgets.set(room, hydrateLimit);
+    // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=connector-recovery-boundary
     const sinceSeq = promote ? 0 : roomSlice(clientStore.getState(), room).seq;
-    if (promote) {
-      // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=connector-recovery-boundary
-      // A zero-hydrated room is being promoted, not reconnected. Its next
-      // sync_complete must not turn a preserved background buffer into a
-      // journal-recovery request.
-      suppressRunEventRecovery(clientStore, room);
-      // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
-    }
+    // Promotion changes only the hydration cursor. It does not alter the
+    // existing reconnect/gap recovery path or manufacture a recovery marker.
+    // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
     if (typeof window !== 'undefined') {
       (window as unknown as {
         __codorRoomSubscribes?: Array<{ room: string; hydrateLimit: number; sinceSeq: number }>;

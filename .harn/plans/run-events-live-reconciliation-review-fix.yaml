@@ -83,3 +83,5 @@ verification: Run focused store, connector, Transcript, and run-journal tests;
   diff/clean-tree checks. Commit exactly once with the applied plan and
   generated provenance; do not push, deploy, publish, or alter protocol/server
   behavior.
+applied:
+  applied_at: 2026-08-13T09:47:32.687Z

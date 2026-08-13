@@ -3,7 +3,6 @@ import type {
   Room,
   Schedule,
   ServerFrame,
-  TranscriptHistoryJournal,
   TranscriptHistoryUnit,
 } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -13,7 +12,6 @@ import {
   createClientStore,
   resetClientStoreForTest,
   roomSlice,
-  suppressRunEventRecovery,
   useClientStore,
 } from './store.js';
 
@@ -508,12 +506,6 @@ describe('room-keyed client state', () => {
     expect(roomSlice(useClientStore.getState(), 'beta').runEvents[9]?.events)
       .toHaveLength(1);
 
-    // A warm resubscribe is a genuine recovery boundary even when its first
-    // replacement event has not exposed an indexed gap yet.
-    store.applyFrame(frame({ type: 'message', seq: 1, message: message('alpha', 1) }));
-    store.applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 2 }));
-    expect(roomSlice(useClientStore.getState(), 'alpha').runEventRecovery[4]).toBe(true);
-
     store.setActiveRoom('alpha');
     store.applyFrame(frame({
       type: 'run_event', room: 'alpha', message_id: 4, index: 2,
@@ -521,13 +513,6 @@ describe('room-keyed client state', () => {
     }));
     expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]).toBeDefined();
 
-    const journal: TranscriptHistoryJournal = {
-      root_message_id: 4,
-      events: [{
-        index: 0,
-        event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'alpha' } },
-      }],
-    };
     const unit: TranscriptHistoryUnit = {
       kind: 'prose', root_message_id: 4, output_message_id: 4, event_indices: [0],
     };
@@ -535,28 +520,9 @@ describe('room-keyed client state', () => {
       ...history,
       initialized: true,
       messages: { 4: message('alpha', 4) },
-      journals: { 4: journal },
       units: [unit],
     }));
     expect(roomSlice(useClientStore.getState(), 'alpha').runEvents[4]).toBeUndefined();
-  });
-
-  it('does not classify foreground promotion as recovery, but does classify the next replacement', () => {
-    const store = createClientStore();
-    store.getState().setActiveRoom('alpha');
-    store.getState().applyFrame(frame({ type: 'self', room: 'alpha', member_id: 'alpha-human' }));
-    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 1 }));
-    store.getState().applyFrame(frame({
-      type: 'run_event', room: 'alpha', message_id: 4, index: 0,
-      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'retained' } },
-    }));
-
-    suppressRunEventRecovery(store, 'alpha');
-    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 2 }));
-    expect(roomSlice(store.getState(), 'alpha').runEventRecovery[4]).toBeUndefined();
-
-    store.getState().applyFrame(frame({ type: 'sync_complete', room: 'alpha', seq: 3 }));
-    expect(roomSlice(store.getState(), 'alpha').runEventRecovery[4]).toBe(true);
   });
 
   it('keeps direct and isolated hosted stores equivalent without cross-computer evidence', () => {
