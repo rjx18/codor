@@ -1,0 +1,85 @@
+id: run-events-live-reconciliation-review-fix
+title: Correct live run-event room-switch regressions without synthetic recovery state
+notes: Review correction on c7b0565. Retain the bounded per-room live event
+  buffers and background frame routing from the implementation phase, but remove
+  the review-only runEventRecovery marker and connector suppression machinery.
+  The existing journal path remains responsible for indexed gaps, dropped
+  buffers, and genuine socket-generation replacement. Browser coverage must
+  exercise the real A -> B -> A selection path in direct and hosted/managed
+  topologies while proving that a warm return does not replace a tunnel or app
+  socket and that separate computer stores do not share live evidence. No
+  protocol, server, pagination, transport, or release behavior is in scope.
+assumptions:
+  create: []
+  retire: []
+  reviewed:
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: The bounded room-scoped buffer, background subscription, history-owned
+        retirement, journal fallback for genuine gaps/reconnects, and direct or
+        hosted store isolation remain the governed contract. This review removes
+        only an unnecessary synthetic recovery marker and strengthens its
+        browser regressions.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Tunnel generations, app sockets, reconnect admission, and managed
+        session ownership remain unchanged; the hosted regression verifies a
+        warm switch does not create a replacement.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Identical room and run identifiers remain isolated by each computer's
+        client store and token.
+anchors:
+  subscribed-live-run-events-survive-switch-and-history-retirement:
+    store-live-event-routing:
+      action: change
+      reason: Keep the root background-event and room-switch routing fix while
+        removing only the synthetic recovery bookkeeping.
+    store-history-owned-retirement:
+      action: change
+      reason: Preserve retirement only after combined history owns the run family,
+        with no per-run recovery marker attached to sync completion.
+    transcript-recovery-admission:
+      action: change
+      reason: Restore the existing journal admission path and leave genuine gap or
+        reconnect recovery unchanged; ordinary promotion is tested through the
+        retained buffer instead.
+    connector-recovery-boundary:
+      action: change
+      reason: Remove promotion-time suppression of recovery while retaining the
+        existing socket-generation reconnect boundary.
+    store-run-event-regressions:
+      action: change
+      reason: Cover background append ordering, finalization, and direct/hosted
+        computer-store isolation without synthetic recovery state.
+    run-event-browser-regression:
+      action: change
+      reason: Exercise A -> event 1 -> B -> events 2/3 -> A, event 4, and one
+        finalization with no journal read caused by selection.
+    managed-run-event-browser-regression:
+      action: change
+      reason: Add the equivalent hosted/managed A -> B -> A journey and assert no
+        replacement tunnel/app socket or cross-computer evidence leakage.
+  live-runs-settle-beside-paged-history-once:
+    live-history-settlement-cache:
+      action: keep
+      reason: Preserve existing terminal settlement ownership.
+    live-history-settlement-renderer:
+      action: keep
+      reason: Preserve existing finalized-history grouping and rendering.
+files:
+  - .harn/plans/run-events-live-reconciliation-review-fix.yaml
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/tests/room43-run-events-live.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: Run focused store, connector, Transcript, and run-journal tests;
+  run Room 43 and the hosted multi-computer suite including the new managed
+  regression; run all web-next units and the production/PWA build. Run harn
+  find/find --changed, plan check, harn check, stage only planned files, harn
+  check --staged, harn apply through the pre-commit hook, and final
+  diff/clean-tree checks. Commit exactly once with the applied plan and
+  generated provenance; do not push, deploy, publish, or alter protocol/server
+  behavior.
