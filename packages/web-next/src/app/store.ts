@@ -10,6 +10,7 @@ import {
   type RoomMeter,
   type RoomSummary,
   type RoomSupport,
+  type Schedule,
   type ServerFrame,
   type TranscriptHistoryJournal,
   type TranscriptHistoryPage,
@@ -82,6 +83,11 @@ export interface RoomSlice {
   members: Record<string, Member>;
   memberHistory: Record<string, MemberStateObservation[]>;
   messages: Record<number, Message>;
+  // harn:assume browser-schedules-follow-authoritative-room-state ref=schedule-room-store
+  schedules: Record<string, Schedule>;
+  /** Producing sequence per schedule id; cancel results reuse the current row. */
+  scheduleSeq: Record<string, number>;
+  // harn:end browser-schedules-follow-authoritative-room-state
   inbox: Record<string, Delivery>;
   meter: RoomMeter | undefined;
   runEvents: Record<number, RunEventBuffer>;
@@ -93,6 +99,9 @@ export interface RoomSlice {
   errors: string[];
   // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
   errorRefs: Record<string, number>;
+  /** Exact latest text for each correlated action, so overlapping actions never
+   * borrow the room's generic latest error from one another. */
+  errorTexts: Record<string, string>;
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 }
 
@@ -158,11 +167,14 @@ export interface ClientState {
 
 const emptyMembers: Record<string, Member> = {};
 const emptyMessages: Record<number, Message> = {};
+const emptySchedules: Record<string, Schedule> = {};
+const emptyScheduleSeq: Record<string, number> = {};
 const emptyInbox: Record<string, Delivery> = {};
 const emptyRunEvents: Record<number, RunEventBuffer> = {};
 const emptyMemberHistory: Record<string, MemberStateObservation[]> = {};
 const emptyErrors: string[] = [];
 const emptyErrorRefs: Record<string, number> = {};
+const emptyErrorTexts: Record<string, string> = {};
 
 const EMPTY_ROOM: RoomSlice = {
   hydrated: false,
@@ -172,6 +184,8 @@ const EMPTY_ROOM: RoomSlice = {
   members: emptyMembers,
   memberHistory: emptyMemberHistory,
   messages: emptyMessages,
+  schedules: emptySchedules,
+  scheduleSeq: emptyScheduleSeq,
   inbox: emptyInbox,
   meter: undefined,
   runEvents: emptyRunEvents,
@@ -180,6 +194,7 @@ const EMPTY_ROOM: RoomSlice = {
   transcriptHistory: EMPTY_TRANSCRIPT_HISTORY,
   errors: emptyErrors,
   errorRefs: emptyErrorRefs,
+  errorTexts: emptyErrorTexts,
 };
 
 const freshRoom = (room?: Room): RoomSlice => ({
@@ -190,6 +205,8 @@ const freshRoom = (room?: Room): RoomSlice => ({
   members: {},
   memberHistory: {},
   messages: {},
+  schedules: {},
+  scheduleSeq: {},
   inbox: {},
   meter: undefined,
   runEvents: {},
@@ -198,6 +215,7 @@ const freshRoom = (room?: Room): RoomSlice => ({
   transcriptHistory: freshTranscriptHistory(),
   errors: [],
   errorRefs: {},
+  errorTexts: {},
 });
 
 interface HydrationStaging {
@@ -205,12 +223,13 @@ interface HydrationStaging {
   room?: Room;
   members: Record<string, Member>;
   messages: Record<number, Message>;
+  schedules: Record<string, { schedule: Schedule; seq: number }>;
   inbox: Record<string, Delivery>;
   meter?: RoomMeter;
   support?: RoomSupport;
 }
 
-const freshStaging = (): HydrationStaging => ({ members: {}, messages: {}, inbox: {} });
+const freshStaging = (): HydrationStaging => ({ members: {}, messages: {}, schedules: {}, inbox: {} });
 
 function frameRoom(frame: ServerFrame, fallback?: string): string | undefined {
   switch (frame.type) {
@@ -224,6 +243,10 @@ function frameRoom(frame: ServerFrame, fallback?: string): string | undefined {
       return frame.delivery.room;
     case 'consume_result':
       return frame.message.room;
+    case 'schedule':
+      return frame.schedule.room;
+    case 'cancel_schedule_result':
+      return frame.schedule.room;
     case 'meter':
       return frame.meter.room;
     case 'room':
@@ -269,6 +292,23 @@ function mergeMessagesBySequence(
     if (previous === undefined || message.seq >= previous.seq) merged[Number(id)] = message;
   }
   return merged;
+}
+
+function mergeSchedulesBySequence(
+  retained: Record<string, Schedule>,
+  retainedSeq: Record<string, number>,
+  staged: Record<string, { schedule: Schedule; seq: number }>,
+): { schedules: Record<string, Schedule>; scheduleSeq: Record<string, number> } {
+  const schedules = { ...retained };
+  const scheduleSeq = { ...retainedSeq };
+  for (const { schedule, seq } of Object.values(staged)) {
+    const prior = scheduleSeq[schedule.id] ?? -1;
+    if (seq >= prior) {
+      schedules[schedule.id] = schedule;
+      scheduleSeq[schedule.id] = seq;
+    }
+  }
+  return { schedules, scheduleSeq };
 }
 
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
@@ -330,6 +370,12 @@ export function createClientStore(): ClientStore {
         case 'message':
           stage.messages[frame.message.id] = frame.message;
           return;
+        case 'schedule':
+          stage.schedules[frame.schedule.id] = { schedule: frame.schedule, seq: frame.seq };
+          return;
+        case 'cancel_schedule_result':
+          stage.schedules[frame.schedule.id] = { schedule: frame.schedule, seq: 0 };
+          return;
         case 'inbox':
           stage.inbox[frame.delivery.id] = frame.delivery;
           return;
@@ -365,6 +411,11 @@ export function createClientStore(): ClientStore {
           // cannot be replaced by an older staged snapshot.
           const members = { ...current.members, ...hydrated.members };
           const messages = mergeMessagesBySequence(current.messages, hydrated.messages);
+          const scheduleState = mergeSchedulesBySequence(
+            current.schedules,
+            current.scheduleSeq,
+            hydrated.schedules,
+          );
           const inbox = { ...current.inbox, ...hydrated.inbox };
           let memberHistory = current.memberHistory;
           for (const member of Object.values(members)) {
@@ -395,6 +446,8 @@ export function createClientStore(): ClientStore {
             members,
             memberHistory,
             messages,
+            schedules: scheduleState.schedules,
+            scheduleSeq: scheduleState.scheduleSeq,
             inbox,
             meter: hydrated.meter ?? current.meter,
             support: hydrated.support ?? current.support,
@@ -440,6 +493,27 @@ export function createClientStore(): ClientStore {
           };
           break;
         }
+        // harn:assume browser-schedules-follow-authoritative-room-state ref=schedule-room-store-regression
+        case 'schedule': {
+          const prior = current.scheduleSeq[frame.schedule.id] ?? -1;
+          if (frame.seq <= prior) return {};
+          next = {
+            ...current,
+            seq: bump,
+            schedules: { ...current.schedules, [frame.schedule.id]: frame.schedule },
+            scheduleSeq: { ...current.scheduleSeq, [frame.schedule.id]: frame.seq },
+          };
+          break;
+        }
+        case 'cancel_schedule_result':
+          next = {
+            ...current,
+            schedules: { ...current.schedules, [frame.schedule.id]: frame.schedule },
+            // A result has no independent room sequence; the schedule frame's
+            // producing sequence remains the cursor authority.
+          };
+          break;
+        // harn:end browser-schedules-follow-authoritative-room-state
         // harn:end paged-history-live-message-reconciliation
         case 'inbox':
           next = {
@@ -492,6 +566,10 @@ export function createClientStore(): ClientStore {
               errorRefs: {
                 ...current.errorRefs,
                 [frame.ref]: (current.errorRefs[frame.ref] ?? 0) + 1,
+              },
+              errorTexts: {
+                ...current.errorTexts,
+                [frame.ref]: frame.message,
               },
             }),
           };

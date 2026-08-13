@@ -1,0 +1,19 @@
+id: cli-post-acknowledges-messages-or-schedules
+hash: a-d93101507a5d
+title: codor post acknowledges either the committed message or schedule
+state: active
+statement: >
+  codor post must snapshot the subscribed room's existing message and schedule
+  ids, send the shared canonical request once, retain the existing exact
+  self-authored canonical message acknowledgement and `posted #N` output for
+  ordinary posts, and for a scheduled request exit only on a new self-authored
+  matching schedule frame with one stable id and due-instant acknowledgement;
+  errors and the existing scheduled `--wait` refusal remain explicit, and local
+  socket, remote WebSocket, qualified destination acknowledgement, and packed
+  installed execution share this one protocol path.
+depends_on:
+  - friendly-schedule-clocks-canonicalize-at-client-boundary
+  - scheduled-state-streams-through-room-seq-v2
+  - cli-waits-consume-only-matching-deliveries
+  - unix-socket-same-protocol
+created_by: persistent-scheduled-messages-s2

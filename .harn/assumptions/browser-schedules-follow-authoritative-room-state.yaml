@@ -1,0 +1,17 @@
+id: browser-schedules-follow-authoritative-room-state
+hash: a-a2b4ad4fd902
+title: Browser schedule state follows authoritative room frames
+state: active
+statement: >
+  Each isolated browser room slice must upsert schedules by stable id from cold
+  hydration, warm replay, live schedule frames, and correlated cancel results
+  using the schedule's own destination room, preserving per-room sequence
+  cursors and retained last-good state across direct or hosted reconnects;
+  schedule state is never inferred from timers, button clicks, messages, or
+  another room, so reload, qualified subscriptions, and cancellation races
+  converge on server truth without polling.
+depends_on:
+  - scheduled-state-streams-through-room-seq-v2
+  - client-syncs-by-seq
+  - multiplexed-subscriptions-identify-their-room
+created_by: persistent-scheduled-messages-s2

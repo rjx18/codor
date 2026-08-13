@@ -1,0 +1,17 @@
+id: scheduling-directive-is-bounded-and-canonical
+hash: a-357f1f8e555d
+title: Scheduling directives are bounded and resolve to one canonical instant
+state: active
+statement: >
+  A post is a scheduled request only when a complete send_in or send_at
+  directive is its first non-whitespace token; the shared parser must reject
+  malformed directive-like first tokens, cap the directive at 256 characters and
+  the canonical clean body at 65536 UTF-8 bytes, accept ordered compound s/m/h/d
+  relative durations, interpret a clock-only send_at as the next occurrence at
+  the switchboard host's numeric UTC offset captured at creation, require Z or
+  an explicit offset on ISO-8601 input, and require an instant strictly in the
+  future and no more than 365 days away, so every accepted request has one
+  bounded, documented absolute due instant while non-leading examples remain
+  ordinary text.
+depends_on: []
+created_by: persistent-scheduled-messages-s1

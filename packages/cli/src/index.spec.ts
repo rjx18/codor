@@ -1124,6 +1124,77 @@ describe('@codor/cli', () => {
     expect(output.some((line) => line.startsWith('@reviewer\tidle\tfake'))).toBe(true);
   });
 
+  // harn:assume cli-post-acknowledges-messages-or-schedules ref=cli-scheduled-post-regression
+  it('acknowledges one new self-authored schedule and refuses scheduled --wait', async () => {
+    const reviewCwd = join(dir, 'scheduled-review');
+    mkdirSync(reviewCwd);
+    const reviewer = daemon.spawnMember('eng', {
+      harness: 'fake', handle: 'scheduled-reviewer', cwd: reviewCwd,
+    });
+    const body = '[send_in=1h] @scheduled-reviewer durable cli schedule';
+    const preexisting = daemon.scheduleMessage('eng', body, daemon.ownerOf('eng').id);
+    output = [];
+    await cli('post', '-r', 'eng', body);
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatch(/^scheduled [^ ]+ due \d{4}-\d{2}-\d{2}T/);
+    const created = daemon.store.listSchedules('eng').find((row) =>
+      row.id !== preexisting.id && row.body === '@scheduled-reviewer durable cli schedule');
+    expect(created).toMatchObject({ author_id: daemon.ownerOf('eng').id, target: { member_id: reviewer.id } });
+
+    output = [];
+    const remoteBody = '[send_in=1h] @scheduled-reviewer remote cli schedule';
+    await runCli([
+      'node', 'codor', '--data-dir', dir,
+      '--url', `http://127.0.0.1:${String(server.port)}`,
+      '--token', 'cli-token', 'post', '-r', 'eng', remoteBody,
+    ], {
+      stdout: (line) => output.push(line),
+      stderr: (line) => output.push(line),
+    });
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatch(/^scheduled [^ ]+ due \d{4}-\d{2}-\d{2}T/);
+    expect(daemon.store.listSchedules('eng')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ body: '@scheduled-reviewer remote cli schedule' })]),
+    );
+
+    output = [];
+    await expect(cli('post', '--wait', '-r', 'eng', '[send_in=1h] @scheduled-reviewer refused wait'))
+      .rejects.toThrow('post --wait is not supported for scheduled messages');
+    expect(output).toEqual([]);
+  });
+
+  it('acknowledges a qualified schedule from the target-owned room frame', async () => {
+    const fixture = join(dir, 'scheduled-qualified');
+    const primary = join(fixture, 'primary');
+    const child = join(fixture, 'child');
+    mkdirSync(primary, { recursive: true });
+    fixtureGit(primary, ['init', '-q', '-b', 'main']);
+    fixtureGit(primary, ['config', 'user.email', 'fixture@example.test']);
+    fixtureGit(primary, ['config', 'user.name', 'Fixture']);
+    writeFileSync(join(primary, 'README.md'), 'fixture\n');
+    fixtureGit(primary, ['add', 'README.md']);
+    fixtureGit(primary, ['commit', '-qm', 'fixture']);
+    fixtureGit(primary, ['worktree', 'add', '-b', 'feature/scheduled', child, 'HEAD']);
+    daemon.store.updateRoomConfig('eng', { cwd: primary });
+    const target = await daemon.adoptWorktree('eng', { path: child });
+    const reviewer = daemon.spawnMember(target.worktree.conversation_id, {
+      harness: 'fake', handle: 'scoped-reviewer', cwd: child,
+    });
+    const alias = worktreeSelectorFromBranch('feature/scheduled');
+    const body = `[send_in=1h] ~${alias}:@scoped-reviewer qualified cli schedule`;
+    output = [];
+    await cli('post', '-r', 'eng', body);
+    expect(output).toHaveLength(1);
+    expect(output[0]).toMatch(/^scheduled [^ ]+ due \d{4}-\d{2}-\d{2}T/);
+    const created = daemon.store.listSchedules(target.worktree.conversation_id)
+      .find((row) => row.body === `~${alias}:@scoped-reviewer qualified cli schedule`);
+    expect(created).toMatchObject({
+      origin_room: 'eng', room: target.worktree.conversation_id,
+      author_id: daemon.ownerOf('eng').id, target: { member_id: reviewer.id },
+    });
+  });
+  // harn:end cli-post-acknowledges-messages-or-schedules
+
   // harn:assume structured-channel-cli-preserves-flat-listing ref=structured-channel-cli-regression
   // harn:assume management-output-is-json-pure-and-safe ref=management-output-regression
   // harn:assume management-failures-have-stable-redacted-exits ref=management-error-regression

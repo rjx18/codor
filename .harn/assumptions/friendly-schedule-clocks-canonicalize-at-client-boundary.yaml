@@ -1,0 +1,18 @@
+id: friendly-schedule-clocks-canonicalize-at-client-boundary
+hash: a-cabb038c7a06
+title: Friendly client clocks become one explicit scheduled request
+state: active
+statement: >
+  The shared browser/CLI submission helper must recognize only a complete
+  send_at directive at the first non-whitespace token, convert a clock-only
+  value to the next occurrence in the submitting browser or process local time
+  zone, and serialize that instant with its applicable numeric UTC offset before
+  sending; relative send_in and explicit-offset ISO input retain their accepted
+  directive semantics, malformed or non-leading text is not reinterpreted, and
+  the switchboard still parses and authorizes the resulting frame, so browser
+  and codor post cannot disagree merely because the switchboard runs in another
+  zone.
+depends_on:
+  - scheduling-directive-is-bounded-and-canonical
+  - unix-socket-same-protocol
+created_by: persistent-scheduled-messages-s2

@@ -1,0 +1,329 @@
+id: persistent-scheduled-messages-s1
+title: Durable exactly-once scheduled-message backend
+notes: >
+  Implement only Lane C phase S1 from the accepted parallel reliability and
+  collaboration program. Recognize a bounded scheduling directive only as the
+  first non-whitespace token, resolve exactly one concrete active local or
+  worktree-qualified member before any write, and persist the canonical clean
+  body, resolved mention/target snapshot, absolute due instant, author, state,
+  and stable schedule id in SQLite. Relative directives accept ordered compound
+  seconds, minutes, hours, and days. Clock-only send_at values mean the next
+  occurrence in the switchboard host's current numeric UTC offset; ISO-8601
+  input must include Z or an explicit offset. S2 will canonicalize browser and
+  CLI local clocks to that ISO form. A scheduled request is text-only and must
+  refuse replies, attachments, voice metadata, awaiting-reply waits, groups,
+  @all, self-targets, multiple targets, malformed directive-like first tokens,
+  empty clean bodies, unavailable targets, UTF-8 clean bodies over 65536 bytes,
+  directives over 256 characters, non-future instants, and horizons beyond 365
+  days. Keep recurrence, cron, editing, bulk operations, arbitrary scripts,
+  external queues, cards, composer behavior, and CLI presentation out of S1.
+assumptions:
+  create:
+    - id: scheduling-directive-is-bounded-and-canonical
+      title: Scheduling directives are bounded and resolve to one canonical instant
+      statement: >
+        A post is a scheduled request only when a complete send_in or send_at
+        directive is its first non-whitespace token; the shared parser must
+        reject malformed directive-like first tokens, cap the directive at 256
+        characters and the canonical clean body at 65536 UTF-8 bytes, accept
+        ordered compound s/m/h/d relative durations, interpret a clock-only
+        send_at as the next occurrence at the switchboard host's numeric UTC
+        offset captured at creation, require Z or an explicit offset on ISO-8601
+        input, and require an instant strictly in the future and no more than
+        365 days away, so every accepted request has one bounded, documented
+        absolute due instant while non-leading examples remain ordinary text.
+      reason: Ambiguous clocks, permissive directive recognition, and unbounded
+        delayed payloads would make persistent execution surprising or unsafe.
+    - id: scheduled-target-identity-is-frozen-at-creation
+      title: Scheduled messages freeze one authorized destination identity at creation
+      statement: >
+        Before allocating a schedule id or writing SQLite, a scheduled post must
+        authenticate its author, canonicalize the body after removing the
+        directive, and resolve exactly one active direct non-self member through
+        the ordinary local or registered-worktree grammar, persisting the exact
+        member id, destination conversation, worktree id and alias when
+        qualified, display handle, and resolved mention span; replies,
+        attachments, voice, waits, groups, @all, unresolved, mixed, multiple,
+        removed, or unavailable targets must refuse atomically, so rename,
+        worktree change, restart, or a later same-handle member can never
+        retarget delayed work.
+      reason: Re-parsing visible handles at delivery time could silently send a
+        delayed instruction to a different identity or conversation.
+      depends_on:
+        - qualified-member-target-identity-is-durable
+        - qualified-destination-refusals-are-atomic
+        - target-worktree-owns-qualified-conversation
+        - removed-members-remain-attribution-tombstones
+    - id: scheduled-message-commit-is-exactly-once
+      title: A claimed schedule commits one ordinary routed message exactly once
+      statement: >
+        Delivering a claimed schedule must revalidate its frozen member and
+        worktree identity, then in one SQLite transaction either mark the
+        schedule failed with a bounded reason or allocate exactly one ordinary
+        message, create its ordinary routed deliveries and collaboration state,
+        record the delivered message id, and mark the schedule sent; recovery
+        may retry a claimed row but must observe the terminal row/message
+        linkage rather than allocate again, and queued deliveries continue
+        through the existing attempt WAL, so crash or restart can delay but
+        never duplicate the visible message or recipient work.
+      reason: A process can die between claim, message creation, delivery dispatch,
+        and terminal bookkeeping unless the durable commit owns the idempotency
+        boundary.
+      depends_on:
+        - message-id-txn-allocation
+        - eligible-multi-agent-routing-starts-one-group
+        - delivery-attempt-wal-reconcile
+        - delivery-fifo-has-durable-sequence
+    - id: scheduled-state-machine-recovers-from-one-next-due-alarm
+      title: One next-due alarm recovers every durable schedule state
+      statement: >
+        The daemon must maintain at most one unrefed next-due timeout, re-arm it
+        after every schedule mutation and bounded long-delay wake, atomically
+        claim all pending rows due at the observed instant, resume claimed rows
+        on boot, and leave sent, failed, and cancelled rows terminal;
+        simultaneous due rows are processed deterministically and shutdown
+        clears the timer, so memory owns only wake-up timing while SQLite owns
+        all scheduling truth.
+      reason: Per-row timers and memory-only claim state lose or duplicate work across
+        restart and cannot honestly handle one-year horizons.
+      depends_on:
+        - scheduled-message-commit-is-exactly-once
+    - id: scheduled-cancellation-is-authorized-before-claim
+      title: Cancellation is authorized and can win only before claim
+      statement: >
+        A correlated cancel_schedule act may transition only a pending row to
+        cancelled, and only when invoked by that schedule's authenticated author
+        or a human room administrator; an agent may cancel only its own
+        schedule, cancellation racing an atomic claim has exactly one winner,
+        and claimed or terminal rows return their authoritative state without
+        retracting a message, so cancellation cannot erase or duplicate
+        already-started work.
+      reason: Cancellation needs an ownership and race boundary before S2 exposes its
+        control in browser and CLI surfaces.
+      depends_on:
+        - roles-gate-human-acts-not-agents
+        - scheduled-state-machine-recovers-from-one-next-due-alarm
+    - id: scheduled-state-streams-through-room-seq
+      title: Schedule state is a room-scoped durable sync entity
+      statement: >
+        Every schedule insert or state transition must append exactly one
+        schedule change with the destination room's monotonic seq in the same
+        transaction, and subscribe hydration plus live fanout must project the
+        bounded redacted Schedule row before sync_complete, so reconnect and
+        restart expose Pending, Sending, Failed, Cancelled, or sent linkage
+        without a polling API and S2 can render cards from authoritative state.
+      reason: A durable scheduler without replayable client-visible state cannot
+        support honest cancellation and sent-card reconciliation after
+        reconnect.
+      depends_on:
+        - changelog-is-sync-cursor
+        - changelog-covers-every-visible-entity
+        - sync-cursor-commits-after-hydration
+        - redaction-before-fanout
+        - unix-socket-same-protocol
+  reviewed:
+    - id: changelog-is-sync-cursor
+      outcome: unchanged
+      reason: Schedule is added as one room-scoped entity kind while since_seq and
+        sync_complete remain the only cursor contract.
+    - id: changelog-covers-every-visible-entity
+      outcome: unchanged
+      reason: Each schedule insert or state transition uses the existing atomic
+        appendChange allocation exactly once.
+    - id: sync-cursor-commits-after-hydration
+      outcome: unchanged
+      reason: Schedule rows join the same consistent store snapshot and retain the
+        requested hydration cursor until sync_complete.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: The due transaction calls the existing nested synchronous message
+        insert, so ids remain allocated with their insert and terminal schedule
+        link.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: Due delivery uses the ordinary routed-message planner and atomic commit;
+        S1 accepts one direct target and does not invent a scheduler fanout.
+    - id: qualified-member-target-identity-is-durable
+      outcome: unchanged
+      reason: Creation uses the existing catalog and persists its stable qualified
+        identity rather than scanning aliases or handles at delivery time.
+    - id: qualified-destination-refusals-are-atomic
+      outcome: unchanged
+      reason: All scheduled target and payload validation completes before schedule id
+        allocation or any destination-room write.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: A qualified schedule, its state frames, due message, and deliveries
+        belong only to the resolved target conversation; the source gets only
+        its direct acceptance frame when not subscribed there.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: Creation excludes tombstones and due-time revalidation fails the frozen
+        row instead of resolving a replacement by handle.
+    - id: delivery-attempt-wal-reconcile
+      outcome: unchanged
+      reason: The scheduler atomically creates ordinary queued deliveries, after which
+        existing attempt start and boot reconciliation remain sole owners.
+    - id: delivery-fifo-has-durable-sequence
+      outcome: unchanged
+      reason: Scheduled delivery creates ordinary deliveries through their existing
+        insertion transaction and queue_seq ordering.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: cancel_schedule extends the explicit human/agent matrix and still
+        derives actor identity only from the authenticated principal before the
+        daemon enforces author-or-admin ownership.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Schedule frames use the daemon's existing projectFrame/emit funnel; raw
+        clean bodies remain durable and projected previews are redacted.
+    - id: body-parser-shared-across-router-and-web
+      outcome: unchanged
+      reason: The shared body parser remains authoritative for local and qualified
+        mention spans; the new schedule directive parser composes with it and
+        will be reusable by S2 rather than duplicating mention grammar.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Schedule and cancel frames extend the one shared WebSocket schema used
+        by local CLI and network clients without adding a second transport API.
+anchors:
+  changelog-is-sync-cursor:
+    changelog-entry-schema:
+      action: change
+      reason: Add schedule to the bounded ChangeEntity enum and documentation.
+  sync-cursor-commits-after-hydration:
+    consistent-sync-snapshot:
+      action: change
+      reason: Hydrate changed or cold schedule rows in the same SQLite snapshot.
+  qualified-destination-refusals-are-atomic:
+    qualified-destination-refusal:
+      action: change
+      reason: Reuse a destination-resolution seam that validates scheduled requests
+        before allocation without changing immediate-post refusals.
+  roles-gate-human-acts-not-agents:
+    role-matrix-source:
+      action: change
+      reason: Add member-level cancel capability for humans and narrow own-schedule
+        capability for agents, with daemon ownership enforcement.
+    role-matrix-integration:
+      action: change
+      reason: Prove author/admin acceptance and foreign author/observer refusal.
+  redaction-before-fanout:
+    redacted-frame-emit:
+      action: keep
+      reason: Schedule live frames must pass through this unchanged sole projection
+        boundary.
+  scheduling-directive-is-bounded-and-canonical:
+    scheduled-directive-parser:
+      action: change
+      reason: Own detection, parsing, canonical clean body, size/time bounds, and
+        documented host-offset/explicit-ISO semantics.
+    scheduled-directive-regression:
+      action: change
+      reason: Record red-first malformed, position, composite duration, offset,
+        horizon, body-size, DST-adjacent, and ordinary-example cases.
+    scheduled-directive-documentation:
+      action: change
+      reason: Publish exact syntax, offset rule, limits, and S1 exclusions.
+  scheduled-target-identity-is-frozen-at-creation:
+    scheduled-target-resolution:
+      action: change
+      reason: Resolve and persist one exact local or qualified target and author
+        snapshot before any write.
+    scheduled-target-regression:
+      action: change
+      reason: Cover authorization, self/group/multiple refusal, rename, removed and
+        same-handle replacement, inactive worktree, and qualified ownership.
+  scheduled-message-commit-is-exactly-once:
+    atomic-scheduled-message-commit:
+      action: change
+      reason: Atomically revalidate, create one ordinary routed message/deliveries,
+        link it, and settle sent or failed.
+    exactly-once-schedule-regression:
+      action: change
+      reason: Inject restart/crash boundaries before claim, after claim, around the
+        commit, and after dispatch, proving one message and delivery set.
+  scheduled-state-machine-recovers-from-one-next-due-alarm:
+    durable-schedule-store:
+      action: change
+      reason: Add idempotent SQLite schema/migration, row parsing, indexes, queries,
+        claims, terminal transitions, and boot recovery.
+    one-next-due-alarm:
+      action: change
+      reason: Own the single bounded timer, simultaneous due drain, re-arm, boot,
+        shutdown, and background-error path.
+    schedule-recovery-regression:
+      action: change
+      reason: Cover pending/claimed/sent/failed/cancelled restart states, tied due
+        rows, long delays, target removal, and deterministic re-arming.
+  scheduled-cancellation-is-authorized-before-claim:
+    cancel-schedule-protocol:
+      action: change
+      reason: Add the correlated bounded cancel act and authoritative result/error.
+    cancel-schedule-transaction:
+      action: change
+      reason: Enforce author/admin ownership and pending-only compare-and-swap.
+    cancel-schedule-race-regression:
+      action: change
+      reason: Prove cancellation/claim has one winner and terminal work is never
+        retracted or recreated.
+  scheduled-state-streams-through-room-seq:
+    schedule-protocol-schema:
+      action: change
+      reason: Define bounded schedule identity, target, state, timestamps, error, and
+        delivered-message linkage plus server frames.
+    schedule-change-log-storage:
+      action: change
+      reason: Append exactly one destination-room schedule change per mutation.
+    schedule-sync-and-fanout:
+      action: change
+      reason: Emit and hydrate schedule rows before sync_complete through existing
+        room subscriptions and direct qualified acknowledgement.
+    schedule-sync-regression:
+      action: change
+      reason: Cover live, warm delta, cold bounded/unbounded, reconnect, redaction,
+        destination ownership, and local-socket protocol parity.
+files:
+  - docs/PROTOCOL.md
+  - packages/protocol/src/changelog.ts
+  - packages/protocol/src/index.spec.ts
+  - packages/protocol/src/index.ts
+  - packages/protocol/src/schedule.ts
+  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/ws.ts
+  - packages/switchboard/src/authorization.spec.ts
+  - packages/switchboard/src/authorization.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.spec.ts
+  - packages/switchboard/src/store.ts
+verification: >
+  Lock clean before source edits. Red-first: add focused protocol/parser, store,
+  daemon, server, and authorization regressions and record their failure on base
+  2d5cbbcbd4c40196eb774df252b652ce02c26c74 for the absent
+  scheduler/state-machine reason. Use deterministic injected clocks/timers and
+  reopen real temporary SQLite databases. Prove directive position and
+  malformed-prefix behavior; `[send_in=2h30m]@sol`, `[send_at=8:30PM]@sol`,
+  explicit Z/offset ISO, leap/day and DST-adjacent host-offset cases; strict
+  future/365-day, directive/body and text-only bounds; local and qualified
+  target snapshots; human and agent authorship; author/admin cancellation and
+  refusal; simultaneous due rows; cancellation/claim races; restart in pending,
+  claimed, sent, failed, and cancelled states; crash boundaries around the
+  atomic due commit and dispatch; target rename/removal/replacement/worktree
+  unavailability; redacted live and hydrated schedule frames; and exactly one
+  ordinary message/delivery set. Run `pnpm --filter @codor/protocol test`, `pnpm
+  --filter @codor/protocol build`, `pnpm --filter @codor/switchboard test`, and
+  `pnpm --filter @codor/switchboard build`, then the complete serialized
+  workspace tests and recursive build because protocol, store schema, routing,
+  and boot lifecycle change. Run harn find --changed, harn check, harn apply,
+  staged Harn checks, and git diff --check; create one implementation commit and
+  finish with a clean worktree. Stop and tag the local orchestrator once on a
+  genuine scope/Harn blocker or on completion with the commit, changed files,
+  exact red/green evidence, Harn results, and clean status. Do not implement S2,
+  Q1, UI/cards/composer/CLI presentation, recurrence/cron/edit/bulk/script/queue
+  features, delegate internally, poll peers, push, merge, deploy, publish,
+  release, update a host, or start another phase.
+applied:
+  applied_at: 2026-08-12T15:50:54.802Z

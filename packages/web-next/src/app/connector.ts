@@ -549,7 +549,15 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
-    act: (act: Act) => send({ type: 'act', room: currentRoom, act }),
+    // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
+    act: (act: Act, ref?: string): void => {
+      const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
+      send({
+        type: 'act', room: currentRoom, act,
+        ...(correlationRef !== undefined && { ref: correlationRef }),
+      });
+    },
+    // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
     disconnect: () => {
       // An operator-chosen park: lifecycle events must not undo it.
       state = 'parked-manual';

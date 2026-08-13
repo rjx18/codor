@@ -4,6 +4,7 @@ import type {
   Member,
   Message,
   RunItemDiff,
+  Schedule,
   TranscriptHistoryIndexedEvent,
   TranscriptHistoryUnit,
   WireEvent,
@@ -30,6 +31,7 @@ import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { CompactionMarker } from './CompactionMarker.js';
 import { RunDiffDialog } from './RunDiffDialog.js';
+import { ScheduleCard } from './ScheduleCard.js';
 import { JUMP_ANCHOR_EVENT, jumpToMessage } from './panels.js';
 import { renderMarkdown } from './markdown.js';
 import {
@@ -65,6 +67,55 @@ const REGLUE_DISTANCE_PX = 80;
 const READ_DWELL_MS = 300;
 const READ_MIN_VISIBLE_PX = 48;
 const SEGMENT_CACHE_ROOMS = 3;
+
+export function orderedVisibleSchedules(
+  schedules: Readonly<Record<string, Schedule>>,
+  room: string,
+): Schedule[] {
+  return Object.values(schedules)
+    .filter((schedule) => schedule.room === room && schedule.state !== 'sent')
+    .sort((left, right) => left.due_ts.localeCompare(right.due_ts)
+      || left.created_ts.localeCompare(right.created_ts)
+      || left.id.localeCompare(right.id));
+}
+
+/** Mutating schedule actions require both transport and this room's current
+ * generation evidence; retained hydration alone is read-only. */
+export function scheduleCancelReady(connected: boolean, roomLive: boolean): boolean {
+  return connected && roomLive;
+}
+
+/** Synchronous reservation used at the action edge before React can rerender. */
+export function reserveScheduleCancel(reservations: Set<string>, scheduleId: string): boolean {
+  if (reservations.has(scheduleId)) return false;
+  reservations.add(scheduleId);
+  return true;
+}
+
+export interface ScheduleCancelAttempt {
+  errorCount: number;
+  settled: boolean;
+  error?: string;
+}
+
+/** Resolve one local cancellation attempt only from newer, same-ref error
+ * evidence or authoritative schedule state. Older store text is not an
+ * attempt result and therefore cannot keep an alert alive. */
+export function settleScheduleCancelAttempt(
+  attempt: ScheduleCancelAttempt | undefined,
+  schedule: Schedule | undefined,
+  errorCount: number,
+  errorText: string | undefined,
+  ready: boolean,
+): ScheduleCancelAttempt | undefined {
+  if (!ready || schedule === undefined || schedule.state !== 'pending') return undefined;
+  if (attempt === undefined || attempt.settled || errorCount <= attempt.errorCount) return attempt;
+  return {
+    errorCount,
+    settled: true,
+    error: errorText ?? 'Cancellation was refused',
+  };
+}
 
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=transcript-grouping-state-machine
 export interface TranscriptGroupingRow {
@@ -202,12 +253,18 @@ export function coldMessageSuppressed(
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
+  const schedules = slice.schedules;
   const members = slice.members;
   const selfId = slice.selfMemberId;
   const hydrated = slice.hydrated;
   const support = slice.support;
   const history = slice.transcriptHistory;
   const connected = useClientStore((state) => state.connected);
+  // A retained schedule remains readable while reconnecting, but cancellation
+  // is a mutating action and needs this room's current socket generation to have
+  // delivered its own sync evidence.
+  const roomLive = useClientStore((state) => state.roomLive[props.room] === true);
+  const cancelReady = scheduleCancelReady(connected, roomLive);
 
   useEffect(() => activateRunJournalRoom(props.room), [props.room]);
   useEffect(() => {
@@ -229,6 +286,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const [newCount, setNewCount] = useState(0);
   const maxSeenIdRef = useRef<number>();
   const [historyBusy, setHistoryBusy] = useState(false);
+  const [cancelAttempts, setCancelAttempts] = useState<Record<string, ScheduleCancelAttempt>>({});
+  // React state is intentionally asynchronous; reserve the id synchronously so
+  // two same-tick clicks cannot emit two cancellation acts.
+  const cancelPendingRef = useRef(new Set<string>());
   const historyRequestRef = useRef(false);
   const historyRestoreRef = useRef<HistoryRestore>();
   const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
@@ -458,6 +519,49 @@ export function Transcript(props: { room: string; token: () => string; connectio
     return selected;
   }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
   const entries = useMemo(() => buildTimelineEntries(liveVisible, new Map()), [liveVisible]);
+  const orderedSchedules = useMemo(
+    () => orderedVisibleSchedules(schedules, props.room),
+    [props.room, schedules],
+  );
+  const cancelSchedule = useCallback((scheduleId: string): void => {
+    if (!cancelReady || !reserveScheduleCancel(cancelPendingRef.current, scheduleId)) return;
+    const beforeErrors = slice.errorRefs[scheduleId] ?? 0;
+    setCancelAttempts((current) => ({
+      ...current,
+      [scheduleId]: { errorCount: beforeErrors, settled: false },
+    }));
+    props.connection.act({ act: 'cancel_schedule', schedule_id: scheduleId }, scheduleId);
+  }, [cancelReady, props.connection, slice.errorRefs]);
+  useEffect(() => {
+    if (!cancelReady) {
+      cancelPendingRef.current.clear();
+      setCancelAttempts((current) => Object.keys(current).length === 0 ? current : {});
+      return;
+    }
+    setCancelAttempts((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const [id, attempt] of Object.entries(current)) {
+        const settled = settleScheduleCancelAttempt(
+          attempt,
+          schedules[id],
+          slice.errorRefs[id] ?? 0,
+          slice.errorTexts[id],
+          cancelReady,
+        );
+        if (settled === undefined) {
+          cancelPendingRef.current.delete(id);
+          delete next[id];
+          changed = true;
+        } else if (settled !== attempt) {
+          cancelPendingRef.current.delete(id);
+          next[id] = settled;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, [cancelReady, schedules, slice.errorRefs, slice.errorTexts]);
   const initialBarrier = useRef({ room: props.room, ready: false });
   if (initialBarrier.current.room !== props.room) {
     initialBarrier.current = { room: props.room, ready: false };
@@ -948,6 +1052,24 @@ export function Transcript(props: { room: string; token: () => string; connectio
           {!transcriptReady && !historyBlocked && <TranscriptSkeleton />}
           {transcriptReady && history.units.length === 0 && liveVisible.length === 0 && (
             <p className="nx-empty" data-testid="timeline-empty">No messages yet — say something.</p>
+          )}
+          {transcriptReady && orderedSchedules.length > 0 && (
+            <section className="nx-schedule-list" aria-label="Scheduled messages" data-testid="schedule-list">
+              {orderedSchedules.map((schedule) => (
+                <ScheduleCard
+                  key={schedule.id}
+                  schedule={schedule}
+                  viewer={selfId === undefined ? undefined : members[selfId]}
+                  cancelPending={cancelAttempts[schedule.id] !== undefined
+                    && !cancelAttempts[schedule.id]!.settled}
+                  cancelReady={cancelReady}
+                  cancelError={cancelAttempts[schedule.id]?.settled
+                    ? cancelAttempts[schedule.id]?.error
+                    : undefined}
+                  onCancel={cancelSchedule}
+                />
+              ))}
+            </section>
           )}
           {/* harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-rendering */}
           {transcriptReady && renderHistoricalTimeline(renderedHistory, {

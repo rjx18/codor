@@ -1,0 +1,274 @@
+id: persistent-scheduled-messages-s2-review-fixes
+title: Close S2 refusal, cancellation, and cross-surface proof gaps
+notes: >
+  Contained independent-review correction for Lane C S2 commit
+  fb4f21fefaa9e0325f2f48449319529d54b6f42d. The accepted client protocol,
+  authoritative server scheduler, room schedule store, basic cards, and CLI
+  acknowledgement remain in place. Review found that the composer now watches
+  destination-room errors even though a refused qualified post is reported on
+  the selected source connection, so both scheduled and ordinary qualified
+  refusals can remain pending and fail to preserve actionable text. A retained
+  last-good schedule card also admits Cancel while its room lacks current-live
+  evidence; the connector drops that closed-socket act and the card can remain
+  in a false Cancelling state. Correlated cancellation errors increment only a
+  counter and clear pending without presenting the exact error beside the card,
+  and the render-state guard does not prevent two same-tick cancellation calls.
+  Finally, the committed Room 32 and Room 40 files contain no scheduled journey,
+  Room 42 omits its required reconnect, same-instant, keyboard, dual-theme/full
+  Axe, and race assertions, and CLI lacks an actual remote scheduled-post case.
+  Correct only these S2 client and proof gaps. Preserve Q1 raw-draft ownership,
+  S1 server authority, ordinary post output, authoritative schedule state, and
+  every original S2 exclusion.
+assumptions:
+  reviewed:
+    - id: scheduled-composer-acknowledgement-preserves-raw-draft-ownership
+      outcome: unchanged
+      reason: >
+        Destination schedules/messages remain the only positive acknowledgement,
+        but refusals must still be observed on the selected source connection
+        and leave the exact raw draft actionable.
+    - id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
+      outcome: unchanged
+      reason: >
+        Restore Q1's ordinary qualified refusal path while keeping scheduled
+        acknowledgement a separate typed destination-owned branch.
+    - id: pending-composer-echo-is-destination-and-self-bound
+      outcome: unchanged
+      reason: >
+        Positive acknowledgement stays destination/self bound; source-room error
+        observation does not permit an unrelated message or schedule to clear.
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      outcome: unchanged
+      reason: >
+        Cancellation must be admitted only from current room truth, reserve once
+        synchronously, and settle to an authoritative result or exact visible
+        correlated error without optimistic state.
+    - id: browser-schedules-follow-authoritative-room-state
+      outcome: unchanged
+      reason: >
+        Retained schedule rows remain readable while reconnecting, but current
+        room-live evidence is required before a mutating card action is enabled.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: >
+        A schedule-ref error must be retained by correlation and rendered beside
+        that schedule while re-enabling retry; the generic latest room error is
+        insufficient when actions overlap.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        Pending cards remain visible as last-good state offline, while Cancel is
+        disabled until the selected room proves the current socket generation.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: >
+        The qualified schedule acknowledgement and card must appear only in the
+        target child conversation while a refusal remains visible at its source.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        A hosted pending card must survive a host-generation loss without
+        admitting mutation and resume from the replacement app stream.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: >
+        Hosted Cancel readiness follows fresh replacement-stream server
+        evidence, not cached rows or transport construction.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: >
+        The complete schedule surface must remain Axe-clean in both light and
+        dark modes with a visible keyboard-operable cancellation target.
+    - id: web-room-targets-meet-minimum-hit-size
+      outcome: unchanged
+      reason: >
+        The enabled and disabled Cancel target retains the accepted 44px mobile
+        size while the expanded browser journey proves keyboard operation.
+    - id: cli-post-acknowledges-messages-or-schedules
+      outcome: unchanged
+      reason: >
+        Add the missing actual remote-WebSocket scheduled submission while
+        retaining local, qualified, installed, ordinary, error, and --wait
+        rules.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: >
+        Local and remote CLI transports continue to consume the same schedule
+        frames and stable acknowledgement contract.
+    - id: e2e-gate-covers-every-spec-file
+      outcome: unchanged
+      reason: >
+        The existing isolated runner remains unchanged; the required scheduled
+        cases belong in the already discovered Room 32, Room 40, and Room 42
+        specs.
+anchors:
+  scheduled-composer-acknowledgement-preserves-raw-draft-ownership:
+    scheduled-pending-composer-send:
+      action: change
+      reason: >
+        Track the source refusal boundary separately from destination schedule
+        and message acknowledgement without broadening any positive correlation.
+    scheduled-composer-acknowledgement-regression:
+      action: change
+      reason: >
+        Reproduce a qualified scheduled refusal arriving only on the source
+        room, preserving the raw draft and exposing exact actionable text.
+  composer-acknowledgement-separates-raw-draft-from-canonical-echo:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: |
+        Preserve the Q1 source error count alongside destination echo metadata.
+    raw-draft-acknowledgement-regression:
+      action: change
+      reason: >
+        Re-run ordinary local, hosted, and qualified success/refusal ownership
+        while correcting the shared error boundary.
+  pending-composer-echo-is-destination-and-self-bound:
+    pending-destination-selector:
+      action: change
+      reason: >
+        Continue selecting only destination messages and schedules while reading
+        refusal evidence from the source slice.
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    authoritative-schedule-card:
+      action: change
+      reason: >
+        Accept explicit action readiness and the exact correlated cancellation
+        error, disable offline/in-flight, and render that error accessibly.
+    authoritative-schedule-card-regression:
+      action: change
+      reason: >
+        Prove offline disablement, one synchronous reservation, exact error and
+        retry settlement, permissions, terminal states, ordering, and sent
+        hiding.
+    authoritative-schedule-cancel-lifecycle:
+      action: change
+      reason: >
+        Bind one immediate cancellation reservation to current room-live
+        evidence, authoritative schedule changes, and per-ref errors across
+        reconnects.
+    scheduled-card-browser-regression:
+      action: change
+      reason: >
+        Complete the direct, hosted, and qualified browser matrix including
+        reconnect, one winner, same-instant order, zone, keyboard, mobile,
+        light/dark full-surface Axe, exact room ownership, and no direct leak.
+  room-action-errors-are-visible:
+    correlated-schedule-error-surface:
+      action: change
+      reason: >
+        Retain exact latest text by bounded action ref and present it only on
+        the matching schedule after pending is released.
+    correlated-schedule-error-regression:
+      action: change
+      reason: >
+        Prove overlapping refs cannot misattribute errors and the matching card
+        becomes retryable with an inline alert.
+  readable-reconnecting-room-never-admits-mutation:
+    offline-schedule-cancel-boundary:
+      action: change
+      reason: >
+        Use current selected-room generation evidence, not retained hydration or
+        global transport state, as the Cancel admission gate.
+    offline-schedule-cancel-regression:
+      action: change
+      reason: >
+        Prove direct and hosted retained cards are readable but disabled during
+        generation loss and re-enable only after fresh sync evidence.
+  hosted-app-streams-follow-tunnel-generations:
+    coordinated-recovery-browser-regression:
+      action: change
+      reason: >
+        Add a pending schedule before relay loss and prove retained offline
+        state and authoritative post-replacement settlement.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness-browser-regression:
+      action: change
+      reason: >
+        Assert hosted Cancel remains disabled until the replacement stream has
+        delivered server evidence.
+  target-worktree-owns-qualified-conversation:
+    qualified-schedule-browser-regression:
+      action: change
+      reason: >
+        Submit a raw qualified schedule from the root, clear only on
+        target-owned acknowledgement, and render the card only when that exact
+        child is selected.
+  web-theme-accessible-modes:
+    scheduled-card-theme-accessibility-regression:
+      action: change
+      reason: |
+        Run full scheduled-surface Axe checks in explicit light and dark modes.
+  web-room-targets-meet-minimum-hit-size:
+    scheduled-card-keyboard-target-regression:
+      action: change
+      reason: >
+        Prove the 44px Cancel target is focusable and performs one cancellation
+        by keyboard without optimistic removal.
+  cli-post-acknowledges-messages-or-schedules:
+    cli-scheduled-post-regression:
+      action: change
+      reason: >
+        Add an actual --url scheduled post and assert one stable acknowledgement
+        while retaining local/qualified/ordinary/collision/error/--wait
+        coverage.
+files:
+  - packages/cli/src/index.spec.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/ScheduleCard.spec.tsx
+  - packages/web-next/src/room/ScheduleCard.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room42-scheduled-messages.e2e.spec.ts
+verification: >
+  Lock clean with dirty_at_lock false on exact base
+  fb4f21fefaa9e0325f2f48449319529d54b6f42d. First record the contained red
+  evidence: a pending qualified send does not resolve when only its source room
+  error count advances; a visible retained pending card allows cancellation with
+  no current room-live evidence, the closed connector emits no frame, and the UI
+  remains Cancelling; a same-ref error clears pending but renders no exact
+  alert; two same-tick cancellation calls are not protected by the rendered
+  state; Room 32 and Room 40 contain no scheduled case; Room 42 lacks
+  same-instant, disconnect/reconnect, keyboard, dual-theme/full Axe, and
+  cancellation-race proof; the CLI suite never submits a scheduled request
+  through --url. Add deterministic unit/browser/CLI regressions before the
+  smallest client-only correction. Green unit evidence must prove
+  destination/self schedule and ordinary echo acknowledgement are unchanged,
+  source-room qualified refusals preserve exact raw text for both branches,
+  per-ref error text cannot cross schedules, offline/current-generation-not-live
+  Cancel is disabled, one synchronous request carries one exact id ref, a
+  matching error renders inline and re-enables retry, and authoritative
+  cancelled/sending/sent results win. The direct Room 42 journey must prove
+  explicit same-instant ordering and named local zone, retained card across
+  disconnect/reconnect with disabled mutation, keyboard cancellation,
+  cancellation/claim one-winner truth, one delivered message with no sent card,
+  390px 44px/no-overflow, and full scheduled-surface Axe in explicit light and
+  dark modes. Room 32 must create a pending schedule through the hosted relay,
+  retain it disabled across host-generation loss, resume/settle it after fresh
+  server evidence, and keep all routed traffic from leaking to the SPA origin.
+  Room 40 must submit a raw-whitespace qualified schedule from the root, clear
+  only on authoritative target acknowledgement, and show it only in the selected
+  target child. CLI must submit one scheduled post over a real remote WebSocket
+  URL and exit with the stable scheduled line. Run focused
+  composer/store/connector/card/transcript and CLI tests, then full protocol,
+  web-next, CLI, and switchboard tests/builds; run direct Room 2, Room 5, Room
+  32, Room 40, and Room 42 specs; run recursive workspace build and serialized
+  tests using isolated dependency resolution without changing shared host links.
+  Run Harn working check, apply, staged check, find --changed, git diff --check,
+  create exactly one review-fix commit with applied truth, and finish clean. Do
+  not change protocol or server scheduling/authorization, polling,
+  recurrence/cron/edit/reschedule/bulk/script/attachment/reply/voice/wait
+  scheduling, offline queues, history architecture, deployment, release, or any
+  unrelated behavior; do not mutate shared node_modules/host links, delegate,
+  poll/remind peers, push, merge, deploy, publish, or release. Tag the local
+  orchestrator once on genuine blocker or completion with exact red evidence,
+  green counts, Harn result, commit, and clean status, then stop.
+applied:
+  applied_at: 2026-08-13T01:13:19.963Z

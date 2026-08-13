@@ -1,0 +1,20 @@
+id: scheduled-state-streams-through-room-seq-v2
+hash: a-69cc10a1f243
+title: Schedule state streams at its producing seq after earlier committed entities
+state: active
+statement: >
+  Every schedule insert or real state transition must append exactly one
+  destination-room schedule change and retain that producing seq for live
+  fanout; cold and warm hydration project bounded redacted rows before
+  sync_complete, while a due transaction publishes its ordinary message, member
+  and inbox effects in ascending committed sequence before its terminal schedule
+  linkage, so reconnect after any delivered frame converges on Pending, Sending,
+  Failed, Cancelled, or sent state and the linked ordinary message without
+  polling, gaps, or duplicate no-op broadcasts.
+depends_on:
+  - changelog-is-sync-cursor-v2
+  - changelog-covers-every-visible-entity-v2
+  - sync-cursor-commits-after-hydration
+  - redaction-before-fanout
+  - unix-socket-same-protocol
+created_by: persistent-scheduled-messages-s1-review-fixes

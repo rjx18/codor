@@ -1,0 +1,19 @@
+id: scheduled-message-commit-is-exactly-once
+hash: a-237969810ba8
+title: A claimed schedule commits one ordinary routed message exactly once
+state: active
+statement: >
+  Delivering a claimed schedule must revalidate its frozen member and worktree
+  identity, then in one SQLite transaction either mark the schedule failed with
+  a bounded reason or allocate exactly one ordinary message, create its ordinary
+  routed deliveries and collaboration state, record the delivered message id,
+  and mark the schedule sent; recovery may retry a claimed row but must observe
+  the terminal row/message linkage rather than allocate again, and queued
+  deliveries continue through the existing attempt WAL, so crash or restart can
+  delay but never duplicate the visible message or recipient work.
+depends_on:
+  - message-id-txn-allocation
+  - eligible-multi-agent-routing-starts-one-group
+  - delivery-attempt-wal-reconcile
+  - delivery-fifo-has-durable-sequence
+created_by: persistent-scheduled-messages-s1

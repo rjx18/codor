@@ -116,6 +116,72 @@ RunSummary {
 }
 ```
 
+<!-- harn:assume scheduling-directive-is-bounded-and-canonical ref=scheduled-directive-documentation -->
+### Durable scheduled messages (S1)
+
+A scheduled request is text-only and is recognized only when its first non-whitespace
+token is a complete directive:
+
+```text
+[send_in=2h30m]@sol deploy the change
+[send_at=8:30PM]@sol check the build
+[send_at=2026-08-13T08:30:00+08:00]@sol check the build
+```
+
+`send_in` accepts ordered compound days, hours, minutes, and seconds (`d`, `h`, `m`,
+`s`) in lowercase; case variants are malformed rather than reinterpreted. A clock-only `send_at` means the next occurrence in the switchboard host's
+numeric UTC offset captured at creation. ISO-8601 `send_at` values must carry `Z` or
+an explicit numeric offset. The directive is at most 256 characters; the clean body is
+at most 65,536 UTF-8 bytes; the due instant is strictly in the future and no more than
+365 days away. Malformed directive-like first tokens, empty bodies, replies,
+attachments, voice metadata, waits, groups, `@all`, self-targets, multiple or
+unavailable targets are refused before any SQLite write. The server still has no
+recurrence, cron, editing, bulk operations, scripts, external queues, or polling API.
+Accepted rows freeze the author, one resolved member/worktree identity,
+mention span, clean body, and absolute due instant; later aliases or same-handle
+members cannot retarget them. When an agent schedules from a registered worktree,
+the row also snapshots its qualified author coordinate so the eventual destination
+message and delivery payload retain the exact execution attribution.
+
+Each insert or real state transition is a room-scoped `schedule` change-log entity
+with its producing sequence; live effects from one due commit are published in
+ascending sequence order. The
+daemon exposes redacted `schedule` frames during live fanout and hydration; durable
+states are `pending`, `sending`, `sent`, `failed`, and `cancelled`. A correlated
+`cancel_schedule` act carries one bounded correlation `ref`, echoed by its result,
+and is authorized for the schedule author or a human room admin in the schedule's
+origin or destination room (never an unrelated room)
+and can win only while the row is pending. Delivery claims and the ordinary routed
+message commit share one SQLite transaction, so restart may delay work but cannot
+duplicate the visible message or its deliveries.
+
+<!-- harn:assume friendly-schedule-clocks-canonicalize-at-client-boundary ref=scheduled-client-documentation -->
+The browser and `codor post` share one client-boundary canonicalizer. It rewrites
+only a complete leading clock-only `send_at` to the next occurrence in the
+submitting client's local zone, serialized as an explicit ISO instant with its
+numeric offset. `send_in`, explicit-offset ISO, malformed directive-like text, and
+non-leading prose retain their accepted wire form; the switchboard remains the
+authority for bounds, targeting, persistence, and execution.
+<!-- harn:end friendly-schedule-clocks-canonicalize-at-client-boundary -->
+
+Browser state keeps schedules in isolated room maps and renders every non-sent row
+as one compact, accessible card with the viewer-local date/time and named zone,
+exact local or qualified target, bounded clean-body preview, and honest pending,
+sending, failed, or cancelled state. A pending Cancel is exposed only to the
+authenticated author or human owner/admin, carries the schedule id as its one
+correlation ref, and settles from the authoritative result/error stream. Sent rows
+render only as their ordinary delivered message. The composer retains the exact
+raw draft separately from the canonical wire body and acknowledges schedules only
+from a new destination-room row authored by that room's authenticated self.
+
+`codor post` snapshots existing message and schedule ids, submits the shared
+canonical body once, preserves `posted #N` for ordinary messages, and exits once on
+one matching self-authored schedule with its stable id and due instant. Scheduled
+`--wait` remains explicitly refused; recurrence, cron, edit/reschedule, bulk,
+script, attachment/reply/voice scheduling, offline queues, and history redesign
+remain out of scope.
+<!-- harn:end scheduling-directive-is-bounded-and-canonical -->
+
 **A turn owns one lifecycle root and may append chronological output rows.** The switchboard
 posts one running `run` root before starting the adapter. That root is reused by crash recovery
 and exclusively owns status, timing, usage, retry controls, `events_ref`, and aggregate

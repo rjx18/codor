@@ -1,7 +1,7 @@
 id: changelog-is-sync-cursor
 hash: a-789093da60c3
 title: The change log seq is the only delta-sync cursor
-state: active
+state: retired
 statement: Every mutation of a client-visible entity must be representable as a
   ChangeLogEntry {seq, entity message|member|inbox|meter|room, entity_id}, WS
   subscribe must carry since_seq, and server frames must carry seq, because
@@ -9,3 +9,4 @@ statement: Every mutation of a client-visible entity must be representable as a
   reconnecting clients hydrate exclusively from the log.
 depends_on: []
 created_by: protocol-schemas
+retired_by: persistent-scheduled-messages-s1-review-fixes

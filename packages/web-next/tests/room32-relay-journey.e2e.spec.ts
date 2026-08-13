@@ -111,12 +111,16 @@ test.describe('relay tunnel journey', () => {
     // is for" guard without kicking off an agent run — the point here is the
     // client→server→client round trip over the tunnel, not agent behaviour.
     const input = page.getByTestId('composer-input');
-    await input.fill('@viewer hello over the relay');
+    // harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+    const rawRelayBody = '@viewer hello over the relay ';
+    await input.fill(rawRelayBody);
     // The composer only sends once the room has hydrated over the tunnel; the
     // send button enabling is that gate (connected AND hydrated AND non-empty).
     await expect(page.getByTestId('composer-send')).toBeEnabled({ timeout: 30_000 });
     await input.press('Enter');
     await expect(page.getByTestId('timeline')).toContainText('hello over the relay', { timeout: 20_000 });
+    await expect(input).not.toHaveValue(rawRelayBody);
+    // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
     // Attachment upload and retrieval both cross the tunnel. The presented URL
     // is a blob and preserves the exact uploaded bytes.
@@ -143,9 +147,21 @@ test.describe('relay tunnel journey', () => {
     await page.getByTestId('dictation-send').click();
     await expect(page.locator('[data-testid^="voice-card-"]').last()).toContainText('dictation', { timeout: 30_000 });
 
+    // Scheduled mutations use the same routed browser connection. The retained
+    // card remains readable while the host generation is down, but its Cancel
+    // target is disabled until the replacement stream proves this room live.
+    const scheduledMarker = `relay-scheduled-${Date.now()}`;
+    await input.fill(`[send_in=1h] @fable ${scheduledMarker}`);
+    await expect(page.getByTestId('composer-send')).toBeEnabled({ timeout: 20_000 });
+    await page.getByTestId('composer-send').click();
+    const scheduledCard = page.locator('[data-testid^="schedule-card-"]').filter({ hasText: scheduledMarker });
+    await expect(scheduledCard).toBeVisible({ timeout: 20_000 });
+
     // Kill the tunnel host (agent offline) → the connection visibly drops.
     await control('/relay-down');
     await expect(page.getByTestId('connection')).toHaveClass(/is-error/, { timeout: 30_000 });
+    await expect(scheduledCard).toBeVisible();
+    await expect(scheduledCard.getByRole('button', { name: /cancel scheduled message/i })).toBeDisabled();
 
     // harn:assume hosted-app-streams-follow-tunnel-generations ref=coordinated-recovery-browser-regression
     // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-browser-regression
@@ -155,6 +171,9 @@ test.describe('relay tunnel journey', () => {
     // server frame, so it is also the deterministic send-admission gate. No
     // fixed sleep may stand in for that bidirectional evidence.
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 40_000 });
+    await expect(scheduledCard.getByRole('button', { name: /cancel scheduled message/i })).toBeEnabled({ timeout: 20_000 });
+    await scheduledCard.getByRole('button', { name: /cancel scheduled message/i }).click();
+    await expect(scheduledCard).toContainText('Cancelled', { timeout: 20_000 });
 
     // Still functional after recovery — a fresh app-WS stream on the NEW session.
     await input.fill('@viewer back after recovery');

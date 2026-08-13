@@ -1,0 +1,17 @@
+id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
+hash: a-a0a3a4d62afb
+title: Composer acknowledgement separates raw draft ownership from canonical echo
+state: active
+statement: >
+  Each composer dispatch must capture the exact raw textarea snapshot and the
+  canonical submitted body; its pending send correlates only a newly committed
+  chat with that canonical body from the authenticated self in the selected
+  destination room, and on that echo clears only when the current textarea still
+  exactly equals the dispatched raw snapshot, so trailing whitespace clears
+  after a successful send while any edit made after dispatch remains owned by
+  the operator.
+depends_on:
+  - pending-composer-echo-is-destination-and-self-bound
+  - exact-trailing-mentions-send-before-completion
+  - composer-enter-uses-live-draft-state
+created_by: lane-b-q1-exact-raw-composer-acknowledgement

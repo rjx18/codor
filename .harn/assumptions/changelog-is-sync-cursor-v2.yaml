@@ -1,0 +1,14 @@
+id: changelog-is-sync-cursor-v2
+hash: a-98f1b1c53285
+title: The room change-log seq is the only ordered entity sync cursor
+state: active
+statement: >
+  Every mutation of a client-visible message, member, inbox, meter, room, or
+  schedule entity must be represented as ChangeLogEntry {seq, entity,
+  entity_id}; subscriptions carry since_seq, hydration retains that request
+  cursor until sync_complete, and every live entity frame carries the exact seq
+  that produced its projected row and is published in ascending transaction
+  order, so a disconnect after any frame can replay every later mutation without
+  skipping an earlier entity from the same commit.
+depends_on: []
+created_by: persistent-scheduled-messages-s1-review-fixes

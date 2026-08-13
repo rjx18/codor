@@ -7,6 +7,7 @@ export * from './default-recipient.js';
 export * from './interaction.js';
 export * from './delivery.js';
 export * from './changelog.js';
+export * from './schedule.js';
 export * from './room.js';
 export * from './events.js';
 export * from './transcript-history.js';

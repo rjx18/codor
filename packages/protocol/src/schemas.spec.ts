@@ -1931,3 +1931,55 @@ describe('agent add selection frame contract', () => {
 });
 // harn:end agent-add-selects-public-adapter-or-detached-preset
 // harn:end agent-add-selects-public-adapter-or-detached-preset
+
+const scheduleBase = {
+  id: 'schedule-1',
+  room: 'traderjoe-eng',
+  author_id: ULID_A,
+  author_handle: 'coder',
+  target: { member_id: ULID_B, conversation_id: 'traderjoe-eng', handle: 'target' },
+  body: '@target hello',
+  mentions: [{ member_id: ULID_B, start: 0, end: 7 }],
+  due_ts: TS,
+  host_offset_minutes: 480,
+  state: 'pending',
+  created_ts: TS,
+  updated_ts: TS,
+} as const;
+
+// harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-protocol-schema-v2
+describe('scheduled message schema', () => {
+  it('round-trips a durable qualified author coordinate', () => {
+    const parsed = ServerFrameSchema.parse({
+      type: 'schedule', seq: 1,
+      schedule: {
+        ...scheduleBase,
+        author_target: {
+          worktree_id: '01J00000000000000000000000',
+          conversation_id: 'traderjoe-eng',
+          member_id: ULID_A,
+          alias: 'feature-a',
+          handle: 'coder',
+        },
+      },
+    });
+    expect(parsed.schedule.author_target?.member_id).toBe(ULID_A);
+  });
+
+  it('rejects a qualified author coordinate for a different member', () => {
+    expect(() => ServerFrameSchema.parse({
+      type: 'schedule', seq: 1,
+      schedule: {
+        ...scheduleBase,
+        author_target: {
+          worktree_id: '01J00000000000000000000000',
+          conversation_id: 'traderjoe-eng',
+          member_id: ULID_B,
+          alias: 'feature-a',
+          handle: 'target',
+        },
+      },
+    })).toThrow(/author_id/);
+  });
+});
+// harn:end scheduled-state-streams-through-room-seq-v2

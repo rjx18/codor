@@ -1,0 +1,126 @@
+id: persistent-scheduled-messages-s2-review-closure
+title: Settle each browser cancellation attempt without stale error or scope drift
+notes: >
+  Final contained review closure for Lane C head
+  706c2245e5c0f0dd64268b87d58868f6ca44c005. The source-room composer fix,
+  current-generation readiness gate, synchronous cancellation reservation, exact
+  per-ref error storage, and direct/hosted/worktree/CLI evidence are correct.
+  Independent review found one remaining lifecycle defect: the card renders
+  errorTexts[schedule.id] directly, so an earlier refused attempt stays visible
+  while a retry is in flight and can reappear after a later authoritative
+  cancelled/sending/failed result. The commit also changed connector.ts outside
+  its clean-locked file list to return boolean through the shared Connection.act
+  interface that still declares void, forcing an unsafe cast in Transcript.
+  Replace pending and error presentation with one local per-attempt state that
+  clears stale text on retry and terminal truth. Remove the unplanned connector
+  return-value workaround and use the already-correct connected/roomLive
+  lifecycle to release an in-flight attempt when a socket generation drops.
+  Preserve all accepted S1, Q1, S2, protocol, server, store, browser, CLI, and
+  exclusion boundaries.
+assumptions:
+  reviewed:
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      outcome: unchanged
+      reason: >
+        Each submitted cancellation owns one pending or exact-error state; a new
+        retry and authoritative terminal schedule replace prior attempt evidence
+        rather than presenting contradictory stale refusal text.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: >
+        Exact text remains stored by ref and becomes visible for the matching
+        failed attempt, but visibility must end when that attempt is retried or
+        superseded by authoritative schedule truth.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        The connected plus roomLive gate already prevents offline mutation and
+        its disconnect effect releases in-flight presentation; no change to the
+        shared void Connection contract is required.
+    - id: browser-schedules-follow-authoritative-room-state
+      outcome: unchanged
+      reason: >
+        Pending, cancelled, sending, sent, and failed schedule frames remain the
+        sole terminal presentation authority and clear obsolete local attempts.
+anchors:
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    authoritative-schedule-card:
+      action: change
+      reason: >
+        Refuse to render a cancellation-attempt error on non-pending durable
+        states even if a caller supplies stale text.
+    authoritative-schedule-card-regression:
+      action: change
+      reason: >
+        Prove retry hides its prior refusal and terminal cancelled, sending,
+        failed, and sent truth cannot display an obsolete cancellation error.
+    authoritative-schedule-cancel-lifecycle:
+      action: change
+      reason: >
+        Replace separate pending state plus permanent store text with one local
+        attempt record, clearing on retry, disconnect, absence, or non-pending
+        authoritative state and settling only from a newer same-ref error.
+    correlated-browser-schedule-cancel-regression:
+      action: change
+      reason: >
+        Remove the unplanned boolean send-result contract and retain one exact
+        schedule-id ref plus current-generation disconnect settlement.
+  room-action-errors-are-visible:
+    correlated-schedule-error-surface:
+      action: change
+      reason: >
+        Present exact errorTexts only after the matching attempt's error counter
+        advances, not merely because the schedule id had an older error.
+    correlated-schedule-error-regression:
+      action: change
+      reason: >
+        Prove overlapping ids remain isolated, a retry clears its old alert, the
+        next failure shows only its new text, and success removes the alert.
+  readable-reconnecting-room-never-admits-mutation:
+    offline-schedule-cancel-boundary:
+      action: change
+      reason: >
+        Retain the connected/roomLive admission and release the local attempt on
+        generation loss without depending on an untyped connector return value.
+    offline-schedule-cancel-regression:
+      action: change
+      reason: >
+        Prove disconnect clears Cancelling, keeps the retained card disabled,
+        and reconnect re-enables one fresh attempt after room-live evidence.
+files:
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/room/ScheduleCard.spec.tsx
+  - packages/web-next/src/room/ScheduleCard.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+verification: >
+  Lock clean with dirty_at_lock false on exact base
+  706c2245e5c0f0dd64268b87d58868f6ca44c005. First record red evidence from the
+  current implementation: a pending card with an old cancelError renders that
+  alert while a retry is Cancelling; changing the schedule to cancelled,
+  sending, or failed still renders the obsolete refusal; Transcript passes the
+  permanent store text with no attempt boundary; and connector.ts is absent from
+  the prior locked files while its boolean result is hidden behind a void
+  interface and unsafe cast. Add a deterministic attempt-state regression, then
+  make the smallest correction. One click must reserve synchronously, capture
+  the current error count, hide any older alert, and send one exact schedule-id
+  ref. Only a newer same-ref counter may release it into the matching exact
+  inline error. Disconnect/current-room-not-live clears an in-flight attempt and
+  disables the retained control. An absent or non-pending authoritative schedule
+  clears pending and error presentation. A retry after error starts clean and a
+  second error shows only the second text. Revert connector send/act to the
+  established void contract and remove the closed-send boolean test/cast; keep
+  the current-generation gate and reservation as the action boundary. Run the
+  focused connector/card/transcript suites, full web-next test/build, direct
+  Room 32 and Room 42 reconnect/cancel journeys, recursive workspace build and
+  serialized tests with isolated dependency resolution, Harn working/apply/
+  staged/find checks, and git diff checks. Create exactly one closure commit and
+  finish clean. Do not change composer, protocol, server, authorization, durable
+  schedule/store semantics, CLI, unrelated browser behavior, shared host links,
+  deployment, or release; do not delegate, poll/remind, push, merge, deploy,
+  publish, or release. Tag the local orchestrator once on genuine blocker or
+  completion with exact red evidence, green counts, Harn result, commit, and
+  clean status, then stop.
+applied:
+  applied_at: 2026-08-13T01:30:48.656Z

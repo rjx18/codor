@@ -1,0 +1,15 @@
+id: scheduled-cancellation-is-authorized-before-claim
+hash: a-3dbc2dedecc7
+title: Cancellation is authorized and can win only before claim
+state: active
+statement: >
+  A correlated cancel_schedule act may transition only a pending row to
+  cancelled, and only when invoked by that schedule's authenticated author or a
+  human room administrator; an agent may cancel only its own schedule,
+  cancellation racing an atomic claim has exactly one winner, and claimed or
+  terminal rows return their authoritative state without retracting a message,
+  so cancellation cannot erase or duplicate already-started work.
+depends_on:
+  - roles-gate-human-acts-not-agents
+  - scheduled-state-machine-recovers-from-one-next-due-alarm
+created_by: persistent-scheduled-messages-s1

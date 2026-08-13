@@ -1,0 +1,20 @@
+id: scheduled-target-identity-is-frozen-at-creation
+hash: a-6c8cd76d6230
+title: Scheduled messages freeze one authorized destination identity at creation
+state: active
+statement: >
+  Before allocating a schedule id or writing SQLite, a scheduled post must
+  authenticate its author, canonicalize the body after removing the directive,
+  and resolve exactly one active direct non-self member through the ordinary
+  local or registered-worktree grammar, persisting the exact member id,
+  destination conversation, worktree id and alias when qualified, display
+  handle, and resolved mention span; replies, attachments, voice, waits, groups,
+  @all, unresolved, mixed, multiple, removed, or unavailable targets must refuse
+  atomically, so rename, worktree change, restart, or a later same-handle member
+  can never retarget delayed work.
+depends_on:
+  - qualified-member-target-identity-is-durable
+  - qualified-destination-refusals-are-atomic
+  - target-worktree-owns-qualified-conversation
+  - removed-members-remain-attribution-tombstones
+created_by: persistent-scheduled-messages-s1

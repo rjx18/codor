@@ -1,4 +1,4 @@
-import type { Delivery, Message } from '@codor/protocol';
+import type { Delivery, Message, Schedule } from '@codor/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
@@ -14,7 +14,53 @@ import {
   messageReadSeq,
   qualifiedAuthorLabel,
   resolveRunningSince,
+  orderedVisibleSchedules,
+  reserveScheduleCancel,
+  scheduleCancelReady,
+  type ScheduleCancelAttempt,
+  settleScheduleCancelAttempt,
 } from './Transcript.js';
+
+describe('scheduled transcript projection', () => {
+  const schedule = (id: string, due: string, created: string, state: Schedule['state']): Schedule => ({
+    id, room: 'eng', author_id: 'human', author_handle: 'richard',
+    target: { member_id: 'agent', conversation_id: 'eng', handle: 'agent' },
+    body: '@agent scheduled', mentions: [{ member_id: 'agent', start: 0, end: 6 }],
+    due_ts: due, host_offset_minutes: 480, state,
+    created_ts: created, updated_ts: created,
+  });
+
+  it('orders by due, creation, and id while suppressing sent rows and other rooms', () => {
+    expect(orderedVisibleSchedules({
+      b: schedule('b', '2026-08-12T12:00:00.000Z', '2026-08-12T12:01:00.000Z', 'pending'),
+      a: schedule('a', '2026-08-12T12:00:00.000Z', '2026-08-12T12:01:00.000Z', 'cancelled'),
+      sent: schedule('sent', '2026-08-12T11:00:00.000Z', '2026-08-12T11:00:00.000Z', 'sent'),
+      other: { ...schedule('other', '2026-08-12T10:00:00.000Z', '2026-08-12T10:00:00.000Z', 'pending'), room: 'other' },
+    }, 'eng').map((row) => row.id)).toEqual(['a', 'b']);
+  });
+
+  it('admits cancellation only with current room evidence and reserves one same-tick act', () => {
+    expect(scheduleCancelReady(false, false)).toBe(false);
+    expect(scheduleCancelReady(true, false)).toBe(false);
+    expect(scheduleCancelReady(true, true)).toBe(true);
+    const reservations = new Set<string>();
+    expect(reserveScheduleCancel(reservations, 'one')).toBe(true);
+    expect(reserveScheduleCancel(reservations, 'one')).toBe(false);
+    expect([...reservations]).toEqual(['one']);
+  });
+
+  it('settles one attempt from newer exact errors and clears stale or terminal evidence', () => {
+    const pending: ScheduleCancelAttempt = { errorCount: 2, settled: false };
+    const row = schedule('one', '2026-08-12T12:00:00.000Z', '2026-08-12T12:00:00.000Z', 'pending');
+    expect(settleScheduleCancelAttempt(pending, row, 2, 'old refusal', true)).toBe(pending);
+    expect(settleScheduleCancelAttempt(pending, row, 3, 'new refusal', true)).toEqual({
+      errorCount: 3, settled: true, error: 'new refusal',
+    });
+    expect(settleScheduleCancelAttempt(pending, { ...row, state: 'cancelled' }, 3, 'old refusal', true)).toBeUndefined();
+    expect(settleScheduleCancelAttempt(pending, undefined, 3, 'old refusal', true)).toBeUndefined();
+    expect(settleScheduleCancelAttempt(pending, row, 2, 'old refusal', false)).toBeUndefined();
+  });
+});
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-regression
 describe('cross-output historical tool presentation', () => {
