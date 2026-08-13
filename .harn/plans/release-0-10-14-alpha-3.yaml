@@ -5,11 +5,11 @@ notes: >
   unique 0.10.14-alpha.3 release identity. Change no runtime behavior, package
   composition, install behavior, workflow policy, release permissions, npm
   latest tag, or production deployment. Push the release commit only to the
-  curated alpha branch; after alpha CI passes, push signed
-  v0.10.14-alpha.3 so the existing release workflow publishes npm dist-tag
-  alpha and a GitHub prerelease with OIDC provenance. Main has already received
-  the independently verified integration and its production workflow owns the
-  codor.app deployment.
+  curated alpha branch; after alpha CI passes, push signed v0.10.14-alpha.3 so
+  the existing release workflow publishes npm dist-tag alpha and a GitHub
+  prerelease with OIDC provenance. Main has already received the independently
+  verified integration and its production workflow owns the codor.app
+  deployment.
 assumptions:
   retire: []
   create: []
@@ -38,8 +38,8 @@ assumptions:
         release identity advances.
     - id: acp-v1-events-and-capabilities-are-negotiated
       outcome: unchanged
-      reason: ACP behavior is unchanged; clientInfo reports the common
-        0.10.14-alpha.3 identity.
+      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.14-alpha.3
+        identity.
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
       reason: Recursive build, serialized tests, browser tests, audits, and install
@@ -130,3 +130,5 @@ verification: >
   workflow green, then verify npm alpha, GitHub prerelease assets and checksums,
   public npx metadata, and codor.app production deployment. Do not move npm
   latest or modify runtime behavior.
+applied:
+  applied_at: 2026-08-13T02:34:34.730Z

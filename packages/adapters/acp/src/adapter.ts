@@ -237,7 +237,7 @@ export class AcpAdapter implements HarnessAdapter {
     const initialized = await connection.initialize({
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {},
-      clientInfo: { name: 'Codor', version: '0.10.14-alpha.2' },
+      clientInfo: { name: 'Codor', version: '0.10.14-alpha.3' },
     }).catch(() => abortStart('initialization failed'));
     if (initialized.protocolVersion !== PROTOCOL_VERSION) {
       abortStart(`negotiated unsupported protocol version ${String(initialized.protocolVersion)}`);
