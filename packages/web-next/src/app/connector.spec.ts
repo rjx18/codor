@@ -152,6 +152,50 @@ describe('connector resume', () => {
   });
 
   // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
+  // harn:assume merged-schedule-and-context-actions-correlate-without-cross-talk ref=combined-hosted-action-routing-regression
+  it('routes scheduled and reset errors to their source room without ref cross-talk', () => {
+    const isolated = createClientStore();
+    const connector = createConnector({
+      room: 'source', token: 'token', store: isolated,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [{ id: 'source' }, { id: 'other' }] });
+    isolated.getState().registerActionRef('source', 'reset-1', 'agent-source');
+
+    connector.act({ act: 'cancel_schedule', schedule_id: 'schedule-1' });
+    connector.act({
+      act: 'clear_member_context', member_id: 'agent-source',
+    }, 'reset-1');
+    connector.switchRoom('other');
+    socket.deliver({ type: 'error', ref: 'schedule-1', message: 'cancel failed' });
+    socket.deliver({ type: 'error', ref: 'reset-1', message: 'reset failed' });
+
+    expect(socket.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'act'))
+      .toEqual([
+        {
+          type: 'act', room: 'source', ref: 'schedule-1',
+          act: { act: 'cancel_schedule', schedule_id: 'schedule-1' },
+        },
+        {
+          type: 'act', room: 'source', ref: 'reset-1',
+          act: { act: 'clear_member_context', member_id: 'agent-source' },
+        },
+      ]);
+    expect(roomSlice(isolated.getState(), 'source')).toMatchObject({
+      errorRefs: { 'schedule-1': 1, 'reset-1': 1 },
+      errorTexts: { 'schedule-1': 'cancel failed', 'reset-1': 'reset failed' },
+      actionResults: {
+        'schedule-1': { status: 'error', message: 'cancel failed' },
+        'reset-1': { status: 'error', memberId: 'agent-source', message: 'reset failed' },
+      },
+    });
+    expect(roomSlice(isolated.getState(), 'other').errors).toEqual([]);
+    connector.dispose();
+  });
+  // harn:end merged-schedule-and-context-actions-correlate-without-cross-talk
+
   it('writes only the injected computer store and token sink', () => {
     const isolated = createClientStore();
     const setToken = vi.fn((token: string) => token);

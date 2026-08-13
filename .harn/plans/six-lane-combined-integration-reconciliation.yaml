@@ -84,3 +84,5 @@ verification: >
   ancestry verification, and git diff checks. Create one reconciliation commit
   and leave the integration worktree clean. Do not push, deploy, publish,
   release, or modify accepted source worktrees.
+applied:
+  applied_at: 2026-08-13T02:25:40.246Z

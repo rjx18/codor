@@ -98,6 +98,32 @@ describe('room-keyed client state', () => {
   });
   // harn:end member-context-reset-is-authorized-atomic-and-lazy
 
+  // harn:assume merged-schedule-and-context-actions-correlate-without-cross-talk ref=combined-correlated-error-projection-regression
+  it('retains exact schedule and reset error projections without overwriting either ref', () => {
+    const store = createClientStore();
+    store.getState().registerActionRef('eng', 'reset-1', 'agent-1');
+    store.getState().applyFrame(frame({
+      type: 'error', ref: 'schedule-1', message: 'cancel failed',
+    }), 'eng');
+    store.getState().applyFrame(frame({
+      type: 'error', ref: 'reset-1', message: 'reset failed',
+    }), 'eng');
+
+    expect(roomSlice(store.getState(), 'eng')).toMatchObject({
+      errors: ['cancel failed', 'reset failed'],
+      errorRefs: { 'schedule-1': 1, 'reset-1': 1 },
+      errorTexts: { 'schedule-1': 'cancel failed', 'reset-1': 'reset failed' },
+      actionResults: {
+        'schedule-1': { ref: 'schedule-1', status: 'error', message: 'cancel failed' },
+        'reset-1': {
+          ref: 'reset-1', status: 'error', memberId: 'agent-1', message: 'reset failed',
+        },
+      },
+      actionTargets: { 'reset-1': 'agent-1' },
+    });
+  });
+  // harn:end merged-schedule-and-context-actions-correlate-without-cross-talk
+
   // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-regression
   // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-regression
   it('projects only exact correlated results and consumes them from one room', () => {

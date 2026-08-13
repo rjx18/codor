@@ -1,0 +1,19 @@
+id: merged-schedule-and-context-actions-correlate-without-cross-talk
+hash: a-b695bd2dc0f9
+title: Scheduled cancellation and context reset share transport correlation
+  without cross-talk
+state: active
+statement: >
+  In the combined client and protocol, schedule cancellation must default to its
+  stable schedule id while clear_member_context must require and preserve its
+  caller-owned bounded ref. Direct and hosted transports must emit exactly one
+  ref per act; hosted replies must return to the source room even after room
+  switching; and a correlated error must preserve the exact error text, count,
+  member-local action result, and target without overwriting either action
+  family's state.
+depends_on:
+  - scheduled-cards-are-accessible-authoritative-and-nonduplicating
+  - context-reset-confirmation-is-anchored-and-member-local
+  - context-reset-requests-settle-by-explicit-ref
+  - member-context-reset-is-authorized-atomic-and-lazy
+created_by: six-lane-combined-integration-reconciliation
