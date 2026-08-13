@@ -5,17 +5,18 @@ notes: >
   0e5f3c3, and d612828. It does not claim to govern or re-author any accepted
   lane. The only textual conflicts occurred where scheduled cancellation and
   member context reset independently extended the same act schema, direct and
-  hosted transports, and browser error projection. The additive resolution
-  keeps both contracts. Add executable cross-lane regressions proving that the
-  two action families retain distinct correlation semantics and never overwrite
-  or misroute one another. Make no product change unless one of these regressions
-  exposes a concrete integration defect, and keep any such correction inside
-  the named seam. Push, deployment, publication, release, and unrelated feature
-  work remain out of scope.
+  hosted transports, and browser error projection. The additive resolution keeps
+  both contracts. Add executable cross-lane regressions proving that the two
+  action families retain distinct correlation semantics and never overwrite or
+  misroute one another. Make no product change unless one of these regressions
+  exposes a concrete integration defect, and keep any such correction inside the
+  named seam. Push, deployment, publication, release, and unrelated feature work
+  remain out of scope.
 assumptions:
   create:
     - id: merged-schedule-and-context-actions-correlate-without-cross-talk
-      title: Scheduled cancellation and context reset share transport correlation without cross-talk
+      title: Scheduled cancellation and context reset share transport correlation
+        without cross-talk
       statement: >
         In the combined client and protocol, schedule cancellation must default
         to its stable schedule id while clear_member_context must require and
@@ -36,42 +37,50 @@ assumptions:
   reviewed:
     - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
       outcome: unchanged
-      reason: Cancellation still uses one stable schedule ref; reconciliation only proves coexistence with explicit reset refs.
+      reason: Cancellation still uses one stable schedule ref; reconciliation only
+        proves coexistence with explicit reset refs.
     - id: context-reset-confirmation-is-anchored-and-member-local
       outcome: unchanged
-      reason: Reset progress and replies remain source-room and member-local while sharing the act transport with schedules.
+      reason: Reset progress and replies remain source-room and member-local while
+        sharing the act transport with schedules.
     - id: context-reset-requests-settle-by-explicit-ref
       outcome: unchanged
-      reason: Clear context still requires its caller-owned bounded ref and settles only from that ref.
+      reason: Clear context still requires its caller-owned bounded ref and settles
+        only from that ref.
     - id: member-context-reset-is-authorized-atomic-and-lazy
       outcome: unchanged
-      reason: Reset authorization, retirement, and lazy restart behavior are untouched by transport reconciliation.
+      reason: Reset authorization, retirement, and lazy restart behavior are untouched
+        by transport reconciliation.
 anchors:
   merged-schedule-and-context-actions-correlate-without-cross-talk:
     combined-action-ref-protocol-regression:
       action: change
-      reason: Prove schedule cancellation and context reset enforce their different ref requirements together.
+      reason: Prove schedule cancellation and context reset enforce their different
+        ref requirements together.
     combined-direct-action-ref-regression:
       action: change
-      reason: Prove the direct socket defaults schedule refs but preserves explicit reset refs exactly once.
+      reason: Prove the direct socket defaults schedule refs but preserves explicit
+        reset refs exactly once.
     combined-hosted-action-routing-regression:
       action: change
-      reason: Prove hosted correlated replies return to the source room after switching.
+      reason: Prove hosted correlated replies return to the source room after
+        switching.
     combined-correlated-error-projection-regression:
       action: change
-      reason: Prove exact text, count, target, and action result coexist for one correlated error.
+      reason: Prove exact text, count, target, and action result coexist for one
+        correlated error.
 files:
-  - packages/protocol/src/schemas.spec.ts
+  - packages/protocol/src/integration-correlation.spec.ts
   - packages/web-next/src/runtime/ws.spec.ts
   - packages/web-next/src/app/connector.spec.ts
   - packages/web-next/src/app/store.spec.ts
 verification: >
   Check and clean-lock this plan before editing. Run the focused protocol,
   direct transport, managed connector, and store regressions; complete protocol
-  and web unit suites; protocol and web production builds; and the browser
-  rooms covering scheduled cards and member context reset. Then run the full
-  combined workspace build, serialized workspace tests, complete Playwright
-  suite, release/license audits, installation proofs, Harn working/staged/apply
-  checks, ancestry verification, and git diff checks. Create one reconciliation
-  commit and leave the integration worktree clean. Do not push, deploy, publish,
+  and web unit suites; protocol and web production builds; and the browser rooms
+  covering scheduled cards and member context reset. Then run the full combined
+  workspace build, serialized workspace tests, complete Playwright suite,
+  release/license audits, installation proofs, Harn working/staged/apply checks,
+  ancestry verification, and git diff checks. Create one reconciliation commit
+  and leave the integration worktree clean. Do not push, deploy, publish,
   release, or modify accepted source worktrees.
