@@ -1,0 +1,17 @@
+id: active-runs-follow-established-transcript-time
+hash: a-eb3452b84294
+title: Active legacy runs use the same established transcript chronology as
+  finalized runs
+state: active
+statement: >
+  Before permanent continuation ordering begins, every run root is ordered by
+  its established transcript time: ended_ts when terminal and present, otherwise
+  the root message timestamp. An active run is never artificially pinned behind
+  later messages. Finalized roots retain their established ended_ts ordering,
+  while permanent continuation and output-message families retain strict id
+  order. The rule is identical in direct and hosted clients.
+depends_on:
+  - interim-posts-stay-flat-beside-their-live-run
+  - continuation-writer-follows-journaled-output-ownership
+  - prose-blocks-carry-first-delta-timestamps
+created_by: live-run-chronology-p1

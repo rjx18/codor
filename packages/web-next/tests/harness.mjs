@@ -747,6 +747,8 @@ const chronoRunning = daemon.store.postMessage('chronology', {
     events_ref: 'runs/chronology-running.jsonl',
   },
 });
+daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+  .run(chronoTs(3), 'chronology', chronoRunning.id);
 const chronoAfter = chronoMessage('chronology chat after the running turn started');
 daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
   .run(chronoTs(2), 'chronology', chronoAfter.id);

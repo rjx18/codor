@@ -1,10 +1,8 @@
 import type { Message } from '@codor/protocol';
 
+// harn:assume active-runs-follow-established-transcript-time ref=active-run-transcript-chronology
 export function transcriptTime(message: Message): number {
-  if (message.kind === 'run' && message.run?.status === 'running') {
-    return Number.POSITIVE_INFINITY;
-  }
-  if (message.kind === 'run' && message.run?.status !== 'running') {
+  if (message.kind === 'run') {
     return Date.parse(message.run?.ended_ts ?? message.ts);
   }
   return Date.parse(message.ts);
@@ -23,15 +21,11 @@ export function continuationFloor(messages: readonly Message[]): number | undefi
 
 function sortLegacyMessages(messages: readonly Message[]): Message[] {
   return [...messages].sort((left, right) => {
-    const leftRunning = left.kind === 'run' && left.run?.status === 'running';
-    const rightRunning = right.kind === 'run' && right.run?.status === 'running';
-    if (leftRunning !== rightRunning) return leftRunning ? 1 : -1;
-    const byTime = leftRunning && rightRunning
-      ? Date.parse(left.ts) - Date.parse(right.ts)
-      : transcriptTime(left) - transcriptTime(right);
+    const byTime = transcriptTime(left) - transcriptTime(right);
     return byTime === 0 ? left.id - right.id : byTime;
   });
 }
+// harn:end active-runs-follow-established-transcript-time
 
 export function transcriptMessages(messages: Record<number, Message>): Message[] {
   const all = Object.values(messages);

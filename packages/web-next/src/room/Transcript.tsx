@@ -1100,14 +1100,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
             </section>
           )}
           {/* harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-rendering */}
-          {transcriptReady && renderHistoricalTimeline(renderedHistory, {
-            members, selfId, selfHandle, inbox,
-            room: props.room, token: props.token, connection: props.connection,
-            canPin, canDelete, canRetry,
-            actionErrorCount: slice.errorRefs.act ?? 0,
-            actionError: slice.errors.at(-1),
-          })}
-          {transcriptReady && renderTimeline(entries, {
+          {transcriptReady && renderChronologicalTranscript(renderedHistory, entries, {
             members, selfId, selfHandle, inbox,
             room: props.room, token: props.token, connection: props.connection,
             canPin, canDelete, canRetry,
@@ -2260,6 +2253,12 @@ interface TimelineCtx {
   liveRenderableRuns?: ReadonlySet<number>;
 }
 
+interface RenderedTimelineItem {
+  node: ReactNode;
+  ts: number;
+  messageId: number;
+}
+
 function historicalGroupingPresentation(
   history: TranscriptHistoryState,
   groupedUnits: readonly TranscriptHistoryUnit[],
@@ -2291,8 +2290,8 @@ function historicalGroupingPresentation(
 function renderHistoricalTimeline(
   history: TranscriptHistoryState,
   ctx: TimelineCtx,
-): ReactNode[] {
-  const out: ReactNode[] = [];
+): RenderedTimelineItem[] {
+  const out: RenderedTimelineItem[] = [];
   const anchoredOutputs = new Set<number>();
   const anchoredRoots = new Set<number>();
   const visibleIds = new Set(continuationVisibleMessages(
@@ -2346,8 +2345,10 @@ function renderHistoricalTimeline(
       : { author: previousAuthor, ts: previousTs };
     const grouped = !standaloneRun && !presentation.boundary
       && (!firstOutput || transcriptGroupingMatches(previous, groupingRow));
-    out.push(
-      <TurnBlock
+    out.push({
+      ts,
+      messageId: message.id,
+      node: <TurnBlock
         key={groupedUnits.map(transcriptUnitKey).join('|')}
         message={message}
         author={ctx.members[message.author]}
@@ -2374,7 +2375,7 @@ function renderHistoricalTimeline(
           targetIds,
         }}
       />,
-    );
+    });
     const nextGrouping = advanceTranscriptGrouping(previous, groupingRow);
     previousAuthor = nextGrouping?.author;
     previousTs = nextGrouping?.ts ?? Number.NEGATIVE_INFINITY;
@@ -2383,6 +2384,71 @@ function renderHistoricalTimeline(
 }
 // harn:end finalized-browser-history-is-combined-page-owned
 // harn:end visible-transcript-grouping-ignores-hidden-boundaries
+
+// harn:assume active-runs-follow-established-transcript-time ref=active-run-transcript-chronology
+function renderChronologicalTranscript(
+  history: TranscriptHistoryState,
+  entries: TimelineEntry[],
+  ctx: TimelineCtx,
+): ReactNode[] {
+  const historical = renderHistoricalTimeline(history, ctx);
+  if (historical.length === 0) return renderTimeline(entries, ctx);
+
+  const active: Extract<TimelineEntry, { kind: 'turn' }>[] = [];
+  const remaining: TimelineEntry[] = [];
+  for (const entry of entries) {
+    if (
+      entry.kind === 'turn'
+      && entry.message.kind === 'run'
+      && entry.message.run?.status === 'running'
+    ) active.push(entry);
+    else remaining.push(entry);
+  }
+  if (active.length === 0) {
+    return [
+      ...historical.map((item) => item.node),
+      ...renderTimeline(entries, ctx),
+    ];
+  }
+
+  // Permanent output-message families already carry authoritative id order.
+  // Only the legacy timestamp-ordered region needs an active root inserted
+  // among page-owned finalized rows.
+  if (continuationFloor([
+    ...Object.values(history.messages),
+    ...entries.map((entry) => entry.message),
+  ]) !== undefined) {
+    return [
+      ...historical.map((item) => item.node),
+      ...renderTimeline(entries, ctx),
+    ];
+  }
+
+  const activeItems = active.map((entry): RenderedTimelineItem => ({
+    ts: entry.ts,
+    messageId: entry.message.id,
+    node: renderTimeline([entry], ctx)[0],
+  }));
+  const merged: ReactNode[] = [];
+  let activeIndex = 0;
+  for (const historicalItem of historical) {
+    while (activeIndex < activeItems.length) {
+      const activeItem = activeItems[activeIndex]!;
+      const before = activeItem.ts < historicalItem.ts
+        || (activeItem.ts === historicalItem.ts && activeItem.messageId < historicalItem.messageId);
+      if (!before) break;
+      merged.push(activeItem.node);
+      activeIndex += 1;
+    }
+    merged.push(historicalItem.node);
+  }
+  while (activeIndex < activeItems.length) {
+    merged.push(activeItems[activeIndex]!.node);
+    activeIndex += 1;
+  }
+  return [...merged, ...renderTimeline(remaining, ctx)];
+}
+// harn:end active-runs-follow-established-transcript-time
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-presentation
 export function groupHistoricalPresentationUnits(
