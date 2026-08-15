@@ -1,0 +1,22 @@
+id: active-run-segments-follow-established-transcript-time
+hash: a-47e08ee9cbd3
+title: Active legacy run segments interleave by the established transcript timeline
+state: active
+statement: >
+  Before permanent continuation ordering begins, timestamped visible segments
+  from a legacy run must enter the same top-level chronology while the run is
+  active and after it finalizes, so block A, a message posted between blocks,
+  and block B remain A then message then B through live append and settlement.
+  The renderer uses the existing journal-index merge, first-event segment
+  timestamp, and finalized fallback rules; tools-only, evidence-free, and
+  ts-less roots remain whole, finalized ended_ts behavior remains intact, and
+  permanent continuation/output families retain strict id order in direct and
+  hosted clients.
+depends_on:
+  - subscribed-live-run-events-survive-switch-and-history-retirement
+  - normalized-run-items-presented-live
+  - prose-blocks-carry-first-delta-timestamps
+  - live-runs-settle-beside-paged-history-once
+  - finalized-browser-history-is-combined-page-owned
+  - continuation-writer-follows-journaled-output-ownership
+created_by: live-run-chronology-p1-review-fix

@@ -1,0 +1,94 @@
+id: live-run-chronology-p1
+title: Keep active runs in established transcript chronology
+notes: >
+  Phase 1 only from the approved chronology correction program, based exactly on
+  e47cdb791502138fc76f8e10b926b357aae95e6a. Restore the shared transcript
+  ordering rule for active legacy runs: before completion a run uses its durable
+  root timestamp, just as the existing finalized path uses ended_ts when present
+  and otherwise falls back to that root timestamp. A later human or agent
+  message must therefore remain after the active run, while finalized runs keep
+  their existing ended_ts chronology. Permanent continuation/output-message
+  ordering remains id-based. This is a shared direct and hosted presentation
+  correction, not a hosted workaround. Do not change history pages, server
+  unitization, protocol, journals, relay, delivery, room switching, or scroll
+  ownership.
+assumptions:
+  create:
+    - id: active-runs-follow-established-transcript-time
+      title: Active legacy runs use the same established transcript chronology as
+        finalized runs
+      statement: >
+        Before permanent continuation ordering begins, every run root is ordered
+        by its established transcript time: ended_ts when terminal and present,
+        otherwise the root message timestamp. An active run is never
+        artificially pinned behind later messages. Finalized roots retain their
+        established ended_ts ordering, while permanent continuation and
+        output-message families retain strict id order. The rule is identical in
+        direct and hosted clients.
+      reason: >
+        Tail-pinning active roots makes a later interjection appear before the
+        response that was already in progress and can visibly reorder the
+        transcript again when the run settles.
+      depends_on:
+        - interim-posts-stay-flat-beside-their-live-run
+        - continuation-writer-follows-journaled-output-ownership
+        - prose-blocks-carry-first-delta-timestamps
+  reviewed:
+    - id: interim-posts-stay-flat-beside-their-live-run
+      outcome: unchanged
+      reason: >
+        Interim posts remain independent flat timeline messages; this correction
+        only restores their chronological position beside an active run.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Permanent continuation/output-message rows continue to use strict id
+        order and retain their existing evidence ownership.
+    - id: prose-blocks-carry-first-delta-timestamps
+      outcome: unchanged
+      reason: >
+        Finalized per-block interleaving and first-delta timestamps remain
+        unchanged; the fix affects only whole active-root placement.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Finalized membership and indexed evidence continue to come only from
+        combined history pages; no new fetch or fallback is introduced.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        Ordering changes no scroll or geometry owner and does not remount the
+        transcript.
+files:
+  - .harn/plans/live-run-chronology-p1.yaml
+  - packages/web-next/src/room/transcript-order.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/room.e2e.spec.ts
+  - packages/web-next/tests/harness.mjs
+anchors:
+  active-runs-follow-established-transcript-time:
+    active-run-transcript-chronology:
+      action: change
+      reason: >
+        Remove the active-run infinity/tail special case and interleave the
+        shared active presentation with finalized rows by the same established
+        timestamp rule before continuation ordering.
+    active-run-chronology-unit-regression:
+      action: change
+      reason: >
+        Prove a live root precedes a later message while a finalized root keeps
+        the existing ended_ts order.
+    active-run-chronology-browser-regression:
+      action: change
+      reason: >
+        Reproduce the live browser order before completion alongside the
+        existing finalized-run chronology in the same transcript.
+verification: >
+  Record the focused unit/browser regression failing before the implementation,
+  then run the focused transcript-order/Transcript units, the chronology browser
+  journey, all web-next units, the production/PWA build, Harn plan/check/apply
+  and staged checks, git diff --check, and a final clean-tree check. Commit the
+  implementation once. Do not push, deploy, or begin another phase.
+applied:
+  applied_at: 2026-08-15T09:23:45.022Z

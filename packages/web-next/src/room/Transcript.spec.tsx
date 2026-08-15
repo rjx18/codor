@@ -213,15 +213,17 @@ function root(id: number, mode?: 'messages', status: 'running' | 'completed' = '
   };
 }
 
-// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-regression
+// harn:assume active-run-segments-follow-established-transcript-time ref=active-run-segment-unit-regression
 describe('transcript durable ordering', () => {
-  it('retains ended-time and running-tail behavior for already stored roots', () => {
+  it('orders an active root by its message time while retaining finalized ended-time order', () => {
     expect(transcriptMessages({ 1: root(1), 2: chat(2) }).map((message) => message.id))
       .toEqual([2, 1]);
     expect(transcriptMessages({ 1: root(1, undefined, 'running'), 2: chat(2) }).map((message) => message.id))
-      .toEqual([2, 1]);
+      .toEqual([1, 2]);
   });
+  // harn:end active-run-segments-follow-established-transcript-time
 
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-regression
   it('keeps root, human interjection, and continuation in permanent id order', () => {
     const first = root(1, 'messages');
     const interjection = chat(2, 'do not move the first answer');

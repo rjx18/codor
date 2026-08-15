@@ -747,6 +747,8 @@ const chronoRunning = daemon.store.postMessage('chronology', {
     events_ref: 'runs/chronology-running.jsonl',
   },
 });
+daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
+  .run(chronoTs(3), 'chronology', chronoRunning.id);
 const chronoAfter = chronoMessage('chronology chat after the running turn started');
 daemon.store.db.prepare('UPDATE messages SET ts = ? WHERE room = ? AND id = ?')
   .run(chronoTs(2), 'chronology', chronoAfter.id);
@@ -1037,7 +1039,8 @@ const startStretchTurn = (existingRoom, opts = {}) => {
     body: '',
     run: {
       status: 'running', started_ts: startedTs, tool_calls: 0,
-      events_ref: ref, output_mode: 'messages',
+      events_ref: ref,
+      ...(opts.legacy === true ? {} : { output_mode: 'messages' }),
     },
   });
   // With `live:false` the room genuinely becomes running while the browser is

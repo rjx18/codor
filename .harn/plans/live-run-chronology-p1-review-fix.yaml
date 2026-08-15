@@ -1,0 +1,126 @@
+id: live-run-chronology-p1-review-fix
+title: Interleave active run segments before and after live interjections
+notes: >
+  Contained Phase 1 review correction on accepted commit
+  62c566c64f6b5711908891292f09d2f104a13339. The first phase corrected whole-root
+  placement but left an active run indivisible, so block B could not remain
+  after a message posted between blocks A and B. Feed the existing merged
+  journal/live evidence through the same timestamped segment flattener already
+  used for finalized legacy runs. One active legacy run must render A, then the
+  interjected human or agent message, then B while still running, and retain
+  that order after finalization/head reconciliation. Keep tools-only and
+  evidence-free roots whole, ts-less fallback behavior, permanent continuation
+  id order, page ownership, live evidence merge, anchors, and direct/hosted
+  parity. No hosted exception, protocol, server unitization, journal, relay,
+  delivery, pagination, or scroll-owner change.
+assumptions:
+  retire:
+    - id: active-runs-follow-established-transcript-time
+      reason: >
+        Whole-root timestamp placement is insufficient: an active run with
+        timestamped prose on both sides of an interjection must be flattened by
+        segment before it settles.
+  create:
+    - id: active-run-segments-follow-established-transcript-time
+      title: Active legacy run segments interleave by the established transcript
+        timeline
+      statement: >
+        Before permanent continuation ordering begins, timestamped visible
+        segments from a legacy run must enter the same top-level chronology
+        while the run is active and after it finalizes, so block A, a message
+        posted between blocks, and block B remain A then message then B through
+        live append and settlement. The renderer uses the existing journal-index
+        merge, first-event segment timestamp, and finalized fallback rules;
+        tools-only, evidence-free, and ts-less roots remain whole, finalized
+        ended_ts behavior remains intact, and permanent continuation/output
+        families retain strict id order in direct and hosted clients.
+      reason: >
+        Ordering only the active root cannot represent an interjection that
+        belongs between two already-visible pieces of the same running answer.
+      depends_on:
+        - subscribed-live-run-events-survive-switch-and-history-retirement
+        - normalized-run-items-presented-live
+        - prose-blocks-carry-first-delta-timestamps
+        - live-runs-settle-beside-paged-history-once
+        - finalized-browser-history-is-combined-page-owned
+        - continuation-writer-follows-journaled-output-ownership
+  reviewed:
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: >
+        The same bounded room-owned journal-index merge supplies active events;
+        no second cache, fetch, or computer store is introduced.
+    - id: normalized-run-items-presented-live
+      outcome: unchanged
+      reason: >
+        Existing prose/tool/compaction normalization remains the only segment
+        presentation path.
+    - id: prose-blocks-carry-first-delta-timestamps
+      outcome: unchanged
+      reason: >
+        Existing first-event timestamps and ts-less fallback semantics are
+        consumed unchanged before and after finalization.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: >
+        Settlement and combined-head reconciliation retain one evidence owner;
+        only top-level placement uses active segments sooner.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        Finalized membership and evidence remain combined-page owned without a
+        finalized journal fallback.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Permanent output rows retain strict id order and indexed evidence
+        attribution; only legacy one-row families split by time.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        The existing transcript geometry owner observes the reordered children;
+        no new scroll effect, remount, or key is added.
+files:
+  - .harn/plans/live-run-chronology-p1-review-fix.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/transcript-order.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room.e2e.spec.ts
+  - packages/web-next/tests/room43-run-events-live.e2e.spec.ts
+anchors:
+  active-runs-follow-established-transcript-time:
+    active-run-transcript-chronology:
+      action: remove
+      reason: Replace whole-root placement with shared active segment chronology.
+    active-run-chronology-unit-regression:
+      action: remove
+      reason: Move the retained root/finalized assertion under corrected segment truth.
+    active-run-chronology-browser-regression:
+      action: remove
+      reason: Move the retained legacy chronology journey under corrected segment
+        truth.
+  active-run-segments-follow-established-transcript-time:
+    active-run-segment-chronology:
+      action: change
+      reason: >
+        Present merged active evidence as timestamped top-level segments and
+        merge it with page-owned legacy rows without disturbing strict families.
+    active-run-segment-unit-regression:
+      action: change
+      reason: >
+        Preserve active root timestamp and finalized ended_ts fallbacks while
+        pinning the timestamped segment split.
+    active-run-segment-browser-regression:
+      action: change
+      reason: >
+        Reproduce A then interjection then B before completion and prove the
+        exact order remains after finalization.
+verification: >
+  Record the focused Room 43 lifecycle regression failing on the accepted Phase
+  1 head, then run focused Transcript/run-timeline units, all web-next units,
+  the production/PWA build, Rooms 1 and 43, Harn working/staged/apply checks,
+  git diff --check, one review-fix commit, and a clean-tree check. Do not push,
+  deploy, monitor another agent, or begin another phase.
+applied:
+  applied_at: 2026-08-15T09:33:39.172Z
