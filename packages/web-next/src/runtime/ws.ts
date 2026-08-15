@@ -7,7 +7,7 @@ export interface Connection {
   post(
     body: string,
     opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
-  ): void;
+  ): boolean;
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel
   // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-transport
   /** Send an act with its caller-owned ref, defaulting schedule cancellation to its stable schedule id. */
@@ -103,20 +103,29 @@ export function connect(options: ConnectOptions): Connection {
   };
   open();
 
-  const send = (frame: unknown): void => {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
+  const send = (frame: unknown): boolean => {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(frame));
+      return true;
+    } catch {
+      // A socket can close between the readyState check and send(). The caller
+      // must be able to preserve a draft instead of believing this was queued.
+      return false;
+    }
   };
 
   const connection: Connection = {
-    post: (body, opts) =>
-      send({
-        type: 'post',
-        room: options.room,
-        body,
-        ...(opts?.replyTo !== undefined && { reply_to: opts.replyTo }),
-        ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
-        ...(opts?.voice !== undefined && { voice: opts.voice }),
-      }),
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=runtime-post-dispatch-result
+    post: (body, opts) => send({
+      type: 'post',
+      room: options.room,
+      body,
+      ...(opts?.replyTo !== undefined && { reply_to: opts.replyTo }),
+      ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
+      ...(opts?.voice !== undefined && { voice: opts.voice }),
+    }),
+    // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act, ref) => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);

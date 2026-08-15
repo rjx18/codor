@@ -719,7 +719,14 @@ export function Composer(props: { room: string; token: () => string; connection:
           duration_seconds: Math.min(600, Math.max(0.1, duration)),
           levels: downsampleLevels(done.flatMap((take) => take.levels)),
         };
-        props.connection.post(composeVoiceBody(voiceRecipient, texts), { voice });
+        const accepted = props.connection.post(composeVoiceBody(voiceRecipient, texts), { voice });
+        if (!accepted) {
+          // Nothing entered the transport. Keep the takes and leave Send
+          // unlocked so the operator can retry after the existing reconnect.
+          setSending(false);
+          setHint('Reconnect before sending');
+          return;
+        }
         closeDictation();
       })
       .catch(() => {
@@ -923,10 +930,20 @@ export function Composer(props: { room: string; token: () => string; connection:
       authorId: targetSlice.selfMemberId,
       errorCount: slice.errors.length,
     });
-    props.connection.post(body, {
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=composer-rejection-unlocks-draft
+    const accepted = props.connection.post(body, {
       ...(replyTo !== undefined && { replyTo }),
       ...(pending.length > 0 && { attachments: pending.map((attachment) => attachment.id) }),
     });
+    if (!accepted) {
+      // The pending snapshot is local bookkeeping, not a client-side queue.
+      // Release it immediately while preserving the controlled raw draft,
+      // reply target, and attachment tray for an explicit retry.
+      setPendingSend(undefined);
+      setHint('Reconnect before sending');
+      return;
+    }
+    // harn:end reconnect-safe-post-dispatch-preserves-draft
     setHint(undefined);
   };
   // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo

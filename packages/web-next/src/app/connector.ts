@@ -174,8 +174,16 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     foregroundProbePending = false;
   };
 
-  const send = (frame: unknown): void => {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
+  const send = (frame: unknown): boolean => {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(frame));
+      return true;
+    } catch {
+      // readyState can race a close; report the refusal so a composer can keep
+      // its raw draft available for an explicit retry instead of locking it.
+      return false;
+    }
   };
 
   // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion
@@ -565,6 +573,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const connector: RoomConnector = {
     room: () => currentRoom,
     state: () => state,
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=connector-post-dispatch-result
     post: (
       body: string,
       opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
@@ -577,6 +586,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
+    // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act: Act, ref?: string): void => {

@@ -140,7 +140,7 @@ function harness() {
         roomReadiness: (target) =>
           target === room || desired.includes(target) ? 'connected' : 'unsubscribed',
         // harn:end worktree-conversation-status-is-live-and-independent
-        post: () => undefined,
+        post: () => false,
         act: () => undefined,
         disconnect: () => options.store!.getState().setConnected(false),
         reconnect: () => options.store!.getState().setConnected(true),
