@@ -20,7 +20,11 @@ vi.mock('../runtime/crypto.js', () => ({ forgetRelayPairing: vi.fn() }));
 import { resetClientStoreForTest, useClientStore } from '../app/store.js';
 import { writeComputerAppearances } from '../room/ComputerChoice.js';
 import { RecoveryCard } from './RecoveryCard.js';
-import { RecoveryOverlay } from './RecoveryOverlay.js';
+import {
+  loadingPillState,
+  RecoveryOverlay,
+  type LoadingPillInputs,
+} from './RecoveryOverlay.js';
 
 afterEach(() => {
   sessions.managed = true;
@@ -45,6 +49,58 @@ function hydrateCachedUnit(): void {
     },
   );
 }
+
+// harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-unit-regression
+describe('prioritized room loading pill', () => {
+  const base: LoadingPillInputs = {
+    connectionState: 'online',
+    connected: true,
+    readableReconnect: false,
+    roomHydrated: true,
+    roomReady: true,
+    loadingHead: false,
+    loadingCursor: undefined,
+  };
+
+  it('projects each existing state and keeps the first true state', () => {
+    expect(loadingPillState({ ...base, connected: false, readableReconnect: true })).toBe('reconnecting');
+    expect(loadingPillState({ ...base, roomHydrated: false })).toBe('channel');
+    expect(loadingPillState({ ...base, roomReady: false })).toBe('channel');
+    expect(loadingPillState({ ...base, loadingHead: true })).toBe('syncing');
+    expect(loadingPillState({ ...base, loadingCursor: 'older-1' })).toBe('older');
+    expect(loadingPillState({ ...base, loadingHead: true, loadingCursor: 'older-1' })).toBe('syncing');
+    expect(loadingPillState({ ...base, roomReady: false, loadingHead: true, loadingCursor: 'older-1' })).toBe('channel');
+    expect(loadingPillState(base)).toBeUndefined();
+  });
+
+  it('does not show the reconnect pill for a non-readable direct failure', () => {
+    expect(loadingPillState({
+      ...base,
+      connectionState: 'agent-offline',
+      connected: false,
+    })).toBeUndefined();
+  });
+
+  it('renders the existing history-head signal as one syncing pill', async () => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    hydrateCachedUnit();
+    useClientStore.getState().setConnected(true);
+    useClientStore.getState().markRoomLive('room-a');
+    useClientStore.getState().updateTranscriptHistory('room-a', (history) => ({ ...history, loadingHead: true }));
+    connection.state = 'online';
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<RecoveryOverlay><p>room</p></RecoveryOverlay>); });
+    const pill = host.querySelector<HTMLElement>('[data-testid="reconnecting-pill"]');
+    expect(pill?.dataset.loadingState).toBe('syncing');
+    expect(pill?.textContent).toContain('Syncing messages');
+    expect(host.querySelectorAll('[data-loading-state]')).toHaveLength(1);
+    await act(async () => { root.unmount(); });
+    delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
+  });
+});
+// harn:end prioritized-room-loading-pill-uses-existing-readiness
 
 // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
 describe('RecoveryOverlay readable reconnect', () => {
