@@ -31,3 +31,5 @@ verification: >
   scope, apply the plan, and pass git diff checks. Push the correction only to
   the curated alpha branch, require alpha CI green, and do not change runtime,
   package, release, relay, deployment, or npm-tag behavior.
+applied:
+  applied_at: 2026-08-15T12:48:36.401Z

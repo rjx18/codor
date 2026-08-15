@@ -159,6 +159,20 @@ test.describe('Phase 4 Settings and default-roster UI', () => {
     await expect(page.getByText(/No default roster configured yet/)).toBeVisible();
     for (const theme of ['Light', 'Dark']) {
       await page.getByRole('tab', { name: theme }).click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme.toLowerCase());
+      await page.evaluate(async () => {
+        const finiteAnimations = document.getAnimations().filter((animation) => {
+          const endTime = animation.effect?.getComputedTiming().endTime;
+          return typeof endTime === 'number' && Number.isFinite(endTime);
+        });
+        await Promise.all(finiteAnimations.map(async (animation) => {
+          try {
+            await animation.finished;
+          } catch {
+            // A superseded transition is already settled for this measurement.
+          }
+        }));
+      });
       const axe = await new AxeBuilder({ page }).analyze();
       expect(axe.violations.map((violation) => violation.id)).toEqual([]);
     }
