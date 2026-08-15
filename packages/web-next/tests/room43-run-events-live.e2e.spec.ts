@@ -18,6 +18,44 @@ async function openRoom(page: Page, room: string): Promise<void> {
 }
 
 test.describe('background live run evidence', () => {
+  // harn:assume active-run-segments-follow-established-transcript-time ref=active-run-segment-browser-regression
+  test('keeps A, an interjection, and B ordered while active and after finalization', async ({ page }) => {
+    const { room } = await control<{ room: string }>('/stretch-room');
+    await openRoom(page, room);
+    await control('/stretch-turn', { room, legacy: true, mode: 'block' });
+
+    await control('/stretch-step', {
+      room, step: 'stretch', text: 'Active chronology block A', own: false,
+    });
+    await expect(page.getByText('Active chronology block A', { exact: true })).toBeVisible();
+
+    await control('/live-chat', {
+      room, body: 'Interjection between active blocks', route: false,
+    });
+    await expect(page.getByText('Interjection between active blocks', { exact: true })).toBeVisible();
+
+    await control('/stretch-step', {
+      room, step: 'stretch', text: 'Active chronology block B', own: false,
+    });
+    await expect(page.getByText('Active chronology block B', { exact: true })).toBeVisible();
+
+    const positions = async (): Promise<number[]> => page.locator('.nx-column > .nx-turn')
+      .evaluateAll((nodes) => [
+        nodes.findIndex((node) => node.textContent?.includes('Active chronology block A')),
+        nodes.findIndex((node) => node.textContent?.includes('Interjection between active blocks')),
+        nodes.findIndex((node) => node.textContent?.includes('Active chronology block B')),
+      ]);
+    await expect.poll(positions).toEqual([0, 1, 2]);
+    await expect(page.locator('.nx-run[data-run-status="running"]')).toHaveCount(2);
+
+    await control('/stretch-step', { room, step: 'complete' });
+    await expect(page.getByTestId(`room-working-${room}`)).toHaveCount(0);
+    await expect.poll(positions).toEqual([0, 1, 2]);
+    await expect(page.getByText('Active chronology block A', { exact: true })).toHaveCount(1);
+    await expect(page.getByText('Active chronology block B', { exact: true })).toHaveCount(1);
+  });
+  // harn:end active-run-segments-follow-established-transcript-time
+
   // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=run-event-browser-regression
   test('retains A events across A-to-B-to-A, appends, and settles once', async ({ page }) => {
     test.setTimeout(60_000);

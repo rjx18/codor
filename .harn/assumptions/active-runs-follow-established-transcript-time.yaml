@@ -2,7 +2,7 @@ id: active-runs-follow-established-transcript-time
 hash: a-eb3452b84294
 title: Active legacy runs use the same established transcript chronology as
   finalized runs
-state: active
+state: retired
 statement: >
   Before permanent continuation ordering begins, every run root is ordered by
   its established transcript time: ended_ts when terminal and present, otherwise
@@ -15,3 +15,4 @@ depends_on:
   - continuation-writer-follows-journaled-output-ownership
   - prose-blocks-carry-first-delta-timestamps
 created_by: live-run-chronology-p1
+retired_by: live-run-chronology-p1-review-fix

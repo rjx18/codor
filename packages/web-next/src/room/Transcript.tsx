@@ -473,14 +473,13 @@ export function Transcript(props: { room: string; token: () => string; connectio
   // only for current live material, so it can never trigger a cold finalized
   // journal read.
   const journalVersion = useRunJournalVersion();
-  const liveToolOnlyOutputs = useMemo(() => {
-    const selected = new Set<number>();
+  const liveRunSegments = useMemo(() => {
+    const selected = new Map<number, RunSegment[]>();
     for (const message of liveVisible) {
       if (message.kind !== 'run') continue;
       const rootId = message.run_parent_id ?? message.id;
       const root = messages[rootId]
         ?? support?.active_runs.find((candidate) => candidate.id === rootId);
-      if (root?.run?.status === 'failed' || root?.run?.status === 'interrupted') continue;
       const outputMessages = message.run_parent_id !== undefined
         || root?.run?.output_mode === 'messages';
       const merged = mergeRunEvents(
@@ -497,9 +496,23 @@ export function Transcript(props: { room: string; token: () => string; connectio
             return (target ?? rootId) === message.id;
           })
         : merged;
-      const segments = segmentTimeline(presentRunTimeline(targeted));
+      selected.set(message.id, segmentTimeline(presentRunTimeline(targeted)));
+    }
+    return selected;
+  }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
+  const liveToolOnlyOutputs = useMemo(() => {
+    const selected = new Set<number>();
+    for (const message of liveVisible) {
+      if (message.kind !== 'run') continue;
+      const rootId = message.run_parent_id ?? message.id;
+      const root = messages[rootId]
+        ?? support?.active_runs.find((candidate) => candidate.id === rootId);
+      if (root?.run?.status === 'failed' || root?.run?.status === 'interrupted') continue;
+      const segments = liveRunSegments.get(message.id) ?? [];
       if (segments.length === 0 || !segments.every((segment) => segment.kind === 'tools')) continue;
       if (root?.run?.status !== 'running') {
+        const outputMessages = message.run_parent_id !== undefined
+          || root?.run?.output_mode === 'messages';
         const finalText = outputMessages
           ? message.body
           : message.run?.final_text ?? message.body;
@@ -508,7 +521,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       selected.add(message.id);
     }
     return selected;
-  }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
+  }, [liveRunSegments, liveVisible, messages, support]);
   const liveRenderableRuns = useMemo(() => {
     const selected = new Set<number>();
     for (const message of liveVisible) {
@@ -522,21 +535,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
       }
       const outputMessages = message.run_parent_id !== undefined
         || root.run.output_mode === 'messages';
-      const merged = mergeRunEvents(
-        getRunJournal(props.room, rootId),
-        slice.runEvents[rootId] ?? { events: [], dropped_count: 0 },
-      );
-      const targeted = outputMessages
-        ? merged.filter(({ event }) => {
-            const target = event.type === 'run.item'
-              || event.type === 'timeline'
-              || event.type === 'run.completed'
-              ? event.output_message_id
-              : undefined;
-            return (target ?? rootId) === message.id;
-          })
-        : merged;
-      const segments = segmentTimeline(presentRunTimeline(targeted));
+      const segments = liveRunSegments.get(message.id) ?? [];
       const finalText = outputMessages
         ? message.body
         : message.run?.final_text ?? message.body;
@@ -545,8 +544,11 @@ export function Transcript(props: { room: string; token: () => string; connectio
       if (segments.length > 0 || finalText.length > 0) selected.add(message.id);
     }
     return selected;
-  }, [journalVersion, liveVisible, messages, props.room, slice.runEvents, support]);
-  const entries = useMemo(() => buildTimelineEntries(liveVisible, new Map()), [liveVisible]);
+  }, [liveRunSegments, liveVisible, messages, support]);
+  const entries = useMemo(
+    () => buildTimelineEntries(liveVisible, liveRunSegments),
+    [liveRunSegments, liveVisible],
+  );
   const orderedSchedules = useMemo(
     () => orderedVisibleSchedules(schedules, props.room),
     [props.room, schedules],
@@ -2186,10 +2188,9 @@ function RunContent(props: {
 // harn:end continuation-writer-follows-journaled-output-ownership
 // harn:end web-compaction-markers-upgrade-in-place
 
-// ── Timeline flattening: a finalized run's segments become top-level entries
+// ── Timeline flattening: a run's visible segments become top-level entries
 // ordered by their journal time, so a human message posted mid-run lands between
-// the run's blocks. A non-interrupted run's segments stay contiguous and render
-// as one stretch, identical to before. Running/empty runs stay whole turns. ──
+// blocks before and after completion. Tools-only / empty runs stay whole turns. ──
 
 type TimelineEntry =
   | { kind: 'turn'; message: Message; ts: number; order: number }
@@ -2204,12 +2205,11 @@ function buildTimelineEntries(visible: Message[], runSegments: Map<number, RunSe
   const list: TimelineEntry[] = [];
   legacy.forEach((message, index) => {
     const base = index * 1000;
-    const finalized = message.kind === 'run' && message.run !== undefined && message.run.status !== 'running';
-    const segments = finalized ? runSegments.get(message.id) : undefined;
+    const segments = message.kind === 'run' ? runSegments.get(message.id) : undefined;
     // Only runs that produced prose can be split around a mid-run message.
     // Tools-only / empty / compaction-only runs stay whole turns so RunContent
     // keeps rendering their final-text fallback and status marker unchanged.
-    if (finalized && segments !== undefined && segments.some((s) => s.kind === 'prose')) {
+    if (segments !== undefined && segments.some((s) => s.kind === 'prose')) {
       let lastTs = Date.parse(message.run!.ended_ts ?? message.ts);
       segments.forEach((segment, segIndex) => {
         const stamp = segmentTs(segment);
@@ -2257,6 +2257,7 @@ interface RenderedTimelineItem {
   node: ReactNode;
   ts: number;
   messageId: number;
+  order: number;
 }
 
 function historicalGroupingPresentation(
@@ -2348,6 +2349,7 @@ function renderHistoricalTimeline(
     out.push({
       ts,
       messageId: message.id,
+      order: out.length,
       node: <TurnBlock
         key={groupedUnits.map(transcriptUnitKey).join('|')}
         message={message}
@@ -2385,7 +2387,7 @@ function renderHistoricalTimeline(
 // harn:end finalized-browser-history-is-combined-page-owned
 // harn:end visible-transcript-grouping-ignores-hidden-boundaries
 
-// harn:assume active-runs-follow-established-transcript-time ref=active-run-transcript-chronology
+// harn:assume active-run-segments-follow-established-transcript-time ref=active-run-segment-chronology
 function renderChronologicalTranscript(
   history: TranscriptHistoryState,
   entries: TimelineEntry[],
@@ -2394,26 +2396,9 @@ function renderChronologicalTranscript(
   const historical = renderHistoricalTimeline(history, ctx);
   if (historical.length === 0) return renderTimeline(entries, ctx);
 
-  const active: Extract<TimelineEntry, { kind: 'turn' }>[] = [];
-  const remaining: TimelineEntry[] = [];
-  for (const entry of entries) {
-    if (
-      entry.kind === 'turn'
-      && entry.message.kind === 'run'
-      && entry.message.run?.status === 'running'
-    ) active.push(entry);
-    else remaining.push(entry);
-  }
-  if (active.length === 0) {
-    return [
-      ...historical.map((item) => item.node),
-      ...renderTimeline(entries, ctx),
-    ];
-  }
-
   // Permanent output-message families already carry authoritative id order.
-  // Only the legacy timestamp-ordered region needs an active root inserted
-  // among page-owned finalized rows.
+  // Only the legacy region merges page-owned rows with still-live entries by
+  // the timestamps both paths already expose.
   if (continuationFloor([
     ...Object.values(history.messages),
     ...entries.map((entry) => entry.message),
@@ -2424,31 +2409,44 @@ function renderChronologicalTranscript(
     ];
   }
 
-  const activeItems = active.map((entry): RenderedTimelineItem => ({
-    ts: entry.ts,
-    messageId: entry.message.id,
-    node: renderTimeline([entry], ctx)[0],
-  }));
+  type ChronologyToken =
+    | { kind: 'history'; item: RenderedTimelineItem }
+    | { kind: 'live'; entry: TimelineEntry };
+  const tokens: ChronologyToken[] = [
+    ...historical.map((item): ChronologyToken => ({ kind: 'history', item })),
+    ...entries.map((entry): ChronologyToken => ({ kind: 'live', entry })),
+  ];
+  tokens.sort((left, right) => {
+    const leftTs = left.kind === 'history' ? left.item.ts : left.entry.ts;
+    const rightTs = right.kind === 'history' ? right.item.ts : right.entry.ts;
+    if (leftTs !== rightTs) return leftTs - rightTs;
+    const leftId = left.kind === 'history' ? left.item.messageId : left.entry.message.id;
+    const rightId = right.kind === 'history' ? right.item.messageId : right.entry.message.id;
+    if (leftId !== rightId) return leftId - rightId;
+    const leftOrder = left.kind === 'history' ? left.item.order : left.entry.order;
+    const rightOrder = right.kind === 'history' ? right.item.order : right.entry.order;
+    return leftOrder - rightOrder;
+  });
+
   const merged: ReactNode[] = [];
-  let activeIndex = 0;
-  for (const historicalItem of historical) {
-    while (activeIndex < activeItems.length) {
-      const activeItem = activeItems[activeIndex]!;
-      const before = activeItem.ts < historicalItem.ts
-        || (activeItem.ts === historicalItem.ts && activeItem.messageId < historicalItem.messageId);
-      if (!before) break;
-      merged.push(activeItem.node);
-      activeIndex += 1;
+  const pendingLive: TimelineEntry[] = [];
+  const anchoredRunIds = new Set<number>();
+  const flushLive = (): void => {
+    if (pendingLive.length === 0) return;
+    merged.push(...renderTimeline(pendingLive.splice(0), ctx, anchoredRunIds));
+  };
+  for (const token of tokens) {
+    if (token.kind === 'live') {
+      pendingLive.push(token.entry);
+    } else {
+      flushLive();
+      merged.push(token.item.node);
     }
-    merged.push(historicalItem.node);
   }
-  while (activeIndex < activeItems.length) {
-    merged.push(activeItems[activeIndex]!.node);
-    activeIndex += 1;
-  }
-  return [...merged, ...renderTimeline(remaining, ctx)];
+  flushLive();
+  return merged;
 }
-// harn:end active-runs-follow-established-transcript-time
+// harn:end active-run-segments-follow-established-transcript-time
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-presentation
 export function groupHistoricalPresentationUnits(
@@ -2480,11 +2478,14 @@ export function groupHistoricalPresentationUnits(
 // harn:end tool-only-evidence-batches-across-invisible-output-boundaries
 
 // harn:assume visible-transcript-grouping-ignores-hidden-boundaries ref=live-transcript-grouping-callsite
-function renderTimeline(entries: TimelineEntry[], ctx: TimelineCtx): ReactNode[] {
+function renderTimeline(
+  entries: TimelineEntry[],
+  ctx: TimelineCtx,
+  anchoredRunIds = new Set<number>(),
+): ReactNode[] {
   const out: ReactNode[] = [];
   // A split run yields several stretches sharing one message id; only the first
   // carries the DOM id + permalink target so ids stay unique and #id resolves.
-  const anchoredRunIds = new Set<number>();
   let previousGrouping: TranscriptGroupingState | undefined;
   let index = 0;
   while (index < entries.length) {
@@ -2638,7 +2639,7 @@ function collectAdjacentToolOnlyLiveMessages(
   return messages;
 }
 
-/** One contiguous stretch of a finalized run's segments, with its header and
+/** One contiguous stretch of an active or finalized run's segments, with its header and
  *  Retry affordance — the interleave splits a run into one stretch per stretch
  *  of blocks uninterrupted by another author. */
 function RunStretch(props: {

@@ -1039,7 +1039,8 @@ const startStretchTurn = (existingRoom, opts = {}) => {
     body: '',
     run: {
       status: 'running', started_ts: startedTs, tool_calls: 0,
-      events_ref: ref, output_mode: 'messages',
+      events_ref: ref,
+      ...(opts.legacy === true ? {} : { output_mode: 'messages' }),
     },
   });
   // With `live:false` the room genuinely becomes running while the browser is

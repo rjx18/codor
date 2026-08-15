@@ -83,10 +83,8 @@ test.describe('transcript grouping', () => {
       running: nodes.findIndex((node) => node.querySelector('.nx-run[data-run-status="running"]') !== null),
     }));
     expect(positions.after).toBeGreaterThanOrEqual(0);
-    // harn:assume active-runs-follow-established-transcript-time ref=active-run-chronology-browser-regression
     expect(indexOf('chronology completed run')).toBeLessThan(positions.running);
     expect(positions.running).toBeLessThan(positions.after);
-    // harn:end active-runs-follow-established-transcript-time
   });
 });
 

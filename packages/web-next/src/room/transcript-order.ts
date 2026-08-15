@@ -1,6 +1,5 @@
 import type { Message } from '@codor/protocol';
 
-// harn:assume active-runs-follow-established-transcript-time ref=active-run-transcript-chronology
 export function transcriptTime(message: Message): number {
   if (message.kind === 'run') {
     return Date.parse(message.run?.ended_ts ?? message.ts);
@@ -25,8 +24,6 @@ function sortLegacyMessages(messages: readonly Message[]): Message[] {
     return byTime === 0 ? left.id - right.id : byTime;
   });
 }
-// harn:end active-runs-follow-established-transcript-time
-
 export function transcriptMessages(messages: Record<number, Message>): Message[] {
   const all = Object.values(messages);
   const floor = continuationFloor(all);
