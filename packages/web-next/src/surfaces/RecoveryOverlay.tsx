@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 
+import type { SessionConnectionState } from '../app/connection-state.js';
 import { useConnectionState } from '../app/use-connection-state.js';
 import { RecoveryCard, type RecoveryState } from './RecoveryCard.js';
 import { roomSlice, useClientStore } from '../app/store.js';
@@ -10,6 +11,41 @@ import { computerSessions } from '../app/computer-sessions.js';
 // Overridable via window for e2e (same pattern as __CODOR_RELAY_URL).
 const graceMs = (): number =>
   (typeof window !== 'undefined' && window.__CODOR_RECOVERY_GRACE_MS) || 6_000;
+
+export type LoadingPillState = 'reconnecting' | 'channel' | 'syncing' | 'older';
+
+export interface LoadingPillInputs {
+  connectionState: SessionConnectionState;
+  connected: boolean;
+  readableReconnect: boolean;
+  roomHydrated: boolean;
+  roomReady: boolean;
+  loadingHead: boolean;
+  loadingCursor: string | undefined;
+}
+
+// harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-state-projection
+/** Select one status from the existing connection/readiness/history signals.
+ * Lower-priority work must never replace a more urgent state or introduce a
+ * second loading owner. */
+export function loadingPillState(inputs: LoadingPillInputs): LoadingPillState | undefined {
+  if (inputs.connectionState !== 'online' || !inputs.connected) {
+    return inputs.readableReconnect ? 'reconnecting' : undefined;
+  }
+  if (!inputs.roomHydrated || !inputs.roomReady) return 'channel';
+  if (inputs.loadingHead) return 'syncing';
+  if (inputs.loadingCursor !== undefined) return 'older';
+  return undefined;
+}
+
+// harn:end prioritized-room-loading-pill-uses-existing-readiness
+
+const LOADING_PILL_LABEL: Record<LoadingPillState, string> = {
+  reconnecting: 'Reconnecting',
+  channel: 'Loading channel',
+  syncing: 'Syncing messages',
+  older: 'Loading older messages',
+};
 
 /** Read-only controls that do not alter room/server state while the app socket
  * is reconnecting. Everything else button-shaped is disabled until a current
@@ -54,6 +90,10 @@ const READ_ONLY_CONTROL = [
  */
 export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNode {
   const { state, downMs } = useConnectionState();
+  const connected = useClientStore((store) => store.connected);
+  const activeRoom = useClientStore((store) => store.activeRoom);
+  const activeRoomState = useClientStore((store) => store.rooms[activeRoom]);
+  const roomReady = useClientStore((store) => activeRoom !== '' && store.roomLive[activeRoom] === true);
   const renderable = useClientStore((store) => {
     const slice = roomSlice(store, store.activeRoom);
     return Object.keys(slice.messages).length > 0 || slice.transcriptHistory.units.length > 0;
@@ -66,6 +106,15 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
   const show = !readableReconnect
     && state !== 'online'
     && !(state === 'agent-offline' && downMs < graceMs());
+  const loadingState = loadingPillState({
+    connectionState: state,
+    connected,
+    readableReconnect,
+    roomHydrated: activeRoomState?.hydrated === true,
+    roomReady,
+    loadingHead: activeRoomState?.transcriptHistory.loadingHead === true,
+    loadingCursor: activeRoomState?.transcriptHistory.loadingCursor,
+  });
   const beneathRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = beneathRef.current;
@@ -110,11 +159,19 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
       >
         {children}
       </div>
-      {readableReconnect ? (
-        <div className="nx-reconnecting-pill" role="status" aria-live="polite" data-testid="reconnecting-pill">
-          <span aria-hidden="true" /> Reconnecting…
+      {/* harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-render */}
+      {loadingState !== undefined ? (
+        <div
+          className="nx-reconnecting-pill nx-loading-pill"
+          role="status"
+          aria-live="polite"
+          data-testid="reconnecting-pill"
+          data-loading-state={loadingState}
+        >
+          <span aria-hidden="true" /> {LOADING_PILL_LABEL[loadingState]}
         </div>
       ) : null}
+      {/* harn:end prioritized-room-loading-pill-uses-existing-readiness */}
       {show ? <RecoveryCard state={state as RecoveryState} presentation="overlay" /> : null}
     </>
   );

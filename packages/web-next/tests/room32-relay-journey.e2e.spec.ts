@@ -153,12 +153,43 @@ test.describe('relay tunnel journey', () => {
     await expect(input).not.toHaveValue(rawRelayBody);
     // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
+    // A transport refusal must release local pending-send bookkeeping without
+    // inventing a client-side queue or clearing the operator's exact draft.
+    // The connector unit covers a real closed/send-race socket; this browser
+    // seam drives the same boolean refusal through the mounted Composer.
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=composer-rejection-regression
+    const rejectedDraft = '@viewer keep this draft after refusal';
+    await input.fill(rejectedDraft);
+    await page.evaluate(() => {
+      const state = window as unknown as {
+        __codor?: { post: (...args: unknown[]) => boolean; __originalPost?: (...args: unknown[]) => boolean };
+      };
+      const connection = state.__codor;
+      if (!connection) throw new Error('connector e2e hook missing');
+      connection.__originalPost = connection.post;
+      connection.post = () => false;
+    });
+    await page.getByTestId('composer-send').click();
+    await expect(input).toHaveValue(rejectedDraft);
+    await expect(page.getByTestId('composer-hint')).toContainText('Reconnect before sending');
+    await page.evaluate(() => {
+      const connection = (window as unknown as {
+        __codor?: { post: (...args: unknown[]) => boolean; __originalPost?: (...args: unknown[]) => boolean };
+      }).__codor;
+      if (!connection?.__originalPost) throw new Error('original post missing after refusal');
+      connection.post = connection.__originalPost;
+      delete connection.__originalPost;
+    });
+    // No queued retry is emitted: replace the preserved draft explicitly for
+    // the remaining relay journey.
+    await input.fill('@viewer attachment over the relay');
+    // harn:end reconnect-safe-post-dispatch-preserves-draft
+
     // Attachment upload and retrieval both cross the tunnel. The presented URL
     // is a blob and preserves the exact uploaded bytes.
     await page.setInputFiles('[data-testid="composer-file"]', {
       name: 'relay.png', mimeType: 'image/png', buffer: PNG,
     });
-    await input.fill('@viewer attachment over the relay');
     await expect(page.getByTestId('composer-send')).toBeEnabled();
     await page.getByTestId('composer-send').click();
     const attachment = page.locator('.nx-attach-image img').last();
@@ -207,10 +238,12 @@ test.describe('relay tunnel journey', () => {
     await expect(scheduledCard).toContainText('Cancelled', { timeout: 20_000 });
 
     // Still functional after recovery — a fresh app-WS stream on the NEW session.
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=reconnect-first-post-browser-regression
     await input.fill('@viewer back after recovery');
     await expect(page.getByTestId('composer-send')).toBeEnabled({ timeout: 30_000 });
     await input.press('Enter');
     await expect(page.getByTestId('timeline')).toContainText('back after recovery', { timeout: 20_000 });
+    // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:end relay-app-socket-readiness-requires-server-evidence
     expect(await page.evaluate(() =>
       (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length))

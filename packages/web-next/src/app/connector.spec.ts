@@ -16,6 +16,7 @@ class FakeSocket {
   readyState = 1;
   sent: string[] = [];
   closed = 0;
+  throwOnSend = false;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
@@ -25,7 +26,10 @@ class FakeSocket {
     FakeSocket.instances.push(this);
   }
 
-  send(payload: string): void { this.sent.push(payload); }
+  send(payload: string): void {
+    if (this.throwOnSend) throw new Error('socket closed during send');
+    this.sent.push(payload);
+  }
   close(): void { this.closed += 1; this.readyState = 3; }
 
   /** Drive the handshake the way a real server would. */
@@ -136,6 +140,29 @@ afterEach(() => {
 
 // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-unit-regression
 describe('connector resume', () => {
+  // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=post-dispatch-unit-regression
+  it('reports a rejected post and accepts the first explicit retry after reconnect', () => {
+    const connector = build();
+    const first = latest();
+    first.accept();
+    expect(connector.post('before reconnect')).toBe(true);
+
+    first.throwOnSend = true;
+    expect(connector.post('during send race')).toBe(false);
+    first.throwOnSend = false;
+    first.drop(1006);
+    expect(connector.post('while closed')).toBe(false);
+
+    connector.reconnect();
+    const replacement = latest();
+    replacement.accept();
+    expect(connector.post('first post after reconnect')).toBe(true);
+    expect(replacement.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post'))
+      .toEqual([{ type: 'post', room: 'eng', body: 'first post after reconnect' }]);
+    connector.dispose();
+  });
+  // harn:end reconnect-safe-post-dispatch-preserves-draft
+
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
   it('correlates direct and scoped cancellation with exactly one schedule ref', () => {
     const connector = createConnector({
