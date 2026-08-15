@@ -128,3 +128,5 @@ verification: >
   workflow green, then verify npm alpha, GitHub prerelease assets and checksums,
   public npx metadata, and Codor.app production deployment. Do not move npm
   latest or modify runtime behavior.
+applied:
+  applied_at: 2026-08-15T12:14:47.498Z
