@@ -1,0 +1,131 @@
+id: reconnect-safe-send-p2
+title: Rejected post dispatch preserves an unlocked composer draft
+notes: >
+  Implement only the reconnect-safe send phase. Browser transport post dispatch
+  reports whether the current socket accepted the frame. A rejection is a
+  retryable local transport result: the composer must release its pending-send
+  latch without clearing the raw draft, reply target, or attachments. The next
+  explicit post after the existing reconnect/readiness path must work without a
+  page refresh. Do not add an automatic message queue and do not change server,
+  relay, protocol, journal, or reconnect architecture.
+assumptions:
+  create:
+    - id: reconnect-safe-post-dispatch-preserves-draft
+      title: Rejected post dispatch preserves an unlocked raw composer draft
+      statement: >
+        Connection.post returns true only when the current browser WebSocket
+        accepts the post frame and returns false for a closed, unavailable, or
+        send-racing socket; a false result never queues or mutates server state.
+        Composer treats that result as a retryable transport refusal, releases
+        its pending-send latch, preserves the exact raw draft plus reply and
+        attachment selection, and exposes actionable reconnect guidance. After
+        the existing direct or hosted reconnect proves readiness, a new explicit
+        post is accepted and acknowledged without a page refresh. Cached
+        disconnected connector shells also reject explicitly rather than
+        pretending to dispatch.
+      reason: >
+        The composer currently records a pending send before a fire-and-forget
+        socket write, so a socket race can leave the draft locked even though no
+        post entered the transport. Reporting dispatch acceptance lets the UI
+        preserve the operator's work without inventing a client-side queue.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation
+        - composer-acknowledgement-separates-raw-draft-from-canonical-echo
+        - pending-composer-echo-is-destination-and-self-bound
+        - client-syncs-by-seq
+        - hosted-app-streams-follow-tunnel-generations
+        - relay-app-socket-readiness-requires-server-evidence
+        - room-action-errors-are-visible
+  reviewed:
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        Disconnected or unready rooms remain readable while mutation admission
+        stays closed; this phase only reports the final socket dispatch result.
+    - id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
+      outcome: unchanged
+      reason: >
+        Successful sends still clear only after the existing destination/self
+        echo or refusal resolution, while a local rejection preserves the raw
+        snapshot before any server acknowledgement exists.
+    - id: pending-composer-echo-is-destination-and-self-bound
+      outcome: unchanged
+      reason: >
+        Qualified destination ownership and source error correlation remain
+        unchanged; no cross-room acknowledgement path is introduced.
+    - id: client-syncs-by-seq
+      outcome: unchanged
+      reason: >
+        Existing reconnect cursor and replay behavior remain the only recovery
+        path after a rejected dispatch.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        Hosted app sockets continue to follow tunnel generations; no extra
+        socket, queue, or generation owner is added.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: >
+        Existing server-frame readiness remains the send-admission boundary and
+        the hosted browser regression waits on it rather than a fixed delay.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: >
+        The composer surfaces a local retry hint without changing server action
+        error routing or error ownership.
+files:
+  - .harn/plans/reconnect-safe-send-p2.yaml
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/runtime/ws.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+anchors:
+  reconnect-safe-post-dispatch-preserves-draft:
+    runtime-post-dispatch-result:
+      action: change
+      reason: >
+        Return a truthful accepted/rejected result from direct WebSocket post
+        dispatch, including a send-time close race.
+    connector-post-dispatch-result:
+      action: change
+      reason: >
+        Preserve the same boolean result for hosted and multiplexed room
+        connector post dispatch without changing reconnect behavior.
+    cached-connector-rejection:
+      action: change
+      reason: >
+        Keep disconnected cached session shells explicitly rejecting post
+        dispatch while preserving their existing read-only semantics.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: >
+        Release the pending latch and retain draft-owned reply/attachment state
+        when transport rejects the post, with actionable retry guidance.
+    post-dispatch-unit-regression:
+      action: change
+      reason: >
+        Prove unavailable direct and hosted socket sends report false and do not
+        emit a queued or phantom frame.
+    composer-rejection-regression:
+      action: change
+      reason: >
+        Prove a rejected dispatch preserves an exact raw draft and becomes
+        retryable rather than remaining locked.
+    reconnect-first-post-browser-regression:
+      action: change
+      reason: >
+        Prove the first explicit post after hosted reconnect is accepted and
+        echoed without refresh, while retaining the existing no-queue boundary.
+verification: >
+  Run focused ws/connector/Composer/session units, the hosted relay recovery
+  browser journey, all web-next units, the production/PWA build, Harn find/plan
+  check/clean-lock/check/apply/staged validation, git diff --check, and a final
+  clean-tree check. Do not modify server, relay, protocol, journal, cache,
+  deployment, release, or queue behavior.
+applied:
+  applied_at: 2026-08-15T09:22:10.260Z

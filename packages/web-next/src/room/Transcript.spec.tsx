@@ -19,6 +19,7 @@ import {
   scheduleCancelReady,
   type ScheduleCancelAttempt,
   settleScheduleCancelAttempt,
+  transcriptMessagesWithActiveRuns,
 } from './Transcript.js';
 
 describe('scheduled transcript projection', () => {
@@ -212,15 +213,17 @@ function root(id: number, mode?: 'messages', status: 'running' | 'completed' = '
   };
 }
 
-// harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-regression
+// harn:assume active-run-segments-follow-established-transcript-time ref=active-run-segment-unit-regression
 describe('transcript durable ordering', () => {
-  it('retains ended-time and running-tail behavior for already stored roots', () => {
+  it('orders an active root by its message time while retaining finalized ended-time order', () => {
     expect(transcriptMessages({ 1: root(1), 2: chat(2) }).map((message) => message.id))
       .toEqual([2, 1]);
     expect(transcriptMessages({ 1: root(1, undefined, 'running'), 2: chat(2) }).map((message) => message.id))
-      .toEqual([2, 1]);
+      .toEqual([1, 2]);
   });
+  // harn:end active-run-segments-follow-established-transcript-time
 
+  // harn:assume continuation-writer-follows-journaled-output-ownership ref=continuation-web-regression
   it('keeps root, human interjection, and continuation in permanent id order', () => {
     const first = root(1, 'messages');
     const interjection = chat(2, 'do not move the first answer');
@@ -245,6 +248,27 @@ describe('transcript durable ordering', () => {
       .map((message) => message.id)).toEqual([22, 23, 24]);
   });
 });
+
+// harn:assume hosted-support-active-run-transcript-projection ref=support-active-run-transcript-unit-regression
+describe('hosted support active-run transcript projection', () => {
+  it('projects missing running roots, keeps ordinary records authoritative, and excludes settled support rows', () => {
+    const storedRoot = root(7, 'messages', 'completed');
+    const supportOnlyRoot = root(99, 'messages', 'running');
+    const settledSupportRoot = root(101, 'messages', 'completed');
+
+    expect(transcriptMessagesWithActiveRuns(
+      { [storedRoot.id]: storedRoot },
+      [supportOnlyRoot, settledSupportRoot],
+    ).map((message) => message.id)).toEqual([7, 99]);
+
+    const newerStoredRoot = { ...supportOnlyRoot, body: 'authoritative stored root' };
+    expect(transcriptMessagesWithActiveRuns(
+      { [supportOnlyRoot.id]: newerStoredRoot },
+      [{ ...supportOnlyRoot, body: 'stale support projection' }],
+    ).find((message) => message.id === supportOnlyRoot.id)).toEqual(newerStoredRoot);
+  });
+});
+// harn:end hosted-support-active-run-transcript-projection
 
 describe('continuation transcript semantics', () => {
   it('renders one terminal acknowledgement for a multi-row ACK family', () => {

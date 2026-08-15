@@ -7,11 +7,15 @@ class FakeSocket {
   static readonly OPEN = 1;
   readyState = FakeSocket.OPEN;
   sent: string[] = [];
+  throwOnSend = false;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
 
-  send(payload: string): void { this.sent.push(payload); }
+  send(payload: string): void {
+    if (this.throwOnSend) throw new Error('socket closed during send');
+    this.sent.push(payload);
+  }
   close(): void { this.readyState = 3; }
   accept(): void { this.onopen?.(); }
 }
@@ -30,6 +34,16 @@ it('keeps schedule-default and caller-owned reset refs distinct on the direct so
     socketFactory: () => socket as unknown as WebSocket,
   });
   socket.accept();
+
+  // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=post-dispatch-unit-regression
+  expect(connection.post('accepted before close')).toBe(true);
+  socket.readyState = 3;
+  expect(connection.post('rejected while closed')).toBe(false);
+  socket.readyState = FakeSocket.OPEN;
+  socket.throwOnSend = true;
+  expect(connection.post('rejected during send')).toBe(false);
+  socket.throwOnSend = false;
+  // harn:end reconnect-safe-post-dispatch-preserves-draft
 
   connection.act({ act: 'cancel_schedule', schedule_id: 'schedule-1' });
   connection.act({

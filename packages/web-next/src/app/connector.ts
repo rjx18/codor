@@ -12,7 +12,12 @@ import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 import type { Connection } from '@runtime/ws.js';
 
-import { HISTORY_PAGE_SIZE, roomSlice, useClientStore, type ClientStore } from './store.js';
+import {
+  HISTORY_PAGE_SIZE,
+  roomSlice,
+  useClientStore,
+  type ClientStore,
+} from './store.js';
 import { requireBrowserUpgrade } from './compatibility.js';
 
 export interface RoomConnector extends Connection {
@@ -169,8 +174,16 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     foregroundProbePending = false;
   };
 
-  const send = (frame: unknown): void => {
-    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(frame));
+  const send = (frame: unknown): boolean => {
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.send(JSON.stringify(frame));
+      return true;
+    } catch {
+      // readyState can race a close; report the refusal so a composer can keep
+      // its raw draft available for an explicit retry instead of locking it.
+      return false;
+    }
   };
 
   // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion
@@ -180,7 +193,11 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const promote = hydrateLimit > 0 && zeroHydrated.has(room) && !historyHydrated.has(room);
     subscribed.add(room);
     subscriptionBudgets.set(room, hydrateLimit);
+    // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=connector-recovery-boundary
     const sinceSeq = promote ? 0 : roomSlice(clientStore.getState(), room).seq;
+    // Promotion changes only the hydration cursor. It does not alter the
+    // existing reconnect/gap recovery path or manufacture a recovery marker.
+    // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
     if (typeof window !== 'undefined') {
       (window as unknown as {
         __codorRoomSubscribes?: Array<{ room: string; hydrateLimit: number; sinceSeq: number }>;
@@ -556,6 +573,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const connector: RoomConnector = {
     room: () => currentRoom,
     state: () => state,
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=connector-post-dispatch-result
     post: (
       body: string,
       opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
@@ -568,6 +586,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       }),
+    // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act: Act, ref?: string): void => {

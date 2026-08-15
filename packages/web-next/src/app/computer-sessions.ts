@@ -456,7 +456,11 @@ export class ComputerSessionManager {
     return {
       room: () => room,
       state: () => 'disconnected',
-      post: () => undefined,
+      // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=cached-connector-rejection
+      // A cached offline shell is read-only and cannot accept a post. Report
+      // that refusal so the composer keeps the draft retryable.
+      post: () => false,
+      // harn:end reconnect-safe-post-dispatch-preserves-draft
       act: () => undefined,
       disconnect: () => undefined,
       reconnect: () => entry.tunnel.recover(),

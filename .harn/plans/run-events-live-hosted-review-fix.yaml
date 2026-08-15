@@ -1,0 +1,58 @@
+id: run-events-live-hosted-review-fix
+title: Exercise hosted background live-event ingestion across a warm computer switch
+notes: >
+  Contained test-only review correction on 1d97317. Strengthen Room 34's hosted
+  regression to use the existing stretch fixture and exercise the complete A ->
+  event 1 -> B -> background events 2/3 -> A -> event 4 -> finalization path.
+  The test must prove that the selected computer never renders another
+  computer's evidence, the original computer retains and appends every event
+  exactly once, and a warm switch does not replace its tunnel or app socket.
+  Product state, transport behavior, server unitization, pagination, and release
+  behavior remain unchanged.
+assumptions:
+  create: []
+  retire: []
+  reviewed:
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: The bounded room-scoped live-event buffer, background subscription,
+        ordered append, history-owned retirement, and direct/hosted store
+        isolation remain unchanged; this correction makes the hosted browser
+        regression exercise background events rather than only retained event 1.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: The hosted test continues to assert that warm A -> B -> A switching does
+        not replace either tunnel or app socket, without changing recovery.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Events emitted by computer A must remain absent from computer B's
+        same-room view and return only through A's store.
+anchors:
+  subscribed-live-run-events-survive-switch-and-history-retirement:
+    managed-run-event-browser-regression:
+      action: change
+      reason: Replace the managed live-family smoke with the existing stretch fixture
+        and prove background events 2/3, append event 4, exact-once
+        finalization, and unchanged warm tunnel/app-socket counts.
+  hosted-app-streams-follow-tunnel-generations:
+    independent-computer-recovery-regression:
+      action: keep
+      reason: The existing genuine failure/recovery coverage is outside this test-only
+        correction and must remain untouched.
+  hosted-computer-sessions-keep-state-isolated:
+    managed-run-event-browser-regression:
+      action: change
+      reason: Extend the hosted regression's A/B assertions to cover background
+        stretch events without cross-computer evidence leakage.
+files:
+  - .harn/plans/run-events-live-hosted-review-fix.yaml
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+verification: >
+  Run the Room 34 multi-computer suite twice, Room 43, the focused store,
+  connector, Transcript, and run-journal unit tests, all web-next units, and the
+  production/PWA build. Run Harn find/plan check/clean lock/check/apply/ staged
+  validation, git diff --check, and a final clean-tree check. Commit exactly
+  once with the applied plan and generated provenance. Do not change product,
+  server, protocol, relay, pagination, deployment, or release code.
+applied:
+  applied_at: 2026-08-13T10:02:48.158Z

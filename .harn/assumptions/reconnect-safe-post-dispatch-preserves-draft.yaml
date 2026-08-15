@@ -1,0 +1,23 @@
+id: reconnect-safe-post-dispatch-preserves-draft
+hash: a-7335c2a4be53
+title: Rejected post dispatch preserves an unlocked raw composer draft
+state: active
+statement: >
+  Connection.post returns true only when the current browser WebSocket accepts
+  the post frame and returns false for a closed, unavailable, or send-racing
+  socket; a false result never queues or mutates server state. Composer treats
+  that result as a retryable transport refusal, releases its pending-send latch,
+  preserves the exact raw draft plus reply and attachment selection, and exposes
+  actionable reconnect guidance. After the existing direct or hosted reconnect
+  proves readiness, a new explicit post is accepted and acknowledged without a
+  page refresh. Cached disconnected connector shells also reject explicitly
+  rather than pretending to dispatch.
+depends_on:
+  - readable-reconnecting-room-never-admits-mutation
+  - composer-acknowledgement-separates-raw-draft-from-canonical-echo
+  - pending-composer-echo-is-destination-and-self-bound
+  - client-syncs-by-seq
+  - hosted-app-streams-follow-tunnel-generations
+  - relay-app-socket-readiness-requires-server-evidence
+  - room-action-errors-are-visible
+created_by: reconnect-safe-send-p2

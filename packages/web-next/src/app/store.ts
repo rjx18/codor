@@ -367,6 +367,26 @@ function mergeSchedulesBySequence(
   return { schedules, scheduleSeq };
 }
 
+// harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-history-owned-retirement
+function historyOwnsRunFamily(history: TranscriptHistoryState, rootId: number): boolean {
+  return history.journals[rootId] !== undefined
+    || history.units.some((unit) => unit.kind !== 'message' && unit.root_message_id === rootId);
+}
+
+function retireHistoryOwnedRunEvents(
+  runEvents: Record<number, RunEventBuffer>,
+  history: TranscriptHistoryState,
+): Record<number, RunEventBuffer> {
+  let next = runEvents;
+  for (const rootId of Object.keys(runEvents).map(Number)) {
+    if (!historyOwnsRunFamily(history, rootId)) continue;
+    if (next === runEvents) next = { ...runEvents };
+    delete next[rootId];
+  }
+  return next;
+}
+// harn:end subscribed-live-run-events-survive-switch-and-history-retirement
+
 export type ClientStore = UseBoundStore<StoreApi<ClientState>>;
 
 const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHistory'], ClientStore>();
@@ -618,9 +638,11 @@ export function createClientStore(): ClientStore {
           next = { ...current, support: frame.support };
           break;
         case 'run_event':
-          // Background rooms need summary changes, not partial evidence buffers.
-          // A promotion reads the authoritative journal from scratch.
-          if (state.activeRoom !== roomId) return {};
+          // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-live-event-routing
+          // A frame can arrive for any room this client subscribed. Keep its
+          // bounded indexed evidence with that room even while another room is
+          // selected; the buffer is the live source until combined history owns
+          // the finalized family.
           next = {
             ...current,
             runEvents: {
@@ -632,6 +654,7 @@ export function createClientStore(): ClientStore {
               ),
             },
           };
+          // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
           break;
         case 'error':
           // harn:assume member-context-reset-is-authorized-atomic-and-lazy ref=clear-context-client-error-correlation
@@ -701,12 +724,14 @@ export function createClientStore(): ClientStore {
   updateTranscriptHistory: (roomId, update) => {
     set((state) => {
       const current = state.rooms[roomId] ?? freshRoom();
+      const transcriptHistory = update(current.transcriptHistory);
       return {
         rooms: {
           ...state.rooms,
           [roomId]: {
             ...current,
-            transcriptHistory: update(current.transcriptHistory),
+            transcriptHistory,
+            runEvents: retireHistoryOwnedRunEvents(current.runEvents, transcriptHistory),
           },
         },
       };
@@ -741,11 +766,11 @@ export function createClientStore(): ClientStore {
     set((state) => {
       if (state.activeRoom === roomId) return {};
       const rooms = { ...state.rooms };
-      const previous = rooms[state.activeRoom];
-      if (previous !== undefined && Object.keys(previous.runEvents).length > 0) {
-        rooms[state.activeRoom] = { ...previous, runEvents: {} };
-      }
+      // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-live-event-routing
+      // Selection changes presentation only. A subscribed room keeps its live
+      // evidence until the authoritative combined page owns that family.
       if (rooms[roomId] === undefined) rooms[roomId] = freshRoom();
+      // harn:end subscribed-live-run-events-survive-switch-and-history-retirement
       return { activeRoom: roomId, rooms };
     });
   },

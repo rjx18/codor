@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
 const SPA_ORIGIN = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_SPA_PORT ?? '28139'}`;
+const HYDRATION = '/?room=hydration&token=next-e2e-token';
 
 async function control<T = unknown>(path: string, body: unknown = {}): Promise<T> {
   const response = await fetch(`${CONTROL}${path}`, {
@@ -100,6 +101,55 @@ test.describe('hosted smooth startup budgets', () => {
       }, {}),
     }));
   });
+
+  // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-browser-regression
+  test('shows one prioritized loading pill for direct history work', async ({ page }) => {
+    test.setTimeout(120_000);
+    let releaseHead = (): void => undefined;
+    const headHeld = new Promise<void>((resolve) => { releaseHead = resolve; });
+    let releaseCursor = (): void => undefined;
+    const cursorHeld = new Promise<void>((resolve) => { releaseCursor = resolve; });
+    let headWasHeld = false;
+    let cursorWasHeld = false;
+    await page.route('**/api/rooms/hydration/transcript-history*', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.searchParams.has('cursor')) {
+        cursorWasHeld = true;
+        const response = await route.fetch();
+        await cursorHeld;
+        await route.fulfill({ response });
+        return;
+      }
+      if (!headWasHeld) {
+        headWasHeld = true;
+        await headHeld;
+      }
+      await route.continue();
+    });
+
+    await control('/seed-runs', { count: 180 });
+    await page.goto(HYDRATION);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect.poll(() => headWasHeld).toBe(true);
+    const pill = page.getByTestId('reconnecting-pill');
+    await expect(pill).toHaveAttribute('data-loading-state', 'syncing', { timeout: 30_000 });
+    await expect(pill).toHaveText('Syncing messages');
+    await expect(page.locator('[data-loading-state]')).toHaveCount(1);
+    releaseHead();
+    await expect(pill).toHaveCount(0, { timeout: 30_000 });
+
+    const timeline = page.getByTestId('timeline');
+    await timeline.evaluate((node) => {
+      node.scrollTop = 0;
+      for (let index = 0; index < 12; index += 1) node.dispatchEvent(new Event('scroll'));
+    });
+    await expect.poll(() => cursorWasHeld).toBe(true);
+    await expect(pill).toHaveAttribute('data-loading-state', 'older', { timeout: 30_000 });
+    await expect(page.locator('[data-loading-state]')).toHaveCount(1);
+    releaseCursor();
+    await expect(pill).toHaveCount(0, { timeout: 30_000 });
+  });
+  // harn:end prioritized-room-loading-pill-uses-existing-readiness
 
   // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression

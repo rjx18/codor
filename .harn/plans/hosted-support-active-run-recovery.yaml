@@ -1,0 +1,140 @@
+id: hosted-support-active-run-recovery
+title: Project hosted active support runs through the existing live transcript path
+notes: >
+  One compatibility phase for fresh hosted browsers connecting to a compatible
+  older daemon such as 0.10.14-alpha.1. RoomSupport.active_runs already carries
+  addressed running roots that are absent from a bounded message snapshot; the
+  browser must project those roots into the live transcript and let the existing
+  run-journal/live-event merge render their complete output. Ordinary message
+  records remain authoritative when present, the projection never writes durable
+  history or changes pagination, and direct/Tailscale behavior remains
+  unchanged. A fresh hosted browser must survive an A -> B -> A computer/room
+  switch, append later events exactly once, and settle once without replacing a
+  healthy tunnel or app socket.
+assumptions:
+  retire: []
+  create:
+    - id: hosted-support-active-run-transcript-projection
+      title: Hosted support-only active roots enter only the live transcript
+        projection
+      statement: >
+        When an addressed RoomSupport snapshot contains a running root that is
+        absent from the bounded room message map, the browser must include that
+        root in the current live transcript projection so the existing journal
+        request and indexed run_event merge can render output that began before
+        connection. A message-map root wins by id, each root remains subscribed
+        to its owning room/computer store, later events append once, and
+        terminal reconciliation settles without copying the support-only root
+        into durable history, changing pagination, adding a recovery or scroll
+        owner, or replacing a healthy hosted tunnel/app socket. Direct and
+        Tailscale connections retain their existing behavior.
+      reason: >
+        Compatible older daemons already expose active run roots through
+        RoomSupport.active_runs while a fresh browser may receive only the
+        bounded message tail. The client must consume that existing data at the
+        presentation boundary rather than add a protocol or transport path.
+      depends_on:
+        - room-support-is-bounded-recipient-scoped-state
+        - subscribed-live-run-events-survive-switch-and-history-retirement
+        - live-runs-settle-beside-paged-history-once
+        - live-run-event-cache-bounded
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - finalized-browser-history-is-combined-page-owned
+        - continuation-writer-follows-journaled-output-ownership
+  reviewed:
+    - id: room-support-is-bounded-recipient-scoped-state
+      outcome: unchanged
+      reason: >
+        RoomSupport.active_runs remains the addressed, bounded support snapshot;
+        the browser only projects its already-owned running roots and does not
+        broaden recipient or room membership.
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: >
+        Existing room-scoped bounded runEvents retention, background
+        subscription, indexed append, history-owned retirement, and
+        computer-store isolation remain the live evidence path.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: >
+        Existing journal/live merge and one-time terminal combined-history
+        reconciliation remain responsible for running output and finalization.
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: >
+        The projection consumes the existing bounded event cache and adds no new
+        buffer or scroll/recovery owner.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: >
+        Run journal indices continue to align fetched journal evidence with live
+        events; no alternate merge arithmetic is introduced.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: >
+        Hosted socket generations, healthy warm switching, and genuine failure
+        recovery are untouched; the browser regression proves no replacement
+        tunnel or app socket for A -> B -> A.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Active roots and their evidence remain owned by the source computer's
+        injected store and never appear in another computer's same-room view.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: >
+        The support-only root is a live projection only; finalized history still
+        comes solely from bounded combined pages and never from a new journal or
+        pagination path.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: >
+        Existing output-row ownership and journal-index semantics remain the
+        source of rendered evidence.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: >
+        Terminal reconciliation continues using the existing retryable combined
+        head and does not gain a second recovery mechanism.
+files:
+  - .harn/plans/hosted-support-active-run-recovery.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room43-run-events-live.e2e.spec.ts
+anchors:
+  hosted-support-active-run-transcript-projection:
+    support-active-run-transcript-projection:
+      action: change
+      reason: >
+        Project missing running support roots into the live ordered transcript
+        while preserving message-map authority and the existing journal/event
+        rendering path.
+    support-active-run-transcript-unit-regression:
+      action: change
+      reason: >
+        Prove running support-only roots are included, ordinary message records
+        win by id, and non-running support rows are not projected.
+    hosted-support-active-run-browser-regression:
+      action: change
+      reason: >
+        Exercise a fresh compatible hosted browser with preconnection output, A
+        -> B -> A restoration, later append/finalization, exact-once evidence,
+        store isolation, and no replacement sockets.
+    direct-support-active-run-browser-regression:
+      action: change
+      reason: >
+        Exercise the direct connection parity path with an active support-only
+        root while retaining existing journal/live-event and finalization
+        behavior.
+verification: >
+  Run the focused Transcript/store/connector/run-journal units, all web-next
+  units, the production/PWA build, the hosted multi-computer and direct browser
+  regressions (including the compatible alpha.1-shaped support/frame fixture),
+  Harn find/plan check/clean lock/check/apply/staged validation, git diff
+  --check, and a final clean-tree check. Do not change protocol, switchboard,
+  relay, daemon, pagination, socket, cache, CLI, deployment, or release
+  behavior.
+applied:
+  applied_at: 2026-08-13T15:43:29.324Z

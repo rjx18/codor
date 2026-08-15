@@ -70,8 +70,9 @@ test.describe('transcript grouping', () => {
     await expect(fresh).not.toHaveClass(/is-grouped/);
     await expect(fresh.locator('.nx-turn-meta')).toHaveCount(1);
 
-    // A finalized run follows ended_ts even though @muse's chat has a newer id;
-    // the still-running @scout turn stays behind a chat posted after it began.
+    // A finalized run keeps following ended_ts even though @muse's chat has a
+    // newer id. The still-running @scout turn follows its own timestamp and
+    // therefore stays before a chat posted after it began.
     expect(indexOf('chronology muse before')).toBeLessThan(indexOf('chronology completed run'));
     // The running turn no longer prints an in-row "running ·" line — the sticky
     // typing pill is the sole activity surface now — so its position is read
@@ -82,7 +83,8 @@ test.describe('transcript grouping', () => {
       running: nodes.findIndex((node) => node.querySelector('.nx-run[data-run-status="running"]') !== null),
     }));
     expect(positions.after).toBeGreaterThanOrEqual(0);
-    expect(positions.running).toBeGreaterThan(positions.after);
+    expect(indexOf('chronology completed run')).toBeLessThan(positions.running);
+    expect(positions.running).toBeLessThan(positions.after);
   });
 });
 
