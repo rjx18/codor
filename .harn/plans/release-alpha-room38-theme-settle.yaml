@@ -1,0 +1,33 @@
+id: release-alpha-room38-theme-settle
+title: Stabilize Room 38 theme accessibility verification
+notes: >
+  Correct only the Room 38 browser regression exposed twice by alpha CI. After
+  selecting each theme, wait for the browser's active CSS animations and
+  transitions to settle before running Axe. Preserve all production styles,
+  theme behavior, preset and roster behavior, release identity, package bytes,
+  workflow policy, deployment behavior, and accessibility assertions.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: empty-roster-settings-guides-saveable-setup
+      outcome: unchanged
+      reason: >
+        Empty-roster Settings behavior and accessibility remain unchanged; the
+        existing browser regression only waits for the selected theme's visual
+        transition to finish before measuring contrast.
+anchors:
+  empty-roster-settings-guides-saveable-setup:
+    empty-roster-settings-regression:
+      action: change
+      reason: >
+        Stabilize the existing light/dark Axe measurement at the theme-settled
+        boundary without weakening or excluding any accessibility rule.
+files:
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+verification: >
+  Clean-lock the plan, run the exact Room 38 browser file repeatedly, run all
+  web-next units and production/PWA build, validate Harn working and staged
+  scope, apply the plan, and pass git diff checks. Push the correction only to
+  the curated alpha branch, require alpha CI green, and do not change runtime,
+  package, release, relay, deployment, or npm-tag behavior.
