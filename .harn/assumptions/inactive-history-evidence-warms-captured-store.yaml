@@ -1,0 +1,21 @@
+id: inactive-history-evidence-warms-captured-store
+hash: a-6dcbe4d77486
+title: Inactive room evidence warms its captured combined-history store
+state: active
+statement: A hosted computer session must notice newly arrived message records
+  or terminal run evidence for rooms that are inactive on that computer or not
+  the selected room, then refresh only the existing combined-history head using
+  that session's captured store, room, and live token. Requests are coalesced
+  per source store/room with at most one trailing refresh for evidence observed
+  during an in-flight request; background room subscriptions remain zero-history
+  and no polling, eager twenty-message hydration, extra cache, protocol, relay,
+  or daemon path is introduced. A successful warm head is therefore ready for
+  immediate activation, while source-store and computer isolation remain strict.
+depends_on:
+  - hosted-app-keeps-all-paired-computers-live
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-background-rooms-hydrate-metadata-until-promoted
+  - hosted-computer-switching-reuses-warm-session
+  - finalized-browser-history-is-combined-page-owned
+  - missed-terminal-history-refreshes-through-combined-head
+created_by: background-history-warming-floating-pill

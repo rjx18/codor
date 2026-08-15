@@ -50,6 +50,7 @@ function hydrateCachedUnit(): void {
   );
 }
 
+// harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-unit-regression
 // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-unit-regression
 describe('prioritized room loading pill', () => {
   const base: LoadingPillInputs = {
@@ -95,12 +96,15 @@ describe('prioritized room loading pill', () => {
     const pill = host.querySelector<HTMLElement>('[data-testid="reconnecting-pill"]');
     expect(pill?.dataset.loadingState).toBe('syncing');
     expect(pill?.textContent).toContain('Syncing messages');
+    expect(pill?.className).toContain('nx-loading-pill');
+    expect(pill?.querySelector('[data-testid="loading-pill-spinner"]')).toBeTruthy();
     expect(host.querySelectorAll('[data-loading-state]')).toHaveLength(1);
     await act(async () => { root.unmount(); });
     delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
 });
 // harn:end prioritized-room-loading-pill-uses-existing-readiness
+// harn:end floating-room-loading-pill-uses-existing-priority
 
 // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
 describe('RecoveryOverlay readable reconnect', () => {

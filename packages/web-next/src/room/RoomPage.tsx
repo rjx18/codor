@@ -66,6 +66,13 @@ export function reconcileSelectedRoomHistory(
     room,
     credential,
   };
+  const history = roomSlice(destination.store.getState(), destination.room).transcriptHistory;
+  // harn:assume inactive-history-evidence-warms-captured-store ref=activation-skips-warmed-head
+  // Background stores have already reconciled their combined head. Activation
+  // only retries a cold/failed or disconnect-gap-invalidated destination; a
+  // healthy warm head must not create a redundant request.
+  if (history.initialized && !history.failed && !history.headNeedsRevalidation) return;
+  // harn:end inactive-history-evidence-warms-captured-store
   void refreshTranscriptHistoryHead(
     destination.store,
     destination.room,

@@ -423,6 +423,12 @@ export function Transcript(props: { room: string; token: () => string; connectio
       const journalComplete = getRunJournal(props.room, rootId)?.some((event) => event.type === 'run.completed') === true;
       const liveComplete = slice.runEvents[rootId]?.events.some((event) => event.type === 'run.completed') === true;
       if (journalComplete || liveComplete || terminalRefreshRef.current.has(rootId)) continue;
+      // harn:assume inactive-history-evidence-warms-captured-store ref=activation-skips-warmed-head
+      // A background manager refresh already owns this finalized evidence. Do
+      // not issue a second activation refresh unless a disconnect gap or a
+      // failed/cold head explicitly requires reconciliation.
+      if (history.initialized && !history.failed && !history.headNeedsRevalidation) continue;
+      // harn:end inactive-history-evidence-warms-captured-store
       terminalRefreshRef.current.add(rootId);
       void refreshTranscriptHistoryHead(useClientStore, props.room, props.token).then((ok) => {
         if (!ok) terminalRefreshRef.current.delete(rootId);

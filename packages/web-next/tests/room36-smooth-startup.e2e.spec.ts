@@ -102,6 +102,7 @@ test.describe('hosted smooth startup budgets', () => {
     }));
   });
 
+  // harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-browser-regression
   // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-browser-regression
   test('shows one prioritized loading pill for direct history work', async ({ page }) => {
     test.setTimeout(120_000);
@@ -133,6 +134,9 @@ test.describe('hosted smooth startup budgets', () => {
     await expect.poll(() => headWasHeld).toBe(true);
     const pill = page.getByTestId('reconnecting-pill');
     await expect(pill).toHaveAttribute('data-loading-state', 'syncing', { timeout: 30_000 });
+    await expect(pill).toHaveClass(/nx-loading-pill/);
+    await expect(pill.getByTestId('loading-pill-spinner')).toBeVisible();
+    expect(await pill.evaluate((element) => getComputedStyle(element).position)).toBe('absolute');
     await expect(pill).toHaveText('Syncing messages');
     await expect(page.locator('[data-loading-state]')).toHaveCount(1);
     releaseHead();
@@ -145,11 +149,14 @@ test.describe('hosted smooth startup budgets', () => {
     });
     await expect.poll(() => cursorWasHeld).toBe(true);
     await expect(pill).toHaveAttribute('data-loading-state', 'older', { timeout: 30_000 });
+    await expect(pill).toHaveClass(/nx-loading-pill/);
+    await expect(pill.getByTestId('loading-pill-spinner')).toBeVisible();
     await expect(page.locator('[data-loading-state]')).toHaveCount(1);
     releaseCursor();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
   });
   // harn:end prioritized-room-loading-pill-uses-existing-readiness
+  // harn:end floating-room-loading-pill-uses-existing-priority
 
   // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
@@ -169,7 +176,11 @@ test.describe('hosted smooth startup budgets', () => {
     const retainedDraft = '@viewer preserve retained draft';
     await liveInput.fill(retainedDraft);
     await control('/relay-down');
-    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
+    const reconnectingPill = page.getByTestId('reconnecting-pill');
+    await expect(reconnectingPill).toBeVisible({ timeout: 30_000 });
+    await expect(reconnectingPill).toHaveAttribute('data-loading-state', 'reconnecting');
+    await expect(reconnectingPill).toHaveClass(/nx-loading-pill/);
+    await expect(reconnectingPill.getByTestId('loading-pill-spinner')).toBeVisible();
     await page.evaluate(() => {
       const mic = document.querySelector<HTMLButtonElement>('[data-testid="composer-mic"]')!;
       // Bypass the presentation guard to prove the action boundary itself.

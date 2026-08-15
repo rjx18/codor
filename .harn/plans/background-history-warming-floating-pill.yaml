@@ -1,0 +1,160 @@
+id: background-history-warming-floating-pill
+title: Warm inactive history and present one floating loading pill
+notes: >-
+  Implement the contained frontend phase on the exact origin/main base
+  b1421c678bcd4cb6a7d170c4daa77c12317b3dbb. When an authenticated hosted
+  computer receives new message or terminal-run evidence for an inactive room,
+  proactively use the existing combined transcript-history head refresh against
+  that computer's captured store, room, and token. Coalesce one request per
+  source store/room and permit one trailing refresh when evidence arrives while
+  the request is in flight. Preserve zero-history background subscriptions,
+  existing live buffers and store isolation, and do not add polling, a second
+  cache, eager background hydration, or protocol/daemon/relay behavior.
+
+  A warmed destination must render immediately on activation without opening a
+  request or socket; activation remains a retryable disconnect-gap fallback for
+  cold, failed, or explicitly revalidation-marked history. Replace the existing
+  top loading surface with one compact floating overlay over the transcript,
+  retaining the existing prioritized selector and its four states, adding a
+  spinner plus short fade/slide entrance, and honoring reduced motion.
+assumptions:
+  create:
+    - id: inactive-history-evidence-warms-captured-store
+      title: Inactive room evidence warms its captured combined-history store
+      statement: A hosted computer session must notice newly arrived message records
+        or terminal run evidence for rooms that are inactive on that computer or
+        not the selected room, then refresh only the existing combined-history
+        head using that session's captured store, room, and live token. Requests
+        are coalesced per source store/room with at most one trailing refresh
+        for evidence observed during an in-flight request; background room
+        subscriptions remain zero-history and no polling, eager twenty-message
+        hydration, extra cache, protocol, relay, or daemon path is introduced. A
+        successful warm head is therefore ready for immediate activation, while
+        source-store and computer isolation remain strict.
+      reason: Background subscriptions already receive lightweight message and run
+        evidence, but waiting until activation leaves a visible gap and causes
+        an avoidable history request. The existing combined-head controller is
+        the durable source and already provides the required merge semantics.
+      depends_on:
+        - hosted-app-keeps-all-paired-computers-live
+        - hosted-computer-sessions-keep-state-isolated
+        - hosted-background-rooms-hydrate-metadata-until-promoted
+        - hosted-computer-switching-reuses-warm-session
+        - finalized-browser-history-is-combined-page-owned
+        - missed-terminal-history-refreshes-through-combined-head
+    - id: floating-room-loading-pill-uses-existing-priority
+      title: Room loading states use one animated floating overlay pill
+      statement: The browser exposes at most one accessible loading pill over the
+        transcript, selected by the existing priority of Reconnecting, Loading
+        channel, Syncing messages, and Loading older messages. It is compact,
+        contains a progress spinner and short fade/slide entrance, does not
+        occupy the transcript's layout flow, and disables that motion under
+        prefers-reduced-motion; no additional loading state machine or request
+        is introduced and direct/hosted readiness and mutation semantics stay
+        unchanged.
+      reason: The existing selector already centralizes the four loading conditions;
+        only its presentation needs to become a transcript-local floating status
+        surface with accessible motion behavior.
+      depends_on:
+        - prioritized-room-loading-pill-uses-existing-readiness
+        - readable-reconnecting-room-never-admits-mutation
+  reviewed:
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: The manager still owns one live tunnel/store/connector per paired
+        computer.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Warming uses the existing entry store and credential and never crosses
+        computers.
+    - id: hosted-background-rooms-hydrate-metadata-until-promoted
+      outcome: unchanged
+      reason: Background subscriptions continue to request zero history until
+        promotion.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Activation still reuses the existing connector and tunnel.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Only the existing combined-history head controller materializes
+        finalized history.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      outcome: unchanged
+      reason: Resume and genuine reconnect/gap recovery retain the same combined-head
+        path.
+    - id: selected-room-activation-reconciles-destination-history
+      outcome: unchanged
+      reason: Activation remains non-blocking and retryable for cold, failed, or
+        revalidation-marked destination history; warmed history skips redundant
+        work.
+    - id: prioritized-room-loading-pill-uses-existing-readiness
+      outcome: unchanged
+      reason: The four-state selector and its priority remain unchanged; only the
+        existing pill presentation is restyled.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: The overlay remains nonmodal and mutation admission is untouched.
+anchors:
+  inactive-history-evidence-warms-captured-store:
+    store-evidence-observation:
+      action: change
+      reason: Observe only new message or terminal run evidence from each captured
+        room store and leave zero-history subscriptions intact.
+    captured-head-refresh-coalescing:
+      action: change
+      reason: Bind the existing combined-head refresh to the entry store/room/token,
+        coalesce in-flight work, and allow one trailing refresh.
+    activation-skips-warmed-head:
+      action: change
+      reason: Keep activation refresh only for a cold, failed, or
+        disconnect-gap-revalidated destination.
+    background-warming-unit-regression:
+      action: change
+      reason: Prove isolated inactive stores warm on evidence, coalesce and trail
+        correctly, and avoid activation requests after warming.
+    background-warming-browser-regression:
+      action: change
+      reason: Prove finalization while another computer is selected materializes
+        before switching and activation opens no history request or socket.
+  floating-room-loading-pill-uses-existing-priority:
+    floating-pill-render:
+      action: change
+      reason: Render the selected existing state as one transcript-overlay pill with a
+        progress spinner and status semantics.
+    floating-pill-motion-style:
+      action: change
+      reason: Add compact fade/slide entrance without layout occupancy and disable it
+        under reduced motion.
+    floating-pill-unit-regression:
+      action: change
+      reason: Prove all four selector states render one spinner pill with the correct
+        label and priority.
+    floating-pill-browser-regression:
+      action: change
+      reason: Prove each loading state uses the floating overlay geometry and remains
+        accessible in direct and hosted paths.
+files:
+  - .harn/plans/background-history-warming-floating-pill.yaml
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/runtime/api.ts
+  - packages/web-next/src/surfaces/RecoveryOverlay.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+verification: Verify the exact clean base before editing and run Harn plan check
+  then lock with dirty_at_lock false. Run focused
+  computer-session/history/RecoveryOverlay units, the Room 34 hosted
+  background-finalization and isolation journey, Room 36 loading-state journeys
+  in direct and hosted modes, all web-next units, and the production/PWA build.
+  Run harn find --changed, harn check, harn apply, harn check --staged, and git
+  diff --check. Stage only this plan, generated assumption truth, the
+  manager/RoomPage/pill implementation and focused tests; create exactly one
+  implementation commit. Do not change protocol, daemon, relay, deployment,
+  release, or unrelated cache behavior.
+applied:
+  applied_at: 2026-08-15T16:30:06.475Z

@@ -14,6 +14,7 @@ import type { ClientState, ClientStore, TranscriptHistoryState } from '../app/st
 import { roomSlice, sourceClientStore } from '../app/store.js';
 
 type RequestKind = 'head' | `cursor:${string}`;
+type HistoryFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 const requests = new WeakMap<ClientState['updateTranscriptHistory'], Map<string, Promise<boolean>>>();
 
@@ -236,6 +237,7 @@ function refreshTranscriptHistoryHeadFrom(
   store: ClientStore,
   room: string,
   token: () => string,
+  request?: HistoryFetch,
 ): Promise<boolean> {
   if (historyOf(store, room).legacyFallback) return Promise.resolve(true);
   return runRequest(store, room, 'head', async () => {
@@ -243,7 +245,7 @@ function refreshTranscriptHistoryHeadFrom(
     const existingKeys = new Set(historyOf(store, room).units.map(transcriptUnitKey));
     const pages: TranscriptHistoryPage[] = [];
     try {
-      let page = await fetchTranscriptHistory(room, undefined, { token: token() });
+      let page = await fetchTranscriptHistory(room, undefined, { token: token(), fetch: request });
       pages.push(page);
       while (
         existingKeys.size > 0
@@ -251,7 +253,7 @@ function refreshTranscriptHistoryHeadFrom(
         && page.has_more
         && page.before_cursor !== null
       ) {
-        page = await fetchTranscriptHistory(room, page.before_cursor, { token: token() });
+        page = await fetchTranscriptHistory(room, page.before_cursor, { token: token(), fetch: request });
         pages.push(page);
       }
       update(store, room, (history) => mergeTranscriptPages(
@@ -292,8 +294,9 @@ export function refreshTranscriptHistoryHead(
   store: ClientStore,
   room: string,
   token: () => string,
+  request?: HistoryFetch,
 ): Promise<boolean> {
-  return refreshTranscriptHistoryHeadFrom(sourceClientStore(store), room, token);
+  return refreshTranscriptHistoryHeadFrom(sourceClientStore(store), room, token, request);
 }
 // harn:end missed-terminal-history-refreshes-through-combined-head
 // harn:end missed-terminal-history-refreshes-through-combined-head

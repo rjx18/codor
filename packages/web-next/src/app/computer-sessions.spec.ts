@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { RoomSummary } from '@codor/protocol';
+import type { Message, RoomSummary } from '@codor/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const recovery = vi.hoisted(() => ({
@@ -32,6 +32,7 @@ import type { TunnelState } from '@runtime/relay.js';
 
 import {
   ComputerSessionManager,
+  historyEvidenceRooms,
   type ComputerSessionDeps,
 } from './computer-sessions.js';
 import type { ConnectorOptions, RoomConnector } from './connector.js';
@@ -195,6 +196,86 @@ function harness() {
 }
 
 describe('ComputerSessionManager', () => {
+  it('warms inactive evidence with one trailing captured-store refresh', async () => {
+    recovery.refreshHead.mockReset();
+    const calls: Array<{
+      store: NonNullable<ConnectorOptions['store']>;
+      room: string;
+      token: string;
+      release: () => void;
+    }> = [];
+    recovery.refreshHead.mockImplementation((store, room, token) => {
+      let release!: () => void;
+      const request = new Promise<boolean>((resolve) => { release = () => resolve(true); });
+      calls.push({
+        store: store as NonNullable<ConnectorOptions['store']>,
+        room,
+        token: token(),
+        release,
+      });
+      return request;
+    });
+    const h = harness();
+    const manager = new ComputerSessionManager(h.deps);
+    try {
+      await manager.start();
+      const storeB = h.connectorOptions.get('B')!.store!;
+      storeB.getState().setActiveRoom('same-room');
+      const previous = storeB.getState();
+      const message41 = {
+        id: 41, seq: 41, room: 'same-room', kind: 'chat', body: 'background evidence',
+      } as unknown as Message;
+      const current = {
+        ...previous,
+        rooms: {
+          ...previous.rooms,
+          'same-room': {
+            ...previous.rooms['same-room']!,
+            messages: { ...previous.rooms['same-room']!.messages, 41: message41 },
+          },
+        },
+      };
+      expect(historyEvidenceRooms(current, previous)).toEqual(['same-room']);
+      storeB.setState(current);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toMatchObject({ store: storeB, room: 'same-room', token: 'token-B' });
+
+      storeB.getState().applyFrame({
+        type: 'message',
+        seq: 42,
+        message: { id: 42, seq: 42, room: 'same-room', kind: 'chat', body: 'trailing evidence' } as unknown as Message,
+      } as never);
+      expect(calls).toHaveLength(1);
+      calls[0]!.release();
+      for (let tick = 0; tick < 8 && calls.length < 2; tick += 1) await Promise.resolve();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]).toMatchObject({ store: storeB, room: 'same-room', token: 'token-B' });
+      calls[1]!.release();
+      for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
+
+      // A warmed destination is already initialized, so activation itself has
+      // no extra head request or transport creation to hide the result.
+      recovery.refreshHead.mockClear();
+      storeB.getState().updateTranscriptHistory('same-room', (history) => ({
+        ...history,
+        initialized: true,
+        failed: false,
+        headNeedsRevalidation: false,
+      }));
+      reconcileSelectedRoomHistory(h.connectors.get('B')!, 'same-room', true, storeB, 'token-B');
+      expect(recovery.refreshHead).not.toHaveBeenCalled();
+      expect(await manager.activate('B')).toBe(true);
+      expect(recovery.refreshHead).not.toHaveBeenCalled();
+    } finally {
+      manager.dispose();
+      for (const call of calls) call.release();
+      recovery.refreshHead.mockReset();
+      recovery.refreshHead.mockImplementation(
+        (_store: unknown, _room: string, _token: () => string) => Promise.resolve(true),
+      );
+    }
+  });
+
   // harn:assume hosted-app-streams-follow-tunnel-generations ref=generation-aware-session-regression
   it('rejects stale bootstrap work and mounts only the current tunnel generation', async () => {
     const h = harness();

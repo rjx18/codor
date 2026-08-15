@@ -1,4 +1,4 @@
-import type { Room, RoomSummary, ServerFrame } from '@codor/protocol';
+import type { Message, Room, RoomSummary, ServerFrame } from '@codor/protocol';
 
 import {
   forgetPairedComputer,
@@ -21,7 +21,12 @@ import { setActiveComputer } from '@runtime/active-computer.js';
 import { createConnector, type ConnectorOptions, type RoomConnector } from './connector.js';
 import { requireBrowserUpgrade } from './compatibility.js';
 import { forgetRoom, rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
-import { createClientStore, mirrorClientStore, type ClientStore } from './store.js';
+import {
+  createClientStore,
+  mirrorClientStore,
+  type ClientState,
+  type ClientStore,
+} from './store.js';
 import { refreshMutableRunJournals } from '../room/run-journals.js';
 import {
   finalizedTranscriptRoots,
@@ -97,9 +102,48 @@ interface SessionEntry {
   resolveCachedReady: () => void;
   cacheRevision?: string;
   cacheWrite: Promise<void>;
+  historyWarming: Map<string, HistoryWarmState>;
   stopStore: () => void;
   stopTunnel: () => void;
 }
+
+interface HistoryWarmState {
+  inFlight?: Promise<boolean>;
+  trailing: boolean;
+}
+
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'interrupted']);
+
+function isTerminalRun(message: Message | undefined): boolean {
+  return message?.kind === 'run'
+    && message.run?.status !== undefined
+    && TERMINAL_RUN_STATUSES.has(message.run.status);
+}
+
+/** Return rooms whose live projection gained a message or terminal run state.
+ * Run-event frames deliberately do not qualify: the existing bounded live
+ * buffer remains the source until a message/finalization frame arrives. */
+// harn:assume inactive-history-evidence-warms-captured-store ref=store-evidence-observation
+export function historyEvidenceRooms(
+  state: ClientState,
+  previous: ClientState,
+): string[] {
+  const rooms: string[] = [];
+  for (const [room, current] of Object.entries(state.rooms)) {
+    const prior = previous.rooms[room];
+    const priorMessages = prior?.messages ?? {};
+    const newMessage = Object.entries(current.messages).some(([id, message]) => {
+      const before = priorMessages[Number(id)];
+      return before === undefined || (isTerminalRun(message) && !isTerminalRun(before));
+    });
+    const priorActiveRuns = new Set((prior?.support?.active_runs ?? []).map((run) => run.id));
+    const currentActiveRuns = new Set((current.support?.active_runs ?? []).map((run) => run.id));
+    const terminalSupportRun = [...priorActiveRuns].some((id) => !currentActiveRuns.has(id));
+    if (newMessage || terminalSupportRun) rooms.push(room);
+  }
+  return rooms;
+}
+// harn:end inactive-history-evidence-warms-captured-store
 
 export interface ComputerSessionDeps {
   load(): Promise<{ materials: HostedComputerMaterial[]; activeId?: string }>;
@@ -402,10 +446,12 @@ export class ComputerSessionManager {
       cachedReady,
       resolveCachedReady,
       cacheWrite: Promise.resolve(),
+      historyWarming: new Map(),
       stopStore: () => undefined,
       stopTunnel: () => undefined,
     };
-    entry.stopStore = store.subscribe(() => {
+    entry.stopStore = store.subscribe((state, previous) => {
+      for (const room of historyEvidenceRooms(state, previous)) this.warmInactiveHistory(entry, room);
       this.persistEntrySnapshot(entry);
       this.publish();
     });
@@ -415,6 +461,39 @@ export class ComputerSessionManager {
     void this.hydrateEntrySnapshot(entry);
     void this.completeEntry(entry);
   }
+
+  // harn:assume inactive-history-evidence-warms-captured-store ref=captured-head-refresh-coalescing
+  private warmInactiveHistory(entry: SessionEntry, room: string): void {
+    if (entry.disposed || entry.connector === undefined || entry.token === '') return;
+    const activeComputer = entry.material.computer.id === this.activeId;
+    const selectedRoom = entry.connector.room() === room;
+    if (activeComputer && selectedRoom) return;
+
+    let state = entry.historyWarming.get(room);
+    if (state?.inFlight !== undefined) {
+      state.trailing = true;
+      return;
+    }
+    state ??= { trailing: false };
+    entry.historyWarming.set(room, state);
+    const run = async (): Promise<boolean> => {
+      let refreshed = false;
+      do {
+        state!.trailing = false;
+        refreshed = await refreshTranscriptHistoryHead(
+          entry.store,
+          room,
+          () => entry.token,
+          entry.tunnel.fetch.bind(entry.tunnel),
+        );
+      } while (state!.trailing && !entry.disposed);
+      if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
+      return refreshed;
+    };
+    state.inFlight = run();
+    void state.inFlight.catch(() => undefined);
+  }
+  // harn:end inactive-history-evidence-warms-captured-store
 
   // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
   private async hydrateEntrySnapshot(entry: SessionEntry): Promise<void> {
