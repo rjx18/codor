@@ -274,6 +274,28 @@ export function coldMessageSuppressed(
 }
 // harn:end actionable-interactions-remain-support-owned-outside-history
 
+/** Interaction rows are excluded from immutable pages, so support uses the
+ * oldest selected unit as the bounded-window edge. Rows at or after that edge
+ * stay inline; older pending rows use the detached action tray. */
+export function interactionInCurrentHistoryWindow(
+  history: TranscriptHistoryState,
+  interaction: Message,
+): boolean {
+  if (!history.hasMore || history.units.length === 0) return true;
+  const oldestUnit = history.units[0]!;
+  const oldestId = oldestUnit.kind === 'message'
+    ? oldestUnit.message_id
+    : oldestUnit.output_message_id;
+  const oldest = history.messages[oldestId];
+  if (oldest === undefined) return false;
+  const floor = continuationFloor([...Object.values(history.messages), interaction]);
+  if (floor !== undefined && oldest.id >= floor && interaction.id >= floor) {
+    return interaction.id >= oldest.id;
+  }
+  const byTime = transcriptTime(interaction) - transcriptTime(oldest);
+  return byTime > 0 || (byTime === 0 && interaction.id >= oldest.id);
+}
+
 // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-tail-skeleton
 /** The tail skeleton belongs only to a hydrated room's head synchronization.
  * Initial hydration keeps its existing three-row skeleton and cursor paging is
@@ -310,7 +332,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     // authenticated revalidation with resume/settlement signals.
     if (!hydrated || !connected) return;
     void ensureTranscriptHistory(useClientStore, props.room, props.token);
-  }, [connected, hydrated, props.room, props.token]);
+  }, [connected, history.headNeedsRevalidation, hydrated, props.room, props.token]);
 
 
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -345,9 +367,17 @@ export function Transcript(props: { room: string; token: () => string; connectio
         .finally(() => heldTargetRequestsRef.current.delete(id));
     }
   }, [connected, heldMessageIds, history.initialized, history.messages, messages, props.room, props.token]);
+  const inlineInteractions = useMemo(
+    () => support?.interactions.filter((message) => messages[message.id] !== undefined
+      || interactionInCurrentHistoryWindow(history, message)) ?? [],
+    [history, messages, support?.interactions],
+  );
   const projectedMessages = useMemo(
-    () => projectActiveRunMessages(messages, support?.active_runs),
-    [messages, support?.active_runs],
+    () => ({
+      ...projectActiveRunMessages(messages, support?.active_runs),
+      ...Object.fromEntries(inlineInteractions.map((message) => [message.id, message])),
+    }),
+    [inlineInteractions, messages, support?.active_runs],
   );
   const ordered = useMemo(() => transcriptMessages(projectedMessages), [projectedMessages]);
   // Support state owns actionability; transcript messages stay the exact
@@ -358,8 +388,10 @@ export function Transcript(props: { room: string; token: () => string; connectio
     support?.interactions,
   ), [ordered, projectedMessages, support]);
   const detachedInteractions = useMemo(
-    () => support?.interactions.filter((message) => messages[message.id] === undefined) ?? [],
-    [messages, support],
+    () => support?.interactions.filter((message) => !inlineInteractions.some(
+      (inline) => inline.id === message.id,
+    )) ?? [],
+    [inlineInteractions, support?.interactions],
   );
   const actionableInteractionIds = useMemo(
     () => new Set(support?.interactions.map((message) => message.id) ?? []),
@@ -429,24 +461,23 @@ export function Transcript(props: { room: string; token: () => string; connectio
   ), [messages, support]);
   const terminalRefreshRef = useRef(new Set<number>());
   useEffect(() => {
+    // A support-gap or cached-room invalidation is already owned by the
+    // selected-room/initial-history controller. Starting the terminal-family
+    // fallback as well can race just after that request settles and spend a
+    // second head request for the same destination generation.
+    if (history.headNeedsRevalidation || history.loadingHead) return;
     for (const rootId of observedLiveRootsRef.current) {
       const root = messages[rootId] ?? support?.active_runs.find((candidate) => candidate.id === rootId);
       if (root?.run?.status === undefined || root.run.status === 'running') continue;
       const journalComplete = getRunJournal(props.room, rootId)?.some((event) => event.type === 'run.completed') === true;
       const liveComplete = slice.runEvents[rootId]?.events.some((event) => event.type === 'run.completed') === true;
       if (journalComplete || liveComplete || terminalRefreshRef.current.has(rootId)) continue;
-      // harn:assume inactive-history-evidence-warms-captured-store ref=activation-skips-warmed-head
-      // A background manager refresh already owns this finalized evidence. Do
-      // not issue a second activation refresh unless a disconnect gap or a
-      // failed/cold head explicitly requires reconciliation.
-      if (history.initialized && !history.failed && !history.headNeedsRevalidation) continue;
-      // harn:end inactive-history-evidence-warms-captured-store
       terminalRefreshRef.current.add(rootId);
       void refreshTranscriptHistoryHead(useClientStore, props.room, props.token).then((ok) => {
         if (!ok) terminalRefreshRef.current.delete(rootId);
       });
     }
-  }, [messages, props.room, props.token, slice.runEvents, support]);
+  }, [history.headNeedsRevalidation, history.loadingHead, messages, props.room, props.token, slice.runEvents, support]);
   // harn:end live-runs-settle-beside-paged-history-once
 
   // Pins older than the loaded page are invisible from loaded messages alone, so
@@ -2424,18 +2455,10 @@ function renderChronologicalTranscript(
   const historical = renderHistoricalTimeline(history, ctx);
   if (historical.length === 0) return renderTimeline(entries, ctx);
 
-  // Permanent output-message families already carry authoritative id order.
-  // Only the legacy region merges page-owned rows with still-live entries by
-  // the timestamps both paths already expose.
-  if (continuationFloor([
+  const floor = continuationFloor([
     ...Object.values(history.messages),
     ...entries.map((entry) => entry.message),
-  ]) !== undefined) {
-    return [
-      ...historical.map((item) => item.node),
-      ...renderTimeline(entries, ctx),
-    ];
-  }
+  ]);
 
   type ChronologyToken =
     | { kind: 'history'; item: RenderedTimelineItem }
@@ -2445,11 +2468,20 @@ function renderChronologicalTranscript(
     ...entries.map((entry): ChronologyToken => ({ kind: 'live', entry })),
   ];
   tokens.sort((left, right) => {
+    const leftId = left.kind === 'history' ? left.item.messageId : left.entry.message.id;
+    const rightId = right.kind === 'history' ? right.item.messageId : right.entry.message.id;
+    const leftStrict = floor !== undefined && leftId >= floor;
+    const rightStrict = floor !== undefined && rightId >= floor;
+    if (leftStrict !== rightStrict) return leftStrict ? 1 : -1;
+    if (leftStrict && rightStrict) {
+      if (leftId !== rightId) return leftId - rightId;
+      const leftOrder = left.kind === 'history' ? left.item.order : left.entry.order;
+      const rightOrder = right.kind === 'history' ? right.item.order : right.entry.order;
+      return leftOrder - rightOrder;
+    }
     const leftTs = left.kind === 'history' ? left.item.ts : left.entry.ts;
     const rightTs = right.kind === 'history' ? right.item.ts : right.entry.ts;
     if (leftTs !== rightTs) return leftTs - rightTs;
-    const leftId = left.kind === 'history' ? left.item.messageId : left.entry.message.id;
-    const rightId = right.kind === 'history' ? right.item.messageId : right.entry.message.id;
     if (leftId !== rightId) return leftId - rightId;
     const leftOrder = left.kind === 'history' ? left.item.order : left.entry.order;
     const rightOrder = right.kind === 'history' ? right.item.order : right.entry.order;
