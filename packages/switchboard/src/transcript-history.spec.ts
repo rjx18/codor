@@ -89,9 +89,9 @@ const toolPair = (call: number, outputMessageId: number): WireEvent[] => [
   },
 ];
 
-// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-page-builder
+// harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-regression
 describe('buildTranscriptHistoryPage', () => {
-  it('walks a huge run internally without splitting tool pairs or duplicating units', () => {
+  it('returns a complete evidence-only output family as one fallback text slot', () => {
     const events = Array.from({ length: 25 }, (_, index) => toolPair(index, 1)).flat();
     events.push({ type: 'run.completed', status: 'completed', output_message_id: 1 });
     const source = new Source([run(1, 'completed', { outputMode: true })], new Map([[1, events]]));
@@ -102,7 +102,6 @@ describe('buildTranscriptHistoryPage', () => {
     do {
       const result = buildTranscriptHistoryPage({ room: 'eng', cursor, source });
       firstMetrics ??= result.metrics;
-      expect(result.page.units.length).toBeLessThanOrEqual(20);
       for (const unit of result.page.units) {
         fingerprints.push(JSON.stringify(unit));
         if (unit.kind === 'tool') expect(unit.event_indices).toHaveLength(2);
@@ -113,10 +112,34 @@ describe('buildTranscriptHistoryPage', () => {
     expect(fingerprints).toHaveLength(25);
     expect(new Set(fingerprints)).toHaveLength(25);
     expect(firstMetrics).toMatchObject({
-      selected_units: 20,
+      selected_units: 25,
+      selected_text_slots: 1,
       journal_reads: 1,
       journal_events_scanned: 51,
     });
+  });
+
+  it('returns twenty text slots with every associated tool pair', () => {
+    const messages = Array.from({ length: 19 }, (_, index) => chat(index + 2));
+    const events = [
+      ...Array.from({ length: 50 }, (_, index) => toolPair(index, 1)).flat(),
+      { type: 'run.item' as const, item_type: 'text_block' as const, output_message_id: 1,
+        payload: { text: 'done' }, ts: at(51) },
+      { type: 'run.completed' as const, status: 'completed' as const, output_message_id: 1 },
+    ];
+    const source = new Source(
+      [run(1, 'completed', { outputMode: true, finalText: 'done' }), ...messages],
+      new Map([[1, events]]),
+    );
+
+    const { page, metrics } = buildTranscriptHistoryPage({ room: 'eng', source });
+    expect(metrics.selected_text_slots).toBe(20);
+    expect(page.units.filter((unit) => unit.kind === 'tool')).toHaveLength(50);
+    expect(page.units.filter((unit) => unit.kind === 'message')).toHaveLength(19);
+    expect(page.units.filter((unit) => unit.kind === 'prose')).toHaveLength(1);
+    expect(page.units).toHaveLength(70);
+    expect(page.before_cursor).toBeNull();
+    expect(page.has_more).toBe(false);
   });
 
   // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-cursor-regression
@@ -435,7 +458,7 @@ describe('buildTranscriptHistoryPage', () => {
     expect(page.has_more).toBe(true);
   });
 
-  // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-unitizer-regression
+  // harn:assume actionable-interactions-do-not-spend-history-text-slots ref=interaction-text-slot-regression
   it('excludes interaction rows while cursor pages retain every genuine visible unit once', () => {
     const excluded = new Set([6, 17]);
     const messages = Array.from({ length: 27 }, (_, offset) => {
@@ -467,7 +490,7 @@ describe('buildTranscriptHistoryPage', () => {
     expect(new Set(walked)).toHaveLength(25);
     expect(pages.at(-1)!.page).toMatchObject({ has_more: false, before_cursor: null });
   });
-  // harn:end actionable-interactions-remain-support-owned-outside-history
+  // harn:end actionable-interactions-do-not-spend-history-text-slots
 
   it('combines fallback, trailing text, and failure status into one visible settled tail', () => {
     const fallback = new Source(
@@ -561,14 +584,15 @@ describe('buildTranscriptHistoryPage', () => {
     console.info('[transcript-history-metrics]', JSON.stringify({ cold, warm_ms: warmMs }));
 
     expect(cold).toMatchObject({
-      selected_units: 20,
+      selected_units: 1_000,
+      selected_text_slots: 1,
       message_reads: 1,
       message_records_read: 1,
       journal_reads: 1,
       journal_events_scanned: 2_001,
     });
-    expect(cold.response_bytes).toBeLessThan(20_000);
+    expect(cold.response_bytes).toBeLessThan(500_000);
     expect(cold.duration_ms).toBeGreaterThanOrEqual(0);
   });
 });
-// harn:end historical-transcript-pages-match-output-scoped-rendering
+// harn:end historical-transcript-pages-budget-text-slots

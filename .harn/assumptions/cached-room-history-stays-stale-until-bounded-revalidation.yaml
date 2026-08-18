@@ -1,0 +1,18 @@
+id: cached-room-history-stays-stale-until-bounded-revalidation
+hash: a-2294e461ecad
+title: Each cached room stays stale until bounded authenticated revalidation
+state: active
+statement: >
+  Every restored hosted room snapshot may render read-only while disconnected
+  but remains marked for revalidation until the owning computer's current
+  authenticated tunnel successfully completes its bounded head/predecessor
+  refresh. Signals deduplicate against the exact store, room, token, and
+  transport; failure remains retryable and keeps cached/live content readable,
+  while success adopts overlap or replaces a stale no-overlap finalized window
+  without importing another computer.
+depends_on:
+  - hosted-last-good-history-cache-is-per-room-and-bounded
+  - combined-head-reconciliation-is-two-page-bounded
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-app-streams-follow-tunnel-generations
+created_by: history-text-slots-p1

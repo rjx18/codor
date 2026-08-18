@@ -193,13 +193,12 @@ test.describe('multi-computer pairing', () => {
     expect(initialAppOpens.filter((entry) => entry.session === aSession)).toHaveLength(1);
     expect(initialAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
 
-    // harn:assume managed-computer-activation-revalidates-destination-history ref=destination-history-activation-browser-regression
-    // harn:assume selected-room-activation-reconciles-destination-history ref=selected-room-source-isolation-regression
+    // harn:assume inactive-history-warming-persists-bounded-room-cache ref=bounded-background-warming-regression
     // A finalizes while same-room B is selected. The inactive A connector may
-    // retain live context, but immutable result evidence remains page-owned and
-    // must be reconciled by A's deliberate activation.
+    // retain live context, and the existing zero-history subscription triggers
+    // one captured-store combined-head refresh before A is activated.
     const activationFinal = 'activation history final from computer A';
-    const historyRequestsBeforeActivation = await page.evaluate(() => (
+    const historyRequestsBeforeWarm = await page.evaluate(() => (
       (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
         .filter((entry) => entry.target.includes('/transcript-history')).length
     ));
@@ -209,6 +208,17 @@ test.describe('multi-computer pairing', () => {
       final_text: activationFinal,
     });
     await expect(page.getByTestId('timeline')).not.toContainText(activationFinal);
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
+        .filter((entry) => entry.target.includes('/transcript-history')).length
+    ))).toBeGreaterThan(historyRequestsBeforeWarm);
+    // A final message and the support transition can be delivered as adjacent
+    // frames; let the coalesced trailing head settle before measuring activation.
+    await page.waitForTimeout(250);
+    const historyRequestsBeforeActivation = await page.evaluate(() => (
+      (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
+        .filter((entry) => entry.target.includes('/transcript-history')).length
+    ));
 
     // Both hosts deliberately use `eng`; each generation still owns exactly its
     // own same-named key, never a shared global credential.
@@ -237,7 +247,7 @@ test.describe('multi-computer pairing', () => {
     await expect.poll(() => page.evaluate(() => (
       (window as unknown as { __codorRelayHttp: Array<{ target: string }> }).__codorRelayHttp
         .filter((entry) => entry.target.includes('/transcript-history')).length
-    ))).toBe(historyRequestsBeforeActivation + 1);
+    ))).toBe(historyRequestsBeforeActivation);
     expect(await page.evaluate(() => [...(
       window as unknown as {
         __codorRelayAppOpens: Array<{ session: string; generation: number }>;
@@ -260,11 +270,9 @@ test.describe('multi-computer pairing', () => {
         __codorRelayAppOpens: Array<{ session: string; generation: number }>;
       }
     ).__codorRelayAppOpens])).toEqual(initialAppOpens);
-    // The unresolved A-owned activation cannot redirect its response into B:
     // B stays free of A's same-named room result, while a later A activation
-    // retries the captured source and renders exactly one copy.
-    // harn:end managed-computer-activation-revalidates-destination-history
-    // harn:end selected-room-activation-reconciles-destination-history
+    // reuses the already-warmed captured source and renders exactly one copy.
+    // harn:end inactive-history-warming-persists-bounded-room-cache
     await expect(page.getByTestId('timeline')).not.toContainText('hi from computer two');
     // Post round-trips over computer A's tunnel.
     // harn:assume composer-enter-uses-live-draft-state ref=composer-live-mention-switch-regression

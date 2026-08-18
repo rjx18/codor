@@ -35,6 +35,8 @@ import { relayFetch } from './relay-transport.js';
 export interface ApiOptions {
   token: string;
   origin?: string;
+  /** Optional source-owned transport for a managed computer's background work. */
+  fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 }
 
 // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=acp-provider-catalog-client
@@ -105,7 +107,7 @@ export async function fetchTranscriptHistory(
   const query = cursor === undefined ? '' : `?cursor=${encodeURIComponent(cursor)}`;
   const path = `/api/rooms/${encodeURIComponent(room)}/transcript-history${query}`;
   const origin = options.origin ?? window.location.origin;
-  const response = await relayFetch(`${origin}${path}`, {
+  const response = await (options.fetch ?? relayFetch)(`${origin}${path}`, {
     headers: { authorization: `Bearer ${options.token}` },
   });
   if (!response.ok) {

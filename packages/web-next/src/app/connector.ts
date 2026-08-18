@@ -18,7 +18,10 @@ import {
   useClientStore,
   type ClientStore,
 } from './store.js';
-import { requireBrowserUpgrade } from './compatibility.js';
+import {
+  directCombinedTranscriptHistorySupported,
+  requireBrowserUpgrade,
+} from './compatibility.js';
 
 export interface RoomConnector extends Connection {
   /** Select another already-multiplexed room without replacing the socket. */
@@ -68,6 +71,9 @@ export interface ConnectorOptions {
    *  the global gate only if that computer is selected. */
   onUpgradeRequired?: (frame: Extract<ServerFrame, { type: 'upgrade_required' }>) => void;
   refreshToken?: () => Promise<string>;
+  /** Captured from this exact runtime's authenticated compatibility response.
+   * Omitted only by legacy/direct callers, which retain socket history. */
+  combinedTranscriptHistory?: boolean;
   /** Hosted-only tunnel generation gate. Direct/self-hosted callers omit it. */
   tunnel?: {
     readonly state: TunnelState;
@@ -155,6 +161,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let openedTunnelGeneration: number | undefined;
   let waitingTunnelGeneration: number | undefined;
   let resumeAfterTunnel = false;
+  const combinedTranscriptHistory = options.combinedTranscriptHistory
+    ?? directCombinedTranscriptHistorySupported();
+  const socketHistoryLimit = combinedTranscriptHistory ? 0 : HISTORY_PAGE_SIZE;
 
   clientStore.getState().setActiveRoom(currentRoom);
 
@@ -186,13 +195,17 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     }
   };
 
-  // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion
+  // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-socket-history
   const subscribe = (room: string, hydrateLimit: number): void => {
     const priorBudget = subscriptionBudgets.get(room);
     if ((priorBudget ?? -1) >= hydrateLimit || socket?.readyState !== WebSocket.OPEN) return;
     const promote = hydrateLimit > 0 && zeroHydrated.has(room) && !historyHydrated.has(room);
     subscribed.add(room);
     subscriptionBudgets.set(room, hydrateLimit);
+    clientStore.getState().updateTranscriptHistory(room, (history) => ({
+      ...history,
+      legacySocketHydration: !combinedTranscriptHistory,
+    }));
     // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=connector-recovery-boundary
     const sinceSeq = promote ? 0 : roomSlice(clientStore.getState(), room).seq;
     // Promotion changes only the hydration cursor. It does not alter the
@@ -215,7 +228,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       client_kind: 'browser',
     });
   };
-  // harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+  // harn:end combined-history-capability-gates-socket-fallback
 
   /**
    * Warm-resync a room that fell behind, bypassing the `subscribed` guard: it is
@@ -227,7 +240,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       type: 'subscribe',
       room,
       since_seq: sinceSeq,
-      hydrate_limit: HISTORY_PAGE_SIZE,
+      hydrate_limit: socketHistoryLimit,
       room_addressed: true,
       browser_protocol: BROWSER_PROTOCOL_EPOCH,
       client_kind: 'browser',
@@ -380,8 +393,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       state = 'connected';
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
-      subscribe(currentRoom, HISTORY_PAGE_SIZE);
-      for (const desired of desiredRooms) subscribe(desired, HISTORY_PAGE_SIZE);
+      subscribe(currentRoom, socketHistoryLimit);
+      for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
       send({ type: 'list_rooms' });
       startProbes(mine);
     };
@@ -437,7 +450,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         const priorSubscribed = new Set(subscribed);
         for (const room of frame.rooms) {
           const foreground = room.id === currentRoom || desiredRooms.has(room.id);
-          subscribe(room.id, foreground ? HISTORY_PAGE_SIZE : 0);
+          subscribe(room.id, foreground ? socketHistoryLimit : 0);
         }
         reconcile(frame.room_seqs, priorSubscribed);
         if (foregroundProbe) options.onResume?.(currentRoom);
@@ -622,11 +635,11 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (room === currentRoom) return;
       currentRoom = room;
       clientStore.getState().setActiveRoom(room);
-      subscribe(room, HISTORY_PAGE_SIZE);
+      subscribe(room, socketHistoryLimit);
     },
     setDesiredRooms: (rooms: readonly string[]) => {
       desiredRooms = new Set(rooms);
-      for (const desired of desiredRooms) subscribe(desired, HISTORY_PAGE_SIZE);
+      for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
     },
     roomReadiness: (room: string) => {
       if (room !== currentRoom && !desiredRooms.has(room)) return 'unsubscribed';

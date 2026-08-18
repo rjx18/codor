@@ -40,12 +40,7 @@ export function loadingPillState(inputs: LoadingPillInputs): LoadingPillState | 
 
 // harn:end prioritized-room-loading-pill-uses-existing-readiness
 
-const LOADING_PILL_LABEL: Record<LoadingPillState, string> = {
-  reconnecting: 'Reconnecting',
-  channel: 'Loading channel',
-  syncing: 'Syncing messages',
-  older: 'Loading older messages',
-};
+export const LOADING_PILL_LABEL = 'Loading messages…';
 
 /** Read-only controls that do not alter room/server state while the app socket
  * is reconnecting. Everything else button-shaped is disabled until a current
@@ -151,27 +146,32 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
   }, [readableReconnect]);
   return (
     <>
-      <div
-        ref={beneathRef}
-        aria-hidden={show || undefined}
-        data-reconnecting-readonly={readableReconnect ? 'true' : undefined}
-        onSubmitCapture={readableReconnect ? (event) => event.preventDefault() : undefined}
-      >
-        {children}
-      </div>
-      {/* harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-render */}
-      {loadingState !== undefined ? (
+      <div className="nx-recovery-shell">
         <div
-          className="nx-reconnecting-pill nx-loading-pill"
-          role="status"
-          aria-live="polite"
-          data-testid="reconnecting-pill"
-          data-loading-state={loadingState}
+          ref={beneathRef}
+          aria-hidden={show || undefined}
+          data-reconnecting-readonly={readableReconnect ? 'true' : undefined}
+          onSubmitCapture={readableReconnect ? (event) => event.preventDefault() : undefined}
         >
-          <span aria-hidden="true" /> {LOADING_PILL_LABEL[loadingState]}
+          {children}
         </div>
-      ) : null}
-      {/* harn:end prioritized-room-loading-pill-uses-existing-readiness */}
+        {/* harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-render */}
+        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-surface */}
+        {loadingState !== undefined ? (
+          <div
+            className="nx-loading-pill"
+            role="status"
+            aria-live="polite"
+            data-testid="reconnecting-pill"
+            data-loading-state={loadingState}
+          >
+            <span className="nx-loading-pill-spinner" data-testid="loading-pill-spinner" aria-hidden="true" />
+            <span>{LOADING_PILL_LABEL}</span>
+          </div>
+        ) : null}
+        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton */}
+        {/* harn:end floating-room-loading-pill-uses-existing-priority */}
+      </div>
       {show ? <RecoveryCard state={state as RecoveryState} presentation="overlay" /> : null}
     </>
   );

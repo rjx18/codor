@@ -2,7 +2,9 @@ import { performance } from 'node:perf_hooks';
 
 import {
   HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  newestTranscriptHistoryUnits,
   parseRunItemPayload,
+  transcriptHistoryTextSlotCount,
   TranscriptHistoryPageSchema,
   type Message,
   type TranscriptHistoryPage,
@@ -22,6 +24,7 @@ export interface TranscriptHistoryMetrics {
   duration_ms: number;
   response_bytes: number;
   selected_units: number;
+  selected_text_slots: number;
   message_reads: number;
   message_records_read: number;
   journal_reads: number;
@@ -319,7 +322,7 @@ function compareEntries(left: Entry, right: Entry, continuationFloor: number | u
     || left.unitOrdinal - right.unitOrdinal;
 }
 
-// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-page-builder
+// harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-page-builder
 export function buildTranscriptHistoryPage(opts: {
   room: string;
   cursor?: string;
@@ -364,13 +367,13 @@ export function buildTranscriptHistoryPage(opts: {
     const next: Entry[] = [];
     for (const message of messages.values()) {
       if (message.run_parent_id !== undefined || (message.kind === 'run' && message.run !== undefined)) continue;
-      // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-unitizer
+      // harn:assume actionable-interactions-do-not-spend-history-text-slots ref=interaction-text-slot-unitizer
       // Pending/resolved interaction state is recipient-scoped RoomSupport, not
       // immutable transcript history. Counting the durable card row here would
       // either resurrect an answered card or spend a visible-unit slot on state
       // the page cannot truthfully project.
       if (message.kind === 'ask' || message.kind === 'approval') continue;
-      // harn:end actionable-interactions-remain-support-owned-outside-history
+      // harn:end actionable-interactions-do-not-spend-history-text-slots
       next.push({
         sourceMessageId: message.id,
         unitOrdinal: 0,
@@ -430,8 +433,13 @@ export function buildTranscriptHistoryPage(opts: {
   rebuildEntries();
   if (cursor !== undefined && boundaryIndex < 0) throw new Error('invalid transcript history cursor boundary');
   const candidates = entries.slice(0, boundaryIndex);
-  const selected = candidates.slice(-HISTORICAL_TRANSCRIPT_PAGE_SIZE);
-  const hasMore = candidates.length > HISTORICAL_TRANSCRIPT_PAGE_SIZE;
+  const selectedUnits = newestTranscriptHistoryUnits(
+    candidates.map((entry) => entry.unit),
+    HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  );
+  const selectedSet = new Set(selectedUnits);
+  const selected = candidates.filter((entry) => selectedSet.has(entry.unit));
+  const hasMore = selected.length < candidates.length;
   const selectedMessageIds = new Set<number>();
   const selectedEvents = new Map<number, Set<number>>();
   for (const entry of selected) {
@@ -480,6 +488,7 @@ export function buildTranscriptHistoryPage(opts: {
       duration_ms: performance.now() - started,
       response_bytes: Buffer.byteLength(JSON.stringify(parsed)),
       selected_units: parsed.units.length,
+      selected_text_slots: transcriptHistoryTextSlotCount(parsed.units),
       message_reads: messageReads,
       message_records_read: messageRecordsRead,
       journal_reads: journalReads,
@@ -487,4 +496,4 @@ export function buildTranscriptHistoryPage(opts: {
     },
   };
 }
-// harn:end historical-transcript-pages-match-output-scoped-rendering
+// harn:end historical-transcript-pages-budget-text-slots

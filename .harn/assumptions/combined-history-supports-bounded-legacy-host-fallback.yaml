@@ -1,7 +1,7 @@
 id: combined-history-supports-bounded-legacy-host-fallback
 hash: a-9a310df76b32
 title: Unsupported combined history falls back only to hydrated legacy host state
-state: active
+state: retired
 statement: >
   A mounted room must use combined transcript pages on hosts that support the
   endpoint, but an explicit 404 or 405 from that endpoint may switch only that
@@ -13,3 +13,4 @@ depends_on:
   - finalized-browser-history-is-combined-page-owned
   - hosted-computer-sessions-keep-state-isolated
 created_by: hosted-compatibility-foregrounding
+retired_by: history-text-slots-p1

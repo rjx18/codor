@@ -1,0 +1,21 @@
+id: inactive-history-warming-persists-bounded-room-cache
+hash: a-c219c8e86694
+title: Inactive evidence warms and persists the owning bounded room cache
+state: active
+statement: >
+  A hosted session observes new message or terminal evidence in inactive
+  subscribed rooms and coalesces the existing combined-head refresh for that
+  captured store, room, token, and tunnel. One trailing refresh may follow
+  evidence arriving in flight; each refresh remains bounded to a head and
+  optional predecessor, and successful materialization updates only that
+  computer-room's forty-text-slot snapshot. No polling, eager socket history,
+  new cache, cross-computer state, or activation request for an already-warmed
+  room is introduced.
+depends_on:
+  - hosted-app-keeps-all-paired-computers-live
+  - hosted-computer-sessions-keep-state-isolated
+  - combined-history-capability-gates-socket-fallback
+  - hosted-computer-switching-reuses-warm-session
+  - finalized-browser-history-is-combined-page-owned
+  - combined-head-reconciliation-is-two-page-bounded
+created_by: history-text-slots-p1

@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
@@ -44,9 +45,9 @@ async function pairLive(page: Page, shortBoot = false): Promise<void> {
 }
 
 // harn:assume hosted-managed-bootstrap-reacts-to-late-readiness ref=reactive-managed-bootstrap-regression
-// harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion-regression
+// harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-history-regression
 test.describe('hosted smooth startup budgets', () => {
-  test('uses manager-owned bootstrap requests and promotes one zero-history room once', async ({ page }) => {
+  test('captures runtime capability before opening one zero-history app socket', async ({ page }) => {
     test.setTimeout(120_000);
     await pairLive(page);
     await expect.poll(async () => await page.evaluate(() => (
@@ -67,10 +68,10 @@ test.describe('hosted smooth startup budgets', () => {
     expect(matching('/api/auth/challenge')).toBe(1);
     expect(matching('/api/auth/session')).toBe(1);
     expect(matching('/api/rooms/summary')).toBe(1);
-    expect(matching('/api/client-compatibility')).toBe(0);
+    expect(matching('/api/client-compatibility')).toBe(1);
     expect(before.http.filter((entry) => entry.target.includes('/transcript-history'))).toHaveLength(1);
     expect(before.app).toHaveLength(1);
-    expect(before.subscriptions.find((entry) => entry.room === 'eng' && entry.hydrateLimit === 20)).toBeTruthy();
+    expect(before.subscriptions.find((entry) => entry.room === 'eng' && entry.hydrateLimit === 0)).toBeTruthy();
     expect(before.subscriptions.find((entry) => entry.room === 'design' && entry.hydrateLimit === 0)).toBeTruthy();
 
     await page.getByTestId('room-link-design').click();
@@ -78,7 +79,7 @@ test.describe('hosted smooth startup budgets', () => {
     await expect.poll(async () => await page.evaluate(() => (
       (window as unknown as {
         __codorRoomSubscribes: Array<{ room: string; hydrateLimit: number }>;
-      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 20).length
+      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 0).length
     ))).toBe(1);
     await page.getByTestId('room-link-eng').click();
     await page.getByTestId('room-link-design').click();
@@ -86,7 +87,7 @@ test.describe('hosted smooth startup budgets', () => {
     expect(await page.evaluate(() => (
       (window as unknown as {
         __codorRoomSubscribes: Array<{ room: string; hydrateLimit: number }>;
-      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 20).length
+      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 0).length
     ))).toBe(1);
 
     console.info('[hosted-startup-browser-metrics]', JSON.stringify({
@@ -102,6 +103,8 @@ test.describe('hosted smooth startup budgets', () => {
     }));
   });
 
+  // harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-browser-regression
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-browser-regression
   // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-browser-regression
   test('shows one prioritized loading pill for direct history work', async ({ page }) => {
     test.setTimeout(120_000);
@@ -133,7 +136,16 @@ test.describe('hosted smooth startup budgets', () => {
     await expect.poll(() => headWasHeld).toBe(true);
     const pill = page.getByTestId('reconnecting-pill');
     await expect(pill).toHaveAttribute('data-loading-state', 'syncing', { timeout: 30_000 });
-    await expect(pill).toHaveText('Syncing messages');
+    await expect(pill).toHaveClass(/nx-loading-pill/);
+    await expect(pill.getByTestId('loading-pill-spinner')).toBeVisible();
+    expect(await pill.evaluate((element) => getComputedStyle(element).position)).toBe('absolute');
+    await expect(pill).toHaveText('Loading messages…');
+    expect(await pill.evaluate((element) => getComputedStyle(element).boxShadow)).toMatch(/rgba\(0, 0, 0/);
+    await expect(page.getByTestId('new-message-skeleton')).toHaveCount(0);
+    const pillA11y = await new AxeBuilder({ page }).include('[data-testid="reconnecting-pill"]').analyze();
+    expect(pillA11y.violations.map((violation) => violation.id)).toEqual([]);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
     await expect(page.locator('[data-loading-state]')).toHaveCount(1);
     releaseHead();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
@@ -145,13 +157,19 @@ test.describe('hosted smooth startup budgets', () => {
     });
     await expect.poll(() => cursorWasHeld).toBe(true);
     await expect(pill).toHaveAttribute('data-loading-state', 'older', { timeout: 30_000 });
+    await expect(pill).toHaveClass(/nx-loading-pill/);
+    await expect(pill.getByTestId('loading-pill-spinner')).toBeVisible();
+    await expect(pill).toHaveText('Loading messages…');
+    await expect(page.getByTestId('new-message-skeleton')).toHaveCount(0);
     await expect(page.locator('[data-loading-state]')).toHaveCount(1);
     releaseCursor();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
   });
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
   // harn:end prioritized-room-loading-pill-uses-existing-readiness
+  // harn:end floating-room-loading-pill-uses-existing-priority
 
-  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-regression
+  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-regression
   test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
@@ -169,7 +187,11 @@ test.describe('hosted smooth startup budgets', () => {
     const retainedDraft = '@viewer preserve retained draft';
     await liveInput.fill(retainedDraft);
     await control('/relay-down');
-    await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 30_000 });
+    const reconnectingPill = page.getByTestId('reconnecting-pill');
+    await expect(reconnectingPill).toBeVisible({ timeout: 30_000 });
+    await expect(reconnectingPill).toHaveAttribute('data-loading-state', 'reconnecting');
+    await expect(reconnectingPill).toHaveClass(/nx-loading-pill/);
+    await expect(reconnectingPill.getByTestId('loading-pill-spinner')).toBeVisible();
     await page.evaluate(() => {
       const mic = document.querySelector<HTMLButtonElement>('[data-testid="composer-mic"]')!;
       // Bypass the presentation guard to prove the action boundary itself.
@@ -283,9 +305,11 @@ test.describe('hosted smooth startup budgets', () => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const candidates = snapshot.history.units.flatMap((unit: any, index: number) => {
+      const cachedRoom = snapshot.rooms[snapshot.publicRoom];
+      if (cachedRoom === undefined) throw new Error('missing cached public room');
+      const candidates = cachedRoom.history.units.flatMap((unit: any, index: number) => {
         if (unit.kind !== 'message') return [];
-        const message = snapshot.history.messages[unit.message_id];
+        const message = cachedRoom.history.messages[unit.message_id];
         return message?.kind === 'chat' && message.deleted !== true
           ? [{ id: unit.message_id as number, body: message.body as string, index }]
           : [];
@@ -293,8 +317,8 @@ test.describe('hosted smooth startup budgets', () => {
       if (candidates.length < 2) throw new Error('cached head needs two ordinary rows');
       const removed = candidates.at(-2)!;
       const later = candidates.at(-1)!;
-      snapshot.history.units.splice(removed.index, 1);
-      delete snapshot.history.messages[removed.id];
+      cachedRoom.history.units.splice(removed.index, 1);
+      delete cachedRoom.history.messages[removed.id];
       await new Promise<void>((resolve, reject) => {
         const request = store.put(snapshot, key);
         request.onsuccess = () => resolve();
@@ -380,7 +404,7 @@ test.describe('hosted smooth startup budgets', () => {
   // harn:end combined-history-opening-sync-stays-cold
   // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end readable-reconnecting-room-never-admits-mutation
-  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
+  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
 
   test('a cacheless active host that returns late enters the same document automatically', async ({ page }) => {
     test.setTimeout(120_000);
@@ -403,7 +427,7 @@ test.describe('hosted smooth startup budgets', () => {
     expect(await page.evaluate(() => (window as unknown as { __lateReadyDocument?: boolean }).__lateReadyDocument)).toBe(true);
   });
 });
-// harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+// harn:end combined-history-capability-gates-socket-fallback
 // harn:end hosted-managed-bootstrap-reacts-to-late-readiness
 
 // harn:assume transcript-tail-follow-has-one-prepaint-owner ref=transcript-prepaint-geometry-regression

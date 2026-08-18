@@ -1,0 +1,21 @@
+id: bounded-combined-head-adopts-authoritative-window
+hash: a-9bc07ce9d205
+title: Bounded combined heads adopt authoritative overlap or replace staleness
+state: active
+statement: >
+  A successful at-most-two-page head reconciliation deduplicates by stable unit
+  identity and adopts the server's exact order throughout its window. A stable
+  overlap retains only the already-loaded older prefix outside that window; no
+  overlap replaces stale finalized membership, while live room records not
+  represented by pages remain available. Finalized families and interjections
+  therefore keep server chronology without gaps, duplicates, local receipt-time
+  fallback, or an unbounded bridge.
+depends_on:
+  - historical-transcript-pages-budget-text-slots
+  - transcript-history-cursors-cover-complete-established-order
+  - finalized-browser-history-is-combined-page-owned
+  - combined-head-reconciliation-is-two-page-bounded
+  - live-runs-settle-beside-paged-history-once
+  - continuation-writer-follows-journaled-output-ownership
+  - permalink-ids-stable
+created_by: history-text-slots-p1

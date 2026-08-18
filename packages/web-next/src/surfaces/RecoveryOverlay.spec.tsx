@@ -19,8 +19,10 @@ vi.mock('../runtime/crypto.js', () => ({ forgetRelayPairing: vi.fn() }));
 
 import { resetClientStoreForTest, useClientStore } from '../app/store.js';
 import { writeComputerAppearances } from '../room/ComputerChoice.js';
+import { shouldShowNewMessageSkeleton } from '../room/Transcript.js';
 import { RecoveryCard } from './RecoveryCard.js';
 import {
+  LOADING_PILL_LABEL,
   loadingPillState,
   RecoveryOverlay,
   type LoadingPillInputs,
@@ -50,6 +52,7 @@ function hydrateCachedUnit(): void {
   );
 }
 
+// harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-unit-regression
 // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-unit-regression
 describe('prioritized room loading pill', () => {
   const base: LoadingPillInputs = {
@@ -81,6 +84,18 @@ describe('prioritized room loading pill', () => {
     })).toBeUndefined();
   });
 
+  it('uses one accessible loading label for every prioritized state', () => {
+    expect(LOADING_PILL_LABEL).toBe('Loading messages…');
+  });
+
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-unit-regression
+  it('reserves the bottom skeleton for initialized head synchronization', () => {
+    expect(shouldShowNewMessageSkeleton({ initialized: false, loadingHead: true })).toBe(false);
+    expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: false })).toBe(false);
+    expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: true })).toBe(true);
+  });
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
+
   it('renders the existing history-head signal as one syncing pill', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
     hydrateCachedUnit();
@@ -94,13 +109,16 @@ describe('prioritized room loading pill', () => {
     await act(async () => { root.render(<RecoveryOverlay><p>room</p></RecoveryOverlay>); });
     const pill = host.querySelector<HTMLElement>('[data-testid="reconnecting-pill"]');
     expect(pill?.dataset.loadingState).toBe('syncing');
-    expect(pill?.textContent).toContain('Syncing messages');
+    expect(pill?.textContent).toContain(LOADING_PILL_LABEL);
+    expect(pill?.className).toContain('nx-loading-pill');
+    expect(pill?.querySelector('[data-testid="loading-pill-spinner"]')).toBeTruthy();
     expect(host.querySelectorAll('[data-loading-state]')).toHaveLength(1);
     await act(async () => { root.unmount(); });
     delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
 });
 // harn:end prioritized-room-loading-pill-uses-existing-readiness
+// harn:end floating-room-loading-pill-uses-existing-priority
 
 // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
 describe('RecoveryOverlay readable reconnect', () => {

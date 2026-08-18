@@ -7,6 +7,8 @@ import {
   checkBrowserCompatibility,
   clearBrowserUpgradeForTest,
   CompatibilityGate,
+  directCombinedTranscriptHistorySupported,
+  fetchBrowserCompatibility,
   refreshBrowserApp,
   requireBrowserUpgrade,
 } from './compatibility.js';
@@ -23,7 +25,31 @@ describe('browser compatibility gate', () => {
     expect(renderToStaticMarkup(
       <CompatibilityGate><div data-testid="room">room</div></CompatibilityGate>,
     )).toContain('data-testid="room"');
+    expect(directCombinedTranscriptHistorySupported()).toBe(false);
   });
+
+  // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-history-regression
+  it('treats only an explicit compatibility capability as combined-history support', async () => {
+    const capable = vi.fn(async () => new Response(JSON.stringify({
+      browser_protocol: BROWSER_PROTOCOL_EPOCH,
+      minimum_browser_protocol: 0,
+      compatible: true,
+      combined_transcript_history: true,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    expect(await fetchBrowserCompatibility('token', capable)).toEqual({
+      combinedTranscriptHistory: true,
+    });
+
+    const legacy = vi.fn(async () => new Response(JSON.stringify({
+      browser_protocol: BROWSER_PROTOCOL_EPOCH,
+      minimum_browser_protocol: 0,
+      compatible: true,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    expect(await fetchBrowserCompatibility('token', legacy)).toEqual({
+      combinedTranscriptHistory: false,
+    });
+  });
+  // harn:end combined-history-capability-gates-socket-fallback
 
   it('turns REST 426 into the same full-screen refresh surface as the socket frame', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({

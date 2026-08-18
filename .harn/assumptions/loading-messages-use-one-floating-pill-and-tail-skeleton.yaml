@@ -1,0 +1,18 @@
+id: loading-messages-use-one-floating-pill-and-tail-skeleton
+hash: a-4f4ac592c1a1
+title: Loading messages use one floating pill and a synchronization tail skeleton
+state: active
+statement: >
+  The room UI must expose at most one accessible loading surface for the
+  existing prioritized readiness signals: a high-contrast floating spinner pill
+  with one “Loading messages…” label, a brief entrance animation that is
+  disabled for reduced-motion users, and a compact pulsing skeleton at the
+  bottom only when an initialized room is synchronizing new messages. Initial
+  hydration and older-page loads keep their existing transcript geometry and
+  anchor owner; no new loading state machine, request, or scroll owner is
+  introduced.
+depends_on:
+  - floating-room-loading-pill-uses-existing-priority
+  - transcript-tail-follow-has-one-prepaint-owner
+  - transcript-history-prepends-one-deliberate-page
+created_by: loading-messages-floating-pill-p2

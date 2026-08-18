@@ -89,9 +89,14 @@ test.describe('large-room hydration', () => {
     expect(requests.length).toBeLessThan(500);
   });
 
-  // harn:assume combined-history-supports-bounded-legacy-host-fallback ref=history-legacy-fallback-regression
-  test('an old host 404 keeps the hydrated legacy transcript and journal path', async ({ page }) => {
+  // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-history-regression
+  test('a missing old-host capability keeps bounded socket history and the journal path', async ({ page }) => {
     const journals = trackJournalRequests(page);
+    await page.route('**/api/client-compatibility*', (route) => route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ browser_protocol: 3, minimum_browser_protocol: 3 }),
+    }));
     await page.route('**/api/rooms/hydration/transcript-history*', (route) => route.fulfill({
       status: 404,
       contentType: 'application/json',
@@ -103,7 +108,7 @@ test.describe('large-room hydration', () => {
     await expect(page.getByTestId('transcript-history-error')).toHaveCount(0);
     expect(journals).toContain(ids.liveRunId);
   });
-  // harn:end combined-history-supports-bounded-legacy-host-fallback
+  // harn:end combined-history-capability-gates-socket-fallback
 
   // harn:assume transcript-history-failures-are-bounded-and-actionable ref=history-failure-regression
   test('a non-compatibility history failure shows a bounded retry/update error', async ({ page }) => {

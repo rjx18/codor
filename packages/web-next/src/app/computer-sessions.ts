@@ -1,4 +1,4 @@
-import type { Room, RoomSummary, ServerFrame } from '@codor/protocol';
+import type { Message, Room, RoomSummary, ServerFrame } from '@codor/protocol';
 
 import {
   forgetPairedComputer,
@@ -19,9 +19,14 @@ import { TunnelClient, type TunnelState, type TunnelStateListener } from '@runti
 import { setActiveComputer } from '@runtime/active-computer.js';
 
 import { createConnector, type ConnectorOptions, type RoomConnector } from './connector.js';
-import { requireBrowserUpgrade } from './compatibility.js';
+import { fetchBrowserCompatibility, requireBrowserUpgrade } from './compatibility.js';
 import { forgetRoom, rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
-import { createClientStore, mirrorClientStore, type ClientStore } from './store.js';
+import {
+  createClientStore,
+  mirrorClientStore,
+  type ClientState,
+  type ClientStore,
+} from './store.js';
 import { refreshMutableRunJournals } from '../room/run-journals.js';
 import {
   finalizedTranscriptRoots,
@@ -97,15 +102,55 @@ interface SessionEntry {
   resolveCachedReady: () => void;
   cacheRevision?: string;
   cacheWrite: Promise<void>;
+  historyWarming: Map<string, HistoryWarmState>;
   stopStore: () => void;
   stopTunnel: () => void;
 }
+
+interface HistoryWarmState {
+  inFlight?: Promise<boolean>;
+  trailing: boolean;
+}
+
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'interrupted']);
+
+function isTerminalRun(message: Message | undefined): boolean {
+  return message?.kind === 'run'
+    && message.run?.status !== undefined
+    && TERMINAL_RUN_STATUSES.has(message.run.status);
+}
+
+/** Return rooms whose live projection gained a message or terminal run state.
+ * Run-event frames deliberately do not qualify: the existing bounded live
+ * buffer remains the source until a message/finalization frame arrives. */
+// harn:assume inactive-history-warming-persists-bounded-room-cache ref=bounded-captured-head-refresh-coalescing
+export function historyEvidenceRooms(
+  state: ClientState,
+  previous: ClientState,
+): string[] {
+  const rooms: string[] = [];
+  for (const [room, current] of Object.entries(state.rooms)) {
+    const prior = previous.rooms[room];
+    const priorMessages = prior?.messages ?? {};
+    const newMessage = Object.entries(current.messages).some(([id, message]) => {
+      const before = priorMessages[Number(id)];
+      return before === undefined || (isTerminalRun(message) && !isTerminalRun(before));
+    });
+    const priorActiveRuns = new Set((prior?.support?.active_runs ?? []).map((run) => run.id));
+    const currentActiveRuns = new Set((current.support?.active_runs ?? []).map((run) => run.id));
+    const terminalSupportRun = [...priorActiveRuns].some((id) => !currentActiveRuns.has(id));
+    if (newMessage || terminalSupportRun) rooms.push(room);
+  }
+  return rooms;
+}
+// harn:end inactive-history-warming-persists-bounded-room-cache
 
 export interface ComputerSessionDeps {
   load(): Promise<{ materials: HostedComputerMaterial[]; activeId?: string }>;
   makeTunnel(material: HostedComputerMaterial): SessionTunnel;
   authenticate(material: HostedComputerMaterial, tunnel: SessionTunnel, signal?: AbortSignal): Promise<BrowserDeviceSession>;
   loadRooms(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<RoomSummary[]>;
+  loadCompatibility(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<boolean>;
   makeConnector(options: ConnectorOptions): RoomConnector;
   switchStored(id: string): Promise<void>;
   pair(code: string, relayUrl: string): Promise<void>;
@@ -145,6 +190,9 @@ const defaultDeps: ComputerSessionDeps = {
       unread: 0,
     }));
   },
+  loadCompatibility: async (token, tunnel, signal) => (
+    await fetchBrowserCompatibility(token, (input, init) => tunnel.fetch(input, { ...init, signal }))
+  ).combinedTranscriptHistory,
   makeConnector: createConnector,
   switchStored: switchComputer,
   pair: pairThroughRelay,
@@ -402,10 +450,12 @@ export class ComputerSessionManager {
       cachedReady,
       resolveCachedReady,
       cacheWrite: Promise.resolve(),
+      historyWarming: new Map(),
       stopStore: () => undefined,
       stopTunnel: () => undefined,
     };
-    entry.stopStore = store.subscribe(() => {
+    entry.stopStore = store.subscribe((state, previous) => {
+      for (const room of historyEvidenceRooms(state, previous)) this.warmInactiveHistory(entry, room);
       this.persistEntrySnapshot(entry);
       this.publish();
     });
@@ -416,13 +466,47 @@ export class ComputerSessionManager {
     void this.completeEntry(entry);
   }
 
-  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
+  // harn:assume inactive-history-warming-persists-bounded-room-cache ref=bounded-captured-head-refresh-coalescing
+  private warmInactiveHistory(entry: SessionEntry, room: string): void {
+    if (entry.disposed || entry.connector === undefined || entry.token === '') return;
+    const activeComputer = entry.material.computer.id === this.activeId;
+    const selectedRoom = entry.connector.room() === room;
+    if (activeComputer && selectedRoom) return;
+
+    let state = entry.historyWarming.get(room);
+    if (state?.inFlight !== undefined) {
+      state.trailing = true;
+      return;
+    }
+    state ??= { trailing: false };
+    entry.historyWarming.set(room, state);
+    const run = async (): Promise<boolean> => {
+      let refreshed = false;
+      do {
+        state!.trailing = false;
+        refreshed = await refreshTranscriptHistoryHead(
+          entry.store,
+          room,
+          () => entry.token,
+          entry.tunnel.fetch.bind(entry.tunnel),
+          true,
+        );
+      } while (state!.trailing && !entry.disposed);
+      if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
+      return refreshed;
+    };
+    state.inFlight = run();
+    void state.inFlight.catch(() => undefined);
+  }
+  // harn:end inactive-history-warming-persists-bounded-room-cache
+
+  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-lifecycle
   private async hydrateEntrySnapshot(entry: SessionEntry): Promise<void> {
     try {
       const snapshot = await loadLastGoodRoom(entry.material.computer.id);
       if (entry.disposed || entry.connector !== undefined || entry.noRooms === true || snapshot === undefined) return;
       hydrateLastGoodRoom(entry.store, snapshot);
-      entry.publicRoot = snapshot.room.id;
+      entry.publicRoot = snapshot.publicRoom;
       entry.cachedConnector = this.makeCachedConnector(entry);
       if (entry.material.computer.id === this.activeId) this.applyActiveRuntime();
       this.publish();
@@ -437,9 +521,9 @@ export class ComputerSessionManager {
     const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, entry.publicRoot);
     if (!snapshot) return;
     const revision = JSON.stringify({
-      room: snapshot.room,
+      publicRoom: snapshot.publicRoom,
       summaries: snapshot.summaries,
-      history: snapshot.history,
+      rooms: snapshot.rooms,
     });
     if (revision === entry.cacheRevision) return;
     entry.cacheRevision = revision;
@@ -473,7 +557,7 @@ export class ComputerSessionManager {
       dispose: () => undefined,
     };
   }
-  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
+  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
 
   private async completeEntry(entry: SessionEntry): Promise<void> {
     let retryMs = 500;
@@ -481,13 +565,21 @@ export class ComputerSessionManager {
       try {
         const tunnelGeneration = await entry.tunnel.whenReady();
         // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-attempt
-        const { token, rooms } = await this.withEntryDeadline(entry, tunnelGeneration, async (signal) => {
-          const token = await this.refreshEntryToken(entry, signal);
-          if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
-            throw new Error('stale tunnel generation after authentication');
-          }
-          return { token, rooms: await this.deps.loadRooms(token, entry.tunnel, signal) };
-        });
+        const { token, rooms, combinedTranscriptHistory } = await this.withEntryDeadline(
+          entry,
+          tunnelGeneration,
+          async (signal) => {
+            const token = await this.refreshEntryToken(entry, signal);
+            if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
+              throw new Error('stale tunnel generation after authentication');
+            }
+            const [rooms, combinedTranscriptHistory] = await Promise.all([
+              this.deps.loadRooms(token, entry.tunnel, signal),
+              this.deps.loadCompatibility(token, entry.tunnel, signal),
+            ]);
+            return { token, rooms, combinedTranscriptHistory };
+          },
+        );
         // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded
         if (entry.tunnel.state !== 'connected' || entry.tunnel.generation !== tunnelGeneration) {
           throw new Error('stale tunnel generation after room loading');
@@ -534,9 +626,10 @@ export class ComputerSessionManager {
           setToken: (next) => this.setEntryToken(entry, next),
           refreshToken: () => this.refreshEntryToken(entry),
           tunnel: entry.tunnel,
+          combinedTranscriptHistory,
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {
-              // harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-resume
+              // harn:assume combined-head-reconciliation-is-two-page-bounded ref=bounded-combined-history-resume
               void refreshTranscriptHistoryHead(entry.store, room, () => entry.token).then((refreshed) => {
                 if (!refreshed || entry.material.computer.id !== this.activeId) return;
                 refreshMutableRunJournals(
@@ -545,7 +638,7 @@ export class ComputerSessionManager {
                   finalizedTranscriptRoots(entry.store, room),
                 );
               });
-              // harn:end missed-terminal-history-refreshes-through-combined-head
+              // harn:end combined-head-reconciliation-is-two-page-bounded
             }
           },
           onUpgradeRequired: (frame) => {

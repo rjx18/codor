@@ -4,6 +4,10 @@ import type {
   TranscriptHistoryPage,
   TranscriptHistoryUnit,
 } from '@codor/protocol';
+import {
+  HISTORICAL_TRANSCRIPT_CACHE_SIZE,
+  newestTranscriptHistoryUnits,
+} from '@codor/protocol';
 
 import {
   fetchTranscriptHistory,
@@ -14,6 +18,7 @@ import type { ClientState, ClientStore, TranscriptHistoryState } from '../app/st
 import { roomSlice, sourceClientStore } from '../app/store.js';
 
 type RequestKind = 'head' | `cursor:${string}`;
+type HistoryFetch = (input: string, init?: RequestInit) => Promise<Response>;
 
 const requests = new WeakMap<ClientState['updateTranscriptHistory'], Map<string, Promise<boolean>>>();
 
@@ -99,18 +104,57 @@ const uniqueUnits = (units: readonly TranscriptHistoryUnit[]): TranscriptHistory
 const mergeAuthoritativeHeadUnits = (
   current: readonly TranscriptHistoryUnit[],
   incoming: readonly TranscriptHistoryUnit[],
-  replaceOnNoOverlap: boolean,
 ): TranscriptHistoryUnit[] => {
   const authoritative = uniqueUnits(incoming);
-  if (authoritative.length === 0) return replaceOnNoOverlap ? [] : uniqueUnits(current);
+  if (authoritative.length === 0) return [];
   const incomingKeys = new Set(authoritative.map(transcriptUnitKey));
   const firstOverlap = current.findIndex((unit) => incomingKeys.has(transcriptUnitKey(unit)));
-  if (firstOverlap < 0) {
-    return replaceOnNoOverlap
-      ? authoritative
-      : uniqueUnits([...authoritative, ...current]);
-  }
+  if (firstOverlap < 0) return authoritative;
   return uniqueUnits([...current.slice(0, firstOverlap), ...authoritative]);
+};
+
+const projectCacheWindow = (
+  pagesNewestFirst: readonly TranscriptHistoryPage[],
+): NonNullable<TranscriptHistoryState['cacheWindow']> | undefined => {
+  if (pagesNewestFirst[0] === undefined) return undefined;
+  const chronologicalPages = [...pagesNewestFirst].reverse();
+  const units = newestTranscriptHistoryUnits(
+    uniqueUnits(chronologicalPages.flatMap((page) => page.units)),
+    HISTORICAL_TRANSCRIPT_CACHE_SIZE,
+  );
+  const messageIds = new Set<number>();
+  const eventIndices = new Map<number, Set<number>>();
+  for (const unit of units) {
+    if (unit.kind === 'message') {
+      messageIds.add(unit.message_id);
+      continue;
+    }
+    messageIds.add(unit.root_message_id);
+    messageIds.add(unit.output_message_id);
+    const selected = eventIndices.get(unit.root_message_id) ?? new Set<number>();
+    unit.event_indices.forEach((index) => selected.add(index));
+    eventIndices.set(unit.root_message_id, selected);
+  }
+  const allMessages = mergeMessages({}, pagesNewestFirst);
+  const allJournals = mergeJournals({}, pagesNewestFirst);
+  const oldest = pagesNewestFirst.at(-1)!;
+  return {
+    messages: Object.fromEntries([...messageIds].flatMap((id) => {
+      const message = allMessages[id];
+      return message === undefined ? [] : [[id, message]];
+    })),
+    journals: Object.fromEntries([...eventIndices].flatMap(([root, selected]) => {
+      const journal = allJournals[root];
+      if (journal === undefined) return [];
+      return [[root, {
+        root_message_id: root,
+        events: journal.events.filter((event) => selected.has(event.index)),
+      }]];
+    })),
+    units,
+    beforeCursor: oldest.before_cursor,
+    hasMore: oldest.has_more,
+  };
 };
 
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-materializer
@@ -134,12 +178,15 @@ export function mergeTranscriptPages(
 ): TranscriptHistoryState {
   const chronologicalPages = [...pagesNewestFirst].reverse();
   const incoming = chronologicalPages.flatMap((page) => page.units);
-  const headExhausted = mode === 'head' && pagesNewestFirst.at(-1)?.has_more === false;
+  const incomingKeys = new Set(incoming.map(transcriptUnitKey));
+  const firstOverlap = mode === 'head'
+    ? current.units.findIndex((unit) => incomingKeys.has(transcriptUnitKey(unit)))
+    : -1;
+  const preservedOlderPrefix = firstOverlap > 0;
   const units = mode === 'older'
     ? uniqueUnits([...incoming, ...current.units])
-    : mergeAuthoritativeHeadUnits(current.units, incoming, headExhausted);
+    : mergeAuthoritativeHeadUnits(current.units, incoming);
   const oldestFetched = pagesNewestFirst.at(-1);
-  const establishFloor = !current.initialized || current.units.length === 0;
   return {
     ...current,
     initialized: true,
@@ -152,9 +199,9 @@ export function mergeTranscriptPages(
     journals: mergeJournals(current.journals, pagesNewestFirst),
     units,
     ...(mode === 'head' && pagesNewestFirst[0] !== undefined
-      ? { latestPage: pagesNewestFirst[0] }
+      ? { cacheWindow: projectCacheWindow(pagesNewestFirst) }
       : {}),
-    ...(mode === 'older' || establishFloor ? {
+    ...(mode === 'older' || !preservedOlderPrefix ? {
       beforeCursor: oldestFetched?.before_cursor ?? null,
       hasMore: oldestFetched?.has_more ?? false,
     } : {}),
@@ -187,7 +234,7 @@ const runRequest = (
   return promise;
 };
 
-// harn:assume transcript-history-prepends-one-deliberate-page ref=deliberate-history-page-controller
+// harn:assume transcript-history-prepends-one-text-slot-page ref=deliberate-text-slot-page-controller
 async function loadOlderTranscriptHistoryFrom(
   store: ClientStore,
   room: string,
@@ -225,34 +272,28 @@ export function loadOlderTranscriptHistory(
 ): Promise<boolean> {
   return loadOlderTranscriptHistoryFrom(sourceClientStore(store), room, token);
 }
-// harn:end transcript-history-prepends-one-deliberate-page
+// harn:end transcript-history-prepends-one-text-slot-page
 
-const pageOverlaps = (page: TranscriptHistoryPage, keys: ReadonlySet<string>): boolean =>
-  page.units.some((unit) => keys.has(transcriptUnitKey(unit)));
-
-// harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-head-refresh
-// harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-gap-bridge
+// harn:assume combined-head-reconciliation-is-two-page-bounded ref=bounded-combined-history-head-refresh
+// harn:assume bounded-combined-head-adopts-authoritative-window ref=bounded-authoritative-head-merge
 function refreshTranscriptHistoryHeadFrom(
   store: ClientStore,
   room: string,
   token: () => string,
+  request?: HistoryFetch,
+  includePredecessor = true,
 ): Promise<boolean> {
   if (historyOf(store, room).legacyFallback) return Promise.resolve(true);
   return runRequest(store, room, 'head', async () => {
     update(store, room, (history) => ({ ...history, loadingHead: true, failed: false }));
-    const existingKeys = new Set(historyOf(store, room).units.map(transcriptUnitKey));
     const pages: TranscriptHistoryPage[] = [];
     try {
-      let page = await fetchTranscriptHistory(room, undefined, { token: token() });
-      pages.push(page);
-      while (
-        existingKeys.size > 0
-        && !pageOverlaps(page, existingKeys)
-        && page.has_more
-        && page.before_cursor !== null
-      ) {
-        page = await fetchTranscriptHistory(room, page.before_cursor, { token: token() });
-        pages.push(page);
+      const head = await fetchTranscriptHistory(room, undefined, { token: token(), fetch: request });
+      pages.push(head);
+      if (includePredecessor && head.has_more && head.before_cursor !== null) {
+        pages.push(await fetchTranscriptHistory(room, head.before_cursor, {
+          token: token(), fetch: request,
+        }));
       }
       update(store, room, (history) => mergeTranscriptPages(
         history,
@@ -263,8 +304,12 @@ function refreshTranscriptHistoryHeadFrom(
       return true;
     } catch (error) {
       const current = historyOf(store, room);
-      // harn:assume combined-history-supports-bounded-legacy-host-fallback ref=history-legacy-fallback-materializer
-      if (error instanceof TranscriptHistoryUnsupportedError && !current.initialized) {
+      // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-legacy-fallback
+      if (
+        error instanceof TranscriptHistoryUnsupportedError
+        && !current.initialized
+        && current.legacySocketHydration
+      ) {
         update(store, room, (history) => ({
           ...history,
           initialized: true,
@@ -279,7 +324,7 @@ function refreshTranscriptHistoryHeadFrom(
         }));
         return true;
       }
-      // harn:end combined-history-supports-bounded-legacy-host-fallback
+      // harn:end combined-history-capability-gates-socket-fallback
       // harn:assume transcript-history-failures-are-bounded-and-actionable ref=history-failure-state
       update(store, room, (history) => ({ ...history, loadingHead: false, failed: true }));
       // harn:end transcript-history-failures-are-bounded-and-actionable
@@ -292,11 +337,21 @@ export function refreshTranscriptHistoryHead(
   store: ClientStore,
   room: string,
   token: () => string,
+  request?: HistoryFetch,
+  includePredecessor?: boolean,
 ): Promise<boolean> {
-  return refreshTranscriptHistoryHeadFrom(sourceClientStore(store), room, token);
+  const source = sourceClientStore(store);
+  const history = historyOf(source, room);
+  return refreshTranscriptHistoryHeadFrom(
+    source,
+    room,
+    token,
+    request,
+    includePredecessor ?? (history.initialized || history.headNeedsRevalidation),
+  );
 }
-// harn:end missed-terminal-history-refreshes-through-combined-head
-// harn:end missed-terminal-history-refreshes-through-combined-head
+// harn:end bounded-combined-head-adopts-authoritative-window
+// harn:end combined-head-reconciliation-is-two-page-bounded
 
 function ensureTranscriptHistoryFrom(
   store: ClientStore,
@@ -313,7 +368,13 @@ function ensureTranscriptHistoryFrom(
       ? { ...current, coldMessageIds }
       : current);
   }
-  return refreshTranscriptHistoryHeadFrom(store, room, token);
+  return refreshTranscriptHistoryHeadFrom(
+    store,
+    room,
+    token,
+    undefined,
+    history.headNeedsRevalidation,
+  );
 }
 
 export function ensureTranscriptHistory(
