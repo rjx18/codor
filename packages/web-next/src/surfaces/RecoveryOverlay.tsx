@@ -40,12 +40,7 @@ export function loadingPillState(inputs: LoadingPillInputs): LoadingPillState | 
 
 // harn:end prioritized-room-loading-pill-uses-existing-readiness
 
-const LOADING_PILL_LABEL: Record<LoadingPillState, string> = {
-  reconnecting: 'Reconnecting',
-  channel: 'Loading channel',
-  syncing: 'Syncing messages',
-  older: 'Loading older messages',
-};
+export const LOADING_PILL_LABEL = 'Loading messages…';
 
 /** Read-only controls that do not alter room/server state while the app socket
  * is reconnecting. Everything else button-shaped is disabled until a current
@@ -161,6 +156,7 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
           {children}
         </div>
         {/* harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-render */}
+        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-surface */}
         {loadingState !== undefined ? (
           <div
             className="nx-loading-pill"
@@ -170,9 +166,10 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
             data-loading-state={loadingState}
           >
             <span className="nx-loading-pill-spinner" data-testid="loading-pill-spinner" aria-hidden="true" />
-            <span>{LOADING_PILL_LABEL[loadingState]}</span>
+            <span>{LOADING_PILL_LABEL}</span>
           </div>
         ) : null}
+        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton */}
         {/* harn:end floating-room-loading-pill-uses-existing-priority */}
       </div>
       {show ? <RecoveryCard state={state as RecoveryState} presentation="overlay" /> : null}

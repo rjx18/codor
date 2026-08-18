@@ -1,0 +1,112 @@
+id: loading-messages-floating-pill-p2
+title: Refine loading messages into one floating pill and tail skeleton
+notes: >
+  Implement only the UI Phase 2 refinement from exact origin/main base
+  1ceaee95b54f7b27e81351fa47ea49d9cec3c238. Keep the existing prioritized
+  loading-state selector and all transcript/history request, pagination, and
+  scroll ownership semantics. Present one accessible “Loading messages…” label
+  in a high-contrast floating spinner pill with a short entrance motion and
+  reduced-motion behavior. Show a compact pulsing skeleton at the transcript
+  bottom only while an already-initialized room synchronizes new messages; the
+  initial hydration skeleton and older-page anchoring remain unchanged.
+assumptions:
+  create:
+    - id: loading-messages-use-one-floating-pill-and-tail-skeleton
+      title: Loading messages use one floating pill and a synchronization tail
+        skeleton
+      statement: >
+        The room UI must expose at most one accessible loading surface for the
+        existing prioritized readiness signals: a high-contrast floating spinner
+        pill with one “Loading messages…” label, a brief entrance animation that
+        is disabled for reduced-motion users, and a compact pulsing skeleton at
+        the bottom only when an initialized room is synchronizing new messages.
+        Initial hydration and older-page loads keep their existing transcript
+        geometry and anchor owner; no new loading state machine, request, or
+        scroll owner is introduced.
+      reason: >
+        One consistent loading surface keeps state priority understandable while
+        showing new-message synchronization without shifting the transcript or
+        weakening older-page reading position.
+      depends_on:
+        - floating-room-loading-pill-uses-existing-priority
+        - transcript-tail-follow-has-one-prepaint-owner
+        - transcript-history-prepends-one-deliberate-page
+  reviewed:
+    - id: floating-room-loading-pill-uses-existing-priority
+      outcome: unchanged
+      reason: >
+        The selector and priority remain the sole source of loading state; only
+        its presentation and focused assertions change.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        Transcript remains the only scroll/tail-follow owner and its older-page
+        restoration path is untouched.
+    - id: transcript-history-prepends-one-deliberate-page
+      outcome: unchanged
+      reason: >
+        Cursor paging, request ownership, and older-page merge semantics remain
+        unchanged.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        Reconnect read-only and mutation-admission behavior remain unchanged;
+        only the loading indicator presentation is refined.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: >
+        Existing light/dark theme tokens remain the source of contrast-safe UI
+        colors; no theme behavior changes.
+anchors:
+  loading-messages-use-one-floating-pill-and-tail-skeleton:
+    loading-pill-surface:
+      action: change
+      reason: Render one labeled floating spinner pill for the selected priority state.
+    loading-pill-tail-skeleton:
+      action: change
+      reason: Render the bottom skeleton only for initialized head synchronization.
+    loading-pill-surface-style:
+      action: change
+      reason: Add high-contrast shadow, entrance/spinner motion, and reduced-motion
+        CSS.
+    loading-pill-unit-regression:
+      action: change
+      reason: Assert one label, spinner, priority projection, and reduced-motion-safe
+        markup.
+    loading-pill-browser-regression:
+      action: change
+      reason: Assert floating pill geometry and bottom skeleton behavior in the
+        browser.
+  floating-room-loading-pill-uses-existing-priority:
+    loading-pill-render:
+      action: change
+      reason: Preserve the existing single selector while changing only its
+        presentation.
+    loading-pill-unit-regression:
+      action: change
+      reason: Update focused state-rendering assertions for the unified label and
+        spinner.
+    loading-pill-browser-regression:
+      action: change
+      reason: Keep browser priority coverage while asserting the refined surface.
+files:
+  - .harn/plans/loading-messages-floating-pill-p2.yaml
+  - packages/web-next/src/surfaces/RecoveryOverlay.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+verification: >
+  Run harn find and inspect all linked readiness, scroll, and history
+  assumptions before checking and clean-locking this plan from exact base
+  1ceaee95b54f7b27e81351fa47ea49d9cec3c238 with dirty_at_lock false. Run focused
+  RecoveryOverlay and Transcript tests, all web-next units, the production/PWA
+  build, and Room 36 direct/hosted browser accessibility/loading journeys. Prove
+  one floating spinner pill for every selector state, the unified visible label,
+  reduced-motion-compatible markup, bottom skeleton only for initialized head
+  synchronization, and unchanged older-page anchoring. Run harn find --changed,
+  harn check, harn apply, harn check --staged, and git diff --check, then create
+  exactly one implementation commit. Do not change history, transport, protocol,
+  server, relay, deployment, or release behavior.
+applied:
+  applied_at: 2026-08-18T19:37:45.827Z
