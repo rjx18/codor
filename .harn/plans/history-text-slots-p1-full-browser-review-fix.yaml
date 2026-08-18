@@ -95,3 +95,5 @@ files:
   - packages/web-next/tests/room23-crosschannel-reconcile.e2e.spec.ts
   - packages/web-next/tests/room28-preview.e2e.spec.ts
   - packages/web-next/tests/room33-recovery.e2e.spec.ts
+applied:
+  applied_at: 2026-08-18T21:11:19.269Z

@@ -337,6 +337,30 @@ function observeMember(
   };
 }
 
+const TERMINAL_RUN_STATUSES = new Set(['completed', 'failed', 'interrupted']);
+
+function terminalRun(message: Message | undefined): boolean {
+  return message?.kind === 'run'
+    && message.run?.status !== undefined
+    && TERMINAL_RUN_STATUSES.has(message.run.status);
+}
+
+/** A support root disappearing without its terminal message is positive
+ * evidence that this room's immutable head is newer than the mounted page. */
+export function supportRemovedUnsettledRun(
+  messages: Readonly<Record<number, Message>>,
+  previous: RoomSupport | undefined,
+  current: RoomSupport,
+): boolean {
+  // Older/partial test and legacy frames can omit the post-v1 active-run
+  // projection. Treat that as an empty authoritative set, as the rest of the
+  // room-support reducer already does for the previous frame.
+  const active = new Set((current.active_runs ?? []).map((message) => message.id));
+  return (previous?.active_runs ?? []).some(
+    (message) => !active.has(message.id) && !terminalRun(messages[message.id]),
+  );
+}
+
 function rollingTail(messages: Record<number, Message>, next: Message): Record<number, Message> {
   const merged = { ...messages, [next.id]: next };
   const ordered = Object.values(merged).sort((left, right) => left.id - right.id);
@@ -643,7 +667,16 @@ export function createClientStore(): ClientStore {
           // gap undetectable by resume OR seq reconciliation (only a cold reload
           // would recover it). Support is authoritative content; the cursor must
           // still reflect only actually-delivered ordered frames.
-          next = { ...current, support: frame.support };
+          next = {
+            ...current,
+            support: frame.support,
+            ...(supportRemovedUnsettledRun(current.messages, current.support, frame.support) && {
+              transcriptHistory: {
+                ...current.transcriptHistory,
+                headNeedsRevalidation: true,
+              },
+            }),
+          };
           break;
         case 'run_event':
           // harn:assume subscribed-live-run-events-survive-switch-and-history-retirement ref=store-live-event-routing

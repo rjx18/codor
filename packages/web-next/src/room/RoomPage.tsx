@@ -59,6 +59,7 @@ export function reconcileSelectedRoomHistory(
   roomLive: boolean,
   store: ClientStore,
   credential: string,
+  managedBackgroundWarm = false,
 ): void {
   if (!roomLive || connection.roomReadiness(room) !== 'connected') return;
   const destination = {
@@ -71,7 +72,12 @@ export function reconcileSelectedRoomHistory(
   // Background stores have already reconciled their combined head. Activation
   // only retries a cold/failed or disconnect-gap-invalidated destination; a
   // healthy warm head must not create a redundant request.
-  if (history.initialized && !history.failed && !history.headNeedsRevalidation) return;
+  if (
+    history.initialized
+    && !history.failed
+    && !history.headNeedsRevalidation
+    && (history.legacySocketHydration || managedBackgroundWarm)
+  ) return;
   // harn:end inactive-history-evidence-warms-captured-store
   void refreshTranscriptHistoryHead(
     destination.store,
@@ -166,8 +172,15 @@ function MountedRoomPage(props: {
   // deduplicates concurrent activations by that captured source and room, while
   // a later activation remains a fresh retry after a failed request.
   useEffect(() => {
-    reconcileSelectedRoomHistory(connection, room, roomLive, useClientStore, token());
-  }, [connection, room, roomLive, token]);
+    reconcileSelectedRoomHistory(
+      connection,
+      room,
+      roomLive,
+      useClientStore,
+      token(),
+      manager !== undefined,
+    );
+  }, [connection, manager, room, roomLive, token]);
 
   // harn:assume registered-worktree-navigation-is-promotion-gated ref=worktree-group-navigation
   // The store-only group projection drives both the hidden-room observation set

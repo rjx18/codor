@@ -1,4 +1,4 @@
-import type { AgentLimit, AgentPreset, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, WireEvent } from '@codor/protocol';
+import type { AgentLimit, AgentPreset, AgentTaskList, AgentTaskStatus, Member, Policy, Room, ThinkingLevel, TranscriptHistoryIndexedEvent, WireEvent } from '@codor/protocol';
 import {
   GitBranch,
   Bot,
@@ -43,7 +43,7 @@ import {
   resolveSpawn,
   supportedThinking,
 } from './agent-spec.js';
-import { presentRunEvents, type RunRow } from '@runtime/run-presenter.js';
+import { presentRunEvents } from '@runtime/run-presenter.js';
 import type { Connection } from '@runtime/ws.js';
 
 import { roleAtLeast, roomSlice, sortedMessages, useClientStore } from '../app/store.js';
@@ -1368,14 +1368,69 @@ function SpawnDialog(props: {
 // ── Diff tab: the room's LIVE git working tree — file rows with a status letter
 // and ± counts feeding the tinted viewer. A clean or non-git repo reads quiet. ──
 
+interface PreviewRunImage {
+  msgId: number;
+  media_type: string;
+  data_b64: string;
+}
+
+export function previewImagesFromEvidence(
+  evidence: readonly { rootId: number; events: readonly TranscriptHistoryIndexedEvent[] }[],
+): PreviewRunImage[] {
+  const images: PreviewRunImage[] = [];
+  for (const { rootId, events } of evidence) {
+    for (const row of presentRunEvents(events)) {
+      if (row.image === undefined) continue;
+      const msgId = row.event.type === 'run.item'
+        ? row.event.output_message_id ?? rootId
+        : rootId;
+      images.push({ msgId, ...row.image });
+    }
+  }
+  return images;
+}
+
 /** Image artifacts from recent run evidence — the Preview tab's source. */
-function useRunImages(room: string, token: () => string): { images: { msgId: number; media_type: string; data_b64: string }[] } {
-  const messages = useClientStore((state) => roomSlice(state, room).messages);
-  const [images, setImages] = useState<{ msgId: number; media_type: string; data_b64: string }[]>([]);
+function useRunImages(room: string, token: () => string): { images: PreviewRunImage[] } {
+  const slice = useClientStore((state) => roomSlice(state, room));
+  const history = slice.transcriptHistory;
+  const pageImages = useMemo(() => {
+    const roots = new Set([
+      ...Object.keys(history.journals).map(Number),
+      ...Object.keys(slice.runEvents).map(Number),
+    ]);
+    return previewImagesFromEvidence([...roots].map((rootId) => {
+      const merged = new Map<number, WireEvent>();
+      for (const indexed of history.journals[rootId]?.events ?? []) {
+        merged.set(indexed.index, indexed.event);
+      }
+      const live = slice.runEvents[rootId];
+      const base = live?.first_index ?? live?.dropped_count ?? 0;
+      live?.events.forEach((event, index) => merged.set(base + index, event));
+      return {
+        rootId,
+        events: [...merged.entries()].sort(([left], [right]) => left - right)
+          .map(([index, event]) => ({ index, event })),
+      };
+    }));
+  }, [history.journals, slice.runEvents]);
+  const messages = useMemo(() => {
+    const merged = { ...history.messages };
+    for (const message of Object.values(slice.messages)) {
+      const prior = merged[message.id];
+      if (prior === undefined || message.seq >= prior.seq) merged[message.id] = message;
+    }
+    return merged;
+  }, [history.messages, slice.messages]);
+  const [legacyImages, setLegacyImages] = useState<PreviewRunImage[]>([]);
   const fetched = useRef(new Set<number>());
-  const rowsByMsg = useRef(new Map<number, RunRow[]>());
+  const legacyByMsg = useRef(new Map<number, PreviewRunImage[]>());
 
   useEffect(() => {
+    if (!history.legacyFallback) {
+      setLegacyImages([]);
+      return;
+    }
     const runs = sortedMessages(messages)
       .filter((m) => m.kind === 'run' && m.run !== undefined && m.run.status !== 'running')
       .slice(-20);
@@ -1387,9 +1442,12 @@ function useRunImages(room: string, token: () => string): { images: { msgId: num
         fetched.current.add(message.id);
         try {
           const events: WireEvent[] = await fetchRunEvents(room, message.id, { token: token() });
-          rowsByMsg.current.set(
+          legacyByMsg.current.set(
             message.id,
-            presentRunEvents(events.map((event, index) => ({ index, event }))),
+            previewImagesFromEvidence([{
+              rootId: message.id,
+              events: events.map((event, index) => ({ index, event })),
+            }]),
           );
           changed = true;
         } catch {
@@ -1397,16 +1455,14 @@ function useRunImages(room: string, token: () => string): { images: { msgId: num
         }
       }
       if (!changed || cancelled) return;
-      const next: { msgId: number; media_type: string; data_b64: string }[] = [];
-      for (const [msgId, rows] of [...rowsByMsg.current.entries()].sort(([a], [b]) => a - b)) {
-        for (const row of rows) if (row.image !== undefined) next.push({ msgId, ...row.image });
-      }
-      setImages(next);
+      setLegacyImages([...legacyByMsg.current.entries()]
+        .sort(([left], [right]) => left - right)
+        .flatMap(([, images]) => images));
     })();
     return () => { cancelled = true; };
-  }, [messages, room, token]);
+  }, [history.legacyFallback, messages, room, token]);
 
-  return { images };
+  return { images: [...pageImages, ...legacyImages] };
 }
 
 /** The room's live git working state, refetched on cwd change, explicit refresh,
@@ -1861,7 +1917,15 @@ function useArtifacts(room: string, token: () => string): ArtifactFeed {
 function PreviewTab(props: { room: string; token: () => string }) {
   const { images } = useRunImages(props.room, props.token);
   const { artifacts, errors } = useArtifacts(props.room, props.token);
-  const messages = useClientStore((state) => roomSlice(state, props.room).messages);
+  const slice = useClientStore((state) => roomSlice(state, props.room));
+  const messages = useMemo(() => {
+    const merged = { ...slice.transcriptHistory.messages };
+    for (const message of Object.values(slice.messages)) {
+      const prior = merged[message.id];
+      if (prior === undefined || message.seq >= prior.seq) merged[message.id] = message;
+    }
+    return merged;
+  }, [slice.messages, slice.transcriptHistory.messages]);
   const [active, setActive] = useState<string | null>(null);
   const { room, token } = props;
 

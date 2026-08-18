@@ -1,6 +1,8 @@
 import type { Delivery, Message, Schedule } from '@codor/protocol';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { TranscriptHistoryState } from '../app/store.js';
+
 vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
 
 import {
@@ -11,6 +13,7 @@ import {
   groupVisibleTranscriptRows,
   groupHistoricalPresentationUnits,
   groupAdjacentToolOnlyLiveMessages,
+  interactionInCurrentHistoryWindow,
   messageReadSeq,
   qualifiedAuthorLabel,
   resolveRunningSince,
@@ -334,6 +337,35 @@ describe('support-owned interaction suppression', () => {
     expect(coldMessageSuppressed(ask, cold, new Set())).toBe(true);
     expect(coldMessageSuppressed(chat(42), cold, actionable)).toBe(true);
     expect(coldMessageSuppressed(chat(43), cold, actionable)).toBe(false);
+  });
+
+  it('classifies zero-slot interactions against the selected history edge', () => {
+    const oldest = { ...chat(20, 'oldest selected'), ts: '2026-07-18T00:00:20.000Z' };
+    const history = {
+      initialized: true,
+      headNeedsRevalidation: false,
+      legacyFallback: false,
+      legacySocketHydration: false,
+      loadingHead: false,
+      loadingCursor: undefined,
+      failed: false,
+      coldMessageIds: undefined,
+      messages: { 20: oldest },
+      journals: {},
+      units: [{ kind: 'message', message_id: 20 }],
+      cacheWindow: undefined,
+      beforeCursor: 'older',
+      hasMore: true,
+    } satisfies TranscriptHistoryState;
+    expect(interactionInCurrentHistoryWindow(history, {
+      ...chat(21), kind: 'approval', ts: '2026-07-18T00:00:21.000Z',
+    })).toBe(true);
+    expect(interactionInCurrentHistoryWindow(history, {
+      ...chat(19), kind: 'ask', ts: '2026-07-18T00:00:19.000Z',
+    })).toBe(false);
+    expect(interactionInCurrentHistoryWindow({ ...history, hasMore: false }, {
+      ...chat(1), kind: 'ask', ts: '2026-07-18T00:00:01.000Z',
+    })).toBe(true);
   });
 });
 // harn:end actionable-interactions-remain-support-owned-outside-history
