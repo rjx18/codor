@@ -274,6 +274,18 @@ export function coldMessageSuppressed(
 }
 // harn:end actionable-interactions-remain-support-owned-outside-history
 
+// harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-tail-skeleton
+/** The tail skeleton belongs only to a hydrated room's head synchronization.
+ * Initial hydration keeps its existing three-row skeleton and cursor paging is
+ * represented by the prioritized floating pill, so neither changes transcript
+ * geometry or older-page anchoring. */
+export function shouldShowNewMessageSkeleton(
+  history: Pick<TranscriptHistoryState, 'initialized' | 'loadingHead'>,
+): boolean {
+  return history.initialized && history.loadingHead;
+}
+// harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
+
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
@@ -607,6 +619,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
     && (history.initialized || history.legacyFallback)
     && initialBarrier.current.ready;
   const historyBlocked = hydrated && !history.initialized && history.failed && !history.loadingHead;
+  const showNewMessageSkeleton = shouldShowNewMessageSkeleton(history);
 
   const cancelHistorySettle = useCallback((): void => {
     if (historySettleTimerRef.current !== undefined) clearTimeout(historySettleTimerRef.current);
@@ -1162,6 +1175,15 @@ export function Transcript(props: { room: string; token: () => string; connectio
               ))}
             </div>
           )}
+          {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-tail-skeleton-render */}
+          {showNewMessageSkeleton && (
+            <div
+              className="nx-new-message-skeleton"
+              data-testid="new-message-skeleton"
+              aria-hidden="true"
+            />
+          )}
+          {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton */}
         </div>
       </div>
       {showJump && (

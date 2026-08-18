@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 const CONTROL = `http://127.0.0.1:${process.env.CODOR_NEXT_E2E_CONTROL_PORT ?? '28138'}`;
@@ -103,6 +104,7 @@ test.describe('hosted smooth startup budgets', () => {
   });
 
   // harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-browser-regression
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-browser-regression
   // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-browser-regression
   test('shows one prioritized loading pill for direct history work', async ({ page }) => {
     test.setTimeout(120_000);
@@ -137,7 +139,13 @@ test.describe('hosted smooth startup budgets', () => {
     await expect(pill).toHaveClass(/nx-loading-pill/);
     await expect(pill.getByTestId('loading-pill-spinner')).toBeVisible();
     expect(await pill.evaluate((element) => getComputedStyle(element).position)).toBe('absolute');
-    await expect(pill).toHaveText('Syncing messages');
+    await expect(pill).toHaveText('Loading messages…');
+    expect(await pill.evaluate((element) => getComputedStyle(element).boxShadow)).toMatch(/rgba\(0, 0, 0/);
+    await expect(page.getByTestId('new-message-skeleton')).toHaveCount(0);
+    const pillA11y = await new AxeBuilder({ page }).include('[data-testid="reconnecting-pill"]').analyze();
+    expect(pillA11y.violations.map((violation) => violation.id)).toEqual([]);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    expect(await page.evaluate(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true);
     await expect(page.locator('[data-loading-state]')).toHaveCount(1);
     releaseHead();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
@@ -151,10 +159,13 @@ test.describe('hosted smooth startup budgets', () => {
     await expect(pill).toHaveAttribute('data-loading-state', 'older', { timeout: 30_000 });
     await expect(pill).toHaveClass(/nx-loading-pill/);
     await expect(pill.getByTestId('loading-pill-spinner')).toBeVisible();
+    await expect(pill).toHaveText('Loading messages…');
+    await expect(page.getByTestId('new-message-skeleton')).toHaveCount(0);
     await expect(page.locator('[data-loading-state]')).toHaveCount(1);
     releaseCursor();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
   });
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
   // harn:end prioritized-room-loading-pill-uses-existing-readiness
   // harn:end floating-room-loading-pill-uses-existing-priority
 
