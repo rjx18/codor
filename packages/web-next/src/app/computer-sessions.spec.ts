@@ -14,7 +14,10 @@ vi.mock('../room/transcript-history.js', () => ({
   refreshTranscriptHistoryHead: recovery.refreshHead,
   finalizedTranscriptRoots: recovery.finalizedRoots,
 }));
-vi.mock('./compatibility.js', () => ({ requireBrowserUpgrade: recovery.upgrade }));
+vi.mock('./compatibility.js', () => ({
+  requireBrowserUpgrade: recovery.upgrade,
+  fetchBrowserCompatibility: vi.fn(async () => ({ combinedTranscriptHistory: true })),
+}));
 vi.mock('../runtime/last-good-room.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../runtime/last-good-room.js')>();
   return {
@@ -124,6 +127,7 @@ function harness() {
     },
     authenticate: async (loaded) => ({ token: `token-${loaded.computer.id}` }),
     loadRooms: async (token) => [summary(token.slice(-1), token.endsWith('B') ? 7 : 1)],
+    loadCompatibility: async () => true,
     makeConnector: (options: ConnectorOptions): RoomConnector => {
       const id = options.token.slice(-1);
       connectorOptions.set(id, options);
@@ -196,6 +200,20 @@ function harness() {
 }
 
 describe('ComputerSessionManager', () => {
+  it('captures combined-history capability independently for each computer connector', async () => {
+    const h = harness();
+    h.deps.loadCompatibility = async (token) => token.endsWith('A');
+    const manager = new ComputerSessionManager(h.deps);
+    try {
+      await manager.start();
+      for (let tick = 0; tick < 8 && h.connectorOptions.size < 2; tick += 1) await Promise.resolve();
+      expect(h.connectorOptions.get('A')?.combinedTranscriptHistory).toBe(true);
+      expect(h.connectorOptions.get('B')?.combinedTranscriptHistory).toBe(false);
+    } finally {
+      manager.dispose();
+    }
+  });
+
   it('warms inactive evidence with one trailing captured-store refresh', async () => {
     recovery.refreshHead.mockReset();
     const calls: Array<{
@@ -534,11 +552,16 @@ describe('ComputerSessionManager', () => {
       },
     };
     const cached: LastGoodRoomSnapshot = {
-      version: 1,
+      version: 2,
       computerId: 'A',
-      room,
+      publicRoom: room.id,
       summaries: [summary('A', 1)],
-      history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+      rooms: {
+        [room.id]: {
+          room,
+          history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+        },
+      },
       savedAt: '2026-08-10T00:00:00.000Z',
     };
     await deleteLastGoodRoom('A');
@@ -584,11 +607,16 @@ describe('ComputerSessionManager', () => {
       },
     };
     await saveLastGoodRoom({
-      version: 1,
+      version: 2,
       computerId: 'A',
-      room: cachedRoom,
+      publicRoom: cachedRoom.id,
       summaries: [{ ...summary('A', 1), id: 'eng', name: cachedRoom.name }],
-      history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+      rooms: {
+        [cachedRoom.id]: {
+          room: cachedRoom,
+          history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false },
+        },
+      },
       savedAt: '2026-08-10T00:00:00.000Z',
     });
 
@@ -640,7 +668,7 @@ describe('ComputerSessionManager', () => {
     manager.dispose();
   });
 
-  // harn:assume selected-room-activation-reconciles-destination-history ref=selected-room-source-isolation-regression
+  // harn:assume selected-room-activation-uses-bounded-destination-reconciliation ref=bounded-selected-room-history-regression
   it('keeps an unresolved selected-room refresh bound to its captured computer store', async () => {
     recovery.refreshHead.mockReset();
     const calls: Array<{

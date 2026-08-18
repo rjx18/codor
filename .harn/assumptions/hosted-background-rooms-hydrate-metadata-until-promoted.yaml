@@ -1,7 +1,7 @@
 id: hosted-background-rooms-hydrate-metadata-until-promoted
 hash: a-9bed7fbc51c7
 title: Background hosted rooms subscribe live without an eager history tail
-state: active
+state: retired
 statement: >
   An addressed browser subscribe with hydrate_limit zero must return the room,
   roster, inbox, meter, recipient-scoped support, cursor, and sync_complete from
@@ -16,3 +16,4 @@ depends_on:
   - hosted-background-computer-activity-is-visible
   - finalized-browser-history-is-combined-page-owned
 created_by: hosted-relay-smooth-startup-r1
+retired_by: history-text-slots-p1

@@ -11,6 +11,7 @@ export interface BrowserUpgrade {
 }
 
 let required: BrowserUpgrade | undefined;
+let directCombinedTranscriptHistory = false;
 const listeners = new Set<() => void>();
 
 function publish(next: BrowserUpgrade): void {
@@ -32,32 +33,63 @@ export function requireBrowserUpgrade(frame: Extract<ServerFrame, { type: 'upgra
   });
 }
 
-export async function checkBrowserCompatibility(token: string): Promise<void> {
+export interface BrowserCompatibilityResult {
+  combinedTranscriptHistory: boolean;
+  upgrade?: BrowserUpgrade;
+}
+
+type CompatibilityFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
+// harn:assume combined-history-capability-gates-socket-fallback ref=combined-history-compatibility-client
+export async function fetchBrowserCompatibility(
+  token: string,
+  request: CompatibilityFetch = relayFetch,
+): Promise<BrowserCompatibilityResult> {
   const query = new URLSearchParams({
     browser_protocol: String(BROWSER_PROTOCOL_EPOCH),
     client_kind: 'browser',
   });
   try {
-    const response = await relayFetch(`/api/client-compatibility?${query.toString()}`, {
+    const response = await request(`/api/client-compatibility?${query.toString()}`, {
       cache: 'no-store',
       headers: { authorization: `Bearer ${token}` },
     });
-    // The reader is intentionally deployed before the observer server. A 404
-    // identifies that safe pre-epoch daemon; only an authoritative 426 gates.
-    if (response.status !== 426) return;
+    // A missing field (including an old-host 404) is intentionally legacy.
+    if (response.status === 404 || response.status === 405) {
+      return { combinedTranscriptHistory: false };
+    }
     const body = await response.json() as {
       browser_protocol?: number;
       minimum_browser_protocol?: number;
+      combined_transcript_history?: boolean;
     };
-    publish({
-      minimum: body.minimum_browser_protocol ?? BROWSER_PROTOCOL_EPOCH + 1,
-      current: body.browser_protocol ?? BROWSER_PROTOCOL_EPOCH,
-    });
+    return {
+      combinedTranscriptHistory: body.combined_transcript_history === true,
+      ...(response.status === 426 && {
+        upgrade: {
+          minimum: body.minimum_browser_protocol ?? BROWSER_PROTOCOL_EPOCH + 1,
+          current: body.browser_protocol ?? BROWSER_PROTOCOL_EPOCH,
+        },
+      }),
+    };
   } catch {
     // Network/offline state is not evidence of incompatibility. The existing
     // connector owns reconnect UI and a later UpgradeRequired remains decisive.
+    return { combinedTranscriptHistory: false };
   }
 }
+
+export async function checkBrowserCompatibility(token: string): Promise<BrowserCompatibilityResult> {
+  const result = await fetchBrowserCompatibility(token);
+  directCombinedTranscriptHistory = result.combinedTranscriptHistory;
+  if (result.upgrade !== undefined) publish(result.upgrade);
+  return result;
+}
+
+export function directCombinedTranscriptHistorySupported(): boolean {
+  return directCombinedTranscriptHistory;
+}
+// harn:end combined-history-capability-gates-socket-fallback
 
 function controllerChanged(): Promise<void> {
   return new Promise((resolve) => {
@@ -128,6 +160,7 @@ export function CompatibilityGate(props: { children: ReactNode }) {
 }
 
 export function clearBrowserUpgradeForTest(): void {
+  directCombinedTranscriptHistory = false;
   required = undefined;
   for (const listener of listeners) listener();
 }

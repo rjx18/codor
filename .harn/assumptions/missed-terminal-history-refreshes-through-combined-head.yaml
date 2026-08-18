@@ -1,7 +1,7 @@
 id: missed-terminal-history-refreshes-through-combined-head
 hash: a-b3b9008033ec
 title: Missed terminal evidence reconciles through a retryable combined head
-state: active
+state: retired
 statement: >
   When resume or live-state reconciliation finds that a formerly mutable run
   finalized without complete locally preserved indexed and terminal evidence,
@@ -17,3 +17,4 @@ depends_on:
   - run-events-merge-by-journal-index
   - client-syncs-by-seq
 created_by: transcript-history-reliability-p2-browser-pages
+retired_by: history-text-slots-p1

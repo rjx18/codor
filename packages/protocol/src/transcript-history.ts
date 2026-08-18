@@ -4,8 +4,9 @@ import { WireEventSchema } from './events.js';
 import { MessageIdSchema } from './ids.js';
 import { MessageSchema } from './message.js';
 
-// harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-protocol
+// harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-protocol
 export const HISTORICAL_TRANSCRIPT_PAGE_SIZE = 20;
+export const HISTORICAL_TRANSCRIPT_CACHE_SIZE = 40;
 
 export const TranscriptHistoryCursorSchema = z.string().min(1).max(4096);
 
@@ -49,13 +50,78 @@ export const TranscriptHistoryUnitSchema = z.discriminatedUnion('kind', [
 ]);
 export type TranscriptHistoryUnit = z.infer<typeof TranscriptHistoryUnitSchema>;
 
-export const TranscriptHistoryPageSchema = z.object({
+const evidenceFamilyKey = (
+  unit: Exclude<TranscriptHistoryUnit, { kind: 'message' }>,
+): string => `${String(unit.root_message_id)}:${String(unit.output_message_id)}`;
+
+/** Indices that consume the user-facing history budget. Tool/timeline evidence
+ * is free when its output family already has visible text; an otherwise
+ * evidence-only family charges its final unit once so every cursor advances. */
+export function transcriptHistoryTextSlotIndices(
+  units: readonly TranscriptHistoryUnit[],
+): number[] {
+  const textFamilies = new Set<string>();
+  for (const unit of units) {
+    if (unit.kind === 'prose' || unit.kind === 'settled_tail') {
+      textFamilies.add(evidenceFamilyKey(unit));
+    }
+  }
+  const evidenceFallback = new Map<string, number>();
+  const charged: number[] = [];
+  units.forEach((unit, index) => {
+    if (unit.kind === 'message' || unit.kind === 'prose' || unit.kind === 'settled_tail') {
+      charged.push(index);
+      return;
+    }
+    const family = evidenceFamilyKey(unit);
+    if (!textFamilies.has(family)) evidenceFallback.set(family, index);
+  });
+  charged.push(...evidenceFallback.values());
+  return charged.sort((left, right) => left - right);
+}
+
+export function transcriptHistoryTextSlotCount(
+  units: readonly TranscriptHistoryUnit[],
+): number {
+  return transcriptHistoryTextSlotIndices(units).length;
+}
+
+/** Select the newest text-slot window and include the zero-cost evidence since
+ * the immediately preceding charged boundary. This keeps the tools that lead
+ * into the oldest selected text without pulling in the preceding text slot. */
+export function newestTranscriptHistoryUnits(
+  units: readonly TranscriptHistoryUnit[],
+  limit: number,
+): TranscriptHistoryUnit[] {
+  if (limit <= 0 || units.length === 0) return [];
+  const charged = transcriptHistoryTextSlotIndices(units);
+  if (charged.length <= limit) return [...units];
+  const chargedSet = new Set(charged);
+  let start = charged[charged.length - limit]!;
+  while (start > 0 && !chargedSet.has(start - 1)) start -= 1;
+  return units.slice(start);
+}
+
+const TranscriptHistoryProjectionSchema = z.object({
   messages: z.array(MessageSchema),
   journals: z.array(TranscriptHistoryJournalSchema),
-  units: z.array(TranscriptHistoryUnitSchema).max(HISTORICAL_TRANSCRIPT_PAGE_SIZE),
+  units: z.array(TranscriptHistoryUnitSchema),
   before_cursor: TranscriptHistoryCursorSchema.nullable(),
   has_more: z.boolean(),
-}).superRefine((page, context) => {
+});
+
+const validateTranscriptHistoryProjection = (
+  page: z.infer<typeof TranscriptHistoryProjectionSchema>,
+  context: z.RefinementCtx,
+  maximumTextSlots: number,
+): void => {
+  if (transcriptHistoryTextSlotCount(page.units) > maximumTextSlots) {
+    context.addIssue({
+      code: 'custom',
+      path: ['units'],
+      message: `projection exceeds ${String(maximumTextSlots)} text slots`,
+    });
+  }
   const messageIds = new Set(page.messages.map((message) => message.id));
   const journalIndices = new Map<number, Set<number>>();
   const usedIndices = new Map<number, Set<number>>();
@@ -129,6 +195,25 @@ export const TranscriptHistoryPageSchema = z.object({
       }
     }
   }
-});
+};
+
+export const TranscriptHistoryPageSchema = TranscriptHistoryProjectionSchema.superRefine(
+  (page, context) => validateTranscriptHistoryProjection(
+    page,
+    context,
+    HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  ),
+);
 export type TranscriptHistoryPage = z.infer<typeof TranscriptHistoryPageSchema>;
-// harn:end historical-transcript-pages-match-output-scoped-rendering
+
+/** Persisted browser cache projection. It uses the same complete-record and
+ * journal-excerpt invariants as a network page, with a two-page text budget. */
+export const TranscriptHistoryCacheWindowSchema = TranscriptHistoryProjectionSchema.superRefine(
+  (page, context) => validateTranscriptHistoryProjection(
+    page,
+    context,
+    HISTORICAL_TRANSCRIPT_CACHE_SIZE,
+  ),
+);
+export type TranscriptHistoryCacheWindow = z.infer<typeof TranscriptHistoryCacheWindowSchema>;
+// harn:end historical-transcript-pages-budget-text-slots

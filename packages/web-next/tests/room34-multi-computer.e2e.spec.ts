@@ -193,7 +193,7 @@ test.describe('multi-computer pairing', () => {
     expect(initialAppOpens.filter((entry) => entry.session === aSession)).toHaveLength(1);
     expect(initialAppOpens.filter((entry) => entry.session === bSession)).toHaveLength(1);
 
-    // harn:assume inactive-history-evidence-warms-captured-store ref=background-warming-browser-regression
+    // harn:assume inactive-history-warming-persists-bounded-room-cache ref=bounded-background-warming-regression
     // A finalizes while same-room B is selected. The inactive A connector may
     // retain live context, and the existing zero-history subscription triggers
     // one captured-store combined-head refresh before A is activated.
@@ -272,7 +272,7 @@ test.describe('multi-computer pairing', () => {
     ).__codorRelayAppOpens])).toEqual(initialAppOpens);
     // B stays free of A's same-named room result, while a later A activation
     // reuses the already-warmed captured source and renders exactly one copy.
-    // harn:end inactive-history-evidence-warms-captured-store
+    // harn:end inactive-history-warming-persists-bounded-room-cache
     await expect(page.getByTestId('timeline')).not.toContainText('hi from computer two');
     // Post round-trips over computer A's tunnel.
     // harn:assume composer-enter-uses-live-draft-state ref=composer-live-mention-switch-regression

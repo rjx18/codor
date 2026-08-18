@@ -13,7 +13,6 @@ import {
   type Schedule,
   type ServerFrame,
   type TranscriptHistoryJournal,
-  type TranscriptHistoryPage,
   type TranscriptHistoryUnit,
 } from '@codor/protocol';
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
@@ -34,6 +33,9 @@ export interface TranscriptHistoryState {
   headNeedsRevalidation: boolean;
   /** The mounted host predates the combined transcript-history endpoint. */
   legacyFallback: boolean;
+  /** True only when this room's socket intentionally hydrated the legacy
+   * twenty-message tail because the runtime omitted combined-history support. */
+  legacySocketHydration: boolean;
   loadingHead: boolean;
   loadingCursor: string | undefined;
   failed: boolean;
@@ -43,10 +45,15 @@ export interface TranscriptHistoryState {
   messages: Record<number, Message>;
   journals: Record<number, TranscriptHistoryJournal>;
   units: TranscriptHistoryUnit[];
-  /** Newest successfully materialized server page. Kept separately so a
-   * bounded last-good snapshot never pairs a sliced unit tail with the cursor
-   * of some older page the operator subsequently loaded. */
-  latestPage: TranscriptHistoryPage | undefined;
+  /** Newest bounded head/predecessor window. Kept separately so a last-good
+   * snapshot never inherits cursor state from operator-loaded older pages. */
+  cacheWindow: {
+    messages: Record<number, Message>;
+    journals: Record<number, TranscriptHistoryJournal>;
+    units: TranscriptHistoryUnit[];
+    beforeCursor: string | null;
+    hasMore: boolean;
+  } | undefined;
   /** Undefined before the first successful head; null at the archive floor. */
   beforeCursor: string | null | undefined;
   hasMore: boolean;
@@ -56,6 +63,7 @@ const EMPTY_TRANSCRIPT_HISTORY: TranscriptHistoryState = {
   initialized: false,
   headNeedsRevalidation: false,
   legacyFallback: false,
+  legacySocketHydration: true,
   loadingHead: false,
   loadingCursor: undefined,
   failed: false,
@@ -63,7 +71,7 @@ const EMPTY_TRANSCRIPT_HISTORY: TranscriptHistoryState = {
   messages: {},
   journals: {},
   units: [],
-  latestPage: undefined,
+  cacheWindow: undefined,
   beforeCursor: undefined,
   hasMore: true,
 };
@@ -778,7 +786,7 @@ export function createClientStore(): ClientStore {
   setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
-  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-lifecycle
+  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-lifecycle
   hydrateLastGoodRoom: (room, roomSummaries, history) => set((state) => {
     const current = state.rooms[room.id] ?? freshRoom();
     return {
@@ -797,9 +805,9 @@ export function createClientStore(): ClientStore {
           transcriptHistory: {
             ...freshTranscriptHistory(),
             initialized: true,
-            // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-state
+            // harn:assume cached-room-history-stays-stale-until-bounded-revalidation ref=cached-room-revalidation-state
             headNeedsRevalidation: true,
-            // harn:end cached-transcript-head-stays-stale-until-revalidated
+            // harn:end cached-room-history-stays-stale-until-bounded-revalidation
             failed: false,
             // Only rows already represented by the persisted page are cold
             // duplicates. A newer message arriving from current live hydration
@@ -810,12 +818,12 @@ export function createClientStore(): ClientStore {
             messages: { ...history.messages },
             journals: { ...history.journals },
             units: [...history.units],
-            latestPage: {
-              messages: Object.values(history.messages),
-              journals: Object.values(history.journals),
+            cacheWindow: {
+              messages: { ...history.messages },
+              journals: { ...history.journals },
               units: [...history.units],
-              before_cursor: history.beforeCursor,
-              has_more: history.hasMore,
+              beforeCursor: history.beforeCursor,
+              hasMore: history.hasMore,
             },
             beforeCursor: history.beforeCursor,
             hasMore: history.hasMore,
@@ -824,7 +832,7 @@ export function createClientStore(): ClientStore {
       },
     };
   }),
-  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
+  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
   setWorktreeGroup: (root, group) => set((state) => ({
     worktreeGroups: {
       ...state.worktreeGroups,

@@ -1,0 +1,20 @@
+id: hosted-last-good-history-cache-is-per-room-and-bounded
+hash: a-264c83e13ee2
+title: Hosted last-good history caches forty text slots per room
+state: active
+statement: >
+  Each hosted computer may persist one dedicated IndexedDB record holding
+  isolated snapshots for its materialized rooms, each capped at the newest forty
+  text slots plus complete selected message context and indexed evidence and the
+  predecessor cursor needed for deliberate older loading. The record may render
+  the remembered room and later selected cached rooms immediately but starts
+  disconnected/read-only, strips drafts, credentials, keys, attachments, voice,
+  inbox, interactions, mutable runs, and full journals, updates after
+  authenticated head or inactive warming success, and is deleted only for the
+  addressed computer on forget or with every Codor database on unpair.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+  - historical-transcript-pages-budget-text-slots
+  - combined-head-reconciliation-is-two-page-bounded
+  - relay-app-socket-readiness-requires-server-evidence
+created_by: history-text-slots-p1

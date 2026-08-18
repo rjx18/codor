@@ -1,7 +1,7 @@
 id: hosted-last-good-room-cache-is-bounded-read-only-projection
 hash: a-009ddd091144
 title: Hosted reconnects may render one bounded disconnected room snapshot
-state: active
+state: retired
 statement: >
   Hosted mode may persist in a dedicated IndexedDB database exactly one last
   successfully authenticated active public-room projection per computer: bounded
@@ -17,3 +17,4 @@ depends_on:
   - historical-transcript-pages-match-output-scoped-rendering
   - relay-app-socket-readiness-requires-server-evidence
 created_by: hosted-relay-smooth-startup-r1
+retired_by: history-text-slots-p1

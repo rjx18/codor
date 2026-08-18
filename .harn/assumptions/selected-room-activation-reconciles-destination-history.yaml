@@ -1,7 +1,7 @@
 id: selected-room-activation-reconciles-destination-history
 hash: a-9ca1d9b9b983
 title: Selected rooms reconcile destination-owned history after readiness
-state: active
+state: retired
 statement: >
   Whenever a room becomes the selected conversation, the browser must wait until
   that exact room is live on the selected connector and then start one
@@ -19,3 +19,4 @@ depends_on:
   - hosted-computer-sessions-keep-state-isolated
   - worktree-conversation-status-is-live-and-independent
 created_by: hosted-transcript-reliability-h1-selected-room-reconciliation
+retired_by: history-text-slots-p1

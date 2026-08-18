@@ -2,6 +2,7 @@ import type { Act, ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from './crypto.js';
 import { HISTORY_PAGE_SIZE, useRoomStore } from './state.js';
+import { directCombinedTranscriptHistorySupported } from '../app/compatibility.js';
 
 export interface Connection {
   post(
@@ -71,7 +72,9 @@ export function connect(options: ConnectOptions): Connection {
           since_seq: useRoomStore.getState().seq,
           // A viewer wants the tail, not the room's whole history. Ignored by the
           // server on a warm resubscribe, so a reconnect still replays every change.
-          hydrate_limit: HISTORY_PAGE_SIZE,
+          // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-socket-history
+          hydrate_limit: directCombinedTranscriptHistorySupported() ? 0 : HISTORY_PAGE_SIZE,
+          // harn:end combined-history-capability-gates-socket-fallback
         }),
       );
     };

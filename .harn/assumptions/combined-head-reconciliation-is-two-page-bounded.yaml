@@ -1,0 +1,19 @@
+id: combined-head-reconciliation-is-two-page-bounded
+hash: a-0f43ca0b0ddb
+title: Combined-head reconciliation is bounded to a head and predecessor
+state: active
+statement: >
+  Every initialization, activation, resume, settlement, or background warming
+  signal deduplicates by captured source store and room and may request only the
+  newest combined page plus at most its immediate predecessor. A stable overlap
+  preserves the established older prefix and adopts the response's exact suffix;
+  no overlap, including an honestly empty head, replaces stale finalized
+  membership instead of walking further cursors. Failures keep rendered history
+  readable and retryable, newer live rows remain room-owned, and finalized runs
+  never fall back to full journal requests.
+depends_on:
+  - historical-transcript-pages-budget-text-slots
+  - finalized-browser-history-is-combined-page-owned
+  - run-events-merge-by-journal-index
+  - client-syncs-by-seq
+created_by: history-text-slots-p1

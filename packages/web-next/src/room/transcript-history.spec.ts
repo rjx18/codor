@@ -78,6 +78,7 @@ const emptyHistory = (): TranscriptHistoryState => ({
   initialized: false,
   headNeedsRevalidation: false,
   legacyFallback: false,
+  legacySocketHydration: true,
   loadingHead: false,
   loadingCursor: undefined,
   failed: false,
@@ -85,7 +86,7 @@ const emptyHistory = (): TranscriptHistoryState => ({
   messages: {},
   journals: {},
   units: [],
-  latestPage: undefined,
+  cacheWindow: undefined,
   beforeCursor: undefined,
   hasMore: true,
 });
@@ -93,9 +94,9 @@ const emptyHistory = (): TranscriptHistoryState => ({
 beforeEach(() => api.fetch.mockReset());
 afterEach(resetClientStoreForTest);
 
-// harn:assume transcript-history-prepends-one-deliberate-page ref=deliberate-history-top-reach-regression
+// harn:assume transcript-history-prepends-one-text-slot-page ref=deliberate-text-slot-top-reach-regression
 describe('combined transcript page merging', () => {
-  // harn:assume combined-head-adopts-authoritative-overlap-order ref=authoritative-head-overlap-unit-regression
+  // harn:assume bounded-combined-head-adopts-authoritative-window ref=bounded-authoritative-head-regression
   it('lets an authoritative head response order a stable-key overlap around the interjection', () => {
     const current = mergeTranscriptPages(
       emptyHistory(),
@@ -223,7 +224,7 @@ describe('combined transcript page merging', () => {
     expect(merged.units.map(transcriptUnitKey)).toEqual(['message:1', 'message:2']);
     expect(merged.messages[99]).toEqual(liveOnly);
   });
-  // harn:end combined-head-adopts-authoritative-overlap-order
+  // harn:end bounded-combined-head-adopts-authoritative-window
 
   it('keeps stable unit identities when an older page extends the same output row', () => {
     const current = mergeTranscriptPages(
@@ -242,7 +243,7 @@ describe('combined transcript page merging', () => {
     ]);
   });
 });
-// harn:end transcript-history-prepends-one-deliberate-page
+// harn:end transcript-history-prepends-one-text-slot-page
 
 // harn:assume transcript-targets-walk-combined-pages ref=combined-history-target-regression
 describe('combined transcript target walking', () => {
@@ -270,9 +271,27 @@ describe('combined transcript target walking', () => {
 });
 // harn:end transcript-targets-walk-combined-pages
 
-// harn:assume missed-terminal-history-refreshes-through-combined-head ref=combined-history-head-regression
+// harn:assume combined-head-reconciliation-is-two-page-bounded ref=bounded-combined-history-head-regression
 describe('combined transcript head recovery', () => {
-  // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-regression
+  it('loads only one twenty-slot head for a fresh room', async () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('same');
+    api.fetch.mockResolvedValueOnce(page(
+      Array.from({ length: 20 }, (_, index) => messageUnit(index + 1)),
+      Array.from({ length: 20 }, (_, index) => message(index + 1)),
+      'older',
+    ));
+
+    expect(await ensureTranscriptHistory(store, 'same', () => 'token')).toBe(true);
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+    expect(roomSlice(store.getState(), 'same').transcriptHistory).toMatchObject({
+      beforeCursor: 'older',
+      hasMore: true,
+      units: Array.from({ length: 20 }, (_, index) => messageUnit(index + 1)),
+    });
+  });
+
+  // harn:assume cached-room-history-stays-stale-until-bounded-revalidation ref=cached-room-revalidation-regression
   it('revalidates an initialized cached head, preserves it on failure, and clears stale only on success', async () => {
     const store = createClientStore();
     store.getState().setActiveRoom('same');
@@ -303,7 +322,7 @@ describe('combined transcript head recovery', () => {
     });
     expect(roomSlice(store.getState(), 'same').messages[3]).toBeDefined();
   });
-  // harn:end cached-transcript-head-stays-stale-until-revalidated
+  // harn:end cached-room-history-stays-stale-until-bounded-revalidation
 
   it('keeps a failed initial head uninitialized and retries it honestly', async () => {
     const store = createClientStore();
@@ -350,6 +369,23 @@ describe('combined transcript head recovery', () => {
     expect(api.fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('does not enable legacy rows after a capable runtime reports a missing history route', async () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('same');
+    store.getState().updateTranscriptHistory('same', (history) => ({
+      ...history,
+      legacySocketHydration: false,
+    }));
+    api.fetch.mockRejectedValueOnce(new api.Unsupported(404));
+
+    expect(await ensureTranscriptHistory(store, 'same', () => 'token')).toBe(false);
+    expect(roomSlice(store.getState(), 'same').transcriptHistory).toMatchObject({
+      initialized: false,
+      legacyFallback: false,
+      failed: true,
+    });
+  });
+
   it('captures cold WebSocket ids once while later live arrivals remain outside the cold snapshot', async () => {
     const store = createClientStore();
     store.getState().setActiveRoom('same');
@@ -373,7 +409,7 @@ describe('combined transcript head recovery', () => {
     await pending;
   });
 
-  it('deduplicates reconnect signals and bridges to overlap without discarding older pages', async () => {
+  it('deduplicates reconnect signals and uses at most the immediate predecessor to find overlap', async () => {
     const store = createClientStore();
     store.getState().setActiveRoom('same');
     store.getState().updateTranscriptHistory('same', (history) => mergeTranscriptPages(
@@ -395,6 +431,33 @@ describe('combined transcript head recovery', () => {
     expect(api.fetch).toHaveBeenCalledTimes(2);
     expect(roomSlice(store.getState(), 'same').transcriptHistory.units.map(transcriptUnitKey))
       .toEqual(['message:1', 'message:2', 'message:3', 'message:4']);
+  });
+
+  it('replaces a week-old no-overlap cache after exactly two bounded requests', async () => {
+    const store = createClientStore();
+    store.getState().setActiveRoom('same');
+    store.getState().updateTranscriptHistory('same', (history) => ({
+      ...mergeTranscriptPages(
+        history,
+        [page([messageUnit(1), messageUnit(2)], [message(1), message(2)], 'old')],
+        'head',
+      ),
+      headNeedsRevalidation: true,
+    }));
+    api.fetch
+      .mockResolvedValueOnce(page([messageUnit(100), messageUnit(101)], [message(100), message(101)], 'previous'))
+      .mockResolvedValueOnce(page([messageUnit(80), messageUnit(81)], [message(80), message(81)], 'still-older'));
+
+    expect(await refreshTranscriptHistoryHead(store, 'same', () => 'token')).toBe(true);
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+    const history = roomSlice(store.getState(), 'same').transcriptHistory;
+    expect(history.units.map(transcriptUnitKey)).toEqual([
+      'message:80', 'message:81', 'message:100', 'message:101',
+    ]);
+    expect(history.beforeCursor).toBe('still-older');
+    expect(history.cacheWindow?.units.map(transcriptUnitKey)).toEqual([
+      'message:80', 'message:81', 'message:100', 'message:101',
+    ]);
   });
 
   it('preserves rendered history after failure and permits a later retry', async () => {
@@ -433,7 +496,7 @@ describe('combined transcript head recovery', () => {
     expect(api.fetch.mock.calls.map((call) => call[2]?.token)).toEqual(['token-a', 'token-b']);
   });
 });
-// harn:end missed-terminal-history-refreshes-through-combined-head
+// harn:end combined-head-reconciliation-is-two-page-bounded
 
 // harn:assume finalized-browser-history-is-combined-page-owned ref=captured-history-source-regression
 // harn:assume hosted-computer-sessions-keep-state-isolated ref=captured-history-source-regression

@@ -1,0 +1,25 @@
+id: historical-transcript-pages-budget-text-slots
+hash: a-d2b82ce41abc
+title: Finalized transcript pages budget visible text and attach evidence
+state: active
+statement: >
+  An authenticated combined-history page must bind its opaque cursor to the room
+  and immutable newest-message ceiling, establish the complete existing
+  output-scoped/legacy chronology, and select at most twenty visible text slots.
+  Ordinary/deleted message rows, prose blocks, visible settled tails, and one
+  complete evidence-only output family each cost one slot; tool call/results and
+  timeline evidence attached between selected text boundaries cost zero and
+  remain complete, so a text response with fifty tools returns the text plus all
+  fifty tools. Reasoning and actionable interaction rows remain excluded,
+  running or queued families remain live-owned, valid pairs and prose boundaries
+  are never split, and cursor walks return every selected unit exactly once.
+depends_on:
+  - run-journals-own-evidence-across-output-messages
+  - continuation-writer-follows-journaled-output-ownership
+  - permalink-ids-stable
+  - redaction-before-fanout
+  - compaction-timeline-items-are-durable-run-evidence
+  - run-events-merge-by-journal-index
+  - normalized-run-item-payload-contract
+  - prose-blocks-carry-first-delta-timestamps
+created_by: history-text-slots-p1
