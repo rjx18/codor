@@ -1,0 +1,97 @@
+id: history-text-slots-p1-full-browser-review-fix
+title: Close bounded transcript integration gaps found by the full browser suite
+notes: >
+  Contained Phase 1 review correction on exact merged main base
+  0b4b0b31b0f15ee447a6403c1d95139b6faaeccf. The complete 49-spec browser suite
+  reproducibly passes 339 of 347 tests and exposes eight integrations that
+  previously depended on the capable socket's legacy message tail.
+
+  Preserve twenty-text-slot pages with complete associated evidence,
+  forty-text-slot per-room caches, at most one head and one predecessor,
+  hydrate_limit zero for explicitly capable runtimes, the legacy twenty-message
+  fallback for old runtimes, and the absence of finalized /runs/:id reads.
+  Project recipient-scoped pending interactions inline only when their durable
+  position lies inside the current combined window and otherwise keep them in
+  the detached tray. Merge page-owned and live permanent continuation rows by
+  their existing strict ids instead of concatenating the two ownership sets.
+  When terminal support/message evidence shows a gap, mark or perform only the
+  existing deduplicated bounded head refresh; a background-warmed destination
+  remains eligible for the existing no-op activation path. Preview must union
+  page-owned message attachments with live rows and derive finalized embedded
+  images from combined-page indexed excerpts, retaining full-journal reads only
+  for the explicit legacy fallback. Update the cached-browser regression to
+  inspect the already-shipped V2 per-room record rather than its removed V1
+  top-level history field. No unbounded bridge, capable socket history, protocol
+  redesign, cache expansion, UI redesign, or relay change.
+assumptions:
+  reviewed:
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: The server page and cursor remain capped at twenty text slots with
+        complete selected evidence.
+    - id: combined-head-reconciliation-is-two-page-bounded
+      outcome: unchanged
+      reason: Every new terminal or activation signal continues through the same
+        source-store/room-deduplicated head plus optional predecessor
+        controller.
+    - id: bounded-combined-head-adopts-authoritative-window
+      outcome: unchanged
+      reason: The correction restores live/page presentation and trigger coverage; it
+        does not change authoritative bounded merge semantics.
+    - id: selected-room-activation-uses-bounded-destination-reconciliation
+      outcome: unchanged
+      reason: A destination with evidence of a missed terminal refreshes on selection
+        while an already reconciled warm destination remains current.
+    - id: combined-head-preserves-reader-unit-offset
+      outcome: unchanged
+      reason: The existing stable-unit restoration owns delayed head geometry;
+        restoring the missing bounded refresh makes that path reachable again.
+    - id: combined-history-capability-gates-socket-fallback
+      outcome: unchanged
+      reason: Capable clients retain zero socket history while support metadata,
+        active runs, live events, and legacy fallback remain usable.
+    - id: actionable-interactions-do-not-spend-history-text-slots
+      outcome: unchanged
+      reason: Support-owned pending cards remain zero-slot and are classified as
+        current-window inline or older detached without entering combined pages.
+    - id: hosted-support-active-run-transcript-projection
+      outcome: unchanged
+      reason: Support-only roots remain live projections and are merged with
+        page-owned interjections by established permanent chronology.
+    - id: active-run-segments-follow-established-transcript-time
+      outcome: unchanged
+      reason: Legacy timestamp behavior stays unchanged and permanent continuation
+        families regain strict id order across page/live ownership.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: A newly terminal observed family triggers one bounded page refresh and
+        never a terminal full-journal read.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Preview consumes the combined page's complete records and indexed
+        excerpts instead of requiring cold socket rows or finalized journals.
+    - id: attachments-are-capped-files-served-inert
+      outcome: unchanged
+      reason: Page-owned attachment metadata uses the existing authenticated lazy byte
+        retrieval and inert rendering rules.
+    - id: hosted-last-good-history-cache-is-per-room-and-bounded
+      outcome: unchanged
+      reason: The production V2 record stays forty-slot and per-room; only the stale
+        browser test reader is corrected to inspect that schema.
+    - id: cached-room-history-stays-stale-until-bounded-revalidation
+      outcome: unchanged
+      reason: Cached rows remain readable until successful authenticated bounded
+        revalidation replaces them.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/ContextPanel.tsx
+  - packages/web-next/src/room/ContextPanel.spec.tsx
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room23-continuations.e2e.spec.ts
+  - packages/web-next/tests/room23-crosschannel-reconcile.e2e.spec.ts
+  - packages/web-next/tests/room28-preview.e2e.spec.ts
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
