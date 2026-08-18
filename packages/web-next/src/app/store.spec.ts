@@ -436,6 +436,43 @@ describe('room-keyed client state', () => {
     expect(merged.messages[6]).toMatchObject({ seq: 60, body: 'new staged' });
     expect(merged.messages[9]).toMatchObject({ body: 'unrelated retained' });
   });
+
+  it('marks a combined head stale when support loses an active root without its terminal message', () => {
+    const running = {
+      ...message('shared', 7),
+      kind: 'run' as const,
+      run: { status: 'running' as const, started_ts: '2026-07-18T00:00:07.000Z' },
+    };
+    const support = {
+      room: 'shared', summary: {}, active_runs: [running], interactions: [], inbox: [],
+    };
+    const store = createClientStore();
+    store.getState().updateTranscriptHistory('shared', (history) => ({
+      ...history, initialized: true, headNeedsRevalidation: false,
+    }));
+    store.getState().applyFrame(frame({ type: 'room_support', support }));
+    store.getState().applyFrame(frame({
+      type: 'room_support', support: { ...support, active_runs: [] },
+    }));
+    expect(roomSlice(store.getState(), 'shared').transcriptHistory.headNeedsRevalidation).toBe(true);
+
+    const delivered = createClientStore();
+    delivered.getState().updateTranscriptHistory('shared', (history) => ({
+      ...history, initialized: true, headNeedsRevalidation: false,
+    }));
+    delivered.getState().applyFrame(frame({ type: 'room_support', support }));
+    delivered.getState().applyFrame(frame({
+      type: 'message', seq: 8, message: {
+        ...running,
+        seq: 8,
+        run: { ...running.run, status: 'interrupted', ended_ts: '2026-07-18T00:00:08.000Z' },
+      },
+    }));
+    delivered.getState().applyFrame(frame({
+      type: 'room_support', support: { ...support, active_runs: [] },
+    }));
+    expect(roomSlice(delivered.getState(), 'shared').transcriptHistory.headNeedsRevalidation).toBe(false);
+  });
   // harn:end combined-history-sync-classifies-bounded-cold-only
 
   // harn:assume paged-history-live-message-reconciliation ref=live-history-pin-delete-regression

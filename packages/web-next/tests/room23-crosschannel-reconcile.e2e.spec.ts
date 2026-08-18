@@ -104,8 +104,11 @@ test.describe('cross-channel seq reconciliation', () => {
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
     await expect(page.getByTestId('timeline').getByText(finalText, { exact: true }))
       .toHaveCount(1, { timeout: 10_000 });
+    // The initialized room's bounded reconciliation may consume the immediate
+    // predecessor as its second and final request. It must not walk any older
+    // cursor or fall back to a finalized journal.
     await expect.poll(engHistoryRequests)
-      .toBe(historyBeforeReturn + 1);
+      .toBe(historyBeforeReturn + 2);
 
     expect(requests.filter((url) => /\/runs\/[^/?]+/.test(url))).toHaveLength(journalBeforeReturn);
     expect(sockets).toBe(socketsBeforeReturn);
@@ -143,8 +146,9 @@ test.describe('cross-channel seq reconciliation', () => {
     await expect(page.locator('.nx-chat-title h1')).toHaveText('Engineering');
     await expect(page.getByTestId('timeline').getByText(retryText, { exact: true }))
       .toHaveCount(1, { timeout: 10_000 });
+    // One aborted head plus the successful bounded head/predecessor pair.
     await expect.poll(engHistoryRequests)
-      .toBe(historyBeforeFailedActivation + 2);
+      .toBe(historyBeforeFailedActivation + 3);
     expect(requests.filter((url) => /\/runs\/[^/?]+/.test(url))).toHaveLength(journalBeforeFailedActivation);
     expect(sockets).toBe(socketsBeforeReturn);
     expect(subscriptions).toHaveLength(subscriptionsBeforeReturn);

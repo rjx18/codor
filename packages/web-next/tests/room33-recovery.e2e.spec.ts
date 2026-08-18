@@ -79,8 +79,19 @@ const cachedBodies = (page: Page): Promise<string[]> => page.evaluate(async () =
     const all = database.transaction('rooms', 'readonly').objectStore('rooms').getAll();
     all.onerror = () => reject(all.error);
     all.onsuccess = () => {
-      const bodies = (all.result as Array<{ history?: { messages?: Record<string, { body?: string }> } }>)
-        .flatMap((snapshot) => Object.values(snapshot.history?.messages ?? {}))
+      type History = { messages?: Record<string, { body?: string }> };
+      type Snapshot = {
+        history?: History;
+        rooms?: Record<string, { history?: History }>;
+      };
+      const bodies = (all.result as Snapshot[])
+        .flatMap((snapshot) => [
+          ...(snapshot.history === undefined ? [] : [snapshot.history]),
+          ...Object.values(snapshot.rooms ?? {}).flatMap((room) => (
+            room.history === undefined ? [] : [room.history]
+          )),
+        ])
+        .flatMap((history) => Object.values(history.messages ?? {}))
         .flatMap((message) => message.body === undefined ? [] : [message.body]);
       database.close();
       resolve(bodies);
