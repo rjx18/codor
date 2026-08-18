@@ -554,6 +554,9 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     minimum_browser_protocol: minimumBrowserProtocol,
     compatible: minimumBrowserProtocol === 0
       || (protocol !== undefined && protocol >= minimumBrowserProtocol),
+    // harn:assume combined-history-capability-gates-socket-fallback ref=combined-history-compatibility-response
+    combined_transcript_history: true,
+    // harn:end combined-history-capability-gates-socket-fallback
   });
 
   app.get('/api/client-compatibility', (req, reply) => {
@@ -1206,7 +1209,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   });
   // harn:end permalink-ids-stable
 
-  // harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-rest
+  // harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-page-builder
   app.get('/api/rooms/:room/transcript-history', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal) return;
@@ -1220,7 +1223,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       return reply.code(400).send({ error: String(error) });
     }
   });
-  // harn:end historical-transcript-pages-match-output-scoped-rendering
+  // harn:end historical-transcript-pages-budget-text-slots
 
   app.get('/api/rooms/:room/runs/:msgId', (req, reply) => {
     const principal = authed(req, reply);

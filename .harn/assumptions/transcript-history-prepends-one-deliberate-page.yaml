@@ -1,7 +1,7 @@
 id: transcript-history-prepends-one-deliberate-page
 hash: a-20e0200faeaf
 title: One deliberate top reach prepends one bounded history page
-state: active
+state: retired
 statement: >
   The mounted transcript must request only its active room's first page, expose
   at most twenty immutable units initially, deduplicate requests by room and
@@ -16,3 +16,4 @@ depends_on:
   - finalized-browser-history-is-combined-page-owned
   - permalink-ids-stable
 created_by: transcript-history-reliability-p2-browser-pages
+retired_by: history-text-slots-p1

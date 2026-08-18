@@ -1,0 +1,21 @@
+id: combined-history-capability-gates-socket-fallback
+hash: a-bfaf05373312
+title: Runtime capability gates finalized socket history and legacy fallback
+state: active
+statement: >
+  The authenticated compatibility response explicitly declares combined
+  transcript-history support. Direct and hosted browsers must capture the
+  capability for the exact runtime/computer before creating its socket: true
+  sends hydrate_limit zero for cold selected, desired, and background rooms so
+  REST pages exclusively own finalized history; missing or false retains the
+  existing twenty-message selected-room socket hydration and explicit 404/405
+  legacy transcript fallback. Warm since_seq recovery, metadata/support
+  hydration, live runs/events, authorization, upgrade gating, and direct/relay
+  semantics remain identical, and support is never inferred from semver or from
+  a post-hydration endpoint failure.
+depends_on:
+  - finalized-browser-history-is-combined-page-owned
+  - addressed-cold-hydration-is-strict-and-legacy-safe
+  - hosted-computer-sessions-keep-state-isolated
+  - browser-protocol-epoch-blocks-only-stale-browser-ui
+created_by: history-text-slots-p1

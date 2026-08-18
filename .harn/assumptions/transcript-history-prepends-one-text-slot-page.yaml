@@ -1,0 +1,16 @@
+id: transcript-history-prepends-one-text-slot-page
+hash: a-04303d2a4fe9
+title: One deliberate top reach prepends one text-slot page
+state: active
+statement: >
+  The mounted transcript requests one active-room combined page initially and
+  one opaque-cursor page per deliberate top reach; each page contains at most
+  twenty text slots plus complete associated evidence. Requests remain
+  source-store/room/cursor deduplicated, stable unit DOM identity preserves the
+  first pre-existing visible unit offset across an intra-message boundary, and
+  the top latch rearms only after the reader leaves and deliberately returns, so
+  one gesture never drains history.
+depends_on:
+  - historical-transcript-pages-budget-text-slots
+  - permalink-ids-stable
+created_by: history-text-slots-p1

@@ -44,9 +44,9 @@ async function pairLive(page: Page, shortBoot = false): Promise<void> {
 }
 
 // harn:assume hosted-managed-bootstrap-reacts-to-late-readiness ref=reactive-managed-bootstrap-regression
-// harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion-regression
+// harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-history-regression
 test.describe('hosted smooth startup budgets', () => {
-  test('uses manager-owned bootstrap requests and promotes one zero-history room once', async ({ page }) => {
+  test('captures runtime capability before opening one zero-history app socket', async ({ page }) => {
     test.setTimeout(120_000);
     await pairLive(page);
     await expect.poll(async () => await page.evaluate(() => (
@@ -67,10 +67,10 @@ test.describe('hosted smooth startup budgets', () => {
     expect(matching('/api/auth/challenge')).toBe(1);
     expect(matching('/api/auth/session')).toBe(1);
     expect(matching('/api/rooms/summary')).toBe(1);
-    expect(matching('/api/client-compatibility')).toBe(0);
+    expect(matching('/api/client-compatibility')).toBe(1);
     expect(before.http.filter((entry) => entry.target.includes('/transcript-history'))).toHaveLength(1);
     expect(before.app).toHaveLength(1);
-    expect(before.subscriptions.find((entry) => entry.room === 'eng' && entry.hydrateLimit === 20)).toBeTruthy();
+    expect(before.subscriptions.find((entry) => entry.room === 'eng' && entry.hydrateLimit === 0)).toBeTruthy();
     expect(before.subscriptions.find((entry) => entry.room === 'design' && entry.hydrateLimit === 0)).toBeTruthy();
 
     await page.getByTestId('room-link-design').click();
@@ -78,7 +78,7 @@ test.describe('hosted smooth startup budgets', () => {
     await expect.poll(async () => await page.evaluate(() => (
       (window as unknown as {
         __codorRoomSubscribes: Array<{ room: string; hydrateLimit: number }>;
-      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 20).length
+      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 0).length
     ))).toBe(1);
     await page.getByTestId('room-link-eng').click();
     await page.getByTestId('room-link-design').click();
@@ -86,7 +86,7 @@ test.describe('hosted smooth startup budgets', () => {
     expect(await page.evaluate(() => (
       (window as unknown as {
         __codorRoomSubscribes: Array<{ room: string; hydrateLimit: number }>;
-      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 20).length
+      }).__codorRoomSubscribes.filter((entry) => entry.room === 'design' && entry.hydrateLimit === 0).length
     ))).toBe(1);
 
     console.info('[hosted-startup-browser-metrics]', JSON.stringify({
@@ -158,7 +158,7 @@ test.describe('hosted smooth startup budgets', () => {
   // harn:end prioritized-room-loading-pill-uses-existing-readiness
   // harn:end floating-room-loading-pill-uses-existing-priority
 
-  // harn:assume hosted-last-good-room-cache-is-bounded-read-only-projection ref=hosted-last-good-room-regression
+  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-regression
   test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
@@ -294,9 +294,11 @@ test.describe('hosted smooth startup budgets', () => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
-      const candidates = snapshot.history.units.flatMap((unit: any, index: number) => {
+      const cachedRoom = snapshot.rooms[snapshot.publicRoom];
+      if (cachedRoom === undefined) throw new Error('missing cached public room');
+      const candidates = cachedRoom.history.units.flatMap((unit: any, index: number) => {
         if (unit.kind !== 'message') return [];
-        const message = snapshot.history.messages[unit.message_id];
+        const message = cachedRoom.history.messages[unit.message_id];
         return message?.kind === 'chat' && message.deleted !== true
           ? [{ id: unit.message_id as number, body: message.body as string, index }]
           : [];
@@ -304,8 +306,8 @@ test.describe('hosted smooth startup budgets', () => {
       if (candidates.length < 2) throw new Error('cached head needs two ordinary rows');
       const removed = candidates.at(-2)!;
       const later = candidates.at(-1)!;
-      snapshot.history.units.splice(removed.index, 1);
-      delete snapshot.history.messages[removed.id];
+      cachedRoom.history.units.splice(removed.index, 1);
+      delete cachedRoom.history.messages[removed.id];
       await new Promise<void>((resolve, reject) => {
         const request = store.put(snapshot, key);
         request.onsuccess = () => resolve();
@@ -391,7 +393,7 @@ test.describe('hosted smooth startup budgets', () => {
   // harn:end combined-history-opening-sync-stays-cold
   // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end readable-reconnecting-room-never-admits-mutation
-  // harn:end hosted-last-good-room-cache-is-bounded-read-only-projection
+  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
 
   test('a cacheless active host that returns late enters the same document automatically', async ({ page }) => {
     test.setTimeout(120_000);
@@ -414,7 +416,7 @@ test.describe('hosted smooth startup budgets', () => {
     expect(await page.evaluate(() => (window as unknown as { __lateReadyDocument?: boolean }).__lateReadyDocument)).toBe(true);
   });
 });
-// harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+// harn:end combined-history-capability-gates-socket-fallback
 // harn:end hosted-managed-bootstrap-reacts-to-late-readiness
 
 // harn:assume transcript-tail-follow-has-one-prepaint-owner ref=transcript-prepaint-geometry-regression

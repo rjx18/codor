@@ -1,7 +1,7 @@
 id: historical-transcript-pages-match-output-scoped-rendering
 hash: a-1a06855b9d3b
 title: Finalized transcript pages match output-scoped browser rendering
-state: active
+state: retired
 statement: >
   An authenticated room-history page must reject an opaque cursor longer than
   4096 characters before decoding, bind every valid cursor to its room and
@@ -32,3 +32,4 @@ depends_on:
   - normalized-run-item-payload-contract
   - prose-blocks-carry-first-delta-timestamps
 created_by: transcript-history-reliability-p1-output-scoping
+retired_by: history-text-slots-p1

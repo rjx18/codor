@@ -1,0 +1,636 @@
+id: history-text-slots-p1
+title: Bound transcript history by text slots and cache two pages per room
+notes: >
+  Phase 1 on exact origin/main base 1ceaee95b54f7b27e81351fa47ea49d9cec3c238.
+  Preserve the existing combined endpoint, room-bound opaque cursors, unitizer,
+  merge controller, background warming, IndexedDB store, live-run ownership,
+  target walking, and direct/ hosted transport split. Change a page from twenty
+  raw units to twenty visible text slots while carrying all intervening
+  tool/timeline evidence; an evidence-only output family costs one fallback
+  slot. Persist at most the newest forty text slots for every materialized room
+  in the owning computer's existing last-good record. A head refresh performs
+  one head request and at most its immediate predecessor, adopts authoritative
+  overlap, and replaces a stale no-overlap finalized window instead of walking
+  an unbounded cursor bridge. Add an explicit combined-transcript-history
+  capability to the existing compatibility response: capable runtimes receive
+  zero socket history while missing/old capability retains the twenty-message
+  socket tail and explicit 404/405 legacy fallback. Keep warm since_seq replay,
+  running families, interactions, unread state, pins, search, permalinks,
+  deliberate older pages, attachments/voice exclusion, credentials, and
+  computer/room isolation unchanged.
+assumptions:
+  retire:
+    - id: historical-transcript-pages-match-output-scoped-rendering
+      reason: Raw render units no longer define the twenty-item user-facing page
+        budget.
+    - id: transcript-history-prepends-one-deliberate-page
+      reason: A deliberate page remains one request, but its bound is now twenty text
+        slots with attached evidence.
+    - id: missed-terminal-history-refreshes-through-combined-head
+      reason: Head reconciliation must no longer walk arbitrarily many pages to find
+        an overlap.
+    - id: hosted-last-good-room-cache-is-bounded-read-only-projection
+      reason: The cache expands from one twenty-unit active room to isolated
+        forty-text-slot snapshots for each materialized room.
+    - id: combined-history-supports-bounded-legacy-host-fallback
+      reason: Legacy socket hydration must be selected before connection by an
+        explicit compatibility capability, not discovered after duplicate
+        hydration.
+    - id: hosted-background-rooms-hydrate-metadata-until-promoted
+      reason: Capable runtimes keep every finalized-history socket budget at zero;
+        only old runtimes retain twenty-message promotion.
+    - id: inactive-history-evidence-warms-captured-store
+      reason: Successful inactive warming now also feeds the owning room's bounded
+        persisted cache and may fetch one predecessor.
+    - id: actionable-interactions-remain-support-owned-outside-history
+      reason: Interaction rows still cost zero, but the governed budget is now text
+        slots rather than raw units.
+    - id: combined-head-adopts-authoritative-overlap-order
+      reason: Authoritative overlap remains, but no-overlap now replaces stale
+        finalized membership after at most two pages.
+    - id: cached-transcript-head-stays-stale-until-revalidated
+      reason: Each cached room now owns its own bounded two-page revalidation state.
+    - id: selected-room-activation-reconciles-destination-history
+      reason: Activation preserves readable cache on failure but intentionally
+        replaces a stale no-overlap finalized window.
+  create:
+    - id: historical-transcript-pages-budget-text-slots
+      title: Finalized transcript pages budget visible text and attach evidence
+      statement: >
+        An authenticated combined-history page must bind its opaque cursor to
+        the room and immutable newest-message ceiling, establish the complete
+        existing output-scoped/legacy chronology, and select at most twenty
+        visible text slots. Ordinary/deleted message rows, prose blocks, visible
+        settled tails, and one complete evidence-only output family each cost
+        one slot; tool call/results and timeline evidence attached between
+        selected text boundaries cost zero and remain complete, so a text
+        response with fifty tools returns the text plus all fifty tools.
+        Reasoning and actionable interaction rows remain excluded, running or
+        queued families remain live-owned, valid pairs and prose boundaries are
+        never split, and cursor walks return every selected unit exactly once.
+      reason: Tool-heavy answers must not crowd all readable text out of a bounded
+        page.
+      depends_on:
+        - run-journals-own-evidence-across-output-messages
+        - continuation-writer-follows-journaled-output-ownership
+        - permalink-ids-stable
+        - redaction-before-fanout
+        - compaction-timeline-items-are-durable-run-evidence
+        - run-events-merge-by-journal-index
+        - normalized-run-item-payload-contract
+        - prose-blocks-carry-first-delta-timestamps
+    - id: transcript-history-prepends-one-text-slot-page
+      title: One deliberate top reach prepends one text-slot page
+      statement: >
+        The mounted transcript requests one active-room combined page initially
+        and one opaque-cursor page per deliberate top reach; each page contains
+        at most twenty text slots plus complete associated evidence. Requests
+        remain source-store/room/cursor deduplicated, stable unit DOM identity
+        preserves the first pre-existing visible unit offset across an
+        intra-message boundary, and the top latch rearms only after the reader
+        leaves and deliberately returns, so one gesture never drains history.
+      reason: Text-slot pages keep tool-heavy history readable without changing
+        operator-driven pagination.
+      depends_on:
+        - historical-transcript-pages-budget-text-slots
+        - permalink-ids-stable
+    - id: combined-head-reconciliation-is-two-page-bounded
+      title: Combined-head reconciliation is bounded to a head and predecessor
+      statement: >
+        Every initialization, activation, resume, settlement, or background
+        warming signal deduplicates by captured source store and room and may
+        request only the newest combined page plus at most its immediate
+        predecessor. A stable overlap preserves the established older prefix and
+        adopts the response's exact suffix; no overlap, including an honestly
+        empty head, replaces stale finalized membership instead of walking
+        further cursors. Failures keep rendered history readable and retryable,
+        newer live rows remain room-owned, and finalized runs never fall back to
+        full journal requests.
+      reason: A week-old cache must cause at most two bounded history requests rather
+        than an archive walk.
+      depends_on:
+        - historical-transcript-pages-budget-text-slots
+        - finalized-browser-history-is-combined-page-owned
+        - run-events-merge-by-journal-index
+        - client-syncs-by-seq
+    - id: hosted-last-good-history-cache-is-per-room-and-bounded
+      title: Hosted last-good history caches forty text slots per room
+      statement: >
+        Each hosted computer may persist one dedicated IndexedDB record holding
+        isolated snapshots for its materialized rooms, each capped at the newest
+        forty text slots plus complete selected message context and indexed
+        evidence and the predecessor cursor needed for deliberate older loading.
+        The record may render the remembered room and later selected cached
+        rooms immediately but starts disconnected/read-only, strips drafts,
+        credentials, keys, attachments, voice, inbox, interactions, mutable
+        runs, and full journals, updates after authenticated head or inactive
+        warming success, and is deleted only for the addressed computer on
+        forget or with every Codor database on unpair.
+      reason: Every recently materialized channel should reopen instantly without
+        creating a second cache architecture.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+        - historical-transcript-pages-budget-text-slots
+        - combined-head-reconciliation-is-two-page-bounded
+        - relay-app-socket-readiness-requires-server-evidence
+    - id: combined-history-capability-gates-socket-fallback
+      title: Runtime capability gates finalized socket history and legacy fallback
+      statement: >
+        The authenticated compatibility response explicitly declares combined
+        transcript-history support. Direct and hosted browsers must capture the
+        capability for the exact runtime/computer before creating its socket:
+        true sends hydrate_limit zero for cold selected, desired, and background
+        rooms so REST pages exclusively own finalized history; missing or false
+        retains the existing twenty-message selected-room socket hydration and
+        explicit 404/405 legacy transcript fallback. Warm since_seq recovery,
+        metadata/support hydration, live runs/events, authorization, upgrade
+        gating, and direct/relay semantics remain identical, and support is
+        never inferred from semver or from a post-hydration endpoint failure.
+      reason: New runtimes should not deliver finalized history twice while old
+        installed runtimes must remain usable.
+      depends_on:
+        - finalized-browser-history-is-combined-page-owned
+        - addressed-cold-hydration-is-strict-and-legacy-safe
+        - hosted-computer-sessions-keep-state-isolated
+        - browser-protocol-epoch-blocks-only-stale-browser-ui
+    - id: inactive-history-warming-persists-bounded-room-cache
+      title: Inactive evidence warms and persists the owning bounded room cache
+      statement: >
+        A hosted session observes new message or terminal evidence in inactive
+        subscribed rooms and coalesces the existing combined-head refresh for
+        that captured store, room, token, and tunnel. One trailing refresh may
+        follow evidence arriving in flight; each refresh remains bounded to a
+        head and optional predecessor, and successful materialization updates
+        only that computer-room's forty-text-slot snapshot. No polling, eager
+        socket history, new cache, cross-computer state, or activation request
+        for an already-warmed room is introduced.
+      reason: Per-room last-good state should follow the existing background warmer
+        without extra transport machinery.
+      depends_on:
+        - hosted-app-keeps-all-paired-computers-live
+        - hosted-computer-sessions-keep-state-isolated
+        - combined-history-capability-gates-socket-fallback
+        - hosted-computer-switching-reuses-warm-session
+        - finalized-browser-history-is-combined-page-owned
+        - combined-head-reconciliation-is-two-page-bounded
+    - id: actionable-interactions-do-not-spend-history-text-slots
+      title: Actionable interactions remain support-owned and spend no text slots
+      statement: >
+        Ask and approval rows contribute zero combined-history units and zero
+        text slots; recipient-scoped RoomSupport.interactions exclusively owns
+        their actionability, pending cards remain inline or detached according
+        to current support/cold state, resolved cards disappear immediately and
+        after reload, and durable answers and multi-question prompts retain
+        their existing behavior.
+      reason: Changing the page budget must not resurrect or charge invisible
+        interaction rows.
+      depends_on:
+        - historical-transcript-pages-budget-text-slots
+        - finalized-browser-history-is-combined-page-owned
+        - room-support-is-bounded-recipient-scoped-state
+        - approval-answer-is-atomic-and-chatless
+        - addressed-cold-hydration-is-strict-and-legacy-safe
+    - id: bounded-combined-head-adopts-authoritative-window
+      title: Bounded combined heads adopt authoritative overlap or replace staleness
+      statement: >
+        A successful at-most-two-page head reconciliation deduplicates by stable
+        unit identity and adopts the server's exact order throughout its window.
+        A stable overlap retains only the already-loaded older prefix outside
+        that window; no overlap replaces stale finalized membership, while live
+        room records not represented by pages remain available. Finalized
+        families and interjections therefore keep server chronology without
+        gaps, duplicates, local receipt-time fallback, or an unbounded bridge.
+      reason: Authoritative ordering must remain correct under the new bounded
+        no-overlap rule.
+      depends_on:
+        - historical-transcript-pages-budget-text-slots
+        - transcript-history-cursors-cover-complete-established-order
+        - finalized-browser-history-is-combined-page-owned
+        - combined-head-reconciliation-is-two-page-bounded
+        - live-runs-settle-beside-paged-history-once
+        - continuation-writer-follows-journaled-output-ownership
+        - permalink-ids-stable
+    - id: cached-room-history-stays-stale-until-bounded-revalidation
+      title: Each cached room stays stale until bounded authenticated revalidation
+      statement: >
+        Every restored hosted room snapshot may render read-only while
+        disconnected but remains marked for revalidation until the owning
+        computer's current authenticated tunnel successfully completes its
+        bounded head/predecessor refresh. Signals deduplicate against the exact
+        store, room, token, and transport; failure remains retryable and keeps
+        cached/live content readable, while success adopts overlap or replaces a
+        stale no-overlap finalized window without importing another computer.
+      reason: Expanding the cache to many rooms must preserve explicit freshness and
+        isolation.
+      depends_on:
+        - hosted-last-good-history-cache-is-per-room-and-bounded
+        - combined-head-reconciliation-is-two-page-bounded
+        - hosted-computer-sessions-keep-state-isolated
+        - hosted-app-streams-follow-tunnel-generations
+    - id: selected-room-activation-uses-bounded-destination-reconciliation
+      title: Selected rooms use bounded destination-owned history reconciliation
+      statement: >
+        When a room becomes selected, the browser waits for that exact room's
+        current connector evidence and starts one nonblocking source-store/
+        room-deduplicated bounded head refresh with its captured credential.
+        Missed terminal evidence appears without reload, reconnect, socket
+        replacement, cross-computer writes, or duplicate subscription; failure
+        preserves readable cached/live truth and remains retryable, while a
+        successful no-overlap response may replace only stale finalized
+        membership.
+      reason: Activation must retain its destination ownership while adopting the
+        bounded stale-cache rule.
+      depends_on:
+        - combined-head-reconciliation-is-two-page-bounded
+        - managed-computer-activation-revalidates-destination-history
+        - finalized-browser-history-is-combined-page-owned
+        - hosted-computer-sessions-keep-state-isolated
+        - worktree-conversation-status-is-live-and-independent
+  reviewed:
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: Complete server chronology and room-bound immutable cursor walks remain
+        the source before selecting a text-slot window.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: REST pages remain the sole finalized-history authority on capable
+        runtimes and all page state stays in the captured room store.
+    - id: explicit-prose-boundaries-survive-transcript-lifecycle
+      outcome: unchanged
+      reason: Text deltas/blocks retain identical unit identity, grouping, final
+        fallback, and lifecycle behavior.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: Live rows still supersede page message metadata only by newer message
+        sequence.
+    - id: tool-only-evidence-batches-across-invisible-output-boundaries
+      outcome: unchanged
+      reason: Browser visual grouping is unchanged; the server only changes which
+        evidence accompanies the text window.
+    - id: visible-transcript-grouping-ignores-hidden-boundaries
+      outcome: unchanged
+      reason: No presentation grouping or hidden-boundary behavior changes.
+    - id: combined-head-preserves-reader-unit-offset
+      outcome: unchanged
+      reason: Existing stable-unit prepaint anchoring consumes the bounded merge
+        without a new scroll owner.
+    - id: prioritized-room-loading-pill-uses-existing-readiness
+      outcome: unchanged
+      reason: Phase 2 owns presentation; this phase leaves the existing
+        readiness/loading selector and priority untouched.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: The same prepaint geometry owner handles text-slot prepends and bounded
+        head replacement.
+    - id: managed-computer-activation-revalidates-destination-history
+      outcome: unchanged
+      reason: Computer activation still captures and refreshes only the destination
+        store, room, token, and transport.
+    - id: combined-history-sync-classifies-bounded-cold-only
+      outcome: unchanged
+      reason: Warm sync remains live reconciliation and only restored bounded
+        snapshots are classified as cold.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: Explicit search, pin, inbox, permalink, and held-target walks may still
+        request as many deliberate cursor pages as needed.
+    - id: transcript-history-failures-are-bounded-and-actionable
+      outcome: unchanged
+      reason: Noncompatibility failures remain visible, retryable, and never become
+        honest empty state.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: Server hydrate_limit semantics stay identical; the new capability only
+        selects zero versus twenty at the client.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: The optional additive capability does not change compatibility admission
+        or upgrade gating.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: Running families remain live/unbounded and settle into combined-page
+        ownership once.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Capability, requests, cache windows, tokens, stores, and same-named
+        rooms remain computer-local.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Capability lookup uses the existing generation-bounded transport before
+        creating the same one app socket.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Zero finalized rows do not make a socket live; addressed sync_complete
+        remains readiness proof.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: Multi-room cached content remains disconnected/read-only and mutation
+        admission is unchanged.
+    - id: hosted-explicit-room-survives-cached-bootstrap
+      outcome: unchanged
+      reason: The remembered public room still seeds cached bootstrap without
+        overriding explicit navigation intent.
+    - id: active-run-segments-follow-established-transcript-time
+      outcome: unchanged
+      reason: Mutable run segments remain socket/live owned and use the same
+        chronology before settlement.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: The authenticated REST regression crosses the existing role-matrix
+        integration span; no role, principal, authorization, or mutation
+        behavior changes.
+files:
+  - .harn/plans/history-text-slots-p1.yaml
+  - packages/protocol/src/transcript-history.ts
+  - packages/protocol/src/transcript-history.spec.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/app/compatibility.tsx
+  - packages/web-next/src/app/compatibility.spec.tsx
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/runtime/state.ts
+  - packages/web-next/src/runtime/last-good-room.ts
+  - packages/web-next/src/runtime/last-good-room.spec.ts
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/tests/room21-hydration.e2e.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+anchors:
+  roles-gate-human-acts-not-agents:
+    role-matrix-integration:
+      action: change
+      reason: Update only the nested authenticated combined-history response
+        assertions while preserving the role matrix unchanged.
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    browser-protocol-regression:
+      action: change
+      reason: Add only the optional combined-history capability assertion to the
+        existing compatibility response; epoch admission remains unchanged.
+  transcript-history-cursors-cover-complete-established-order:
+    complete-transcript-order-before-page-boundaries:
+      action: change
+      reason: Select the text-slot window only after the same complete established
+        order; cursor identity and completeness remain unchanged.
+  historical-transcript-pages-match-output-scoped-rendering:
+    transcript-history-protocol:
+      action: remove
+      reason: Replace the raw twenty-unit response cap with the shared text-slot
+        budget.
+    transcript-history-page-builder:
+      action: remove
+      reason: Replace raw-unit slicing with text-slot selection and attached evidence.
+    transcript-history-rest:
+      action: remove
+      reason: Move authenticated response-budget regressions to the replacement
+        contract.
+  historical-transcript-pages-budget-text-slots:
+    transcript-history-text-slot-protocol:
+      action: change
+      reason: Define and validate at most twenty text slots while allowing complete
+        evidence to exceed twenty raw units.
+    transcript-history-text-slot-page-builder:
+      action: change
+      reason: Select the newest twenty charged slots plus zero-cost associated
+        evidence at a complete cursor boundary.
+    transcript-history-text-slot-regression:
+      action: change
+      reason: Cover hundreds of tools, alternating prose/evidence, evidence-only
+        fallback, cursor completeness, and REST projection.
+  transcript-history-prepends-one-deliberate-page:
+    deliberate-history-page-controller:
+      action: remove
+      reason: Replace the raw-unit page wording with text-slot pagination while
+        retaining one-request latching.
+    deliberate-history-top-reach:
+      action: remove
+      reason: Move the unchanged top-reach owner to the successor truth.
+    deliberate-history-top-reach-regression:
+      action: remove
+      reason: Move the unchanged browser regression to the text-slot successor.
+  transcript-history-prepends-one-text-slot-page:
+    deliberate-text-slot-page-controller:
+      action: change
+      reason: Keep one cursor request and stable unit anchoring with the new page
+        budget.
+    deliberate-text-slot-top-reach:
+      action: change
+      reason: Retain the existing transcript latch and offset restoration unchanged.
+    deliberate-text-slot-top-reach-regression:
+      action: change
+      reason: Prove a tool-heavy page still loads once and preserves the pre-existing
+        visible unit.
+  missed-terminal-history-refreshes-through-combined-head:
+    combined-history-head-refresh:
+      action: remove
+      reason: Replace unbounded gap bridging with at most two requests.
+    combined-history-gap-bridge:
+      action: remove
+      reason: Delete the cursor loop entirely.
+    combined-history-head-regression:
+      action: remove
+      reason: Move request/retry/isolation coverage to the bounded successor.
+    combined-history-resume:
+      action: remove
+      reason: Keep resume on the same controller under the bounded successor.
+  combined-head-reconciliation-is-two-page-bounded:
+    bounded-combined-history-head-refresh:
+      action: change
+      reason: Request one head and at most its predecessor, replacing no-overlap stale
+        finalized membership.
+    bounded-combined-history-head-regression:
+      action: change
+      reason: Prove overlap, no-overlap, deletion, empty, week-old cache,
+        deduplication, failure, and at-most-two request bounds.
+    bounded-combined-history-resume:
+      action: change
+      reason: Retain direct/hosted resume and background warming through the captured
+        bounded controller.
+  hosted-last-good-room-cache-is-bounded-read-only-projection:
+    hosted-last-good-room-store:
+      action: remove
+      reason: Replace one active-room snapshot with a validated per-room map.
+    hosted-last-good-room-lifecycle:
+      action: remove
+      reason: Persist and hydrate all materialized room windows under the successor.
+    hosted-last-good-room-regression:
+      action: remove
+      reason: Move isolation/purge coverage to the forty-slot per-room contract.
+  hosted-last-good-history-cache-is-per-room-and-bounded:
+    hosted-last-good-room-map-store:
+      action: change
+      reason: Validate one per-computer record containing isolated forty-slot room
+        projections and migrate the disposable v1 shape.
+    hosted-last-good-room-map-lifecycle:
+      action: change
+      reason: Hydrate the remembered room immediately, retain sibling room snapshots,
+        and persist background-warmed windows.
+    hosted-last-good-room-map-regression:
+      action: change
+      reason: Prove forty-slot trimming, tool evidence, per-room/computer isolation,
+        deletion correction, corruption, and purge.
+  combined-history-supports-bounded-legacy-host-fallback:
+    history-unsupported-status:
+      action: remove
+      reason: Retain explicit 404/405 classification under a pre-socket capability
+        contract.
+    history-legacy-fallback-materializer:
+      action: remove
+      reason: Permit fallback only when the compatibility capability selected legacy
+        hydration.
+    history-legacy-fallback-regression:
+      action: remove
+      reason: Replace endpoint-only discovery coverage with old/new capability
+        journeys.
+  combined-history-capability-gates-socket-fallback:
+    combined-history-compatibility-response:
+      action: change
+      reason: Add the optional authenticated capability without altering epoch
+        admission.
+    combined-history-compatibility-client:
+      action: change
+      reason: Capture capability per direct runtime or hosted computer before
+        connector creation.
+    capability-gated-socket-history:
+      action: change
+      reason: Send zero for capable runtimes and retain twenty only for missing/false
+        legacy capability.
+    capability-gated-legacy-fallback:
+      action: change
+      reason: Keep explicit 404/405 fallback usable only after legacy socket hydration
+        was selected.
+    capability-gated-history-regression:
+      action: change
+      reason: Prove new direct/hosted sockets hydrate zero and old/missing capability
+        sockets retain bounded legacy history.
+  hosted-background-rooms-hydrate-metadata-until-promoted:
+    zero-history-subscribe-protocol:
+      action: remove
+      reason: Move the additive zero value into the capability-gated socket history
+        contract.
+    zero-history-server-hydration:
+      action: remove
+      reason: Preserve exact zero-history server output while retiring unconditional
+        foreground promotion.
+    background-room-promotion:
+      action: remove
+      reason: Promotion to twenty applies only to old/missing capability runtimes.
+    background-room-promotion-regression:
+      action: remove
+      reason: Replace unconditional promotion expectations with capability-gated
+        coverage.
+  inactive-history-evidence-warms-captured-store:
+    captured-head-refresh-coalescing:
+      action: remove
+      reason: Move coalescing and persistence to the bounded per-room successor.
+    activation-skips-warmed-head:
+      action: remove
+      reason: Retain warmed activation behavior under the successor.
+    background-warming-unit-regression:
+      action: remove
+      reason: Replace with bounded request and cache persistence coverage.
+    background-warming-browser-regression:
+      action: remove
+      reason: Move hosted isolation journey to the successor.
+  inactive-history-warming-persists-bounded-room-cache:
+    bounded-captured-head-refresh-coalescing:
+      action: change
+      reason: Coalesce one two-page-bounded refresh and persist its exact room window.
+    bounded-warmed-activation:
+      action: change
+      reason: Skip redundant activation work after the room already warmed
+        successfully.
+    bounded-background-warming-regression:
+      action: change
+      reason: Prove trailing refresh, two-request ceiling, per-room persistence, and
+        same-name computer isolation.
+  actionable-interactions-remain-support-owned-outside-history:
+    interaction-history-unitizer:
+      action: remove
+      reason: Move zero-cost interaction filtering to the text-slot successor.
+    interaction-history-unitizer-regression:
+      action: remove
+      reason: Express the budget as twenty text slots.
+    interaction-history-rest-regression:
+      action: remove
+      reason: Keep authenticated exclusion coverage under the successor.
+  actionable-interactions-do-not-spend-history-text-slots:
+    interaction-text-slot-unitizer:
+      action: change
+      reason: Keep ask/approval rows out before slot selection.
+    interaction-text-slot-regression:
+      action: change
+      reason: Prove excluded interactions do not displace twenty genuine text slots.
+  combined-head-adopts-authoritative-overlap-order:
+    authoritative-head-overlap-merge:
+      action: remove
+      reason: Replace unbounded bridge/no-overlap preservation with bounded
+        authoritative replacement.
+    authoritative-head-overlap-unit-regression:
+      action: remove
+      reason: Move overlap ordering coverage to the bounded successor.
+    authoritative-order-lifecycle-browser-regression:
+      action: remove
+      reason: Preserve lifecycle chronology under the bounded successor.
+  bounded-combined-head-adopts-authoritative-window:
+    bounded-authoritative-head-merge:
+      action: change
+      reason: Adopt exact overlap suffix and replace no-overlap stale finalized
+        membership.
+    bounded-authoritative-head-regression:
+      action: change
+      reason: Cover overlap, no-overlap, deletion, live-row preservation, order, and
+        request ceilings.
+  cached-transcript-head-stays-stale-until-revalidated:
+    cached-history-revalidation-state:
+      action: remove
+      reason: Move stale state from one active-room snapshot to every cached room
+        window.
+    cached-history-revalidation-regression:
+      action: remove
+      reason: Replace with multi-room bounded revalidation coverage.
+  cached-room-history-stays-stale-until-bounded-revalidation:
+    cached-room-revalidation-state:
+      action: change
+      reason: Mark every hydrated room stale independently until its own authenticated
+        bounded refresh succeeds.
+    cached-room-revalidation-regression:
+      action: change
+      reason: Prove per-room failure/readability, overlap replacement, and
+        cross-computer isolation.
+  selected-room-activation-reconciles-destination-history:
+    selected-room-history-reconciliation:
+      action: remove
+      reason: Move activation to the bounded destination-owned successor.
+    selected-room-history-reconciliation-regression:
+      action: remove
+      reason: Update exact request-bound and no-overlap expectations.
+  selected-room-activation-uses-bounded-destination-reconciliation:
+    bounded-selected-room-history-reconciliation:
+      action: change
+      reason: Reuse one captured bounded head controller after exact room readiness.
+    bounded-selected-room-history-regression:
+      action: change
+      reason: Prove warm activation, retry, no-overlap replacement, and direct/hosted
+        isolation without reload.
+verification: >
+  Record red failures for raw-unit crowding, unbounded head bridging,
+  one-room/twenty-unit cache projection, and unconditional twenty-message socket
+  hydration. Run complete protocol, switchboard transcript/server, web
+  compatibility/connector/store/cache/history units, all protocol/switchboard/
+  web suites, production builds, and focused direct Room 21 plus hosted Rooms 34
+  and 36 compatibility/cache journeys. Instrument one stale-cache journey with
+  thousands of intervening messages and assert at most two combined-history
+  requests. Run Harn plan/check/apply/staged checks and git diff --check, commit
+  exactly once, and finish with a clean worktree. Do not push, deploy, publish,
+  monitor another agent, delegate, or begin Phase 2.
+applied:
+  applied_at: 2026-08-18T19:53:34.394Z

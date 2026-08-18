@@ -426,7 +426,7 @@ it('coalesces several signals describing one transition into ONE replacement', a
     connector.dispose();
   });
 
-  // harn:assume hosted-background-rooms-hydrate-metadata-until-promoted ref=background-room-promotion-regression
+  // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-history-regression
   it('hydrates only the current room history and promotes a background room once', () => {
     const connector = build('eng');
     const socket = latest();
@@ -468,7 +468,30 @@ it('coalesces several signals describing one transition into ONE replacement', a
     expect(frames().filter((frame) => frame.room === 'design')).toHaveLength(2);
     connector.dispose();
   });
-  // harn:end hosted-background-rooms-hydrate-metadata-until-promoted
+
+  it('hydrates zero finalized socket rows for every room on a capable runtime', () => {
+    const connector = createConnector({
+      room: 'eng',
+      token: 'token',
+      combinedTranscriptHistory: true,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [{ id: 'eng' }, { id: 'design' }] });
+    connector.switchRoom('design');
+    const subscriptions = socket.sent
+      .map((raw) => JSON.parse(raw) as { type?: string; room?: string; hydrate_limit?: number })
+      .filter((frame) => frame.type === 'subscribe');
+    expect(subscriptions).toEqual([
+      expect.objectContaining({ room: 'eng', hydrate_limit: 0 }),
+      expect.objectContaining({ room: 'design', hydrate_limit: 0 }),
+    ]);
+    expect(roomSlice(useClientStore.getState(), 'eng').transcriptHistory.legacySocketHydration).toBe(false);
+    expect(roomSlice(useClientStore.getState(), 'design').transcriptHistory.legacySocketHydration).toBe(false);
+    connector.dispose();
+  });
+  // harn:end combined-history-capability-gates-socket-fallback
 
   it('never resumes a manual park', () => {
     const connector = build();

@@ -1,0 +1,19 @@
+id: selected-room-activation-uses-bounded-destination-reconciliation
+hash: a-217cd5261755
+title: Selected rooms use bounded destination-owned history reconciliation
+state: active
+statement: >
+  When a room becomes selected, the browser waits for that exact room's current
+  connector evidence and starts one nonblocking source-store/ room-deduplicated
+  bounded head refresh with its captured credential. Missed terminal evidence
+  appears without reload, reconnect, socket replacement, cross-computer writes,
+  or duplicate subscription; failure preserves readable cached/live truth and
+  remains retryable, while a successful no-overlap response may replace only
+  stale finalized membership.
+depends_on:
+  - combined-head-reconciliation-is-two-page-bounded
+  - managed-computer-activation-revalidates-destination-history
+  - finalized-browser-history-is-combined-page-owned
+  - hosted-computer-sessions-keep-state-isolated
+  - worktree-conversation-status-is-live-and-independent
+created_by: history-text-slots-p1

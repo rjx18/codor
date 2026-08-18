@@ -2045,7 +2045,7 @@ describe('REST', () => {
     expect(await projectedSearch.json()).toMatchObject({ messages: [{ id: 2 }] });
   });
 
-  // harn:assume historical-transcript-pages-match-output-scoped-rendering ref=transcript-history-rest
+  // harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-regression
   describe('combined transcript history pages', () => {
     it('serves only projected finalized evidence in bounded intra-run pages', async () => {
       const owner = daemon.ownerOf('eng');
@@ -2100,7 +2100,8 @@ describe('REST', () => {
         cold: samples[0], warm_ms: samples.slice(1).map((sample) => sample.duration_ms),
       }));
       expect(samples[0]).toMatchObject({
-        selected_units: 20,
+        selected_units: 201,
+        selected_text_slots: 2,
         message_reads: 1,
         message_records_read: 3,
         journal_reads: 1,
@@ -2112,21 +2113,21 @@ describe('REST', () => {
       });
       expect(response.status).toBe(200);
       const page = await response.json() as TranscriptHistoryPage;
-      expect(page.units).toHaveLength(20);
-      expect(page.has_more).toBe(true);
-      expect(page.before_cursor).not.toBeNull();
+      expect(page.units).toHaveLength(201);
+      expect(page.has_more).toBe(false);
+      expect(page.before_cursor).toBeNull();
       expect(page.messages.map((message) => message.id)).not.toContain(mutable.id);
       const serialized = JSON.stringify(page);
       expect(serialized).not.toContain('AKIAIOSFODNN7EXAMPLE');
       expect(serialized).not.toContain('Bearer abcdefghijklmnopqrstuvwxyz');
       expect(serialized).not.toContain('"raw"');
-      expect(Buffer.byteLength(serialized)).toBeLessThan(20_000);
+      expect(Buffer.byteLength(serialized)).toBeLessThan(100_000);
       for (const unit of page.units) {
         if (unit.kind === 'tool') expect(unit.event_indices).toHaveLength(2);
       }
     });
 
-    // harn:assume actionable-interactions-remain-support-owned-outside-history ref=interaction-history-rest-regression
+    // harn:assume actionable-interactions-do-not-spend-history-text-slots ref=interaction-text-slot-regression
     it('omits ask and approval rows without reducing the twenty-unit REST page', async () => {
       const owner = daemon.ownerOf('eng');
       const visible: number[] = [];
@@ -2162,7 +2163,7 @@ describe('REST', () => {
       expect(page.messages.map((message) => message.id)).toEqual(visible);
       expect(page.messages.some((message) => interactions.includes(message.id))).toBe(false);
     });
-    // harn:end actionable-interactions-remain-support-owned-outside-history
+    // harn:end actionable-interactions-do-not-spend-history-text-slots
 
     // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-rest-regression
     it('returns every mixed-history unit once when an oldest id sorts into the newest page', async () => {
@@ -2288,7 +2289,7 @@ describe('REST', () => {
     });
     // harn:end merged-worktree-reliability-contracts-coexist
   });
-  // harn:end historical-transcript-pages-match-output-scoped-rendering
+  // harn:end historical-transcript-pages-budget-text-slots
 
   // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-server-regression
   it('adds bounded projected run hits without changing message-only search', async () => {
@@ -4447,6 +4448,7 @@ describe('browser protocol epoch', () => {
       browser_protocol: currentBrowserProtocol,
       minimum_browser_protocol: 0,
       compatible: true,
+      combined_transcript_history: true,
     });
     device.close();
   });

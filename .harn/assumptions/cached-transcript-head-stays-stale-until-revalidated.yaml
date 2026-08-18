@@ -1,7 +1,7 @@
 id: cached-transcript-head-stays-stale-until-revalidated
 hash: a-4315b6bd68d4
 title: A persisted transcript head stays stale until authenticated revalidation
-state: active
+state: retired
 statement: >
   A hosted last-good transcript projection may render read-only while
   disconnected but must remain marked as requiring head revalidation until the
@@ -16,3 +16,4 @@ depends_on:
   - hosted-computer-sessions-keep-state-isolated
   - hosted-app-streams-follow-tunnel-generations
 created_by: worktree-delivery-composer-p2-correctness
+retired_by: history-text-slots-p1

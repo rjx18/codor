@@ -1,7 +1,7 @@
 id: inactive-history-evidence-warms-captured-store
 hash: a-6dcbe4d77486
 title: Inactive room evidence warms its captured combined-history store
-state: active
+state: retired
 statement: A hosted computer session must notice newly arrived message records
   or terminal run evidence for rooms that are inactive on that computer or not
   the selected room, then refresh only the existing combined-history head using
@@ -19,3 +19,4 @@ depends_on:
   - finalized-browser-history-is-combined-page-owned
   - missed-terminal-history-refreshes-through-combined-head
 created_by: background-history-warming-floating-pill
+retired_by: history-text-slots-p1

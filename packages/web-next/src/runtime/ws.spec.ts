@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, expect, it, vi } from 'vitest';
 
+import { checkBrowserCompatibility } from '../app/compatibility.js';
 import { connect } from './ws.js';
 
 class FakeSocket {
@@ -25,8 +26,14 @@ afterEach(() => {
 });
 
 // harn:assume merged-schedule-and-context-actions-correlate-without-cross-talk ref=combined-direct-action-ref-regression
-it('keeps schedule-default and caller-owned reset refs distinct on the direct socket', () => {
+it('uses capable zero-history hydration and keeps direct action refs distinct', async () => {
   vi.stubGlobal('WebSocket', FakeSocket);
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+    browser_protocol: 3,
+    minimum_browser_protocol: 3,
+    combined_transcript_history: true,
+  }), { status: 200, headers: { 'content-type': 'application/json' } })));
+  await checkBrowserCompatibility('token');
   const socket = new FakeSocket();
   const connection = connect({
     room: 'eng',
@@ -34,6 +41,9 @@ it('keeps schedule-default and caller-owned reset refs distinct on the direct so
     socketFactory: () => socket as unknown as WebSocket,
   });
   socket.accept();
+  expect(JSON.parse(socket.sent[0]!)).toMatchObject({
+    type: 'subscribe', room: 'eng', hydrate_limit: 0,
+  });
 
   // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=post-dispatch-unit-regression
   expect(connection.post('accepted before close')).toBe(true);

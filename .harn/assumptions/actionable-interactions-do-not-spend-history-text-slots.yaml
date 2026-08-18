@@ -1,0 +1,17 @@
+id: actionable-interactions-do-not-spend-history-text-slots
+hash: a-f3984b2d8d9e
+title: Actionable interactions remain support-owned and spend no text slots
+state: active
+statement: >
+  Ask and approval rows contribute zero combined-history units and zero text
+  slots; recipient-scoped RoomSupport.interactions exclusively owns their
+  actionability, pending cards remain inline or detached according to current
+  support/cold state, resolved cards disappear immediately and after reload, and
+  durable answers and multi-question prompts retain their existing behavior.
+depends_on:
+  - historical-transcript-pages-budget-text-slots
+  - finalized-browser-history-is-combined-page-owned
+  - room-support-is-bounded-recipient-scoped-state
+  - approval-answer-is-atomic-and-chatless
+  - addressed-cold-hydration-is-strict-and-legacy-safe
+created_by: history-text-slots-p1
