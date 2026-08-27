@@ -177,6 +177,7 @@ export class TranscriptHistoryIndex {
     dirtyMessageIds: readonly number[];
   }): void {
     this.db.transaction(() => {
+      const previousFloor = this.roomState(opts.room).continuationFloor;
       const remove = this.db.prepare(
         `DELETE FROM transcript_history_index_units
          WHERE room = ? AND source_message_id = ?`,
@@ -185,6 +186,24 @@ export class TranscriptHistoryIndex {
         remove.run(opts.room, id);
       }
       this.insertEntries(opts.room, opts.continuationFloor, opts.entries);
+      if (
+        opts.continuationFloor !== undefined
+        && (previousFloor === undefined || opts.continuationFloor < previousFloor)
+      ) {
+        // A room may be indexed while its first modern family is still live.
+        // Rows written after that root but before terminal maintenance currently
+        // carry legacy timestamp tuples. Re-key that derived suffix in SQLite;
+        // no authoritative message or journal scan is needed.
+        this.db.prepare(
+          `UPDATE transcript_history_index_units
+           SET order_group = 1,
+               order_a = position_message_id,
+               order_b = journal_order,
+               order_c = source_message_id,
+               order_d = unit_ordinal
+           WHERE room = ? AND position_message_id >= ?`,
+        ).run(opts.room, opts.continuationFloor);
+      }
       this.db.prepare(
         `UPDATE transcript_history_index_rooms
          SET continuation_floor = ?, indexed_ts = ?

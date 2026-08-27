@@ -518,6 +518,68 @@ describe('derived transcript history index', () => {
     expect(store.transcriptHistoryIndex.dirtyMessageIds('eng')).toEqual([]);
     store.close();
   });
+
+  it('re-keys earlier indexed rows when the first permanent continuation floor finalizes', () => {
+    const { store, blobs, ownerId } = fixture();
+    const seed = store.postMessage('eng', { author: ownerId, kind: 'chat', body: 'seed' });
+    const indexedSource = source(store, blobs, true);
+    buildTranscriptHistoryPage({ room: 'eng', source: indexedSource });
+    expect(store.transcriptHistoryIndex.roomState('eng').continuationFloor).toBeUndefined();
+
+    const root = store.postMessage('eng', { author: ownerId, kind: 'run', body: '' });
+    const eventsRef = `runs/${String(root.id)}.jsonl`;
+    store.updateMessage('eng', root.id, {
+      run: {
+        status: 'running',
+        started_ts: '2026-08-28T00:00:00.000Z',
+        tool_calls: 0,
+        events_ref: eventsRef,
+        output_mode: 'messages',
+      },
+    });
+    const interjection = store.postMessage('eng', {
+      author: ownerId, kind: 'chat', body: 'between permanent outputs',
+    });
+    const continuation = store.createRunContinuation('eng', root.id);
+    const events: WireEvent[] = [
+      { type: 'run.item', item_type: 'text_block', output_message_id: root.id,
+        payload: { text: 'root prose' }, ts: '2026-08-28T00:00:00.100Z' },
+      { type: 'run.item', item_type: 'text_block', output_message_id: continuation.id,
+        payload: { text: 'continuation prose' }, ts: '2026-08-28T00:00:00.200Z' },
+      { type: 'run.completed', status: 'completed', output_message_id: continuation.id },
+    ];
+    for (const event of events) blobs.append('eng', eventsRef, event);
+    store.updateMessage('eng', continuation.id, { body: 'continuation prose' });
+    const terminal = store.updateMessage('eng', root.id, {
+      body: 'root prose',
+      run: {
+        ...store.getMessage('eng', root.id)!.run!,
+        status: 'completed',
+        ended_ts: '2026-08-28T00:00:01.000Z',
+        result_message_id: continuation.id,
+        final_text: 'root prose\n\ncontinuation prose',
+      },
+    });
+    maintainIndexedTranscriptHistoryMessage({ room: 'eng', message: terminal, source: indexedSource });
+
+    const legacy = buildTranscriptHistoryPage({ room: 'eng', source: source(store, blobs, false) });
+    const indexed = buildTranscriptHistoryPage({ room: 'eng', source: indexedSource });
+    expect(indexed.page).toEqual(legacy.page);
+    expect(indexed.page.units.map((unit) => unit.kind === 'message'
+      ? `message:${String(unit.message_id)}`
+      : `${unit.kind}:${String(unit.output_message_id)}`)).toEqual([
+      `message:${String(seed.id)}`,
+      `prose:${String(root.id)}`,
+      `message:${String(interjection.id)}`,
+      `prose:${String(continuation.id)}`,
+    ]);
+    expect(indexed.page.messages.some((message) => message.id === continuation.id)).toBe(true);
+    expect(indexed.metrics.index_backfilled).toBe(false);
+    expect(indexed.metrics.message_records_read).toBeLessThanOrEqual(5);
+    expect(store.transcriptHistoryIndex.roomState('eng').continuationFloor).toBe(root.id);
+    expect(store.transcriptHistoryIndex.dirtyMessageIds('eng')).toEqual([]);
+    store.close();
+  });
 });
 // harn:end indexed-transcript-pages-read-only-current-selected-evidence
 // harn:end transcript-history-index-is-write-maintained-and-rebuildable

@@ -1,0 +1,72 @@
+id: indexed-transcript-history-chronology-ci-review-fix
+title: Re-key indexed rows when permanent continuation chronology begins
+notes: >
+  Contained Phase 2 CI correction on exact accepted base
+  acd5f63de71327a3797b62152582c5610b153480. A room can be indexed before its
+  first output_mode=messages family finalizes. Ordinary/interjected rows written
+  before that moment carry legacy timestamp tuples, while a full authoritative
+  scan would place every id at or after the new continuation floor in strict
+  permanent-id order. When eager terminal maintenance introduces or lowers the
+  floor, re-key only the affected derived SQLite rows in the same replacement
+  transaction. Do not read authoritative room messages or journals for this
+  re-key, change the index schema, restore scans/journal fallback, widen the
+  twenty/forty-slot or two-request bounds, or change browser merge/rendering.
+  Prove exact indexed/full-scan parity across the floor transition and require
+  the existing Room 18 and Room 23 continuation journeys twice before handoff.
+assumptions:
+  reviewed:
+    - id: transcript-history-index-is-write-maintained-and-rebuildable
+      outcome: unchanged
+      reason: The correction updates only derived ordering tuple columns during the
+        existing eager terminal-family transaction; messages and JSONL remain
+        authoritative and dirty recovery remains unchanged.
+    - id: indexed-transcript-pages-read-only-current-selected-evidence
+      outcome: unchanged
+      reason: Warm readers retain the same fixed-cost selected-unit query; the
+        one-time floor transition is handled at write time without room reads.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: Indexed tuple order must match the existing modern permanent-id and
+        legacy timestamp order before any v1 boundary is selected.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Permanent output ids, journal targeting, result ownership, and
+        continuation allocation are unchanged.
+    - id: bounded-combined-head-adopts-authoritative-window
+      outcome: unchanged
+      reason: Browser head adoption remains unchanged and receives the corrected
+        authoritative indexed order within the existing two-page maximum.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized rows and continuation evidence remain supplied only by the
+        combined page; no socket or journal fallback is added.
+    - id: active-run-segments-follow-established-transcript-time
+      outcome: unchanged
+      reason: The live renderer keeps its current chronology; corrected indexed
+        settlement must converge to that established order.
+    - id: live-runs-settle-beside-paged-history-once
+      outcome: unchanged
+      reason: Page ownership, live retention, and exact-once settlement stay unchanged
+        once the server page has parity.
+files:
+  - .harn/plans/indexed-transcript-history-chronology-ci-review-fix.yaml
+  - packages/switchboard/src/transcript-history-index.ts
+  - packages/switchboard/src/transcript-history-index.spec.ts
+anchors:
+  transcript-history-index-is-write-maintained-and-rebuildable:
+    transcript-history-index-schema:
+      action: change
+      reason: Re-key affected existing derived rows atomically when replaceDirty
+        introduces or lowers the continuation floor.
+    transcript-history-index-regression:
+      action: change
+      reason: Reproduce an indexed room that receives an interjection before its first
+        modern family finalizes, then prove exact legacy-builder parity,
+        permanent continuation rows, fixed-cost warm reads, and clean dirtiness.
+  indexed-transcript-pages-read-only-current-selected-evidence:
+    indexed-transcript-page-regression:
+      action: change
+      reason: Prove the corrected floor transition changes no warm request bounds,
+        backfill state, selected evidence, or cursor behavior.
+applied:
+  applied_at: 2026-08-27T18:26:33.004Z
