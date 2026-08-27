@@ -1,7 +1,7 @@
 id: transcript-history-index-is-derived-and-rebuildable
 hash: a-a15b0f86b9c7
 title: Transcript history index metadata is derived, atomic, and rebuildable
-state: active
+state: retired
 statement: >
   SQLite may persist only versioned transcript ordering, unit identity, charge,
   message-reference, and JSONL byte-span metadata derived from authoritative
@@ -19,3 +19,4 @@ depends_on:
   - continuation-writer-follows-journaled-output-ownership
   - run-events-merge-by-journal-index
 created_by: indexed-transcript-history-pages
+retired_by: indexed-transcript-history-write-maintenance-review-fix

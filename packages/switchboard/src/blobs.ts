@@ -66,7 +66,7 @@ export class BlobStore {
       });
   }
 
-  // harn:assume indexed-transcript-pages-read-only-selected-evidence ref=indexed-journal-byte-spans
+  // harn:assume indexed-transcript-pages-read-only-current-selected-evidence ref=indexed-journal-byte-spans
   /** Full authoritative read plus byte spans used only to derive a rebuildable
    * lookup index. Invalid JSONL records retain the legacy behavior of being
    * skipped and therefore do not consume a journal event index. */
@@ -113,7 +113,7 @@ export class BlobStore {
       closeSync(descriptor);
     }
   }
-  // harn:end indexed-transcript-pages-read-only-selected-evidence
+  // harn:end indexed-transcript-pages-read-only-current-selected-evidence
 
   exists(room: string, ref: string): boolean {
     return existsSync(this.path(room, ref));

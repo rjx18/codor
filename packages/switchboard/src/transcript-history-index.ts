@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import type { TranscriptHistoryUnit } from '@codor/protocol';
+import type { Message, TranscriptHistoryUnit } from '@codor/protocol';
 
 export const TRANSCRIPT_HISTORY_INDEX_VERSION = 1;
 
@@ -118,7 +118,7 @@ const parseRow = (row: IndexUnitRow): IndexedTranscriptEntry => ({
   eventSpans: JSON.parse(row.event_spans_json) as JournalEventSpan[],
 });
 
-// harn:assume transcript-history-index-is-derived-and-rebuildable ref=transcript-history-index-schema
+// harn:assume transcript-history-index-is-write-maintained-and-rebuildable ref=transcript-history-index-schema
 export class TranscriptHistoryIndex {
   constructor(private readonly db: Database.Database) {
     db.exec(INDEX_SCHEMA);
@@ -202,6 +202,52 @@ export class TranscriptHistoryIndex {
     })();
   }
 
+  /** Maintain an ordinary/tombstoned message synchronously inside the Store's
+   * authoritative transaction. Journal-owned rows stay dirty until the daemon
+   * reaches the post-finalization boundary (or request recovery). */
+  maintainOrdinaryMessage(message: Message): boolean {
+    const state = this.roomState(message.room);
+    if (!state.complete) return false;
+    if (
+      message.run_parent_id !== undefined
+      || (message.kind === 'run' && message.run !== undefined)
+    ) return false;
+    this.db.prepare(
+      `DELETE FROM transcript_history_index_units
+       WHERE room = ? AND source_message_id = ?`,
+    ).run(message.room, message.id);
+    if (message.kind !== 'ask' && message.kind !== 'approval') {
+      this.insertEntries(message.room, state.continuationFloor, [{
+        sourceMessageId: message.id,
+        unitOrdinal: 0,
+        positionMessageId: message.id,
+        journalOrder: 0,
+        timestamp: Date.parse(message.ts),
+        unit: { kind: 'message', message_id: message.id },
+        charged: true,
+        maxMessageId: message.id,
+        eventSpans: [],
+      }]);
+    }
+    this.db.prepare(
+      'DELETE FROM transcript_history_index_dirty WHERE room = ? AND message_id = ?',
+    ).run(message.room, message.id);
+    return true;
+  }
+
+  /** Running families are live-owned. Remove any previous finalized projection
+   * and clear this mutation inside the same Store transaction. */
+  maintainMutableFamily(room: string, rootMessageId: number, messageId: number): void {
+    if (!this.roomState(room).complete) return;
+    this.db.prepare(
+      `DELETE FROM transcript_history_index_units
+       WHERE room = ? AND source_message_id = ?`,
+    ).run(room, rootMessageId);
+    this.db.prepare(
+      'DELETE FROM transcript_history_index_dirty WHERE room = ? AND message_id = ?',
+    ).run(room, messageId);
+  }
+
   private insertEntries(
     room: string,
     continuationFloor: number | undefined,
@@ -234,7 +280,7 @@ export class TranscriptHistoryIndex {
   }
   // harn:end transcript-history-index-schema
 
-  // harn:assume indexed-transcript-pages-read-only-selected-evidence ref=indexed-transcript-page-query
+  // harn:assume indexed-transcript-pages-read-only-current-selected-evidence ref=indexed-transcript-page-query
   selectPage(opts: {
     room: string;
     ceilingMessageId: number;
@@ -319,5 +365,5 @@ export class TranscriptHistoryIndex {
       rowsRead: charged.length + rows.length,
     };
   }
-  // harn:end indexed-transcript-pages-read-only-selected-evidence
+  // harn:end indexed-transcript-pages-read-only-current-selected-evidence
 }

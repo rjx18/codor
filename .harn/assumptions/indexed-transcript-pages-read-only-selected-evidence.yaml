@@ -1,7 +1,7 @@
 id: indexed-transcript-pages-read-only-selected-evidence
 hash: a-421c927a3ed8
 title: Warm transcript pages read only selected metadata and evidence
-state: active
+state: retired
 statement: >
   Once a room has a complete current transcript index, authenticated head and v1
   cursor requests establish their twenty charged text-slot window directly from
@@ -17,3 +17,4 @@ depends_on:
   - transcript-history-cursors-cover-complete-established-order
   - redaction-before-fanout
 created_by: indexed-transcript-history-pages
+retired_by: indexed-transcript-history-write-maintenance-review-fix

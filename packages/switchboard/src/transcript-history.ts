@@ -460,7 +460,51 @@ function reconcileIndexedRoom(opts: {
   return { messageRecordsRead, journalReads, journalEventsScanned };
 }
 
-// harn:assume indexed-transcript-pages-read-only-selected-evidence ref=indexed-transcript-page-query
+// harn:assume transcript-history-index-is-write-maintained-and-rebuildable ref=transcript-history-index-lifecycle
+/** Journal-aware eager maintenance after a terminal family and all permanent
+ * output metadata have committed. Any exception leaves the trigger-created
+ * dirty rows intact for the bounded request-time crash recovery path. */
+export function maintainIndexedTranscriptHistoryMessage(opts: {
+  room: string;
+  message: Message;
+  source: TranscriptHistorySource;
+}): void {
+  const index = opts.source.transcriptHistoryIndex;
+  if (index?.roomState(opts.room).complete !== true) return;
+  const root = opts.message.run_parent_id === undefined
+    ? (opts.message.run === undefined ? undefined : opts.message)
+    : opts.source.getMessage(opts.room, opts.message.run_parent_id);
+  if (root === undefined || !terminalStatus(root)) return;
+  const familyDirty = index.dirtyMessageIds(opts.room).filter((id) => {
+    if (id === root.id) return true;
+    return opts.source.getMessage(opts.room, id)?.run_parent_id === root.id;
+  });
+  if (familyDirty.length === 0) return;
+  if (opts.source.readRunJournalWithSpans === undefined) {
+    throw new Error('indexed transcript history source cannot derive journal spans');
+  }
+  const journal = opts.source.readRunJournalWithSpans(opts.room, root.id);
+  const family = unitizeRun(
+    root,
+    journal.events,
+    (id) => opts.source.getMessage(opts.room, id),
+  );
+  const state = index.roomState(opts.room);
+  const floor = root.run?.output_mode === 'messages'
+    ? Math.min(state.continuationFloor ?? root.id, root.id)
+    : state.continuationFloor;
+  index.replaceDirty({
+    room: opts.room,
+    continuationFloor: floor,
+    ordinaryMessageIds: [],
+    rootMessageIds: [root.id],
+    entries: indexedEntries(family, new Map([[root.id, journal.spans]])),
+    dirtyMessageIds: familyDirty,
+  });
+}
+// harn:end transcript-history-index-is-write-maintained-and-rebuildable
+
+// harn:assume indexed-transcript-pages-read-only-current-selected-evidence ref=indexed-transcript-page-query
 function buildIndexedTranscriptHistoryPage(opts: {
   room: string;
   cursor?: CursorPayload;
@@ -554,7 +598,7 @@ function buildIndexedTranscriptHistoryPage(opts: {
     },
   };
 }
-// harn:end indexed-transcript-pages-read-only-selected-evidence
+// harn:end indexed-transcript-pages-read-only-current-selected-evidence
 
 // harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-page-builder
 export function buildTranscriptHistoryPage(opts: {
