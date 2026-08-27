@@ -78,6 +78,8 @@ export interface ConnectorOptions {
   tunnel?: {
     readonly state: TunnelState;
     readonly generation: number;
+    /** True while a request on this tunnel generation has not settled. */
+    readonly hasUnsettledHttp: boolean;
     whenReady(): Promise<number>;
     recover(): void;
     subscribe(listener: TunnelStateListener): () => void;
@@ -294,7 +296,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
    * protocol — it reuses a request whose `rooms` reply is proof the wire is
    * genuinely alive rather than merely OPEN.
    */
-  // harn:assume foreground-watchdog-probes-are-refresh-neutral ref=watchdog-probe-state
+  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=watchdog-probe-state
   const probeNow = (mine: number, fromForeground = false): void => {
     if (mine !== generation || state !== 'connected') return;
     if (document.visibilityState !== 'visible') return;
@@ -313,13 +315,19 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       return;
     }
     awaitingProbe = true;
-    foregroundProbePending = fromForeground;
+    // A foreground wake may arrive while the watchdog probe is already
+    // outstanding. Preserve that intent across a busy timeout so the next
+    // ordinary reply performs exactly one resume.
+    foregroundProbePending = foregroundProbePending || fromForeground;
     send({ type: 'list_rooms' });
     probeDeadline = setTimeout(() => {
       if (mine !== generation || !awaitingProbe) return;
       // Unanswered: the socket lies about being open. Go through the SAME
       // resume path, so a manual or upgrade park is still respected.
       awaitingProbe = false;
+      probeDeadline = undefined;
+      if (options.tunnel?.hasUnsettledHttp) return;
+      foregroundProbePending = false;
       resume();
     }, PROBE_TIMEOUT_MS);
   };
@@ -331,7 +339,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const interval = (window as unknown as { __codorProbeMs?: number }).__codorProbeMs ?? PROBE_INTERVAL_MS;
     probeTimer = setInterval(() => probeNow(mine), interval);
   };
-  // harn:end foreground-watchdog-probes-are-refresh-neutral
+  // harn:end hosted-foreground-watchdog-defers-while-http-active
 
   const waitForTunnel = (accelerate = false): void => {
     const tunnel = options.tunnel;
@@ -438,7 +446,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
       }
-      // harn:assume foreground-watchdog-probes-are-refresh-neutral ref=watchdog-probe-reply
+      // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
         const foregroundProbe = foregroundProbePending;
         awaitingProbe = false;
@@ -455,7 +463,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         reconcile(frame.room_seqs, priorSubscribed);
         if (foregroundProbe) options.onResume?.(currentRoom);
       }
-      // harn:end foreground-watchdog-probes-are-refresh-neutral
+      // harn:end hosted-foreground-watchdog-defers-while-http-active
     };
   // harn:end relay-app-socket-readiness-requires-server-evidence
     socket.onclose = (event) => {

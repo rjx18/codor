@@ -1,0 +1,88 @@
+id: hosted-provisional-terminal-retention-review-fix
+title: Retain terminal provisional runs until finalized history owns them
+notes: Correct the Phase 1 cache lifecycle at the exact
+  8b8545937a41cdd180037529160422cba8e5a835 review boundary. A run may become
+  completed, failed, or interrupted before a slow combined-history response owns
+  its family. Keep that terminal root and its existing bounded indexed event
+  buffer in the same optional per-room snapshot projection during this grace
+  window, then let the existing history ownership predicate retire it. Preserve
+  the accepted watchdog behavior, bounds, redaction, isolation, indexed merging,
+  and revalidation semantics.
+assumptions:
+  create:
+    - id: hosted-last-good-history-cache-retains-terminal-provisional-runs
+      title: Hosted last-good snapshots retain terminal provisional run families
+      statement: Each hosted computer may retain a bounded provisional run-family
+        projection through running, completed, failed, or interrupted root
+        states when finalized combined history has not yet claimed that family.
+        The projection uses the existing root and journal-indexed
+        RunEventBuffer, remains isolated to the owning computer and room,
+        excludes drafts, credentials, keys, attachments, voice, inbox,
+        interactions, and full journals, and is retired exactly when
+        authoritative combined history owns the family.
+      reason: Completion can reach the browser before a slow combined-history request
+        returns. Retaining the terminal projection prevents the notification or
+        reload gap without adding another cache or extending the existing event
+        bound.
+      depends_on:
+        - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+        - cached-room-history-revalidates-boundedly-with-provisional-runs
+        - run-events-merge-by-journal-index
+  reviewed:
+    - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+      outcome: unchanged
+      reason: The existing bounded snapshot, redaction, coalescing, and isolation
+        contract remains the source of truth; this fix extends its provisional
+        lifecycle through terminal states.
+    - id: cached-room-history-revalidates-boundedly-with-provisional-runs
+      outcome: unchanged
+      reason: Cached pages still revalidate through the same bounded authenticated
+        path and retire only families owned by combined history.
+    - id: hosted-foreground-watchdog-defers-while-http-active
+      outcome: unchanged
+      reason: The accepted busy-HTTP watchdog behavior is not modified.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Terminal projections remain keyed to the captured computer store.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized membership, order, and evidence remain owned by combined
+        history pages.
+anchors:
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-schema:
+      action: change
+      reason: Permit the four supported terminal run statuses in validated provisional
+        projections.
+    provisional-cache-snapshot:
+      action: change
+      reason: Keep terminal roots in the provisional snapshot until history owns their
+        family.
+    provisional-cache-regression:
+      action: change
+      reason: Add the terminal-before-history reload and retirement regression.
+  hosted-last-good-history-cache-retains-terminal-provisional-runs:
+    terminal-provisional-schema:
+      action: change
+      reason: Anchor the terminal-status validation boundary.
+    terminal-provisional-snapshot:
+      action: change
+      reason: Anchor terminal root projection and its existing indexed buffer.
+    terminal-provisional-regression:
+      action: change
+      reason: Prove terminal projection survives cached reload and retires once
+        authoritative history owns it without duplication.
+files:
+  - .harn/plans/hosted-provisional-terminal-retention-review-fix.yaml
+  - packages/web-next/src/runtime/last-good-room.ts
+  - packages/web-next/src/runtime/last-good-room.spec.ts
+verification: Verify the exact clean base before editing and clean-lock this
+  review-fix plan with dirty_at_lock false. Run focused last-good-room/store
+  cache tests, Room 36 and Room 43 browser coverage, all web-next units, and the
+  production/PWA build. Run harn check, harn apply, harn check --staged, and git
+  diff --check; stage only the implementation, focused regression, generated
+  assumptions, and this plan, then create exactly one review-fix commit with a
+  clean worktree. Do not change the accepted watchdog behavior, history
+  pagination, server/relay code, or unrelated cache state.
+applied:
+  applied_at: 2026-08-27T16:50:05.996Z

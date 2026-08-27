@@ -38,6 +38,7 @@ import {
   loadLastGoodRoom,
   saveLastGoodRoom,
   snapshotLastGoodRoom,
+  type LastGoodRoomSnapshot,
 } from '../runtime/last-good-room.js';
 
 export interface ComputerActivitySummary {
@@ -73,6 +74,8 @@ export interface ActiveComputerSession {
 interface SessionTunnel {
   readonly state: TunnelState;
   readonly generation: number;
+  /** True while any request is still owned by this tunnel generation. */
+  readonly hasUnsettledHttp: boolean;
   connect(): void;
   recover(): void;
   whenReady(): Promise<number>;
@@ -102,10 +105,14 @@ interface SessionEntry {
   resolveCachedReady: () => void;
   cacheRevision?: string;
   cacheWrite: Promise<void>;
+  cacheSaveTimer?: ReturnType<typeof setTimeout>;
+  pendingCache?: { snapshot: LastGoodRoomSnapshot; revision: string };
   historyWarming: Map<string, HistoryWarmState>;
   stopStore: () => void;
   stopTunnel: () => void;
 }
+
+const CACHE_WRITE_DELAY_MS = 250;
 
 interface HistoryWarmState {
   inFlight?: Promise<boolean>;
@@ -500,7 +507,7 @@ export class ComputerSessionManager {
   }
   // harn:end inactive-history-warming-persists-bounded-room-cache
 
-  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-lifecycle
+  // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-lifecycle
   private async hydrateEntrySnapshot(entry: SessionEntry): Promise<void> {
     try {
       const snapshot = await loadLastGoodRoom(entry.material.computer.id);
@@ -516,6 +523,7 @@ export class ComputerSessionManager {
     }
   }
 
+  // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-write-coalescing
   private persistEntrySnapshot(entry: SessionEntry): void {
     if (entry.disposed || entry.token === '' || entry.publicRoot === undefined) return;
     const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, entry.publicRoot);
@@ -527,12 +535,20 @@ export class ComputerSessionManager {
     });
     if (revision === entry.cacheRevision) return;
     entry.cacheRevision = revision;
-    entry.cacheWrite = entry.cacheWrite
-      .catch(() => undefined)
-      .then(async () => await saveLastGoodRoom(snapshot))
-      .catch(() => {
-        if (entry.cacheRevision === revision) entry.cacheRevision = undefined;
-      });
+    entry.pendingCache = { snapshot, revision };
+    if (entry.cacheSaveTimer !== undefined) return;
+    entry.cacheSaveTimer = setTimeout(() => {
+      entry.cacheSaveTimer = undefined;
+      const pending = entry.pendingCache;
+      entry.pendingCache = undefined;
+      if (entry.disposed || pending === undefined) return;
+      entry.cacheWrite = entry.cacheWrite
+        .catch(() => undefined)
+        .then(async () => await saveLastGoodRoom(pending.snapshot))
+        .catch(() => {
+          if (entry.cacheRevision === pending.revision) entry.cacheRevision = undefined;
+        });
+    }, CACHE_WRITE_DELAY_MS);
   }
 
   private makeCachedConnector(entry: SessionEntry): RoomConnector {
@@ -557,7 +573,7 @@ export class ComputerSessionManager {
       dispose: () => undefined,
     };
   }
-  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
+  // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
 
   private async completeEntry(entry: SessionEntry): Promise<void> {
     let retryMs = 500;
@@ -727,6 +743,9 @@ export class ComputerSessionManager {
     const entry = this.entries.get(id);
     if (!entry) return;
     entry.disposed = true;
+    if (entry.cacheSaveTimer !== undefined) clearTimeout(entry.cacheSaveTimer);
+    entry.cacheSaveTimer = undefined;
+    entry.pendingCache = undefined;
     entry.stopStore();
     entry.stopTunnel();
     entry.connector?.dispose();

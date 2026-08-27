@@ -1,0 +1,166 @@
+id: indexed-transcript-history-write-maintenance-review-fix
+title: Maintain indexed transcript truth at authoritative write boundaries
+notes: >
+  Contained Phase 2 correction on exact accepted implementation base
+  db469d61bdc8daf46488aa7c0d7fdced4fc7ebbc. Preserve the derived metadata
+  schema, atomic lazy backfill, indexed selection, JSONL byte spans, endpoint,
+  v1 cursors, twenty-slot/evidence semantics, ordering, redaction, browser
+  behavior, and Phase 1 contracts. Ordinary messages and tombstones update their
+  derived unit inside the existing Store transaction. Terminal run families
+  replace their derived units immediately after authoritative journal and final
+  message metadata commit, before their ordinary live emission. Transactional
+  dirty rows remain only as recovery evidence when the process stops or indexing
+  fails between authority commit and derived replacement; history requests
+  repair that exceptional residue, never normal accumulated activity. Add
+  complete indexed-path parity and 1,200-write fixed-cost proof.
+assumptions:
+  retire:
+    - id: transcript-history-index-is-derived-and-rebuildable
+      reason: Its wording made request-time reconciliation of accumulated normal
+        message mutations part of the ordinary lifecycle.
+    - id: indexed-transcript-pages-read-only-selected-evidence
+      reason: Warm bounded reads require the index to be current before the request,
+        with request-time dirty repair reserved for interruption recovery.
+  create:
+    - id: transcript-history-index-is-write-maintained-and-rebuildable
+      title: Transcript history index metadata follows authoritative writes eagerly
+      statement: >
+        SQLite persists only versioned transcript ordering, unit identity,
+        charge, message-reference, and JSONL byte-span metadata derived from
+        authoritative message rows and run journals. An unindexed room performs
+        one atomic lazy backfill; thereafter ordinary messages and tombstones
+        replace their derived unit inside the same Store transaction, and a
+        terminal run family replaces its units immediately after its journal and
+        final root/output metadata commit. Transactional dirty identities remain
+        only as crash/interruption recovery and are cleared by successful eager
+        maintenance. Failed backfill or derived maintenance leaves authoritative
+        data unchanged and retryable, and the complete index may be discarded
+        and rebuilt without changing transcript truth.
+      reason: Normal unattended activity must not move unbounded index maintenance
+        onto the next history reader.
+      depends_on:
+        - run-journals-own-evidence-across-output-messages
+        - transcript-history-cursors-cover-complete-established-order
+        - historical-transcript-pages-budget-text-slots
+        - continuation-writer-follows-journaled-output-ownership
+        - run-events-merge-by-journal-index
+    - id: indexed-transcript-pages-read-only-current-selected-evidence
+      title: Warm transcript pages read only current selected metadata and evidence
+      statement: >
+        Once a room has a complete index, ordinary successful write paths keep
+        it current before returning or emitting, so authenticated head and v1
+        cursor requests read only the twenty charged-slot boundary, adjacent
+        zero-cost evidence, referenced message records, and indexed JSONL byte
+        spans. Request-time dirty repair is only crash/interruption recovery,
+        never the normal batch path. Work and metrics therefore grow with
+        selected units and evidence rather than total room history or unattended
+        writes, while cursor completeness, ordering, redaction, schemas, and
+        has_more remain compatible.
+      reason: A warm reader must remain fixed-cost after arbitrarily many successful
+        normal writes.
+      depends_on:
+        - transcript-history-index-is-write-maintained-and-rebuildable
+        - historical-transcript-pages-budget-text-slots
+        - transcript-history-cursors-cover-complete-established-order
+        - redaction-before-fanout
+  reviewed:
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: Eager maintenance uses the same unitizer, twenty charged slots, and
+        complete associated evidence.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: Index tuples and v1 room/ceiling/boundary cursors are unchanged.
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: JSONL remains the only event authority; eager terminal maintenance
+        stores byte-span metadata but no event payload.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Root and permanent output rows retain one journal and existing final
+        metadata commit ordering.
+    - id: substantive-output-messages-drive-unread
+      outcome: unchanged
+      reason: Index replacement is added within message transactions without changing
+        seq, activity_seq, or unread classification.
+    - id: message-id-txn-allocation
+      outcome: unchanged
+      reason: New ordinary units reuse the already allocated permanent id inside the
+        same transaction without changing allocation or rollback.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Derived raw lookup metadata still reaches clients only through existing
+        daemon projection/redaction.
+    - id: explicit-prose-boundaries-survive-transcript-lifecycle
+      outcome: unchanged
+      reason: Completed/failed/interrupted eager families use the exact established
+        prose and tool unitizer.
+    - id: actionable-interactions-do-not-spend-history-text-slots
+      outcome: unchanged
+      reason: Ask and approval rows remain excluded from eager ordinary maintenance.
+files:
+  - .harn/plans/indexed-transcript-history-write-maintenance-review-fix.yaml
+  - packages/switchboard/src/blobs.ts
+  - packages/switchboard/src/transcript-history-index.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/transcript-history-index.spec.ts
+anchors:
+  transcript-history-index-is-derived-and-rebuildable:
+    transcript-history-index-schema:
+      action: remove
+      reason: Move unchanged schema/backfill operations under the eager-maintenance
+        successor truth.
+    transcript-history-index-lifecycle:
+      action: remove
+      reason: Replace request-normal lifecycle wording with write-maintained truth.
+    transcript-history-index-regression:
+      action: remove
+      reason: Replace the initial migration tests with complete eager/parity coverage.
+  indexed-transcript-pages-read-only-selected-evidence:
+    indexed-journal-byte-spans:
+      action: remove
+      reason: Move unchanged byte-span lookup under the current-index successor.
+    indexed-transcript-page-query:
+      action: remove
+      reason: Move the accepted selection/query implementation under the successor.
+    indexed-transcript-page-regression:
+      action: remove
+      reason: Replace bounded-read coverage with the unattended-write regression.
+  transcript-history-index-is-write-maintained-and-rebuildable:
+    transcript-history-index-schema:
+      action: change
+      reason: Retain schema/dirty triggers and add atomic ordinary/family replacement
+        entry points.
+    transcript-history-index-lifecycle:
+      action: change
+      reason: Maintain ordinary rows in Store transactions and terminal families at
+        the daemon post-finalization boundary; retain dirty recovery.
+    transcript-history-index-regression:
+      action: change
+      reason: Prove 1,200 eager writes, crash residue recovery, reopen, and complete
+        completed/failed/interrupted/continuation/deletion parity.
+  indexed-transcript-pages-read-only-current-selected-evidence:
+    indexed-journal-byte-spans:
+      action: change
+      reason: Preserve selected immutable byte-range reads unchanged.
+    indexed-transcript-page-query:
+      action: change
+      reason: Keep accepted indexed selection while exceptional dirty repair remains.
+    indexed-transcript-page-regression:
+      action: change
+      reason: Prove the first warm request after 1,200 normal mutations reads only its
+        selected window and has exact legacy parity.
+  message-id-txn-allocation:
+    message-id-allocation:
+      action: change
+      reason: Insert an ordinary derived unit only after authoritative message insert,
+        within the same existing id allocation transaction.
+  substantive-output-messages-drive-unread:
+    message-activity-storage:
+      action: change
+      reason: Invoke derived ordinary maintenance after the existing authoritative
+        row/activity writes without changing unread semantics.
+applied:
+  applied_at: 2026-08-27T17:37:00.126Z

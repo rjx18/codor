@@ -71,6 +71,7 @@ import {
 
 import { estimateCostUsd, priceForModel } from './pricing.js';
 import { redactText } from './redact.js';
+import { TranscriptHistoryIndex } from './transcript-history-index.js';
 import {
   type CollaborationGroup,
   CollaborationGroupSchema,
@@ -2044,6 +2045,7 @@ export class AgentPresetReferenceConflictError extends Error {
  */
 export class Store {
   private readonly db: Database.Database;
+  readonly transcriptHistoryIndex: TranscriptHistoryIndex;
 
   constructor(path: string, options: { codexHome?: string; roomDataRoots?: readonly string[] } = {}) {
     this.db = new Database(path);
@@ -2086,6 +2088,11 @@ export class Store {
         this.db,
         options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'),
       );
+      // harn:assume transcript-history-index-is-write-maintained-and-rebuildable ref=transcript-history-index-lifecycle
+      // Install after every legacy message-table rebuild so the mutation
+      // triggers always bind to the final authoritative table.
+      this.transcriptHistoryIndex = new TranscriptHistoryIndex(this.db);
+      // harn:end transcript-history-index-is-write-maintained-and-rebuildable
       this.reconcileWorktreeChildMetadata();
     } catch (error) {
       this.db.close();
@@ -3653,6 +3660,25 @@ export class Store {
 
   // ── messages ──────────────────────────────────────────────────────────
 
+  // harn:assume transcript-history-index-is-write-maintained-and-rebuildable ref=transcript-history-index-lifecycle
+  /** Called after the authoritative row write, while its Store transaction is
+   * still open. Ordinary/tombstoned units become current atomically. Running
+   * families remain live-owned; terminal families deliberately stay dirty for
+   * the daemon's journal-aware post-finalization boundary. */
+  private maintainTranscriptIndexAtWrite(message: Message): void {
+    if (this.transcriptHistoryIndex.maintainOrdinaryMessage(message)) return;
+    const root = this.getRunRoot(message.room, message);
+    if (
+      root?.run !== undefined
+      && root.run.status !== 'completed'
+      && root.run.status !== 'failed'
+      && root.run.status !== 'interrupted'
+    ) {
+      this.transcriptHistoryIndex.maintainMutableFamily(message.room, root.id, message.id);
+    }
+  }
+  // harn:end transcript-history-index-is-write-maintained-and-rebuildable
+
   // harn:assume message-id-txn-allocation ref=message-id-allocation
   /**
    * Message ids are per-room dense monotonic ints allocated as MAX(id)+1
@@ -3728,6 +3754,7 @@ export class Store {
           validated.seq,
           activitySeq,
         );
+      this.maintainTranscriptIndexAtWrite(validated);
       // harn:end substantive-output-messages-drive-unread
       return validated;
     })();
@@ -4230,6 +4257,7 @@ export class Store {
           room,
           id,
         );
+      this.maintainTranscriptIndexAtWrite(merged);
       // harn:end substantive-output-messages-drive-unread
       return merged;
     })();
@@ -4249,6 +4277,7 @@ export class Store {
       this.db
         .prepare('UPDATE messages SET pinned = ?, seq = ? WHERE room = ? AND id = ?')
         .run(fromBool(pinned), seq, room, id);
+      this.maintainTranscriptIndexAtWrite(merged);
       return merged;
     })();
   }
@@ -4284,6 +4313,7 @@ export class Store {
            WHERE room = ? AND id = ?`,
         )
         .run(seq, room, id);
+      this.maintainTranscriptIndexAtWrite(merged);
       return merged;
     })();
   }

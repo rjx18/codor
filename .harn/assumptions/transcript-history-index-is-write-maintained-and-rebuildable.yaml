@@ -1,0 +1,22 @@
+id: transcript-history-index-is-write-maintained-and-rebuildable
+hash: a-4a9ff68e718e
+title: Transcript history index metadata follows authoritative writes eagerly
+state: active
+statement: >
+  SQLite persists only versioned transcript ordering, unit identity, charge,
+  message-reference, and JSONL byte-span metadata derived from authoritative
+  message rows and run journals. An unindexed room performs one atomic lazy
+  backfill; thereafter ordinary messages and tombstones replace their derived
+  unit inside the same Store transaction, and a terminal run family replaces its
+  units immediately after its journal and final root/output metadata commit.
+  Transactional dirty identities remain only as crash/interruption recovery and
+  are cleared by successful eager maintenance. Failed backfill or derived
+  maintenance leaves authoritative data unchanged and retryable, and the
+  complete index may be discarded and rebuilt without changing transcript truth.
+depends_on:
+  - run-journals-own-evidence-across-output-messages
+  - transcript-history-cursors-cover-complete-established-order
+  - historical-transcript-pages-budget-text-slots
+  - continuation-writer-follows-journaled-output-ownership
+  - run-events-merge-by-journal-index
+created_by: indexed-transcript-history-write-maintenance-review-fix

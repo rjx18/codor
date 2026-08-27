@@ -1,0 +1,17 @@
+id: cached-room-history-revalidates-boundedly-with-provisional-runs
+hash: a-0d3f33bf03a8
+title: Restored history revalidates while provisional runs remain readable
+state: active
+statement: A restored hosted room may render its last-good finalized page and
+  any bounded provisional active projection while disconnected, but the owning
+  computer must still mark the cached page for bounded authenticated head
+  revalidation. Revalidation is isolated to the exact store, room, token, and
+  tunnel; failures remain retryable and readable, success adopts the bounded
+  combined window and retires only the provisional families that finalized
+  history owns, without importing another computer's state.
+depends_on:
+  - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+  - combined-head-reconciliation-is-two-page-bounded
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-app-streams-follow-tunnel-generations
+created_by: hosted-provisional-runs-and-busy-watchdog

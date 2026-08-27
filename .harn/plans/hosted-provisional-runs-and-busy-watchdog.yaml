@@ -1,0 +1,263 @@
+id: hosted-provisional-runs-and-busy-watchdog
+title: Persist provisional hosted runs and defer watchdog replacement during busy HTTP
+notes: >-
+  Implement Phase 1 of the hosted provisional-run recovery plan on the exact
+  origin/main base 14f92e0c8467689a1348ba18e3b73fb54997ccfa. Extend the existing
+  per-computer last-good IndexedDB snapshot with only an optional, bounded
+  projection of unfinalized active run roots and their existing journal-indexed
+  RunEventBuffer. Restore that projection into the owning isolated store so
+  active output is readable immediately, merge live evidence by journal index,
+  and retire it when the authoritative combined history owns the run family.
+  Coalesce snapshot writes rather than writing one IndexedDB record per stream
+  delta; keep drafts, credentials, files, voice, inbox, interactions, and full
+  journals out of the cache.
+
+  Expose only a read-only unsettled-HTTP indication from the existing tunnel. A
+  hosted app watchdog probe that expires while an authenticated history or other
+  tunnel HTTP request is still in flight must not replace the tunnel; the next
+  ordinary probe verifies health after the request settles. Periodic probes
+  remain refresh-neutral, a real foreground transition coalesces onto an
+  in-flight probe and resumes once, and direct mode retains its existing
+  foreground behavior.
+assumptions:
+  retire:
+    - id: hosted-last-good-history-cache-is-per-room-and-bounded
+      reason: The prior statement explicitly excluded mutable runs. The cache now
+        retains only a separate bounded provisional projection for unfinalized
+        active run families, so the old wording must be replaced rather than
+        left contradictory.
+    - id: cached-room-history-stays-stale-until-bounded-revalidation
+      reason: Its dependency points at the retired cache contract. The replacement
+        preserves the bounded authenticated revalidation semantics while stating
+        that a provisional active projection may remain readable until finalized
+        combined history owns it.
+  create:
+    - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+      title: Hosted last-good snapshots keep bounded provisional active runs
+      statement: Each hosted computer may persist one isolated IndexedDB snapshot of
+        its materialized room history plus an optional per-room projection of
+        unfinalized active run roots and each root's existing indexed
+        RunEventBuffer, capped at 500 events with its journal index and drop
+        count. The provisional projection is readable-only recovery state,
+        writes are coalesced with at most a trailing latest snapshot, and it is
+        merged only into the owning computer's store; finalized combined history
+        retires it once that run family is authoritative. Drafts, credentials,
+        keys, attachments, voice, inbox, interactions, and full journals are
+        never persisted, and the optional field remains backward-compatible with
+        older snapshots.
+      reason: A last-good room snapshot is the existing durable recovery seam. Keeping
+        the already bounded indexed event buffer beside the room projection
+        avoids losing an active run during reload without introducing a second
+        cache or an unbounded stream journal.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+        - historical-transcript-pages-budget-text-slots
+        - combined-head-reconciliation-is-two-page-bounded
+        - live-run-event-cache-bounded
+        - run-events-merge-by-journal-index
+    - id: cached-room-history-revalidates-boundedly-with-provisional-runs
+      title: Restored history revalidates while provisional runs remain readable
+      statement: A restored hosted room may render its last-good finalized page and
+        any bounded provisional active projection while disconnected, but the
+        owning computer must still mark the cached page for bounded
+        authenticated head revalidation. Revalidation is isolated to the exact
+        store, room, token, and tunnel; failures remain retryable and readable,
+        success adopts the bounded combined window and retires only the
+        provisional families that finalized history owns, without importing
+        another computer's state.
+      reason: Provisional active output must not weaken the existing stale-cache and
+        retry contract; it is an additional readable projection whose lifetime
+        is still ended by authoritative combined history.
+      depends_on:
+        - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+        - combined-head-reconciliation-is-two-page-bounded
+        - hosted-computer-sessions-keep-state-isolated
+        - hosted-app-streams-follow-tunnel-generations
+    - id: hosted-foreground-watchdog-defers-while-http-active
+      title: Hosted watchdog replacement waits for unsettled tunnel HTTP
+      statement: A hosted app watchdog must not replace a connected tunnel merely
+        because its list_rooms probe expires while the tunnel has unsettled
+        authenticated HTTP work such as a slow combined-history request. It must
+        allow that request to settle, then use the next ordinary probe to verify
+        health; periodic probes remain refresh-neutral, a genuine foreground
+        transition coalesces onto an in-flight probe and invokes onResume once,
+        and direct connectors retain their existing foreground replacement
+        behavior. The tunnel exposes only this boolean activity indication, not
+        transport internals or a second retry mechanism.
+      reason: Large history responses can block the app socket long enough to make a
+        healthy hosted tunnel look dead. The existing HTTP lifecycle is the
+        authority for whether the connection is busy, so the watchdog needs only
+        a read-only signal and must defer rather than invent another recovery
+        state machine.
+      depends_on:
+        - foreground-watchdog-probes-are-refresh-neutral
+        - hosted-bootstrap-requests-are-abortable-and-generation-bounded
+        - hosted-foregrounding-reuses-healthy-sessions
+  reviewed:
+    - id: live-run-event-cache-bounded
+      outcome: unchanged
+      reason: The existing 500-event bound and overflow accounting remain the source
+        of truth.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Cached/live reconciliation reuses indexed deduplication and gap
+        semantics.
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: Background subscriptions retain live evidence until combined history
+        owns it.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Snapshot and provisional data remain keyed to one computer's captured
+        store.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Restored projections never bypass current connector generation fencing.
+    - id: hosted-foregrounding-reuses-healthy-sessions
+      outcome: unchanged
+      reason: Healthy hosted foregrounding still reuses the existing tunnel and app
+        socket.
+    - id: foreground-watchdog-probes-are-refresh-neutral
+      outcome: unchanged
+      reason: Periodic probe replies remain refresh-neutral and direct mode remains
+        unchanged.
+    - id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
+      outcome: unchanged
+      reason: Only a read-only activity getter is added to the existing bounded
+        request lifecycle.
+    - id: tunnel-keepalive
+      outcome: unchanged
+      reason: Keepalive scheduling and cleanup are not changed by the busy indication.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized membership, order, and evidence still come only from combined
+        pages.
+    - id: combined-head-reconciliation-is-two-page-bounded
+      outcome: unchanged
+      reason: Warming and activation continue using the existing bounded head
+        controller.
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: The 40-slot finalized cache window and page sizing remain unchanged.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Server-frame readiness is independent of the watchdog's busy decision.
+anchors:
+  hosted-last-good-history-cache-is-per-room-and-bounded:
+    hosted-last-good-room-map-store:
+      action: remove
+      reason: Replace the mutable-run-excluding cache contract with the bounded
+        provisional projection.
+    hosted-last-good-room-map-lifecycle:
+      action: remove
+      reason: Replace store hydration lifecycle wording with explicit provisional run
+        restoration.
+    hosted-last-good-room-map-regression:
+      action: remove
+      reason: Replace the regression claim with snapshot validation and provisional
+        recovery coverage.
+  cached-room-history-stays-stale-until-bounded-revalidation:
+    cached-room-revalidation-state:
+      action: remove
+      reason: Re-anchor the unchanged stale/revalidation behavior under the
+        provisional-aware successor.
+    cached-room-revalidation-regression:
+      action: remove
+      reason: Re-anchor the existing regression under the provisional-aware successor.
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-schema:
+      action: change
+      reason: Validate the optional per-room root/buffer projection, bounds, indexed
+        evidence, and redaction.
+    provisional-cache-snapshot:
+      action: change
+      reason: Project only unfinalized active roots and their existing bounded buffers
+        into the last-good snapshot.
+    provisional-cache-hydration:
+      action: change
+      reason: Restore provisional roots/events into the owning store without
+        manufacturing finalized history units.
+    provisional-cache-retirement:
+      action: change
+      reason: Let combined history retire provisional families through the existing
+        ownership predicate.
+    provisional-cache-regression:
+      action: change
+      reason: Prove backward-compatible persistence, isolation, indexed merge,
+        redaction, and finalization retirement.
+    provisional-cache-write-coalescing:
+      action: change
+      reason: Coalesce stream-driven saves and permit one trailing latest snapshot
+        without per-delta IndexedDB writes.
+    provisional-cache-lifecycle:
+      action: change
+      reason: Hydrate and persist provisional projections through each captured
+        computer session lifecycle.
+    provisional-cache-browser-regression:
+      action: change
+      reason: Keep the cached active projection readable during reload or switch
+        before finalized history settles.
+  cached-room-history-revalidates-boundedly-with-provisional-runs:
+    cached-room-revalidation-state:
+      action: change
+      reason: Keep stale/retry/readable semantics while documenting provisional output
+        as a separate projection.
+    cached-room-revalidation-regression:
+      action: change
+      reason: Retain the bounded authenticated revalidation regression and its
+        readable failure behavior.
+  hosted-foreground-watchdog-defers-while-http-active:
+    tunnel-http-activity-indicator:
+      action: change
+      reason: Expose only whether existing tunnel HTTP work is unsettled.
+    watchdog-probe-state:
+      action: change
+      reason: Keep periodic probes refresh-neutral and retain foreground intent when
+        busy HTTP defers recovery.
+    watchdog-probe-reply:
+      action: change
+      reason: Defer tunnel replacement on probe expiry during unsettled HTTP and
+        resume on the next ordinary probe.
+    watchdog-probe-regression:
+      action: change
+      reason: Cover busy timeout deferral, foreground coalescing, direct behavior, and
+        one-time resume semantics.
+    busy-watchdog-regression:
+      action: change
+      reason: Prove an in-flight foreground intent survives a busy watchdog timeout
+        and resumes on the next probe.
+    tunnel-http-activity-regression:
+      action: change
+      reason: Prove the tunnel activity indication stays true until its HTTP request
+        settles.
+files:
+  - .harn/plans/hosted-provisional-runs-and-busy-watchdog.yaml
+  - packages/web-next/src/runtime/state.ts
+  - packages/web-next/src/runtime/last-good-room.ts
+  - packages/web-next/src/runtime/last-good-room.spec.ts
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/tests/room34-multi-computer.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+  - packages/web-next/tests/room43-run-events-live.e2e.spec.ts
+verification: Verify the exact clean base before editing and clean-lock this
+  plan with dirty_at_lock false. Run focused
+  cache/store/relay/connector/computer-session units and the relevant
+  transcript-history regressions. Run Room 34 hosted background/finalization and
+  isolation journeys, Room 36 cached/startup and watchdog journeys in direct and
+  hosted modes, and Room 43 live-event chronology/support journeys. Run all
+  web-next units and the production/PWA build. Run harn check, harn apply, harn
+  check --staged, and git diff --check; stage only the implementation, focused
+  tests, generated assumptions, and this plan, then create exactly one
+  implementation commit with a clean worktree. Do not change protocol, daemon,
+  server, relay behavior beyond the read-only tunnel activity getter, history
+  pagination, or unrelated cache state.
+applied:
+  applied_at: 2026-08-27T16:38:31.453Z

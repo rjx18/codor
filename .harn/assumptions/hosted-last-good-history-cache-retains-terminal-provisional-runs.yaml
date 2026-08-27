@@ -1,0 +1,16 @@
+id: hosted-last-good-history-cache-retains-terminal-provisional-runs
+hash: a-b31acff661f7
+title: Hosted last-good snapshots retain terminal provisional run families
+state: active
+statement: Each hosted computer may retain a bounded provisional run-family
+  projection through running, completed, failed, or interrupted root states when
+  finalized combined history has not yet claimed that family. The projection
+  uses the existing root and journal-indexed RunEventBuffer, remains isolated to
+  the owning computer and room, excludes drafts, credentials, keys, attachments,
+  voice, inbox, interactions, and full journals, and is retired exactly when
+  authoritative combined history owns the family.
+depends_on:
+  - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+  - cached-room-history-revalidates-boundedly-with-provisional-runs
+  - run-events-merge-by-journal-index
+created_by: hosted-provisional-terminal-retention-review-fix

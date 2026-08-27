@@ -112,6 +112,7 @@ import {
 } from './store.js';
 import {
   buildTranscriptHistoryPage,
+  maintainIndexedTranscriptHistoryMessage,
   type TranscriptHistoryBuildResult,
 } from './transcript-history.js';
 import { normalizeWorkingDirectory } from './working-directory.js';
@@ -941,6 +942,33 @@ export class Daemon {
   // harn:end redaction-before-fanout
 
   private emitMessage(room: string, message: Message): void {
+    // harn:assume transcript-history-index-is-write-maintained-and-rebuildable ref=transcript-history-index-lifecycle
+    try {
+      maintainIndexedTranscriptHistoryMessage({
+        room,
+        message,
+        source: {
+          listMessages: (sourceRoom, opts) => this.store.listMessages(sourceRoom, opts),
+          getMessage: (sourceRoom, id) => this.store.getMessage(sourceRoom, id),
+          transcriptHistoryIndex: this.store.transcriptHistoryIndex,
+          readRunJournal: (sourceRoom, rootMessageId) => {
+            const root = this.store.getMessage(sourceRoom, rootMessageId);
+            return root?.run === undefined ? [] : this.blobs.read(sourceRoom, root.run.events_ref);
+          },
+          readRunJournalWithSpans: (sourceRoom, rootMessageId) => {
+            const root = this.store.getMessage(sourceRoom, rootMessageId);
+            return root?.run === undefined
+              ? { events: [], spans: [] }
+              : this.blobs.readWithSpans(sourceRoom, root.run.events_ref);
+          },
+        },
+      });
+    } catch (error) {
+      // Authority already committed. Preserve live delivery and leave the dirty
+      // family for the request-time crash/interruption repair path.
+      this.onBackgroundError(error instanceof Error ? error : new Error(String(error)));
+    }
+    // harn:end transcript-history-index-is-write-maintained-and-rebuildable
     this.emit(room, { type: 'message', seq: message.seq, message });
   }
 
@@ -6490,9 +6518,22 @@ export class Daemon {
       source: {
         listMessages: (sourceRoom, opts) => this.store.listMessages(sourceRoom, opts),
         getMessage: (sourceRoom, id) => this.store.getMessage(sourceRoom, id),
+        transcriptHistoryIndex: this.store.transcriptHistoryIndex,
         readRunJournal: (sourceRoom, rootMessageId) => {
           const root = this.store.getMessage(sourceRoom, rootMessageId);
           return root?.run === undefined ? [] : this.blobs.read(sourceRoom, root.run.events_ref);
+        },
+        readRunJournalWithSpans: (sourceRoom, rootMessageId) => {
+          const root = this.store.getMessage(sourceRoom, rootMessageId);
+          return root?.run === undefined
+            ? { events: [], spans: [] }
+            : this.blobs.readWithSpans(sourceRoom, root.run.events_ref);
+        },
+        readRunJournalSpans: (sourceRoom, rootMessageId, spans) => {
+          const root = this.store.getMessage(sourceRoom, rootMessageId);
+          return root?.run === undefined
+            ? []
+            : this.blobs.readSpans(sourceRoom, root.run.events_ref, spans);
         },
       },
     });

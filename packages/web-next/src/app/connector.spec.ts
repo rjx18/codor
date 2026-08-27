@@ -48,6 +48,7 @@ class FakeSocket {
 class FakeTunnel {
   state: TunnelState;
   generation = 1;
+  hasUnsettledHttp = false;
   recoveries = 0;
   private readonly listeners = new Set<TunnelStateListener>();
   private readonly waiters = new Set<{
@@ -362,6 +363,44 @@ describe('foreground probe intent', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
     connector.dispose();
   });
+
+  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=busy-watchdog-regression
+  it('defers replacement during unsettled HTTP and carries foreground intent to the next probe', async () => {
+    vi.useFakeTimers();
+    fireVisible();
+    const tunnel = new FakeTunnel('connected');
+    tunnel.hasUnsettledHttp = true;
+    const onResume = vi.fn();
+    const connector = createConnector({
+      room: 'eng', token: 'token', tunnel, onResume,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+    socket.deliver({ type: 'rooms', rooms: [] });
+
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+    fireVisible();
+    await flush();
+    expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(tunnel.recoveries).toBe(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(onResume).not.toHaveBeenCalled();
+
+    tunnel.hasUnsettledHttp = false;
+    // Reach the next interval without also reaching that probe's 8s timeout.
+    await vi.advanceTimersByTimeAsync(12_000);
+    expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(3);
+    socket.deliver({ type: 'rooms', rooms: [] });
+    expect(tunnel.recoveries).toBe(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(onResume).toHaveBeenCalledTimes(1);
+    connector.dispose();
+  });
+  // harn:end hosted-foreground-watchdog-defers-while-http-active
 });
 // harn:end foreground-watchdog-probes-are-refresh-neutral
 

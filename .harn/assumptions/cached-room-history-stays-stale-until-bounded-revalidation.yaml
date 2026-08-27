@@ -1,7 +1,7 @@
 id: cached-room-history-stays-stale-until-bounded-revalidation
 hash: a-2294e461ecad
 title: Each cached room stays stale until bounded authenticated revalidation
-state: active
+state: retired
 statement: >
   Every restored hosted room snapshot may render read-only while disconnected
   but remains marked for revalidation until the owning computer's current
@@ -16,3 +16,4 @@ depends_on:
   - hosted-computer-sessions-keep-state-isolated
   - hosted-app-streams-follow-tunnel-generations
 created_by: history-text-slots-p1
+retired_by: hosted-provisional-runs-and-busy-watchdog

@@ -1,0 +1,21 @@
+id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+hash: a-2f079a2bcffd
+title: Hosted last-good snapshots keep bounded provisional active runs
+state: active
+statement: Each hosted computer may persist one isolated IndexedDB snapshot of
+  its materialized room history plus an optional per-room projection of
+  unfinalized active run roots and each root's existing indexed RunEventBuffer,
+  capped at 500 events with its journal index and drop count. The provisional
+  projection is readable-only recovery state, writes are coalesced with at most
+  a trailing latest snapshot, and it is merged only into the owning computer's
+  store; finalized combined history retires it once that run family is
+  authoritative. Drafts, credentials, keys, attachments, voice, inbox,
+  interactions, and full journals are never persisted, and the optional field
+  remains backward-compatible with older snapshots.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+  - historical-transcript-pages-budget-text-slots
+  - combined-head-reconciliation-is-two-page-bounded
+  - live-run-event-cache-bounded
+  - run-events-merge-by-journal-index
+created_by: hosted-provisional-runs-and-busy-watchdog

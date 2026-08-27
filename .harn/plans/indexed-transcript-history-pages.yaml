@@ -1,0 +1,178 @@
+id: indexed-transcript-history-pages
+title: Serve established transcript pages from a rebuildable SQLite metadata index
+notes: >
+  Phase 2 on exact accepted base 17a44bdeb46ba56d4ecd9f61026b8e2d9f5f1ee4.
+  Preserve the authenticated combined-history endpoint, v1 room/ceiling/boundary
+  cursors, output-scoped and legacy chronology, redaction, twenty-text-slot
+  selection with complete associated evidence, browser cache/fetch behavior, and
+  messages plus JSONL journals as the only authoritative transcript data. Add
+  the smallest rebuildable SQLite metadata index. Existing rooms perform one
+  lazy complete authoritative scan and publish its index atomically; failed
+  backfills remain incomplete and retryable. SQLite mutation triggers record
+  changed message families transactionally, and later requests reconcile only
+  those dirty families before querying the index. Warm head and cursor pages
+  select only the charged boundary plus associated zero-cost evidence, load only
+  referenced message records and JSONL byte spans, and never fall back to a
+  room-wide scan after a successful backfill. No event payload, projected body,
+  alternate authority, background service, browser change, protocol change, or
+  persistent archive framework is introduced.
+assumptions:
+  create:
+    - id: transcript-history-index-is-derived-and-rebuildable
+      title: Transcript history index metadata is derived, atomic, and rebuildable
+      statement: >
+        SQLite may persist only versioned transcript ordering, unit identity,
+        charge, message-reference, and JSONL byte-span metadata derived from
+        authoritative message rows and run journals. The first request for an
+        unindexed room builds that metadata from one complete established-order
+        scan and installs it atomically; failure leaves no complete marker.
+        Message mutations transactionally mark affected identities dirty, later
+        requests replace only those ordinary rows or terminal run families, and
+        deletion removes their derived units. The index may always be discarded
+        and rebuilt without changing transcript truth.
+      reason: Existing rooms need a safe lazy migration while durable transcript
+        ownership remains exclusively with messages and JSONL journals.
+      depends_on:
+        - run-journals-own-evidence-across-output-messages
+        - transcript-history-cursors-cover-complete-established-order
+        - historical-transcript-pages-budget-text-slots
+        - continuation-writer-follows-journaled-output-ownership
+        - run-events-merge-by-journal-index
+    - id: indexed-transcript-pages-read-only-selected-evidence
+      title: Warm transcript pages read only selected metadata and evidence
+      statement: >
+        Once a room has a complete current transcript index, authenticated head
+        and v1 cursor requests establish their twenty charged text-slot window
+        directly from indexed chronology, include the same adjacent zero-cost
+        evidence, and load only the selected message records and indexed JSONL
+        byte spans. They never rescan all room messages or full run journals;
+        work and metrics therefore grow with selected units/evidence rather than
+        total room history, while cursor completeness, ordering, redaction,
+        response schemas, and has_more semantics remain byte-for-byte
+        compatible.
+      reason: Large established rooms must not synchronously block unrelated app
+        requests for the watchdog interval.
+      depends_on:
+        - transcript-history-index-is-derived-and-rebuildable
+        - historical-transcript-pages-budget-text-slots
+        - transcript-history-cursors-cover-complete-established-order
+        - redaction-before-fanout
+  reviewed:
+    - id: run-journals-own-evidence-across-output-messages
+      outcome: unchanged
+      reason: SQLite stores only journal lookup metadata and never event payloads; one
+        root JSONL journal remains authoritative for all continuation rows.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: Existing v1 cursor ceiling/boundary identity and the complete modern
+        versus legacy chronology remain unchanged; the index materializes that
+        same established order.
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: Pages retain exactly twenty charged text slots plus complete attached
+        tool/timeline evidence and evidence-only fallback charging.
+    - id: explicit-prose-boundaries-survive-transcript-lifecycle
+      outcome: unchanged
+      reason: The same unitizer remains authoritative for text_delta and text_block
+        grouping during backfill and incremental terminal-family maintenance.
+    - id: actionable-interactions-do-not-spend-history-text-slots
+      outcome: unchanged
+      reason: Ask and approval rows remain excluded from combined history and consume
+        neither indexed units nor text slots.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: The response and browser controller are unchanged; capable clients
+        continue to source finalized history only from combined pages.
+    - id: combined-head-reconciliation-is-two-page-bounded
+      outcome: unchanged
+      reason: Browser request count and merge behavior remain one head plus optional
+        predecessor; only server-side production cost changes.
+    - id: redaction-before-fanout
+      outcome: unchanged
+      reason: Raw selected authoritative records are projected through the same daemon
+        redaction boundary after index lookup.
+    - id: run-events-merge-by-journal-index
+      outcome: unchanged
+      reason: Excerpts retain original journal indices and event bytes; indexed
+        offsets are only lookup metadata.
+    - id: addressed-cold-hydration-is-strict-and-legacy-safe
+      outcome: unchanged
+      reason: Direct/hosted socket hydration capability behavior and legacy fallback
+        are outside this server-side index change.
+files:
+  - .harn/plans/indexed-transcript-history-pages.yaml
+  - packages/switchboard/src/blobs.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/transcript-history-index.ts
+  - packages/switchboard/src/transcript-history-index.spec.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  explicit-prose-boundaries-survive-transcript-lifecycle:
+    transcript-prose-boundary-unitizer:
+      action: change
+      reason: Reuse and expose the exact unitizer and established chronology metadata
+        for atomic backfill and dirty-family replacement without changing
+        semantics.
+  actionable-interactions-do-not-spend-history-text-slots:
+    interaction-text-slot-unitizer:
+      action: change
+      reason: Move the unchanged interaction exclusion into the shared authoritative
+        entry builder used by backfill and parity tests.
+  transcript-history-cursors-cover-complete-established-order:
+    complete-transcript-order-before-page-boundaries:
+      action: change
+      reason: Preserve v1 boundaries while selecting warmed pages from the same
+        materialized established order instead of rebuilding the room.
+  historical-transcript-pages-budget-text-slots:
+    transcript-history-text-slot-page-builder:
+      action: change
+      reason: Retain twenty-slot selection and evidence attachment over indexed warm
+        entries, with the existing builder used only for incomplete-room
+        backfill.
+    transcript-history-text-slot-regression:
+      action: change
+      reason: Add first-build parity, warm bounded-read, mutation, deletion, cursor,
+        and Mac-shaped workload regressions.
+  historical-transcript-pages-match-output-scoped-rendering:
+    transcript-history-rest:
+      action: change
+      reason: Supply the store-owned derived index and byte-range journal reader to
+        the unchanged authenticated/redacted REST projection.
+  addressed-cold-hydration-is-strict-and-legacy-safe:
+    addressed-hydration-contract:
+      action: change
+      reason: The daemon transcript source is nested inside the addressed hydration
+        region; socket hydrate_limit, capability gating, and legacy behavior
+        remain unchanged while the existing REST builder receives its derived
+        index.
+  transcript-history-index-is-derived-and-rebuildable:
+    transcript-history-index-schema:
+      action: change
+      reason: Add versioned metadata/dirty tables, mutation triggers, atomic backfill,
+        and family-replacement operations.
+    transcript-history-index-lifecycle:
+      action: change
+      reason: Build incomplete rooms once and reconcile only transactionally dirty
+        identities thereafter.
+    transcript-history-index-regression:
+      action: change
+      reason: Prove lazy migration, atomic retry, incremental ordinary/terminal/
+        deletion maintenance, parity, reopen, and rebuildability.
+  indexed-transcript-pages-read-only-selected-evidence:
+    indexed-journal-byte-spans:
+      action: change
+      reason: Read only selected JSONL event byte ranges while preserving original
+        event indices and payload bytes.
+    indexed-transcript-page-query:
+      action: change
+      reason: Select the charged window by indexed chronology and load only referenced
+        records and evidence.
+    indexed-transcript-page-regression:
+      action: change
+      reason: Prove warm head/cursor bounds and Mac-shaped latency/read-count behavior
+        with unchanged response parity.
+applied:
+  applied_at: 2026-08-27T17:15:15.452Z

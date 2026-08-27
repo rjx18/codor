@@ -5,6 +5,7 @@ import {
   newestTranscriptHistoryUnits,
   parseRunItemPayload,
   transcriptHistoryTextSlotCount,
+  transcriptHistoryTextSlotIndices,
   TranscriptHistoryPageSchema,
   type Message,
   type TranscriptHistoryPage,
@@ -12,12 +13,28 @@ import {
   type WireEvent,
 } from '@codor/protocol';
 
+import {
+  type IndexedTranscriptEntry,
+  type JournalEventSpan,
+  TranscriptHistoryIndex,
+} from './transcript-history-index.js';
+
 const MESSAGE_CHUNK_SIZE = 64;
 
 export interface TranscriptHistorySource {
   listMessages(room: string, opts: { before: number; limit: number }): Message[];
   getMessage(room: string, id: number): Message | undefined;
   readRunJournal(room: string, rootMessageId: number): WireEvent[];
+  transcriptHistoryIndex?: TranscriptHistoryIndex;
+  readRunJournalWithSpans?: (
+    room: string,
+    rootMessageId: number,
+  ) => { events: WireEvent[]; spans: JournalEventSpan[] };
+  readRunJournalSpans?: (
+    room: string,
+    rootMessageId: number,
+    spans: readonly JournalEventSpan[],
+  ) => WireEvent[];
 }
 
 export interface TranscriptHistoryMetrics {
@@ -29,6 +46,8 @@ export interface TranscriptHistoryMetrics {
   message_records_read: number;
   journal_reads: number;
   journal_events_scanned: number;
+  index_rows_read?: number;
+  index_backfilled?: boolean;
 }
 
 export interface TranscriptHistoryBuildResult {
@@ -322,6 +341,265 @@ function compareEntries(left: Entry, right: Entry, continuationFloor: number | u
     || left.unitOrdinal - right.unitOrdinal;
 }
 
+function continuationFloor(messages: Iterable<Message>): number | undefined {
+  const floors = [...messages].flatMap((message) => [
+    ...(message.run?.output_mode === 'messages' ? [message.id] : []),
+    ...(message.run_parent_id !== undefined ? [message.run_parent_id] : []),
+  ]);
+  return floors.length === 0 ? undefined : Math.min(...floors);
+}
+
+function eventSpanMap(spans: readonly JournalEventSpan[]): Map<number, JournalEventSpan> {
+  return new Map(spans.map((span) => [span.index, span]));
+}
+
+function indexedEntries(
+  entries: readonly Entry[],
+  spansByRoot: ReadonlyMap<number, readonly JournalEventSpan[]>,
+): IndexedTranscriptEntry[] {
+  const charged = new Set(transcriptHistoryTextSlotIndices(entries.map((entry) => entry.unit)));
+  return entries.map((entry, index) => {
+    const spans = eventSpanMap(spansByRoot.get(entry.sourceMessageId) ?? []);
+    const eventSpans = entry.unit.kind === 'message'
+      ? []
+      : entry.unit.event_indices.map((eventIndex) => {
+          const span = spans.get(eventIndex);
+          if (span === undefined) {
+            throw new Error(`journal event ${String(eventIndex)} has no byte span`);
+          }
+          return span;
+        });
+    return {
+      ...entry,
+      charged: charged.has(index),
+      maxMessageId: Math.max(entry.sourceMessageId, entry.positionMessageId),
+      eventSpans,
+    };
+  });
+}
+
+function ordinaryEntry(message: Message): Entry | undefined {
+  if (
+    message.run_parent_id !== undefined
+    || (message.kind === 'run' && message.run !== undefined)
+    || message.kind === 'ask'
+    || message.kind === 'approval'
+  ) return undefined;
+  return {
+    sourceMessageId: message.id,
+    unitOrdinal: 0,
+    positionMessageId: message.id,
+    journalOrder: 0,
+    timestamp: messageTime(message),
+    unit: { kind: 'message', message_id: message.id },
+  };
+}
+
+function reconcileIndexedRoom(opts: {
+  room: string;
+  source: TranscriptHistorySource;
+  index: TranscriptHistoryIndex;
+}): { messageRecordsRead: number; journalReads: number; journalEventsScanned: number } {
+  const dirty = opts.index.dirtyMessageIds(opts.room);
+  if (dirty.length === 0) {
+    return { messageRecordsRead: 0, journalReads: 0, journalEventsScanned: 0 };
+  }
+  if (opts.source.readRunJournalWithSpans === undefined) {
+    throw new Error('indexed transcript history source cannot derive journal spans');
+  }
+  let messageRecordsRead = 0;
+  let journalReads = 0;
+  let journalEventsScanned = 0;
+  const changed = new Map<number, Message>();
+  const roots = new Set<number>();
+  let nextFloor = opts.index.roomState(opts.room).continuationFloor;
+  for (const id of dirty) {
+    const message = opts.source.getMessage(opts.room, id);
+    if (message === undefined) continue;
+    changed.set(id, message);
+    messageRecordsRead += 1;
+    if (message.run_parent_id !== undefined) roots.add(message.run_parent_id);
+    if (message.run !== undefined && message.run_parent_id === undefined) roots.add(message.id);
+    const candidate = message.run_parent_id
+      ?? (message.run?.output_mode === 'messages' ? message.id : undefined);
+    if (candidate !== undefined) nextFloor = Math.min(nextFloor ?? candidate, candidate);
+  }
+  const replacement: IndexedTranscriptEntry[] = [];
+  for (const message of changed.values()) {
+    const entry = ordinaryEntry(message);
+    if (entry !== undefined) replacement.push(...indexedEntries([entry], new Map()));
+  }
+  for (const rootId of roots) {
+    const root = opts.source.getMessage(opts.room, rootId);
+    if (root === undefined || !terminalStatus(root)) continue;
+    if (!changed.has(rootId)) messageRecordsRead += 1;
+    const journal = opts.source.readRunJournalWithSpans(opts.room, rootId);
+    journalReads += 1;
+    journalEventsScanned += journal.events.length;
+    const loaded = new Set<number>();
+    const family = unitizeRun(root, journal.events, (id) => {
+      const known = changed.get(id);
+      if (known !== undefined) return known;
+      const message = opts.source.getMessage(opts.room, id);
+      if (message !== undefined && !loaded.has(id)) {
+        loaded.add(id);
+        messageRecordsRead += 1;
+      }
+      return message;
+    });
+    replacement.push(...indexedEntries(family, new Map([[rootId, journal.spans]])));
+  }
+  opts.index.replaceDirty({
+    room: opts.room,
+    continuationFloor: nextFloor,
+    ordinaryMessageIds: dirty,
+    rootMessageIds: [...roots],
+    entries: replacement,
+    dirtyMessageIds: dirty,
+  });
+  return { messageRecordsRead, journalReads, journalEventsScanned };
+}
+
+// harn:assume transcript-history-index-is-write-maintained-and-rebuildable ref=transcript-history-index-lifecycle
+/** Journal-aware eager maintenance after a terminal family and all permanent
+ * output metadata have committed. Any exception leaves the trigger-created
+ * dirty rows intact for the bounded request-time crash recovery path. */
+export function maintainIndexedTranscriptHistoryMessage(opts: {
+  room: string;
+  message: Message;
+  source: TranscriptHistorySource;
+}): void {
+  const index = opts.source.transcriptHistoryIndex;
+  if (index?.roomState(opts.room).complete !== true) return;
+  const root = opts.message.run_parent_id === undefined
+    ? (opts.message.run === undefined ? undefined : opts.message)
+    : opts.source.getMessage(opts.room, opts.message.run_parent_id);
+  if (root === undefined || !terminalStatus(root)) return;
+  const familyDirty = index.dirtyMessageIds(opts.room).filter((id) => {
+    if (id === root.id) return true;
+    return opts.source.getMessage(opts.room, id)?.run_parent_id === root.id;
+  });
+  if (familyDirty.length === 0) return;
+  if (opts.source.readRunJournalWithSpans === undefined) {
+    throw new Error('indexed transcript history source cannot derive journal spans');
+  }
+  const journal = opts.source.readRunJournalWithSpans(opts.room, root.id);
+  const family = unitizeRun(
+    root,
+    journal.events,
+    (id) => opts.source.getMessage(opts.room, id),
+  );
+  const state = index.roomState(opts.room);
+  const floor = root.run?.output_mode === 'messages'
+    ? Math.min(state.continuationFloor ?? root.id, root.id)
+    : state.continuationFloor;
+  index.replaceDirty({
+    room: opts.room,
+    continuationFloor: floor,
+    ordinaryMessageIds: [],
+    rootMessageIds: [root.id],
+    entries: indexedEntries(family, new Map([[root.id, journal.spans]])),
+    dirtyMessageIds: familyDirty,
+  });
+}
+// harn:end transcript-history-index-is-write-maintained-and-rebuildable
+
+// harn:assume indexed-transcript-pages-read-only-current-selected-evidence ref=indexed-transcript-page-query
+function buildIndexedTranscriptHistoryPage(opts: {
+  room: string;
+  cursor?: CursorPayload;
+  source: TranscriptHistorySource;
+  index: TranscriptHistoryIndex;
+  started: number;
+}): TranscriptHistoryBuildResult {
+  if (opts.source.readRunJournalSpans === undefined) {
+    throw new Error('indexed transcript history source cannot read journal spans');
+  }
+  const repair = reconcileIndexedRoom(opts);
+  let messageReads = 0;
+  let messageRecordsRead = repair.messageRecordsRead;
+  let ceiling = opts.cursor?.ceiling_message_id;
+  if (ceiling === undefined) {
+    const newest = opts.source.listMessages(opts.room, {
+      before: Number.MAX_SAFE_INTEGER,
+      limit: 1,
+    });
+    messageReads += 1;
+    messageRecordsRead += newest.length;
+    ceiling = newest.at(-1)?.id ?? 0;
+  }
+  const selection = opts.index.selectPage({
+    room: opts.room,
+    ceilingMessageId: ceiling,
+    before: opts.cursor === undefined ? undefined : {
+      messageId: opts.cursor.before.message_id,
+      unitOrdinal: opts.cursor.before.unit_ordinal,
+    },
+    textSlotLimit: HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  });
+  const selectedMessageIds = new Set<number>();
+  const spansByRoot = new Map<number, Map<number, JournalEventSpan>>();
+  for (const entry of selection.entries) {
+    if (entry.unit.kind === 'message') {
+      selectedMessageIds.add(entry.unit.message_id);
+      continue;
+    }
+    selectedMessageIds.add(entry.unit.root_message_id);
+    selectedMessageIds.add(entry.unit.output_message_id);
+    const spans = spansByRoot.get(entry.unit.root_message_id) ?? new Map();
+    for (const span of entry.eventSpans) spans.set(span.index, span);
+    spansByRoot.set(entry.unit.root_message_id, spans);
+  }
+  const messages = [...selectedMessageIds]
+    .map((id) => opts.source.getMessage(opts.room, id))
+    .filter((message): message is Message => message !== undefined)
+    .sort((left, right) => left.id - right.id);
+  messageRecordsRead += messages.length;
+  const journals = [...spansByRoot].map(([rootMessageId, byIndex]) => {
+    const spans = [...byIndex.values()].sort((left, right) => left.index - right.index);
+    const events = opts.source.readRunJournalSpans!(opts.room, rootMessageId, spans);
+    return {
+      root_message_id: rootMessageId,
+      events: spans.map((span, index) => ({ index: span.index, event: events[index]! })),
+    };
+  }).filter((journal) => journal.events.length > 0);
+  const oldest = selection.entries[0];
+  const page = TranscriptHistoryPageSchema.parse({
+    messages,
+    journals,
+    units: selection.entries.map((entry) => entry.unit),
+    before_cursor: selection.hasMore && oldest !== undefined
+      ? encodeCursor({
+          v: 1,
+          room: opts.room,
+          ceiling_message_id: ceiling,
+          before: {
+            message_id: oldest.sourceMessageId,
+            unit_ordinal: oldest.unitOrdinal,
+          },
+        })
+      : null,
+    has_more: selection.hasMore,
+  });
+  return {
+    page,
+    metrics: {
+      duration_ms: performance.now() - opts.started,
+      response_bytes: Buffer.byteLength(JSON.stringify(page)),
+      selected_units: page.units.length,
+      selected_text_slots: transcriptHistoryTextSlotCount(page.units),
+      message_reads: messageReads,
+      message_records_read: messageRecordsRead,
+      journal_reads: repair.journalReads + journals.length,
+      journal_events_scanned: repair.journalEventsScanned
+        + journals.reduce((count, journal) => count + journal.events.length, 0),
+      index_rows_read: selection.rowsRead,
+      index_backfilled: false,
+    },
+  };
+}
+// harn:end indexed-transcript-pages-read-only-current-selected-evidence
+
 // harn:assume historical-transcript-pages-budget-text-slots ref=transcript-history-text-slot-page-builder
 export function buildTranscriptHistoryPage(opts: {
   room: string;
@@ -330,7 +608,17 @@ export function buildTranscriptHistoryPage(opts: {
 }): TranscriptHistoryBuildResult {
   const started = performance.now();
   const cursor = opts.cursor === undefined ? undefined : decodeCursor(opts.cursor, opts.room);
-  let ceiling = cursor?.ceiling_message_id;
+  const index = opts.source.transcriptHistoryIndex;
+  if (index?.roomState(opts.room).complete === true) {
+    return buildIndexedTranscriptHistoryPage({
+      room: opts.room,
+      cursor,
+      source: opts.source,
+      index,
+      started,
+    });
+  }
+  let ceiling = index === undefined ? cursor?.ceiling_message_id : undefined;
   let before = ceiling === undefined ? Number.MAX_SAFE_INTEGER : ceiling + 1;
   let exhausted = false;
   let messageReads = 0;
@@ -339,8 +627,10 @@ export function buildTranscriptHistoryPage(opts: {
   let journalEventsScanned = 0;
   const messages = new Map<number, Message>();
   const journals = new Map<number, WireEvent[]>();
+  const journalSpans = new Map<number, JournalEventSpan[]>();
   let entries: Entry[] = [];
   let boundaryIndex = -1;
+  let establishedFloor: number | undefined;
 
   const loadMessage = (id: number): Message | undefined => {
     const known = messages.get(id);
@@ -387,7 +677,13 @@ export function buildTranscriptHistoryPage(opts: {
       if (!terminalStatus(root)) continue;
       let events = journals.get(root.id);
       if (events === undefined) {
-        events = opts.source.readRunJournal(opts.room, root.id);
+        if (index !== undefined && opts.source.readRunJournalWithSpans !== undefined) {
+          const journal = opts.source.readRunJournalWithSpans(opts.room, root.id);
+          events = journal.events;
+          journalSpans.set(root.id, journal.spans);
+        } else {
+          events = opts.source.readRunJournal(opts.room, root.id);
+        }
         journals.set(root.id, events);
         journalReads += 1;
         journalEventsScanned += events.length;
@@ -398,12 +694,8 @@ export function buildTranscriptHistoryPage(opts: {
         next.push(entry);
       }
     }
-    const floors = [...messages.values()].flatMap((message) => [
-      ...(message.run?.output_mode === 'messages' ? [message.id] : []),
-      ...(message.run_parent_id !== undefined ? [message.run_parent_id] : []),
-    ]);
-    const floor = floors.length === 0 ? undefined : Math.min(...floors);
-    entries = next.sort((left, right) => compareEntries(left, right, floor));
+    establishedFloor = continuationFloor(messages.values());
+    entries = next.sort((left, right) => compareEntries(left, right, establishedFloor));
     boundaryIndex = cursor === undefined
       ? entries.length
       : entries.findIndex((entry) =>
@@ -431,7 +723,15 @@ export function buildTranscriptHistoryPage(opts: {
   // is fully discovered makes that late entry unreachable on every later page.
   // Establish the complete immutable-ceiling order once, then page that order.
   rebuildEntries();
-  if (cursor !== undefined && boundaryIndex < 0) throw new Error('invalid transcript history cursor boundary');
+  if (cursor !== undefined && boundaryIndex < 0) {
+    throw new Error('invalid transcript history cursor boundary');
+  }
+  if (index !== undefined) {
+    if (opts.source.readRunJournalWithSpans === undefined) {
+      throw new Error('indexed transcript history source cannot derive journal spans');
+    }
+    index.install(opts.room, establishedFloor, indexedEntries(entries, journalSpans));
+  }
   const candidates = entries.slice(0, boundaryIndex);
   const selectedUnits = newestTranscriptHistoryUnits(
     candidates.map((entry) => entry.unit),
@@ -471,7 +771,7 @@ export function buildTranscriptHistoryPage(opts: {
       ? encodeCursor({
           v: 1,
           room: opts.room,
-          ceiling_message_id: ceiling ?? 0,
+          ceiling_message_id: cursor?.ceiling_message_id ?? ceiling ?? 0,
           before: {
             message_id: selected[0].sourceMessageId,
             unit_ordinal: selected[0].unitOrdinal,
@@ -493,6 +793,8 @@ export function buildTranscriptHistoryPage(opts: {
       message_records_read: messageRecordsRead,
       journal_reads: journalReads,
       journal_events_scanned: journalEventsScanned,
+      index_rows_read: index === undefined ? undefined : entries.length,
+      index_backfilled: index === undefined ? undefined : true,
     },
   };
 }

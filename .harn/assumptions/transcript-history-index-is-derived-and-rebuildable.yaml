@@ -1,0 +1,22 @@
+id: transcript-history-index-is-derived-and-rebuildable
+hash: a-a15b0f86b9c7
+title: Transcript history index metadata is derived, atomic, and rebuildable
+state: retired
+statement: >
+  SQLite may persist only versioned transcript ordering, unit identity, charge,
+  message-reference, and JSONL byte-span metadata derived from authoritative
+  message rows and run journals. The first request for an unindexed room builds
+  that metadata from one complete established-order scan and installs it
+  atomically; failure leaves no complete marker. Message mutations
+  transactionally mark affected identities dirty, later requests replace only
+  those ordinary rows or terminal run families, and deletion removes their
+  derived units. The index may always be discarded and rebuilt without changing
+  transcript truth.
+depends_on:
+  - run-journals-own-evidence-across-output-messages
+  - transcript-history-cursors-cover-complete-established-order
+  - historical-transcript-pages-budget-text-slots
+  - continuation-writer-follows-journaled-output-ownership
+  - run-events-merge-by-journal-index
+created_by: indexed-transcript-history-pages
+retired_by: indexed-transcript-history-write-maintenance-review-fix

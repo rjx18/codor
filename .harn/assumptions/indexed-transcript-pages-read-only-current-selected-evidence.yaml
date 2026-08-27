@@ -1,0 +1,19 @@
+id: indexed-transcript-pages-read-only-current-selected-evidence
+hash: a-a477d066ca53
+title: Warm transcript pages read only current selected metadata and evidence
+state: active
+statement: >
+  Once a room has a complete index, ordinary successful write paths keep it
+  current before returning or emitting, so authenticated head and v1 cursor
+  requests read only the twenty charged-slot boundary, adjacent zero-cost
+  evidence, referenced message records, and indexed JSONL byte spans.
+  Request-time dirty repair is only crash/interruption recovery, never the
+  normal batch path. Work and metrics therefore grow with selected units and
+  evidence rather than total room history or unattended writes, while cursor
+  completeness, ordering, redaction, schemas, and has_more remain compatible.
+depends_on:
+  - transcript-history-index-is-write-maintained-and-rebuildable
+  - historical-transcript-pages-budget-text-slots
+  - transcript-history-cursors-cover-complete-established-order
+  - redaction-before-fanout
+created_by: indexed-transcript-history-write-maintenance-review-fix

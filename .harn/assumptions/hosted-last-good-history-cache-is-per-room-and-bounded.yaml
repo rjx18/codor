@@ -1,7 +1,7 @@
 id: hosted-last-good-history-cache-is-per-room-and-bounded
 hash: a-264c83e13ee2
 title: Hosted last-good history caches forty text slots per room
-state: active
+state: retired
 statement: >
   Each hosted computer may persist one dedicated IndexedDB record holding
   isolated snapshots for its materialized rooms, each capped at the newest forty
@@ -18,3 +18,4 @@ depends_on:
   - combined-head-reconciliation-is-two-page-bounded
   - relay-app-socket-readiness-requires-server-evidence
 created_by: history-text-slots-p1
+retired_by: hosted-provisional-runs-and-busy-watchdog

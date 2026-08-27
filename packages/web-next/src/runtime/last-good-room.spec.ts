@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import type { Message } from '@codor/protocol';
 
 import {
   deleteLastGoodRoom,
@@ -59,7 +60,7 @@ const memoryStorage = (): LastGoodRoomStorage => {
   };
 };
 
-// harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-regression
+// harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-regression
 describe('hosted last-good room cache', () => {
   it('isolates same-named rooms per computer and forgets only the addressed snapshot', async () => {
     const storage = memoryStorage();
@@ -220,5 +221,205 @@ describe('hosted last-good room cache', () => {
     ]);
     expect(restored.getState().activeRoom).toBe(room.id);
   });
+
+  it('persists and restores only a bounded active root and indexed live evidence', async () => {
+    const room = snapshot('computer-a', 'room-a').rooms['room-a']!.room;
+    const root: Message = {
+      room: room.id,
+      id: 91,
+      seq: 91,
+      ts: '2026-08-10T00:00:00.000Z',
+      author: 'agent-a',
+      kind: 'run',
+      body: '',
+      mentions: [],
+      refs: [],
+      ledger_refs: [],
+      deleted: false,
+      ack: false,
+      pinned: false,
+      run: {
+        status: 'running',
+        started_ts: '2026-08-10T00:00:00.000Z',
+        tool_calls: 0,
+        events_ref: 'events-91',
+      },
+    };
+    const store = createClientStore();
+    store.getState().setActiveRoom(room.id);
+    store.getState().setRoomSummaries([snapshot('computer-a', room.id).summaries[0]!]);
+    store.getState().applyFrame({ type: 'room', seq: 1, room });
+    store.getState().applyFrame({ type: 'message', seq: root.seq, message: root });
+    store.getState().applyFrame({
+      type: 'run_event', room: room.id, message_id: root.id, index: 0,
+      event: { type: 'run.item', item_type: 'text_delta', payload: { text: 'cached active output' } },
+    } as never);
+    store.getState().setConnected(true);
+
+    const projected = snapshotLastGoodRoom('computer-a', store, room.id)!;
+    expect(projected.rooms[room.id]?.provisionalRuns).toMatchObject({
+      91: { root: { id: 91, run: { status: 'running' } }, buffer: { dropped_count: 0 } },
+    });
+    expect(projected.rooms[room.id]?.history.units).toEqual([]);
+
+    const restored = createClientStore();
+    hydrateLastGoodRoom(restored, projected);
+    expect(roomSlice(restored.getState(), room.id).messages[91]).toMatchObject({
+      id: 91, run: { status: 'running' },
+    });
+    expect(roomSlice(restored.getState(), room.id).runEvents[91]?.events).toEqual([
+      { type: 'run.item', item_type: 'text_delta', payload: { text: 'cached active output' } },
+    ]);
+    expect(roomSlice(restored.getState(), room.id).transcriptHistory.units).toEqual([]);
+  });
+
+  it('keeps newer live evidence and retires it when combined history owns the family', () => {
+    const room = snapshot('computer-a', 'room-a').rooms['room-a']!.room;
+    const root = {
+      room: room.id,
+      id: 92,
+      seq: 92,
+      ts: '2026-08-10T00:00:00.000Z',
+      author: 'agent-a',
+      kind: 'run' as const,
+      body: '',
+      mentions: [],
+      refs: [],
+      ledger_refs: [],
+      deleted: false,
+      ack: false,
+      pinned: false,
+      run: {
+        status: 'running' as const,
+        started_ts: '2026-08-10T00:00:00.000Z',
+        tool_calls: 0,
+        events_ref: 'events-92',
+      },
+    } as Message;
+    const cachedEvent = { type: 'run.item' as const, item_type: 'text_delta' as const, payload: { text: 'old' } };
+    const currentEvent = { type: 'run.item' as const, item_type: 'text_delta' as const, payload: { text: 'new' } };
+    const store = createClientStore();
+    store.getState().setActiveRoom(room.id);
+    store.getState().applyFrame({ type: 'room', seq: 1, room });
+    store.getState().applyFrame({ type: 'message', seq: root.seq, message: root });
+    store.getState().applyFrame({
+      type: 'run_event', room: room.id, message_id: root.id, index: 1, event: currentEvent,
+    } as never);
+    store.getState().hydrateLastGoodRoom(room, [snapshot('computer-a', room.id).summaries[0]!], {
+      messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false,
+    }, {
+      [root.id]: {
+        root,
+        buffer: { first_index: 0, dropped_count: 0, events: [cachedEvent] },
+      },
+    });
+    expect(roomSlice(store.getState(), room.id).runEvents[root.id]?.events).toEqual([cachedEvent, currentEvent]);
+
+    store.getState().updateTranscriptHistory(room.id, (history) => ({
+      ...history,
+      initialized: true,
+      units: [{ kind: 'prose', root_message_id: root.id, output_message_id: root.id, event_indices: [0] }],
+    }));
+    expect(roomSlice(store.getState(), room.id).runEvents[root.id]).toBeUndefined();
+  });
+
+  // harn:assume hosted-last-good-history-cache-retains-terminal-provisional-runs ref=terminal-provisional-regression
+  it('retains terminal output through cached reload until finalized history owns it', async () => {
+    const room = snapshot('computer-a', 'room-a').rooms['room-a']!.room;
+    const root: Message = {
+      room: room.id,
+      id: 93,
+      seq: 93,
+      ts: '2026-08-10T00:00:00.000Z',
+      author: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      kind: 'run',
+      body: '',
+      mentions: [],
+      refs: [],
+      ledger_refs: [],
+      deleted: false,
+      ack: false,
+      pinned: false,
+      run: {
+        status: 'running',
+        started_ts: '2026-08-10T00:00:00.000Z',
+        tool_calls: 0,
+        events_ref: 'events-93',
+      },
+    };
+    const event = {
+      type: 'run.item' as const,
+      item_type: 'text_delta' as const,
+      payload: { text: 'terminal cache output' },
+    };
+    const store = createClientStore();
+    store.getState().setActiveRoom(room.id);
+    store.getState().applyFrame({ type: 'room', seq: 1, room });
+    store.getState().applyFrame({ type: 'message', seq: root.seq, message: root });
+    store.getState().applyFrame({
+      type: 'run_event', room: room.id, message_id: root.id, index: 0, event,
+    } as never);
+    store.getState().setConnected(true);
+
+    const runningSnapshot = snapshotLastGoodRoom('computer-a', store, room.id)!;
+    expect(runningSnapshot.rooms[room.id]?.provisionalRuns?.[root.id]?.root.run?.status)
+      .toBe('running');
+
+    const terminalRoot: Message = {
+      ...root,
+      seq: 94,
+      run: {
+        ...root.run!,
+        status: 'completed' as const,
+        ended_ts: '2026-08-10T00:00:02.000Z',
+        result_message_id: root.id,
+      },
+    };
+    store.getState().applyFrame({ type: 'message', seq: terminalRoot.seq, message: terminalRoot });
+    const terminalSnapshot = snapshotLastGoodRoom('computer-a', store, room.id)!;
+    expect(terminalSnapshot.rooms[room.id]?.provisionalRuns?.[root.id]).toMatchObject({
+      root: { id: root.id, seq: terminalRoot.seq, run: { status: 'completed' } },
+      buffer: { events: [event] },
+    });
+
+    const storage = memoryStorage();
+    await saveLastGoodRoom(terminalSnapshot, storage);
+    const cached = await loadLastGoodRoom('computer-a', storage);
+    expect(cached?.rooms[room.id]?.provisionalRuns?.[root.id]?.root.run?.status).toBe('completed');
+
+    const restored = createClientStore();
+    hydrateLastGoodRoom(restored, cached!);
+    expect(roomSlice(restored.getState(), room.id).messages[root.id]).toMatchObject({
+      id: root.id, seq: terminalRoot.seq, run: { status: 'completed' },
+    });
+    expect(roomSlice(restored.getState(), room.id).runEvents[root.id]?.events).toEqual([event]);
+
+    const finalizedUnit = {
+      kind: 'prose' as const,
+      root_message_id: root.id,
+      output_message_id: root.id,
+      event_indices: [0],
+    };
+    const finalizedWindow = {
+      messages: { [root.id]: terminalRoot },
+      journals: {},
+      units: [finalizedUnit],
+      beforeCursor: null,
+      hasMore: false,
+    };
+    restored.getState().updateTranscriptHistory(room.id, (history) => ({
+      ...history,
+      initialized: true,
+      messages: finalizedWindow.messages,
+      units: finalizedWindow.units,
+      cacheWindow: finalizedWindow,
+    }));
+    expect(roomSlice(restored.getState(), room.id).runEvents[root.id]).toBeUndefined();
+    restored.getState().setConnected(true);
+    const retired = snapshotLastGoodRoom('computer-a', restored, room.id)!;
+    expect(retired.rooms[room.id]?.provisionalRuns).toBeUndefined();
+    expect(retired.rooms[room.id]?.history.units).toEqual([finalizedUnit]);
+  });
+  // harn:end hosted-last-good-history-cache-retains-terminal-provisional-runs
 });
-// harn:end hosted-last-good-history-cache-is-per-room-and-bounded
+// harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
