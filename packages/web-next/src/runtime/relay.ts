@@ -178,6 +178,14 @@ export class TunnelClient {
     return this.generationValue;
   }
 
+  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=tunnel-http-activity-indicator
+  /** Read-only liveness context for the hosted app watchdog. A delayed probe
+   * must not replace a healthy tunnel while one of its HTTP streams is still
+   * doing the work that can temporarily monopolize the app socket. */
+  get hasUnsettledHttp(): boolean {
+    return this.pendingHttp.size > 0;
+  }
+
   // harn:assume browser-tunnel-readiness-follows-current-generation ref=current-tunnel-generation
   /** Resolve only for the generation current when readiness is requested. */
   whenReady(): Promise<number> {

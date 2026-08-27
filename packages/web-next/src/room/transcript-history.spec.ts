@@ -291,7 +291,7 @@ describe('combined transcript head recovery', () => {
     });
   });
 
-  // harn:assume cached-room-history-stays-stale-until-bounded-revalidation ref=cached-room-revalidation-regression
+  // harn:assume cached-room-history-revalidates-boundedly-with-provisional-runs ref=cached-room-revalidation-regression
   it('revalidates an initialized cached head, preserves it on failure, and clears stale only on success', async () => {
     const store = createClientStore();
     store.getState().setActiveRoom('same');
@@ -322,7 +322,7 @@ describe('combined transcript head recovery', () => {
     });
     expect(roomSlice(store.getState(), 'same').messages[3]).toBeDefined();
   });
-  // harn:end cached-room-history-stays-stale-until-bounded-revalidation
+  // harn:end cached-room-history-revalidates-boundedly-with-provisional-runs
 
   it('keeps a failed initial head uninitialized and retries it honestly', async () => {
     const store = createClientStore();

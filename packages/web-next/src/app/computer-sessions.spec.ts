@@ -112,6 +112,7 @@ function harness() {
       const tunnel = {
         get state() { return state; },
         get generation() { return generation; },
+        get hasUnsettledHttp() { return false; },
         connect: () => { tunnelStarts.push(id); },
         recover: () => { control.recoveries += 1; },
         whenReady: async () => generation,
@@ -291,6 +292,50 @@ describe('ComputerSessionManager', () => {
       recovery.refreshHead.mockImplementation(
         (_store: unknown, _room: string, _token: () => string) => Promise.resolve(true),
       );
+    }
+  });
+
+  // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-write-coalescing
+  it('coalesces rapid snapshot changes into one delayed cache write', async () => {
+    vi.useFakeTimers();
+    const h = harness();
+    const manager = new ComputerSessionManager(h.deps);
+    try {
+      await manager.start();
+      const storeA = h.connectorOptions.get('A')!.store!;
+      storeA.getState().setActiveRoom('same-room');
+      storeA.getState().applyFrame({
+        type: 'room', seq: 1, room: {
+          id: 'same-room', name: 'Room A', created_ts: '2026-08-01T00:00:00.000Z',
+          config: {
+            turn_brake: null, spend_brake_usd: null, stall_minutes: 30,
+            redaction_enabled: true, bridged: false,
+          },
+        },
+      } as never);
+      storeA.getState().updateTranscriptHistory('same-room', (history) => ({
+        ...history,
+        initialized: true,
+        cacheWindow: {
+          messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false,
+        },
+      }));
+      vi.mocked(saveLastGoodRoom).mockClear();
+
+      // Each state notification captures the latest projection, but the timer
+      // keeps the stream from issuing one IndexedDB put per event.
+      storeA.getState().setConnected(true);
+      storeA.getState().setConnected(true);
+      storeA.getState().setConnected(true);
+      expect(saveLastGoodRoom).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(249);
+      expect(saveLastGoodRoom).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      await Promise.resolve();
+      expect(saveLastGoodRoom).toHaveBeenCalledTimes(1);
+    } finally {
+      manager.dispose();
+      vi.useRealTimers();
     }
   });
 

@@ -1,0 +1,18 @@
+id: hosted-foreground-watchdog-defers-while-http-active
+hash: a-cd34479922fe
+title: Hosted watchdog replacement waits for unsettled tunnel HTTP
+state: active
+statement: A hosted app watchdog must not replace a connected tunnel merely
+  because its list_rooms probe expires while the tunnel has unsettled
+  authenticated HTTP work such as a slow combined-history request. It must allow
+  that request to settle, then use the next ordinary probe to verify health;
+  periodic probes remain refresh-neutral, a genuine foreground transition
+  coalesces onto an in-flight probe and invokes onResume once, and direct
+  connectors retain their existing foreground replacement behavior. The tunnel
+  exposes only this boolean activity indication, not transport internals or a
+  second retry mechanism.
+depends_on:
+  - foreground-watchdog-probes-are-refresh-neutral
+  - hosted-bootstrap-requests-are-abortable-and-generation-bounded
+  - hosted-foregrounding-reuses-healthy-sessions
+created_by: hosted-provisional-runs-and-busy-watchdog

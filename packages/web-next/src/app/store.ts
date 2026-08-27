@@ -19,7 +19,9 @@ import { create, type StoreApi, type UseBoundStore } from 'zustand';
 
 import {
   appendRunEvent,
+  mergeRunEventBuffers,
   type MemberStateObservation,
+  type ProvisionalRunSnapshot,
   type RunEventBuffer,
 } from '@runtime/state.js';
 
@@ -181,6 +183,7 @@ export interface ClientState {
     history: Pick<TranscriptHistoryState, 'messages' | 'journals' | 'units' | 'hasMore'> & {
       beforeCursor: string | null;
     },
+    provisionalRuns?: Record<number, ProvisionalRunSnapshot>,
   ): void;
   setWorktreeGroup(root: string, group: { repositoryId?: string; registered: RegisteredWorktree[] }): void;
   /** Withdraw current-generation live evidence for the listed rooms (socket
@@ -819,9 +822,28 @@ export function createClientStore(): ClientStore {
   setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
-  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-lifecycle
-  hydrateLastGoodRoom: (room, roomSummaries, history) => set((state) => {
+  // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-hydration
+  hydrateLastGoodRoom: (room, roomSummaries, history, provisionalRuns = {}) => set((state) => {
     const current = state.rooms[room.id] ?? freshRoom();
+    const messages = mergeMessagesBySequence(history.messages, current.messages);
+    const hydratedHistory = {
+      ...freshTranscriptHistory(),
+      messages: history.messages,
+      journals: history.journals,
+      units: history.units,
+    };
+    let runEvents = { ...current.runEvents };
+    for (const [rootIdText, provisional] of Object.entries(provisionalRuns)) {
+      const rootId = Number(rootIdText);
+      if (historyOwnsRunFamily(hydratedHistory, rootId)) continue;
+      const currentRoot = messages[rootId];
+      if (currentRoot === undefined || provisional.root.seq > currentRoot.seq) {
+        messages[rootId] = provisional.root;
+      }
+      const merged = mergeRunEventBuffers(runEvents[rootId], provisional.buffer);
+      if (merged !== undefined) runEvents[rootId] = merged;
+    }
+    runEvents = retireHistoryOwnedRunEvents(runEvents, hydratedHistory);
     return {
       connected: false,
       authRefused: false,
@@ -834,13 +856,15 @@ export function createClientStore(): ClientStore {
           ...current,
           hydrated: true,
           room,
-          messages: { ...history.messages },
+          messages,
+          // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-retirement
+          runEvents,
           transcriptHistory: {
             ...freshTranscriptHistory(),
             initialized: true,
-            // harn:assume cached-room-history-stays-stale-until-bounded-revalidation ref=cached-room-revalidation-state
+            // harn:assume cached-room-history-revalidates-boundedly-with-provisional-runs ref=cached-room-revalidation-state
             headNeedsRevalidation: true,
-            // harn:end cached-room-history-stays-stale-until-bounded-revalidation
+            // harn:end cached-room-history-revalidates-boundedly-with-provisional-runs
             failed: false,
             // Only rows already represented by the persisted page are cold
             // duplicates. A newer message arriving from current live hydration
@@ -865,7 +889,7 @@ export function createClientStore(): ClientStore {
       },
     };
   }),
-  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
+  // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
   setWorktreeGroup: (root, group) => set((state) => ({
     worktreeGroups: {
       ...state.worktreeGroups,

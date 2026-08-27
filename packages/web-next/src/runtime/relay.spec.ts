@@ -239,6 +239,23 @@ describe('TunnelClient resilience', () => {
     client.dispose();
   });
 
+  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=tunnel-http-activity-regression
+  it('reports unsettled HTTP work until the request settles', async () => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    client.connect();
+    completeHandshake(dialed[0]!);
+    const controller = new AbortController();
+    const pending = client.fetch('/api/rooms/transcript-history', { signal: controller.signal });
+    expect(client.hasUnsettledHttp).toBe(true);
+
+    controller.abort(new DOMException('cancel busy request', 'AbortError'));
+    await expect(pending).rejects.toThrow(/cancel busy request/);
+    expect(client.hasUnsettledHttp).toBe(false);
+    client.dispose();
+  });
+  // harn:end hosted-foreground-watchdog-defers-while-http-active
+
   // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-regression
   it('aborts one stalled HTTP stream exactly once without dropping the tunnel', async () => {
     const { dialed, socketFactory } = tracker();

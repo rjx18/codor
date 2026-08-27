@@ -169,7 +169,7 @@ test.describe('hosted smooth startup budgets', () => {
   // harn:end prioritized-room-loading-pill-uses-existing-readiness
   // harn:end floating-room-loading-pill-uses-existing-priority
 
-  // harn:assume hosted-last-good-history-cache-is-per-room-and-bounded ref=hosted-last-good-room-map-regression
+  // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-browser-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
   // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-regression
   test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
@@ -261,6 +261,50 @@ test.describe('hosted smooth startup budgets', () => {
     await input.fill('@viewer current evidence restored');
     await expect(page.getByTestId('composer-send')).toBeEnabled();
     console.info('[hosted-cached-render-metrics]', JSON.stringify({ cachedRenderMs }));
+  });
+
+  test('restores a provisional active run and its live evidence while the host is offline', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    const handle = `provisional-${String(Date.now())}`;
+    const live = await control<{ room: string; root: number }>('/live-family', {
+      handle,
+    });
+    await page.goto(`${SPA_ORIGIN}/?room=${encodeURIComponent(live.room)}&token=next-e2e-token`);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+
+    await control('/live-family-step', {
+      room: live.room, handle, step: 'evidence',
+    });
+    await expect(page.locator('.nx-column')).toContainText('Live root stretch.', { timeout: 30_000 });
+    await expect.poll(async () => await page.evaluate(async (rootId) => {
+      const opened = indexedDB.open('codor-last-good-room-v1');
+      const database = await new Promise<IDBDatabase>((resolve, reject) => {
+        opened.onsuccess = () => resolve(opened.result);
+        opened.onerror = () => reject(opened.error);
+      });
+      const snapshot = await new Promise<any>((resolve, reject) => {
+        const request = database.transaction('rooms').objectStore('rooms').getAll();
+        request.onsuccess = () => resolve(request.result.at(0));
+        request.onerror = () => reject(request.error);
+      });
+      database.close();
+      return snapshot?.rooms?.[snapshot.publicRoom]?.provisionalRuns?.[String(rootId)] !== undefined;
+    }, live.root)).toBe(true);
+
+    await control('/relay-down');
+    await expect(page.getByTestId('connection')).toHaveClass(/is-error/, { timeout: 30_000 });
+    const started = Date.now();
+    await page.reload();
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.locator('.nx-column')).toContainText('Live root stretch.', { timeout: 1_000 });
+    expect(Date.now() - started).toBeLessThan(1_000);
+
+    // Leave the shared harness in a healthy state for the following journey;
+    // the provisional proof is about reload readability, not relay teardown.
+    await control('/live-family-step', { room: live.room, handle, step: 'interrupt' });
+    await control('/relay-up');
   });
 
   // harn:assume combined-history-opening-sync-stays-cold ref=hosted-cache-replay-browser-regression
@@ -404,7 +448,7 @@ test.describe('hosted smooth startup budgets', () => {
   // harn:end combined-history-opening-sync-stays-cold
   // harn:end readable-reconnecting-room-never-admits-mutation
   // harn:end readable-reconnecting-room-never-admits-mutation
-  // harn:end hosted-last-good-history-cache-is-per-room-and-bounded
+  // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
 
   test('a cacheless active host that returns late enters the same document automatically', async ({ page }) => {
     test.setTimeout(120_000);

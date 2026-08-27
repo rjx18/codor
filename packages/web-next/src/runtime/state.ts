@@ -25,6 +25,14 @@ export interface RunEventBuffer {
   first_index?: number;
 }
 
+/** The only mutable run projection allowed in the optional last-good snapshot.
+ * The root is presentation context; the event buffer remains bounded and is
+ * retired as soon as finalized combined history owns the family. */
+export interface ProvisionalRunSnapshot {
+  root: Message;
+  buffer: RunEventBuffer;
+}
+
 // harn:assume history-cursor-tracks-only-the-contiguous-tail ref=contiguous-history-state
 export interface RoomState {
   connected: boolean;
@@ -112,6 +120,51 @@ export function appendRunEvent(
     events: overflow === 0 ? events : events.slice(overflow),
     dropped_count: current.dropped_count + overflow,
     ...(current.first_index !== undefined && { first_index: current.first_index + overflow }),
+  };
+}
+
+/** Merge a persisted buffer into the current live buffer without letting an
+ * older snapshot replace newer evidence. Indexed buffers can be joined when
+ * their contiguous ranges touch or overlap; disjoint ranges deliberately keep
+ * the current live buffer because the gap-recovery path owns missing indexes.
+ * Unstamped buffers cannot be reconciled safely, so current live evidence wins. */
+export function mergeRunEventBuffers(
+  current: RunEventBuffer | undefined,
+  cached: RunEventBuffer | undefined,
+): RunEventBuffer | undefined {
+  if (current === undefined) {
+    return cached === undefined ? undefined : { ...cached, events: [...cached.events] };
+  }
+  if (cached === undefined || cached.events.length === 0) return current;
+  if (current.events.length === 0) {
+    return {
+      ...cached,
+      dropped_count: Math.max(current.dropped_count, cached.dropped_count),
+      events: [...cached.events],
+    };
+  }
+  if (current.first_index === undefined || cached.first_index === undefined) return current;
+
+  const currentLast = current.first_index + current.events.length - 1;
+  const cachedLast = cached.first_index + cached.events.length - 1;
+  if (current.first_index > cachedLast + 1 || cached.first_index > currentLast + 1) {
+    return current;
+  }
+
+  const indexed = new Map<number, WireEvent>();
+  cached.events.forEach((event, offset) => indexed.set(cached.first_index! + offset, event));
+  // Current live evidence is authoritative at an overlapping journal index.
+  current.events.forEach((event, offset) => indexed.set(current.first_index! + offset, event));
+  const indexes = [...indexed.keys()].sort((left, right) => left - right);
+  for (let offset = 1; offset < indexes.length; offset += 1) {
+    if (indexes[offset] !== indexes[offset - 1]! + 1) return current;
+  }
+  const overflow = Math.max(0, indexes.length - RUN_EVENT_LIMIT);
+  const kept = indexes.slice(-RUN_EVENT_LIMIT);
+  return {
+    events: kept.map((index) => indexed.get(index)!),
+    dropped_count: Math.max(current.dropped_count, cached.dropped_count) + overflow,
+    first_index: kept[0]!,
   };
 }
 // harn:end run-events-merge-by-journal-index
