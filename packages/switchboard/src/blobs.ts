@@ -1,7 +1,17 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import {
+  appendFileSync,
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+} from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import type { WireEvent } from '@codor/protocol';
+
+import type { JournalEventSpan } from './transcript-history-index.js';
 
 /**
  * Run event journal: JSONL blobs on disk, one per run message
@@ -55,6 +65,55 @@ export class BlobStore {
         }
       });
   }
+
+  // harn:assume indexed-transcript-pages-read-only-selected-evidence ref=indexed-journal-byte-spans
+  /** Full authoritative read plus byte spans used only to derive a rebuildable
+   * lookup index. Invalid JSONL records retain the legacy behavior of being
+   * skipped and therefore do not consume a journal event index. */
+  readWithSpans(room: string, ref: string): {
+    events: WireEvent[];
+    spans: JournalEventSpan[];
+  } {
+    const file = this.path(room, ref);
+    if (!existsSync(file)) return { events: [], spans: [] };
+    const content = readFileSync(file);
+    const events: WireEvent[] = [];
+    const spans: JournalEventSpan[] = [];
+    let offset = 0;
+    while (offset < content.length) {
+      const newline = content.indexOf(0x0a, offset);
+      const end = newline < 0 ? content.length : newline;
+      const length = end - offset;
+      if (content.subarray(offset, end).toString('utf8').trim() !== '') {
+        try {
+          events.push(JSON.parse(content.subarray(offset, end).toString('utf8')) as WireEvent);
+          spans.push({ index: events.length - 1, offset, length });
+        } catch {
+          // Match read(): malformed journal lines remain invisible.
+        }
+      }
+      offset = end + 1;
+    }
+    return { events, spans };
+  }
+
+  /** Read only immutable event ranges selected by a warmed transcript page. */
+  readSpans(room: string, ref: string, spans: readonly JournalEventSpan[]): WireEvent[] {
+    if (spans.length === 0) return [];
+    const file = this.path(room, ref);
+    const descriptor = openSync(file, 'r');
+    try {
+      return spans.map((span) => {
+        const buffer = Buffer.allocUnsafe(span.length);
+        const bytes = readSync(descriptor, buffer, 0, span.length, span.offset);
+        if (bytes !== span.length) throw new Error('indexed run journal span is unavailable');
+        return JSON.parse(buffer.toString('utf8')) as WireEvent;
+      });
+    } finally {
+      closeSync(descriptor);
+    }
+  }
+  // harn:end indexed-transcript-pages-read-only-selected-evidence
 
   exists(room: string, ref: string): boolean {
     return existsSync(this.path(room, ref));

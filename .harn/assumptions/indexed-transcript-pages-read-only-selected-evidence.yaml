@@ -1,0 +1,19 @@
+id: indexed-transcript-pages-read-only-selected-evidence
+hash: a-421c927a3ed8
+title: Warm transcript pages read only selected metadata and evidence
+state: active
+statement: >
+  Once a room has a complete current transcript index, authenticated head and v1
+  cursor requests establish their twenty charged text-slot window directly from
+  indexed chronology, include the same adjacent zero-cost evidence, and load
+  only the selected message records and indexed JSONL byte spans. They never
+  rescan all room messages or full run journals; work and metrics therefore grow
+  with selected units/evidence rather than total room history, while cursor
+  completeness, ordering, redaction, response schemas, and has_more semantics
+  remain byte-for-byte compatible.
+depends_on:
+  - transcript-history-index-is-derived-and-rebuildable
+  - historical-transcript-pages-budget-text-slots
+  - transcript-history-cursors-cover-complete-established-order
+  - redaction-before-fanout
+created_by: indexed-transcript-history-pages

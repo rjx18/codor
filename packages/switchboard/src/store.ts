@@ -71,6 +71,7 @@ import {
 
 import { estimateCostUsd, priceForModel } from './pricing.js';
 import { redactText } from './redact.js';
+import { TranscriptHistoryIndex } from './transcript-history-index.js';
 import {
   type CollaborationGroup,
   CollaborationGroupSchema,
@@ -2044,6 +2045,7 @@ export class AgentPresetReferenceConflictError extends Error {
  */
 export class Store {
   private readonly db: Database.Database;
+  readonly transcriptHistoryIndex: TranscriptHistoryIndex;
 
   constructor(path: string, options: { codexHome?: string; roomDataRoots?: readonly string[] } = {}) {
     this.db = new Database(path);
@@ -2086,6 +2088,11 @@ export class Store {
         this.db,
         options.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex'),
       );
+      // harn:assume transcript-history-index-is-derived-and-rebuildable ref=transcript-history-index-lifecycle
+      // Install after every legacy message-table rebuild so the mutation
+      // triggers always bind to the final authoritative table.
+      this.transcriptHistoryIndex = new TranscriptHistoryIndex(this.db);
+      // harn:end transcript-history-index-is-derived-and-rebuildable
       this.reconcileWorktreeChildMetadata();
     } catch (error) {
       this.db.close();

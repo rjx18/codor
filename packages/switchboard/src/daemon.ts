@@ -6490,9 +6490,22 @@ export class Daemon {
       source: {
         listMessages: (sourceRoom, opts) => this.store.listMessages(sourceRoom, opts),
         getMessage: (sourceRoom, id) => this.store.getMessage(sourceRoom, id),
+        transcriptHistoryIndex: this.store.transcriptHistoryIndex,
         readRunJournal: (sourceRoom, rootMessageId) => {
           const root = this.store.getMessage(sourceRoom, rootMessageId);
           return root?.run === undefined ? [] : this.blobs.read(sourceRoom, root.run.events_ref);
+        },
+        readRunJournalWithSpans: (sourceRoom, rootMessageId) => {
+          const root = this.store.getMessage(sourceRoom, rootMessageId);
+          return root?.run === undefined
+            ? { events: [], spans: [] }
+            : this.blobs.readWithSpans(sourceRoom, root.run.events_ref);
+        },
+        readRunJournalSpans: (sourceRoom, rootMessageId, spans) => {
+          const root = this.store.getMessage(sourceRoom, rootMessageId);
+          return root?.run === undefined
+            ? []
+            : this.blobs.readSpans(sourceRoom, root.run.events_ref, spans);
         },
       },
     });
