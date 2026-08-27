@@ -1,6 +1,6 @@
 {
   "name": "@codor/adapter-gemini",
-  "version": "0.10.14-alpha.5",
+  "version": "0.10.14-alpha.6",
   "license": "MIT",
   "private": true,
   "type": "module",
