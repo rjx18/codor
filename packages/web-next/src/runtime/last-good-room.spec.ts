@@ -322,5 +322,104 @@ describe('hosted last-good room cache', () => {
     }));
     expect(roomSlice(store.getState(), room.id).runEvents[root.id]).toBeUndefined();
   });
+
+  // harn:assume hosted-last-good-history-cache-retains-terminal-provisional-runs ref=terminal-provisional-regression
+  it('retains terminal output through cached reload until finalized history owns it', async () => {
+    const room = snapshot('computer-a', 'room-a').rooms['room-a']!.room;
+    const root: Message = {
+      room: room.id,
+      id: 93,
+      seq: 93,
+      ts: '2026-08-10T00:00:00.000Z',
+      author: '01ARZ3NDEKTSV4RRFFQ69G5FAV',
+      kind: 'run',
+      body: '',
+      mentions: [],
+      refs: [],
+      ledger_refs: [],
+      deleted: false,
+      ack: false,
+      pinned: false,
+      run: {
+        status: 'running',
+        started_ts: '2026-08-10T00:00:00.000Z',
+        tool_calls: 0,
+        events_ref: 'events-93',
+      },
+    };
+    const event = {
+      type: 'run.item' as const,
+      item_type: 'text_delta' as const,
+      payload: { text: 'terminal cache output' },
+    };
+    const store = createClientStore();
+    store.getState().setActiveRoom(room.id);
+    store.getState().applyFrame({ type: 'room', seq: 1, room });
+    store.getState().applyFrame({ type: 'message', seq: root.seq, message: root });
+    store.getState().applyFrame({
+      type: 'run_event', room: room.id, message_id: root.id, index: 0, event,
+    } as never);
+    store.getState().setConnected(true);
+
+    const runningSnapshot = snapshotLastGoodRoom('computer-a', store, room.id)!;
+    expect(runningSnapshot.rooms[room.id]?.provisionalRuns?.[root.id]?.root.run?.status)
+      .toBe('running');
+
+    const terminalRoot: Message = {
+      ...root,
+      seq: 94,
+      run: {
+        ...root.run!,
+        status: 'completed' as const,
+        ended_ts: '2026-08-10T00:00:02.000Z',
+        result_message_id: root.id,
+      },
+    };
+    store.getState().applyFrame({ type: 'message', seq: terminalRoot.seq, message: terminalRoot });
+    const terminalSnapshot = snapshotLastGoodRoom('computer-a', store, room.id)!;
+    expect(terminalSnapshot.rooms[room.id]?.provisionalRuns?.[root.id]).toMatchObject({
+      root: { id: root.id, seq: terminalRoot.seq, run: { status: 'completed' } },
+      buffer: { events: [event] },
+    });
+
+    const storage = memoryStorage();
+    await saveLastGoodRoom(terminalSnapshot, storage);
+    const cached = await loadLastGoodRoom('computer-a', storage);
+    expect(cached?.rooms[room.id]?.provisionalRuns?.[root.id]?.root.run?.status).toBe('completed');
+
+    const restored = createClientStore();
+    hydrateLastGoodRoom(restored, cached!);
+    expect(roomSlice(restored.getState(), room.id).messages[root.id]).toMatchObject({
+      id: root.id, seq: terminalRoot.seq, run: { status: 'completed' },
+    });
+    expect(roomSlice(restored.getState(), room.id).runEvents[root.id]?.events).toEqual([event]);
+
+    const finalizedUnit = {
+      kind: 'prose' as const,
+      root_message_id: root.id,
+      output_message_id: root.id,
+      event_indices: [0],
+    };
+    const finalizedWindow = {
+      messages: { [root.id]: terminalRoot },
+      journals: {},
+      units: [finalizedUnit],
+      beforeCursor: null,
+      hasMore: false,
+    };
+    restored.getState().updateTranscriptHistory(room.id, (history) => ({
+      ...history,
+      initialized: true,
+      messages: finalizedWindow.messages,
+      units: finalizedWindow.units,
+      cacheWindow: finalizedWindow,
+    }));
+    expect(roomSlice(restored.getState(), room.id).runEvents[root.id]).toBeUndefined();
+    restored.getState().setConnected(true);
+    const retired = snapshotLastGoodRoom('computer-a', restored, room.id)!;
+    expect(retired.rooms[room.id]?.provisionalRuns).toBeUndefined();
+    expect(retired.rooms[room.id]?.history.units).toEqual([finalizedUnit]);
+  });
+  // harn:end hosted-last-good-history-cache-retains-terminal-provisional-runs
 });
 // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional

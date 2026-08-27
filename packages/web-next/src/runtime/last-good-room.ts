@@ -42,6 +42,7 @@ export interface LastGoodRoomSnapshot {
 }
 
 const PROVISIONAL_RUN_LIMIT = 64;
+const PROVISIONAL_RUN_STATUSES = new Set(['running', 'completed', 'failed', 'interrupted']);
 
 function validRunEventBuffer(value: unknown): value is RunEventBuffer {
   if (typeof value !== 'object' || value === null) return false;
@@ -64,6 +65,7 @@ function historyOwnsRunFamily(
     || history.units.some((unit) => unit.kind !== 'message' && unit.root_message_id === rootId);
 }
 
+// harn:assume hosted-last-good-history-cache-retains-terminal-provisional-runs ref=terminal-provisional-schema
 function validProvisionalRuns(
   value: unknown,
   roomId: string,
@@ -82,7 +84,8 @@ function validProvisionalRuns(
       && root.id === rootId
       && root.room === roomId
       && root.kind === 'run'
-      && root.run?.status === 'running'
+      && root.run?.status !== undefined
+      && PROVISIONAL_RUN_STATUSES.has(root.run.status)
       && root.run_parent_id === undefined
       && root.attachments === undefined
       && root.voice === undefined
@@ -90,6 +93,7 @@ function validProvisionalRuns(
       && validRunEventBuffer(candidate.buffer);
   });
 }
+// harn:end hosted-last-good-history-cache-retains-terminal-provisional-runs
 
 export interface LastGoodRoomStorage {
   get(key: string): Promise<unknown>;
@@ -271,16 +275,19 @@ export function snapshotLastGoodRoom(
     const history = slice.transcriptHistory;
     const cache = history.cacheWindow;
     if (!room) return [];
+    // harn:assume hosted-last-good-history-cache-retains-terminal-provisional-runs ref=terminal-provisional-snapshot
     const provisionalById = new Map<number, Message>();
     for (const candidate of [
       ...Object.values(slice.messages),
       ...(slice.support?.active_runs ?? []),
     ]) {
-      if (candidate.kind !== 'run' || candidate.run?.status !== 'running'
+      if (candidate.kind !== 'run' || candidate.run?.status === undefined
+        || !PROVISIONAL_RUN_STATUSES.has(candidate.run.status)
         || candidate.run_parent_id !== undefined) continue;
       const prior = provisionalById.get(candidate.id);
       if (prior === undefined || candidate.seq >= prior.seq) provisionalById.set(candidate.id, candidate);
     }
+    // harn:end hosted-last-good-history-cache-retains-terminal-provisional-runs
     const provisionalRuns: Record<number, ProvisionalRunSnapshot> = {};
     const provisionalEntries = [...provisionalById.entries()]
       .sort(([, left], [, right]) => left.seq - right.seq)
