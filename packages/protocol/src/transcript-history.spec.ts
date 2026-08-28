@@ -141,6 +141,23 @@ describe('TranscriptHistoryPageSchema', () => {
     expect(newestTranscriptHistoryUnits(units, 2)).toEqual(units.slice(1));
   });
 
+  it('leaves orphaned leading evidence with its prose on the predecessor page', () => {
+    const family = [
+      { kind: 'prose' as const, root_message_id: 7, output_message_id: 7, event_indices: [1] },
+      { kind: 'tool' as const, root_message_id: 7, output_message_id: 7, event_indices: [2, 3] },
+    ];
+    const messages = Array.from({ length: 20 }, (_, index) => ({
+      kind: 'message' as const,
+      message_id: index + 10,
+    }));
+    const head = newestTranscriptHistoryUnits([...family, ...messages], 20);
+
+    expect(head).toEqual(messages);
+    expect(transcriptHistoryTextSlotCount(head)).toBe(20);
+    expect(newestTranscriptHistoryUnits(family, 20)).toEqual(family);
+    expect(transcriptHistoryTextSlotCount(family)).toBe(1);
+  });
+
   it('rejects invalid or unreferenced journal indices and unknown unit kinds', () => {
     const page = validPage();
     expect(TranscriptHistoryPageSchema.safeParse({

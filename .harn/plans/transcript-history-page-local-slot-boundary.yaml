@@ -1,0 +1,91 @@
+id: transcript-history-page-local-slot-boundary
+title: Keep transcript page boundaries within page-local text-slot budgets
+notes: >
+  Contained correction on exact origin/main base
+  44fe9e8a929d7196d4c00c209dc2172fe8d30284. A derived index may mark tool
+  evidence free because its prose exists in the complete transcript, then omit
+  that prose at a twenty-slot boundary while carrying the evidence into the
+  returned page. The protocol correctly charges that now-orphaned evidence as an
+  evidence-only fallback, making the projection twenty-one slots. Make the
+  shared protocol window selector evaluate the returned window in isolation:
+  retain leading evidence only when its selected page-local family contains
+  text, otherwise leave it for the predecessor page. Apply that same selector
+  after the bounded indexed query and in the legacy builder. Do not change the
+  v1 cursor schema, established chronology, index schema/write maintenance,
+  twenty-slot page or forty-slot cache limits, associated evidence ownership,
+  bounded index reads, browser reconciliation, or journal fallback behavior.
+assumptions:
+  reviewed:
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: >
+        Every standalone response still contains at most twenty page-local text
+        slots, retains complete evidence associated with selected text, and
+        advances orphaned evidence with its preceding family exactly once.
+    - id: indexed-transcript-pages-read-only-current-selected-evidence
+      outcome: unchanged
+      reason: >
+        The indexed query remains bounded to the charged boundary and adjacent
+        evidence; page-local trimming reads no additional message or journal
+        records and preserves fixed-cost warm metrics.
+    - id: transcript-history-cursors-cover-complete-established-order
+      outcome: unchanged
+      reason: >
+        Cursors retain their v1 identity and immutable ceiling while the oldest
+        actually returned unit becomes the boundary, so cursor walks have no
+        gaps or duplicates.
+    - id: transcript-history-index-is-write-maintained-and-rebuildable
+      outcome: unchanged
+      reason: >
+        Derived charge metadata, index schema, eager mutation maintenance, and
+        crash-only dirty recovery remain unchanged.
+    - id: transcript-history-prepends-one-text-slot-page
+      outcome: unchanged
+      reason: >
+        Direct and hosted readers still receive one at-most-twenty-slot page per
+        deliberate cursor request with complete selected evidence.
+    - id: combined-head-reconciliation-is-two-page-bounded
+      outcome: unchanged
+      reason: >
+        Head reconciliation remains bounded to one head and optional
+        predecessor; corrected server boundaries require no extra request or
+        bridge.
+files:
+  - .harn/plans/transcript-history-page-local-slot-boundary.yaml
+  - packages/protocol/src/transcript-history.ts
+  - packages/protocol/src/transcript-history.spec.ts
+  - packages/switchboard/src/transcript-history.ts
+  - packages/switchboard/src/transcript-history.spec.ts
+  - packages/switchboard/src/transcript-history-index.spec.ts
+  - packages/switchboard/src/server.spec.ts
+anchors:
+  historical-transcript-pages-budget-text-slots:
+    transcript-history-text-slot-protocol:
+      action: change
+      reason: >
+        Select the newest window by the slot cost of the returned projection,
+        retaining only leading evidence whose selected family contains text.
+    transcript-history-text-slot-regression:
+      action: change
+      reason: >
+        Reproduce the old prose and tool family followed by twenty messages,
+        prove the head stays at twenty page-local slots, and prove the
+        predecessor owns the complete displaced evidence without cursor gaps.
+    transcript-history-text-slot-page-builder:
+      action: change
+      reason: >
+        Apply the shared page-local selector to bounded indexed candidates just
+        as the legacy builder already does, and encode the returned boundary.
+  indexed-transcript-pages-read-only-current-selected-evidence:
+    indexed-transcript-page-regression:
+      action: change
+      reason: >
+        Prove indexed and legacy head/predecessor parity with bounded reads and
+        no backfill or journal scan fallback at the page-local boundary.
+    indexed-transcript-page-query:
+      action: change
+      reason: >
+        Trim the already-bounded indexed candidate rows with the shared protocol
+        selector before projecting messages, evidence, and the cursor.
+applied:
+  applied_at: 2026-08-28T16:36:35.844Z

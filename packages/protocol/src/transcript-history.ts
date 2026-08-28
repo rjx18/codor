@@ -86,19 +86,29 @@ export function transcriptHistoryTextSlotCount(
   return transcriptHistoryTextSlotIndices(units).length;
 }
 
-/** Select the newest text-slot window and include the zero-cost evidence since
- * the immediately preceding charged boundary. This keeps the tools that lead
- * into the oldest selected text without pulling in the preceding text slot. */
+/** Select the newest text-slot window and include only evidence that remains
+ * zero-cost in the returned projection. This keeps tools that lead into the
+ * oldest selected text, while evidence whose text is on the predecessor stays
+ * with that predecessor instead of becoming a page-local fallback slot. */
 export function newestTranscriptHistoryUnits(
   units: readonly TranscriptHistoryUnit[],
   limit: number,
 ): TranscriptHistoryUnit[] {
   if (limit <= 0 || units.length === 0) return [];
-  const charged = transcriptHistoryTextSlotIndices(units);
-  if (charged.length <= limit) return [...units];
-  const chargedSet = new Set(charged);
-  let start = charged[charged.length - limit]!;
-  while (start > 0 && !chargedSet.has(start - 1)) start -= 1;
+  let start = 0;
+  let selected = [...units];
+  let charged = transcriptHistoryTextSlotIndices(selected);
+  while (charged.length > limit) {
+    start += charged[charged.length - limit]!;
+    selected = units.slice(start);
+    charged = transcriptHistoryTextSlotIndices(selected);
+  }
+  const selectedSlots = charged.length;
+  while (start > 0) {
+    const candidateSlots = transcriptHistoryTextSlotCount(units.slice(start - 1));
+    if (candidateSlots !== selectedSlots) break;
+    start -= 1;
+  }
   return units.slice(start);
 }
 

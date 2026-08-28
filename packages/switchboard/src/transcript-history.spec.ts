@@ -142,6 +142,37 @@ describe('buildTranscriptHistoryPage', () => {
     expect(page.has_more).toBe(false);
   });
 
+  it('moves leading evidence whose prose misses the head boundary to the predecessor', () => {
+    const events: WireEvent[] = [
+      {
+        type: 'run.item', item_type: 'text_block', output_message_id: 1,
+        payload: { text: 'old prose' }, ts: at(1),
+      },
+      ...toolPair(1, 1),
+      { type: 'run.completed', status: 'completed', output_message_id: 1 },
+    ];
+    const messages = [
+      run(1, 'completed', { outputMode: true, finalText: 'old prose' }),
+      ...Array.from({ length: 20 }, (_, index) => chat(index + 2)),
+    ];
+    const source = new Source(messages, new Map([[1, events]]));
+
+    const head = buildTranscriptHistoryPage({ room: 'eng', source });
+    expect(head.metrics.selected_text_slots).toBe(20);
+    expect(head.page.units).toEqual(messages.slice(1).map((message) => ({
+      kind: 'message', message_id: message.id,
+    })));
+    expect(head.page).toMatchObject({ has_more: true });
+    expect(head.page.before_cursor).not.toBeNull();
+
+    const predecessor = buildTranscriptHistoryPage({
+      room: 'eng', cursor: head.page.before_cursor!, source,
+    });
+    expect(predecessor.metrics.selected_text_slots).toBe(1);
+    expect(predecessor.page.units.map((unit) => unit.kind)).toEqual(['prose', 'tool']);
+    expect(predecessor.page).toMatchObject({ has_more: false, before_cursor: null });
+  });
+
   // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-cursor-regression
   it('walks a complete mixed transcript order once when the oldest id sorts newest', () => {
     const stamp = (minute: number): string =>

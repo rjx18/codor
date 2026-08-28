@@ -8,6 +8,8 @@ import { join, resolve } from 'node:path';
 import {
   ActFrameSchema,
   BROWSER_PROTOCOL_EPOCH,
+  transcriptHistoryTextSlotCount,
+  TranscriptHistoryPageSchema,
   VoiceTranscribeError,
   worktreeSelectorFromBranch,
   type Member,
@@ -2164,6 +2166,63 @@ describe('REST', () => {
       expect(page.messages.some((message) => interactions.includes(message.id))).toBe(false);
     });
     // harn:end actionable-interactions-do-not-spend-history-text-slots
+
+    it('serves orphaned leading evidence only with its prose on the REST predecessor', async () => {
+      const owner = daemon.ownerOf('eng');
+      const root = daemon.store.postMessage('eng', { author: owner.id, kind: 'run', body: 'old prose' });
+      const eventsRef = `runs/${String(root.id)}.jsonl`;
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.item', item_type: 'text_block', output_message_id: root.id,
+        payload: { text: 'old prose' },
+      });
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.item', item_type: 'tool_call', output_message_id: root.id,
+        payload: { call_id: 'boundary-tool', tool: 'Read', title: 'read boundary' },
+      });
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.item', item_type: 'tool_result', output_message_id: root.id,
+        payload: { call_id: 'boundary-tool', status: 'ok', output_text: 'done' },
+      });
+      daemon.blobs.append('eng', eventsRef, {
+        type: 'run.completed', status: 'completed', output_message_id: root.id,
+      });
+      daemon.store.updateMessage('eng', root.id, {
+        run: {
+          status: 'completed',
+          started_ts: '2026-08-08T00:00:00.000Z',
+          ended_ts: '2026-08-08T00:01:00.000Z',
+          tool_calls: 1,
+          events_ref: eventsRef,
+          output_mode: 'messages',
+          final_text: 'old prose',
+          result_message_id: root.id,
+        },
+      });
+      daemon.transcriptHistoryPage('eng');
+      const newerIds = Array.from({ length: 20 }, (_, index) => daemon.store.postMessage('eng', {
+        author: owner.id, kind: 'chat', body: `newer REST message ${String(index)}`,
+      }).id);
+
+      const headers = { authorization: `Bearer ${TOKEN}` };
+      const headResponse = await fetch(`${base}/api/rooms/eng/transcript-history`, { headers });
+      expect(headResponse.status).toBe(200);
+      const head = TranscriptHistoryPageSchema.parse(await headResponse.json());
+      expect(transcriptHistoryTextSlotCount(head.units)).toBe(20);
+      expect(head.units).toEqual(newerIds.map((messageId) => ({
+        kind: 'message', message_id: messageId,
+      })));
+      expect(head.before_cursor).not.toBeNull();
+
+      const predecessorResponse = await fetch(
+        `${base}/api/rooms/eng/transcript-history?cursor=${encodeURIComponent(head.before_cursor!)}`,
+        { headers },
+      );
+      expect(predecessorResponse.status).toBe(200);
+      const predecessor = TranscriptHistoryPageSchema.parse(await predecessorResponse.json());
+      expect(transcriptHistoryTextSlotCount(predecessor.units)).toBe(1);
+      expect(predecessor.units.map((unit) => unit.kind)).toEqual(['prose', 'tool']);
+      expect(predecessor).toMatchObject({ has_more: false, before_cursor: null });
+    });
 
     // harn:assume transcript-history-cursors-cover-complete-established-order ref=complete-transcript-rest-regression
     it('returns every mixed-history unit once when an oldest id sorts into the newest page', async () => {
