@@ -308,6 +308,59 @@ describe('derived transcript history index', () => {
     store.close();
   });
 
+  it('keeps orphaned leading evidence on the bounded indexed predecessor page', () => {
+    const { store, blobs, ownerId } = fixture();
+    const rootId = finalizeRun({
+      store,
+      blobs,
+      ownerId,
+      finalText: 'old prose',
+      events: [
+        {
+          type: 'run.item', item_type: 'text_block', output_message_id: 1,
+          payload: { text: 'old prose' },
+        },
+        ...toolPair(1, 1),
+        { type: 'run.completed', status: 'completed', output_message_id: 1 },
+      ],
+    });
+    expect(rootId).toBe(1);
+    const indexedSource = source(store, blobs, true);
+    buildTranscriptHistoryPage({ room: 'eng', source: indexedSource });
+    for (let index = 0; index < 20; index += 1) {
+      store.postMessage('eng', {
+        author: ownerId, kind: 'chat', body: `newer message ${String(index)}`,
+      });
+    }
+
+    const legacy = buildTranscriptHistoryPage({ room: 'eng', source: source(store, blobs, false) });
+    const indexed = buildTranscriptHistoryPage({ room: 'eng', source: indexedSource });
+    expect(indexed.page).toEqual(legacy.page);
+    expect(indexed.metrics).toMatchObject({
+      selected_text_slots: 20,
+      message_records_read: 21,
+      journal_events_scanned: 0,
+      index_backfilled: false,
+    });
+    expect(indexed.metrics.index_rows_read).toBeLessThanOrEqual(42);
+    expect(indexed.page.units.every((unit) => unit.kind === 'message')).toBe(true);
+
+    const legacyPredecessor = buildTranscriptHistoryPage({
+      room: 'eng', cursor: legacy.page.before_cursor!, source: source(store, blobs, false),
+    });
+    const indexedPredecessor = buildTranscriptHistoryPage({
+      room: 'eng', cursor: indexed.page.before_cursor!, source: indexedSource,
+    });
+    expect(indexedPredecessor.page).toEqual(legacyPredecessor.page);
+    expect(indexedPredecessor.page.units.map((unit) => unit.kind)).toEqual(['prose', 'tool']);
+    expect(indexedPredecessor.page).toMatchObject({ has_more: false, before_cursor: null });
+    expect(indexedPredecessor.metrics.selected_text_slots).toBe(1);
+    expect(indexedPredecessor.metrics.message_records_read).toBeLessThanOrEqual(3);
+    expect(indexedPredecessor.metrics.index_backfilled).toBe(false);
+    expect(store.transcriptHistoryIndex.dirtyMessageIds('eng')).toEqual([]);
+    store.close();
+  });
+
   it('matches legacy pages for every terminal family shape after eager maintenance', () => {
     const { store, blobs, ownerId } = fixture();
     store.postMessage('eng', { author: ownerId, kind: 'chat', body: 'seed' });

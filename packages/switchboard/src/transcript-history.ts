@@ -537,9 +537,16 @@ function buildIndexedTranscriptHistoryPage(opts: {
     },
     textSlotLimit: HISTORICAL_TRANSCRIPT_PAGE_SIZE,
   });
+  const selectedUnits = newestTranscriptHistoryUnits(
+    selection.entries.map((entry) => entry.unit),
+    HISTORICAL_TRANSCRIPT_PAGE_SIZE,
+  );
+  const selectedSet = new Set(selectedUnits);
+  const selectedEntries = selection.entries.filter((entry) => selectedSet.has(entry.unit));
+  const hasMore = selection.hasMore || selectedEntries.length < selection.entries.length;
   const selectedMessageIds = new Set<number>();
   const spansByRoot = new Map<number, Map<number, JournalEventSpan>>();
-  for (const entry of selection.entries) {
+  for (const entry of selectedEntries) {
     if (entry.unit.kind === 'message') {
       selectedMessageIds.add(entry.unit.message_id);
       continue;
@@ -563,12 +570,12 @@ function buildIndexedTranscriptHistoryPage(opts: {
       events: spans.map((span, index) => ({ index: span.index, event: events[index]! })),
     };
   }).filter((journal) => journal.events.length > 0);
-  const oldest = selection.entries[0];
+  const oldest = selectedEntries[0];
   const page = TranscriptHistoryPageSchema.parse({
     messages,
     journals,
-    units: selection.entries.map((entry) => entry.unit),
-    before_cursor: selection.hasMore && oldest !== undefined
+    units: selectedEntries.map((entry) => entry.unit),
+    before_cursor: hasMore && oldest !== undefined
       ? encodeCursor({
           v: 1,
           room: opts.room,
@@ -579,7 +586,7 @@ function buildIndexedTranscriptHistoryPage(opts: {
           },
         })
       : null,
-    has_more: selection.hasMore,
+    has_more: hasMore,
   });
   return {
     page,
