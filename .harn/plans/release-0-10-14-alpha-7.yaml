@@ -37,8 +37,8 @@ assumptions:
         release identity advances.
     - id: acp-v1-events-and-capabilities-are-negotiated
       outcome: unchanged
-      reason: ACP behavior is unchanged; clientInfo reports the common
-        0.10.14-alpha.7 identity.
+      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.14-alpha.7
+        identity.
     - id: workspace-gates-cover-all-buildable-projects
       outcome: unchanged
       reason: Recursive build, serialized tests, browser tests, audits, and install
@@ -130,3 +130,5 @@ verification: >
   workflow green, then verify npm alpha, GitHub prerelease assets and checksums,
   public npx metadata, and Codor.app production deployment. Do not move npm
   latest or modify runtime behavior.
+applied:
+  applied_at: 2026-08-28T17:02:09.284Z
