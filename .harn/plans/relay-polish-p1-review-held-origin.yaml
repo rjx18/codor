@@ -1,0 +1,48 @@
+id: relay-polish-p1-review-held-origin
+title: Expose held recovery independently of human headers
+notes: >
+  Review correction at 40442dc2. Move held trigger out of human-only read
+  receipts into the message body container so grouped humans and agent replies
+  can recover. Resolve held ownership through the existing row target IDs,
+  including merged outputs and root aliases. Preserve read receipts, one-shot
+  release, removed filtering and explicit navigation. Do not touch permalink
+  span layout or backend.
+assumptions:
+  reviewed:
+    - id: held-delivery-recovery-stays-on-origin-message
+      outcome: unchanged
+      reason: Make the existing origin control reachable for every author and grouped
+        row.
+    - id: held-delivery-release-is-one-shot-and-recoverable
+      outcome: unchanged
+      reason: Retain synchronous reservation and release_hold semantics.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Human read receipts retain their existing eligibility and delivery state.
+    - id: held-history-expansion-requires-reader-intent
+      outcome: unchanged
+      reason: No automatic navigation; use only existing rendered target ownership.
+files:
+  - .harn/plans/relay-polish-p1-review-held-origin.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room44-held-history.e2e.spec.ts
+anchors:
+  held-delivery-recovery-stays-on-origin-message:
+    message-owned-held-recovery:
+      action: change
+      reason: Independent trigger and existing target ownership.
+    held-origin-render-regression:
+      action: change
+      reason: Agent and grouped-human reachability.
+  agent-delivery-lifecycle-streams-v2:
+    steering-delivery-indicator:
+      action: change
+      reason: Separate recovery from human receipts.
+  held-history-expansion-requires-reader-intent:
+    explicit-held-navigation:
+      action: keep
+      reason: Preserve zero automatic crawl.
+applied:
+  applied_at: 2026-09-08T12:41:39.789Z

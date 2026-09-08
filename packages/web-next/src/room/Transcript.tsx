@@ -56,7 +56,7 @@ import {
   indexedEventsForUnit,
   loadOlderTranscriptHistory,
   refreshTranscriptHistoryHead,
-  revealTranscriptTarget,
+  targetMaterialized,
   transcriptUnitKey,
 } from './transcript-history.js';
 
@@ -360,20 +360,14 @@ export function Transcript(props: { room: string; token: () => string; connectio
   const historySettleTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const inbox = slice.inbox;
-  const heldMessageIds = useMemo(() => [...new Set(Object.values(inbox)
-    .filter((delivery) => delivery.state === 'held')
-    .map((delivery) => delivery.message_id))], [inbox]);
-  const heldTargetRequestsRef = useRef(new Set<number>());
-  useEffect(() => {
-    if (!connected || !history.initialized) return;
-    for (const id of heldMessageIds) {
-      if (messages[id] !== undefined || history.messages[id] !== undefined
-        || heldTargetRequestsRef.current.has(id)) continue;
-      heldTargetRequestsRef.current.add(id);
-      void revealTranscriptTarget(useClientStore, props.room, id, props.token)
-        .finally(() => heldTargetRequestsRef.current.delete(id));
-    }
-  }, [connected, heldMessageIds, history.initialized, history.messages, messages, props.room, props.token]);
+  // harn:assume held-history-expansion-requires-reader-intent ref=explicit-held-navigation
+  const unloadedHolds = Object.values(inbox).filter((delivery) =>
+    delivery.state === 'held'
+    && members[delivery.recipient]?.kind === 'agent'
+    && members[delivery.recipient]?.removed_ts === undefined
+    && messages[delivery.message_id] === undefined
+    && !targetMaterialized(history, delivery.message_id));
+  // harn:end held-history-expansion-requires-reader-intent
   const inlineInteractions = useMemo(
     () => support?.interactions.filter((message) => messages[message.id] !== undefined
       || interactionInCurrentHistoryWindow(history, message)) ?? [],
@@ -1075,6 +1069,18 @@ export function Transcript(props: { room: string; token: () => string; connectio
 
   return (
     <div className="nx-transcript-wrap">
+      {unloadedHolds.length > 0 && (
+        <details className="nx-held-recovery" data-testid="unloaded-held-recovery">
+          <summary>{unloadedHolds.length} earlier deliveries need review</summary>
+          {unloadedHolds.map((delivery) => (
+            <button key={delivery.id} type="button" className="nx-pinned-item"
+              disabled={!connected}
+              onClick={() => void jumpToMessage(props.room, delivery.message_id, props.token)}>
+              Review message #{delivery.message_id} for @{members[delivery.recipient]?.handle}
+            </button>
+          ))}
+        </details>
+      )}
       {pinned.length > 0 && (
         <div className="nx-pinned-strip" data-testid="pinned-strip">
           <Pin size={13} aria-hidden="true" className="nx-pinned-mark" />
@@ -1257,7 +1263,7 @@ function pinnedSnippet(message: Message): string {
 
 // ── One turn: header (unless grouped) + body content ─────────────────────
 
-function TurnBlock(props: {
+export function TurnBlock(props: {
   message: Message;
   author: Member | undefined;
   mine: boolean;
@@ -1284,10 +1290,13 @@ function TurnBlock(props: {
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
+  const heldTargets = new Set(props.historical?.targetIds
+    ?? props.liveFamilyMessages?.map((output) => output.id) ?? [message.id]);
   const held = Object.values(props.deliveries).filter(
-    (delivery) => delivery.message_id === message.id
+    (delivery) => heldTargets.has(delivery.message_id)
       && delivery.state === 'held'
-      && props.members[delivery.recipient]?.kind === 'agent',
+      && props.members[delivery.recipient]?.kind === 'agent'
+      && props.members[delivery.recipient]?.removed_ts === undefined,
   );
   const [heldOpen, setHeldOpen] = useState(false);
   // harn:assume held-delivery-release-is-one-shot-and-recoverable ref=one-shot-held-release
@@ -1455,8 +1464,6 @@ function TurnBlock(props: {
                 message={message}
                 deliveries={props.deliveries}
                 members={props.members}
-                heldOpen={heldOpen}
-                onHeldToggle={() => setHeldOpen((open) => !open)}
               />
             )}
             <span className="nx-turn-spacer" />
@@ -1501,6 +1508,14 @@ function TurnBlock(props: {
               )}
             </span>
           </div>
+        )}
+        {held.length > 0 && (
+          <button type="button" className="nx-held-trigger"
+            aria-label={`${held.length} held ${held.length === 1 ? 'delivery' : 'deliveries'}`}
+            aria-expanded={heldOpen} data-testid={`msg-${message.id}-held`}
+            onClick={() => setHeldOpen((open) => !open)}>
+            <CircleAlert size={13} aria-hidden="true" />
+          </button>
         )}
         {message.kind === 'run'
           ? <RunContent
@@ -1719,8 +1734,6 @@ function SeenTicks(props: {
   message: Message;
   deliveries: Record<string, Delivery>;
   members: Record<string, Member>;
-  heldOpen: boolean;
-  onHeldToggle: () => void;
 }) {
   const relevant = Object.values(props.deliveries).filter(
     (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent',
@@ -1728,7 +1741,6 @@ function SeenTicks(props: {
   if (relevant.length === 0) return null;
   // delivering means the turn already carries the payload — the agent has it.
   const indicator = deliveryIndicator(relevant);
-  const held = relevant.filter((delivery) => delivery.state === 'held');
   return (
     <span className="nx-delivery-state">
       <span
@@ -1740,18 +1752,6 @@ function SeenTicks(props: {
       >
         {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
       </span>
-      {held.length > 0 && (
-        <button
-          type="button"
-          className="nx-held-trigger"
-          aria-label={`${String(held.length)} held ${held.length === 1 ? 'delivery' : 'deliveries'}`}
-          aria-expanded={props.heldOpen}
-          data-testid={`msg-${props.message.id}-held`}
-          onClick={props.onHeldToggle}
-        >
-          <CircleAlert size={13} aria-hidden="true" />
-        </button>
-      )}
     </span>
   );
 }

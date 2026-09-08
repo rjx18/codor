@@ -1437,6 +1437,12 @@ let cryptoB;
 let relayStoreB;
 let relayLinkB;
 let phase5Fixture;
+const heldHistoryRequests = [];
+const originalHistoryPage = daemon.transcriptHistoryPage.bind(daemon);
+daemon.transcriptHistoryPage = (room, ...args) => {
+  if (room === 'held-history') heldHistoryRequests.push(args[0] ?? null);
+  return originalHistoryPage(room, ...args);
+};
 
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
@@ -1446,6 +1452,70 @@ createServer((req, res) => {
     let payload = {};
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname === '/held-origin-fixture') {
+        const body = JSON.parse(raw);
+        const room = `held-origin-${body.shape}`;
+        daemon.createRoom({ id: room, name: room, owner: { handle: 'viewer', display_name: 'Viewer' } });
+        const owner = daemon.ownerOf(room);
+        const worker = daemon.spawnMember(room, { harness: 'fake', handle: 'worker', cwd: dir });
+        daemon.pauseMember(room, worker.id);
+        const writer = daemon.spawnMember(room, { harness: 'fake', handle: 'writer', cwd: dir });
+        daemon.pauseMember(room, writer.id);
+        let origin;
+        if (body.shape === 'grouped-human') {
+          daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'first human' });
+          origin = daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'held human origin' });
+        } else {
+          const root = daemon.store.postMessage(room, { author: writer.id, kind: 'run', body: '' });
+          daemon.store.updateMessage(room, root.id, { run: { status: 'running', started_ts: root.ts,
+            tool_calls: 0, events_ref: `runs/${root.id}.jsonl`, output_mode: 'messages' } });
+          const output = body.shape === 'agent' ? root : daemon.store.createRunContinuation(room, root.id);
+          daemon.blobs.append(room, `runs/${root.id}.jsonl`, { type: 'run.item', item_type: 'text_block',
+            output_message_id: output.id, payload: { text: 'held agent origin' } });
+          daemon.store.updateMessage(room, output.id, { body: 'held agent origin' });
+          daemon.store.updateMessage(room, root.id, { run: { ...daemon.store.getMessage(room, root.id).run,
+            status: 'completed', ended_ts: new Date().toISOString(), final_text: 'held agent origin', result_message_id: output.id } });
+          origin = body.shape === 'root' ? root : output;
+        }
+        const delivery = daemon.store.createDelivery(room, { message_id: origin.id, recipient: worker.id });
+        daemon.store.updateDelivery(room, delivery.id, { state: 'held' });
+        if (body.shape === 'root') {
+          for (let index = 0; index < 30; index += 1) {
+            daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: `newer ${index}` });
+          }
+        }
+        payload = { room, origin: origin.id, delivery: delivery.id };
+      }
+      if (url.pathname === '/held-history-status') {
+        payload = { requests: heldHistoryRequests };
+      }
+      if (url.pathname === '/held-history-refresh') {
+        for (const delivery of daemon.store.listDeliveries('held-history')) daemon.emitInbox('held-history', delivery);
+      }
+      if (url.pathname === '/held-history-fixture') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const room = 'held-history';
+        if (!daemon.store.getRoom(room)) {
+          daemon.createRoom({ id: room, name: 'Held History', owner: { handle: 'viewer', display_name: 'Viewer' } });
+          const owner = daemon.ownerOf(room);
+          const agent = daemon.spawnMember(room, { harness: 'fake', handle: 'held-worker', cwd: dir });
+          const removed = daemon.spawnMember(room, { harness: 'fake', handle: 'removed-worker', cwd: dir });
+          daemon.pauseMember(room, agent.id);
+          daemon.store.db.transaction(() => {
+            for (let id = 1; id <= 5165; id += 1) {
+              daemon.store.postMessage(room, { author: owner.id, kind: 'chat',
+                body: `History ${id}: ${'readable transcript '.repeat(12)}` });
+            }
+          })();
+          const delivery = daemon.store.createDelivery(room, { message_id: 2476, recipient: agent.id });
+          daemon.store.updateDelivery(room, delivery.id, { state: 'held' });
+          const stale = daemon.store.createDelivery(room, { message_id: 2475, recipient: removed.id });
+          daemon.store.updateDelivery(room, stale.id, { state: 'held' });
+          daemon.store.updateMember(room, removed.id, { state: 'dead', removed_ts: new Date().toISOString() });
+          if (body.removed) daemon.store.updateMember(room, agent.id, { state: 'dead', removed_ts: new Date().toISOString() });
+        }
+        payload = { room };
+      }
       if (url.pathname === '/enqueue') {
         const body = raw === '' ? {} : JSON.parse(raw);
         for (const turn of body.turns ?? []) fake.enqueue(turn);
