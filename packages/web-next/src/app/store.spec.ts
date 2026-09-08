@@ -14,6 +14,7 @@ import {
   roomSlice,
   useClientStore,
 } from './store.js';
+import { hydrateLastGoodRoom, snapshotLastGoodRoom } from '../runtime/last-good-room.js';
 
 const room = (id: string): Room => ({
   id,
@@ -62,6 +63,43 @@ const schedule = (roomId: string, id: string, state: Schedule['state'] = 'pendin
 const frame = (value: unknown): ServerFrame => value as ServerFrame;
 
 afterEach(resetClientStoreForTest);
+
+describe('persisted history tombstones', () => {
+  it('marks a previously fresh prefix uncertain across a disconnect', () => {
+    const source = createClientStore();
+    source.getState().setActiveRoom('eng');
+    source.getState().setConnected(true);
+    source.getState().updateTranscriptHistory('eng', (history) => ({ ...history, initialized: true, headNeedsRevalidation: false }));
+    source.getState().setConnected(false);
+    source.getState().setConnected(true);
+    expect(roomSlice(source.getState(), 'eng').transcriptHistory.headNeedsRevalidation).toBe(true);
+  });
+  it('reloads a tombstone without its previous body or journal evidence', () => {
+    const source = createClientStore(); source.getState().setActiveRoom('eng');
+    source.getState().applyFrame(frame({ type: 'room', seq: 1, room: room('eng') }));
+    source.getState().setConnected(true);
+    const original = { ...message('eng', 10), author: '01ARZ3NDEKTSV4RRFFQ69G5FAV', kind: 'run' as const,
+      body: 'obsolete private text' };
+    const units: TranscriptHistoryUnit[] = [{ kind: 'prose', root_message_id: 10, output_message_id: 10, event_indices: [0] }];
+    const projection = { messages: { 10: original }, units, beforeCursor: null, hasMore: false,
+      journals: { 10: { root_message_id: 10, events: [{ index: 0, event: {
+        type: 'run.item' as const, item_type: 'text_block' as const, payload: { text: original.body },
+      } }] } } };
+    source.getState().updateTranscriptHistory('eng', (history) => ({ ...history, ...projection,
+      initialized: true, cacheWindow: projection }));
+    source.getState().applyFrame(frame({ type: 'message', seq: 50,
+      message: { ...original, seq: 50, deleted: true, body: '' } }));
+    const snapshot = snapshotLastGoodRoom('A', source, 'eng')!;
+    expect(snapshot).toBeDefined();
+    expect(JSON.stringify(snapshot)).not.toContain('obsolete private text');
+    expect(snapshot.rooms.eng?.history.journals).toEqual({});
+    const restored = createClientStore();
+    hydrateLastGoodRoom(restored, JSON.parse(JSON.stringify(snapshot)));
+    const history = roomSlice(restored.getState(), 'eng').transcriptHistory;
+    expect(history.messages[10]).toMatchObject({ deleted: true, body: '', seq: 50 });
+    expect(history.units).toEqual([{ kind: 'message', message_id: 10 }]);
+  });
+});
 
 describe('room-keyed client state', () => {
   // harn:assume browser-schedules-follow-authoritative-room-state ref=schedule-room-store-regression

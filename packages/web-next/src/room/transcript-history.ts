@@ -16,7 +16,7 @@ import {
 } from '@runtime/api.js';
 
 import type { ClientState, ClientStore, TranscriptHistoryState } from '../app/store.js';
-import { roomSlice, sourceClientStore } from '../app/store.js';
+import { purgeDeletedHistory, roomSlice, sourceClientStore } from '../app/store.js';
 import { captureRelayFetch } from '../runtime/relay-transport.js';
 
 type RequestKind = 'head' | `cursor:${string}`;
@@ -35,7 +35,7 @@ export function bindTranscriptHistoryOwner(store: ClientStore, capture: () => Hi
 export function retireTranscriptHistory(store: ClientStore): void {
   requestMap(store).clear();
   for (const [room, slice] of Object.entries(store.getState().rooms)) {
-    if (!slice.transcriptHistory.loadingHead && !slice.transcriptHistory.loadingCursor) continue;
+    if (!slice.transcriptHistory.initialized && !slice.transcriptHistory.loadingHead && !slice.transcriptHistory.loadingCursor) continue;
     update(store, room, (history) => ({ ...history, loadingHead: false, loadingCursor: undefined, headNeedsRevalidation: true }));
   }
 }
@@ -145,6 +145,7 @@ const mergeAuthoritativeHeadUnits = (
 
 const projectCacheWindow = (
   pagesNewestFirst: readonly TranscriptHistoryPage[],
+  liveMessages: Readonly<Record<number, Message>>,
 ): NonNullable<TranscriptHistoryState['cacheWindow']> | undefined => {
   if (pagesNewestFirst[0] === undefined) return undefined;
   const chronologicalPages = [...pagesNewestFirst].reverse();
@@ -165,10 +166,10 @@ const projectCacheWindow = (
     unit.event_indices.forEach((index) => selected.add(index));
     eventIndices.set(unit.root_message_id, selected);
   }
-  const allMessages = mergeMessages({}, pagesNewestFirst);
+  const allMessages = mergeMessages({}, pagesNewestFirst, liveMessages);
   const allJournals = mergeJournals({}, pagesNewestFirst);
   const oldest = pagesNewestFirst.at(-1)!;
-  return {
+  return purgeDeletedHistory({
     messages: Object.fromEntries([...messageIds].flatMap((id) => {
       const message = allMessages[id];
       return message === undefined ? [] : [[id, message]];
@@ -184,7 +185,7 @@ const projectCacheWindow = (
     units,
     beforeCursor: oldest.before_cursor,
     hasMore: oldest.has_more,
-  };
+  });
 };
 
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-materializer
@@ -230,7 +231,7 @@ export function mergeTranscriptPages(
     unit.event_indices.forEach((index) => selected.add(index));
     eventIds.set(unit.root_message_id, selected);
   }
-  return {
+  return purgeDeletedHistory({
     ...current,
     initialized: true,
     ...(mode === 'head' && { headNeedsRevalidation: false }),
@@ -243,13 +244,13 @@ export function mergeTranscriptPages(
       ? [[root, { root_message_id: root, events: retainedJournals[root]!.events.filter((event) => selected.has(event.index)) }]] : [])),
     units,
     ...(mode === 'head' && pagesNewestFirst[0] !== undefined
-      ? { cacheWindow: projectCacheWindow(pagesNewestFirst) }
+      ? { cacheWindow: projectCacheWindow(pagesNewestFirst, retainedMessages) }
       : {}),
     ...(mode === 'older' || !preservedOlderPrefix ? {
       beforeCursor: oldestFetched?.before_cursor ?? null,
       hasMore: oldestFetched?.has_more ?? false,
     } : {}),
-  };
+  });
 }
 // harn:end history-background-work-is-coalesced-and-retained-data-bounded
 // harn:end live-before-history-materialization-reconciles
@@ -346,7 +347,8 @@ function refreshTranscriptHistoryHeadFrom(
       const headKeys = new Set(head.units.map(transcriptUnitKey));
       const overlap = cache?.units.findIndex((unit) => headKeys.has(transcriptUnitKey(unit))) ?? -1;
       const cachedPrefix = overlap >= 0 ? cache!.units.slice(0, overlap) : [];
-      const reuseCache = overlap >= 0 && transcriptHistoryTextSlotCount([...cachedPrefix, ...head.units]) <= HISTORICAL_TRANSCRIPT_CACHE_SIZE;
+      const reuseCache = !historyOf(store, room).headNeedsRevalidation && overlap >= 0
+        && transcriptHistoryTextSlotCount([...cachedPrefix, ...head.units]) <= HISTORICAL_TRANSCRIPT_CACHE_SIZE;
       if (includePredecessor && head.has_more && reuseCache && cache) {
         // Keep only the prefix outside the authoritative head. Its original
         // predecessor cursor is still truthful because no prefix was trimmed.

@@ -342,6 +342,7 @@ export class ComputerSessionManager {
       entry.connector.switchRoom(publicRoot);
     }
     if (publicRoot !== undefined) rememberRoom(publicRoot, id);
+    this.promoteHistory(entry, entry.store.getState().activeRoom);
     if (entry.upgrade) requireBrowserUpgrade(entry.upgrade);
     this.publish();
     return entry.connector !== undefined;
@@ -488,6 +489,9 @@ export class ComputerSessionManager {
       };
     });
     entry.stopStore = store.subscribe((state, previous) => {
+      if (state.activeRoom !== previous.activeRoom && entry.material.computer.id === this.activeId) {
+        this.promoteHistory(entry, state.activeRoom);
+      }
       for (const room of historyEvidenceRooms(state, previous)) this.warmInactiveHistory(entry, room);
       if (state.rooms !== previous.rooms || state.roomSummaries !== previous.roomSummaries) this.persistEntrySnapshot(entry);
       this.publish(false);
@@ -511,24 +515,48 @@ export class ComputerSessionManager {
   }
 
   // harn:assume inactive-history-warming-persists-bounded-room-cache ref=bounded-captured-head-refresh-coalescing
-  private warmInactiveHistory(entry: SessionEntry, room: string): void {
+  private warmInactiveHistory(entry: SessionEntry, room: string, followUp = false): void {
     if (entry.disposed || entry.connector === undefined || entry.token === '') return;
     const activeComputer = entry.material.computer.id === this.activeId;
     const selectedRoom = entry.connector.room() === room;
-    if (activeComputer && selectedRoom) return;
-
     let state = entry.historyWarming.get(room);
     if (state?.inFlight !== undefined) {
       state.trailing = true;
       return;
     }
+    if (activeComputer && selectedRoom && !followUp) return;
     state ??= { trailing: false };
     entry.historyWarming.set(room, state);
     // Reserve queued intent as well as running work; another frame only marks
     // one trailing intent instead of adding another job.
     state.inFlight = Promise.resolve(false);
+    if (activeComputer && selectedRoom) {
+      this.runHistoryJob(entry, room, state, entry.tunnel.generation, false);
+      return;
+    }
     this.backgroundQueue.push({ entry, room, state, generation: entry.tunnel.generation });
     this.drainBackgroundHistory();
+  }
+
+  private promoteHistory(entry: SessionEntry, room: string): void {
+    const index = this.backgroundQueue.findIndex((job) => job.entry === entry && job.room === room);
+    if (index < 0 || entry.disposed) return;
+    const job = this.backgroundQueue.splice(index, 1)[0]!;
+    if (job.generation !== entry.tunnel.generation) return;
+    this.runHistoryJob(entry, room, job.state, job.generation, false);
+  }
+
+  private runHistoryJob(entry: SessionEntry, room: string, state: HistoryWarmState, generation: number, background: boolean): void {
+    state.trailing = false;
+    if (background) this.backgroundCount++;
+    state.inFlight = refreshTranscriptHistoryHead(entry.store, room, () => entry.token,
+      entry.tunnel.fetch.bind(entry.tunnel), true);
+    void state.inFlight.catch(() => false).finally(() => {
+      if (background) this.backgroundCount--;
+      if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
+      if (state.trailing && !entry.disposed && entry.tunnel.generation === generation) this.warmInactiveHistory(entry, room, true);
+      this.drainBackgroundHistory();
+    });
   }
 
   private drainBackgroundHistory(): void {
@@ -540,16 +568,7 @@ export class ComputerSessionManager {
         if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
         continue;
       }
-      state.trailing = false;
-      this.backgroundCount++;
-      state.inFlight = refreshTranscriptHistoryHead(entry.store, room, () => entry.token,
-        entry.tunnel.fetch.bind(entry.tunnel), true);
-      void state.inFlight.catch(() => false).finally(() => {
-        this.backgroundCount--;
-        if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
-        if (state.trailing && !entry.disposed && entry.tunnel.generation === generation) this.warmInactiveHistory(entry, room);
-        this.drainBackgroundHistory();
-      });
+      this.runHistoryJob(entry, room, state, generation, true);
     }
   }
   // harn:end inactive-history-warming-persists-bounded-room-cache

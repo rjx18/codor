@@ -97,6 +97,37 @@ beforeEach(() => { api.fetch.mockReset(); });
 afterEach(resetClientStoreForTest);
 
 describe('owned history work and retained windows', () => {
+  it('revalidates an uncertain 1-40 prefix and removes deleted 10 outside the head', async () => {
+    const store = createClientStore();
+    const old = Array.from({ length: 40 }, (_, i) => message(i + 1));
+    store.getState().updateTranscriptHistory('same', (history) => ({
+      ...mergeTranscriptPages(history, [page(old.map((m) => messageUnit(m.id)), old, null)], 'head'),
+      headNeedsRevalidation: true,
+    }));
+    const head = old.slice(20); const prior = old.slice(0, 20).filter((m) => m.id !== 10);
+    api.fetch.mockResolvedValueOnce(page(head.map((m) => messageUnit(m.id)), head, 'predecessor'))
+      .mockResolvedValueOnce(page(prior.map((m) => messageUnit(m.id)), prior, null));
+    await refreshTranscriptHistoryHead(store, 'same', () => 'token');
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+    const history = roomSlice(store.getState(), 'same').transcriptHistory;
+    expect(history.messages[10]).toBeUndefined();
+    expect(history.cacheWindow?.messages[10]).toBeUndefined();
+  });
+
+  it('does not put an older cached body back after a live tombstone during head refresh', async () => {
+    const store = createClientStore();
+    const old = [message(1), message(2)];
+    store.getState().updateTranscriptHistory('same', (history) =>
+      mergeTranscriptPages(history, [page(old.map((m) => messageUnit(m.id)), old, null)], 'head'));
+    api.fetch.mockImplementationOnce(async () => {
+      store.getState().applyFrame({ type: 'message', seq: 100,
+        message: { ...message(1), seq: 100, deleted: true, body: '' } });
+      return page([messageUnit(2)], [message(2)], 'predecessor');
+    });
+    await refreshTranscriptHistoryHead(store, 'same', () => 'token');
+    const history = roomSlice(store.getState(), 'same').transcriptHistory;
+    expect(history.cacheWindow?.messages[1]).toMatchObject({ deleted: true, body: '', seq: 100 });
+  });
   it('does not append an older page after its foreground view retires', async () => {
     const store = createClientStore(); let visible = true;
     store.getState().updateTranscriptHistory('same', (history) => mergeTranscriptPages(history,
@@ -710,7 +741,7 @@ describe('live records racing the first history page', () => {
     const historyA = roomSlice(a.getState(), 'same').transcriptHistory;
     const historyB = roomSlice(b.getState(), 'same').transcriptHistory;
     expect(historyA.messages[5]).toEqual(liveA);
-    expect(historyB.messages[5]).toEqual(liveB);
+    expect(historyB.messages[5]).toMatchObject({ ...liveB, body: '' });
     expect(historyA.units).toEqual([messageUnit(5)]);
     expect(historyB.units).toEqual([messageUnit(5)]);
     expect(historyA.messages[5]).not.toEqual(historyB.messages[5]);

@@ -56,6 +56,35 @@ import { reconcileSelectedRoomHistory } from '../room/RoomPage.js';
 beforeEach(() => lastGoodCache.snapshots.clear());
 
 describe('bounded hosted background work', () => {
+  it.each([false, true])('promotes selected work and preserves trailing intent, inFlight=%s', async (inFlight) => {
+    const h = harness(); const manager = new ComputerSessionManager(h.deps);
+    const calls: Array<{ room: string; release: () => void }> = [];
+    recovery.refreshHead.mockImplementation((_store, room) => new Promise<boolean>((resolve) => {
+      calls.push({ room, release: () => resolve(true) });
+    }));
+    try {
+      await manager.start();
+      const store = h.connectorOptions.get('A')!.store!;
+      const seed = (room: string, id = 1) => {
+        store.getState().applyFrame({ type: 'message', seq: id,
+          message: { room, id, seq: id, kind: 'chat', body: 'new work' } } as never);
+      };
+      seed('one'); seed('two');
+      const selected = inFlight ? 'one' : 'three';
+      seed(selected, 2);
+      h.connectors.get('A')!.switchRoom(selected);
+      if (inFlight) {
+        calls.find((call) => call.room === selected)!.release();
+        for (let tick = 0; tick < 12; tick++) await Promise.resolve();
+        expect(calls.filter((call) => call.room === selected)).toHaveLength(2);
+      } else {
+        expect(calls.map((call) => call.room)).toEqual(['one', 'two', 'three']);
+      }
+    } finally {
+      manager.dispose(); for (const call of calls) call.release();
+      recovery.refreshHead.mockImplementation(() => Promise.resolve(true));
+    }
+  });
   it('aborts the captured transport when its tunnel generation is replaced', async () => {
     const h = harness(); const manager = new ComputerSessionManager(h.deps);
     await manager.start();
