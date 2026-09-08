@@ -1256,7 +1256,7 @@ function pinnedSnippet(message: Message): string {
 
 // ── One turn: header (unless grouped) + body content ─────────────────────
 
-function TurnBlock(props: {
+export function TurnBlock(props: {
   message: Message;
   author: Member | undefined;
   mine: boolean;
@@ -1283,8 +1283,10 @@ function TurnBlock(props: {
 }) {
   const { message, author } = props;
   const isMobile = useIsMobile();
+  const heldTargets = new Set(props.historical?.targetIds
+    ?? props.liveFamilyMessages?.map((output) => output.id) ?? [message.id]);
   const held = Object.values(props.deliveries).filter(
-    (delivery) => delivery.message_id === message.id
+    (delivery) => heldTargets.has(delivery.message_id)
       && delivery.state === 'held'
       && props.members[delivery.recipient]?.kind === 'agent'
       && props.members[delivery.recipient]?.removed_ts === undefined,
@@ -1453,8 +1455,6 @@ function TurnBlock(props: {
                 message={message}
                 deliveries={props.deliveries}
                 members={props.members}
-                heldOpen={heldOpen}
-                onHeldToggle={() => setHeldOpen((open) => !open)}
               />
             )}
             <span className="nx-turn-spacer" />
@@ -1499,6 +1499,14 @@ function TurnBlock(props: {
               )}
             </span>
           </div>
+        )}
+        {held.length > 0 && (
+          <button type="button" className="nx-held-trigger"
+            aria-label={`${held.length} held ${held.length === 1 ? 'delivery' : 'deliveries'}`}
+            aria-expanded={heldOpen} data-testid={`msg-${message.id}-held`}
+            onClick={() => setHeldOpen((open) => !open)}>
+            <CircleAlert size={13} aria-hidden="true" />
+          </button>
         )}
         {message.kind === 'run'
           ? <RunContent
@@ -1717,8 +1725,6 @@ function SeenTicks(props: {
   message: Message;
   deliveries: Record<string, Delivery>;
   members: Record<string, Member>;
-  heldOpen: boolean;
-  onHeldToggle: () => void;
 }) {
   const relevant = Object.values(props.deliveries).filter(
     (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent',
@@ -1726,8 +1732,6 @@ function SeenTicks(props: {
   if (relevant.length === 0) return null;
   // delivering means the turn already carries the payload — the agent has it.
   const indicator = deliveryIndicator(relevant);
-  const held = relevant.filter((delivery) => delivery.state === 'held'
-    && props.members[delivery.recipient]?.removed_ts === undefined);
   return (
     <span className="nx-delivery-state">
       <span
@@ -1739,18 +1743,6 @@ function SeenTicks(props: {
       >
         {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
       </span>
-      {held.length > 0 && (
-        <button
-          type="button"
-          className="nx-held-trigger"
-          aria-label={`${String(held.length)} held ${held.length === 1 ? 'delivery' : 'deliveries'}`}
-          aria-expanded={props.heldOpen}
-          data-testid={`msg-${props.message.id}-held`}
-          onClick={props.onHeldToggle}
-        >
-          <CircleAlert size={13} aria-hidden="true" />
-        </button>
-      )}
     </span>
   );
 }

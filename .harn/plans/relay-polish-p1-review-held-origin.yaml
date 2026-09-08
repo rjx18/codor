@@ -44,3 +44,5 @@ anchors:
     explicit-held-navigation:
       action: keep
       reason: Preserve zero automatic crawl.
+applied:
+  applied_at: 2026-09-08T12:41:39.789Z

@@ -1,11 +1,14 @@
 import type { Delivery, Message, Schedule } from '@codor/protocol';
 import { describe, expect, it, vi } from 'vitest';
+import { renderToStaticMarkup } from 'react-dom/server';
+import type { ComponentProps } from 'react';
 
 import type { TranscriptHistoryState } from '../app/store.js';
 
 vi.mock('./markdown.js', () => ({ renderMarkdown: (body: string) => body }));
 
 import {
+  TurnBlock,
   coldMessageSuppressed,
   continuationTrailingText,
   continuationVisibleMessages,
@@ -24,6 +27,31 @@ import {
   settleScheduleCancelAttempt,
   transcriptMessagesWithActiveRuns,
 } from './Transcript.js';
+
+// harn:assume held-delivery-recovery-stays-on-origin-message ref=held-origin-render-regression
+describe('held controls are independent of author headers', () => {
+  it.each(['agent', 'grouped-human', 'human', 'root-alias', 'merged-output'])('%s exposes recovery with unchanged receipts', (shape) => {
+    const author = { id: 'author', kind: shape.includes('human') ? 'human' : 'agent', handle: 'writer' };
+    const target = shape === 'root-alias' ? 1 : shape === 'merged-output' ? 3 : 2;
+    const props = {
+      message: { id: 2, kind: 'chat', author: 'author', body: 'origin', mentions: [], refs: [],
+        ledger_refs: [], room: 'eng', seq: 2, ts: '2026-09-08T00:00:00Z' },
+      author, members: { author, recipient: { id: 'recipient', kind: 'agent', handle: 'worker' } },
+      grouped: shape === 'grouped-human', mine: false, canPin: false, canDelete: false, canRetry: false,
+      room: 'eng', token: () => '', connection: { act: vi.fn() }, actionErrorCount: 0,
+      deliveries: { hold: { id: 'hold', message_id: target, recipient: 'recipient', state: 'held' } },
+      ...(shape === 'root-alias' && { historical: { units: [], targetIds: [2, 1] } }),
+      ...(shape === 'merged-output' && { liveFamilyMessages: [{ id: 2 }, { id: 3 }] }),
+    } as unknown as ComponentProps<typeof TurnBlock>;
+    const html = renderToStaticMarkup(<TurnBlock {...props} />);
+    expect(html).toContain('data-testid="msg-2-held"');
+    expect(html.includes('data-testid="msg-2-seen"')).toBe(shape === 'human');
+    const removed = { ...props, members: { ...props.members,
+      recipient: { ...props.members.recipient!, removed_ts: '2026-09-08T00:00:00Z' } } };
+    expect(renderToStaticMarkup(<TurnBlock {...removed} />)).not.toContain('data-testid="msg-2-held"');
+  });
+});
+// harn:end held-delivery-recovery-stays-on-origin-message
 
 describe('scheduled transcript projection', () => {
   const schedule = (id: string, due: string, created: string, state: Schedule['state']): Schedule => ({

@@ -55,3 +55,26 @@ for (const hosted of [false, true]) {
     await expect(page.locator('[id="2476"]')).toBeInViewport({ timeout: 60000 });
   });
 }
+
+for (const shape of ['agent', 'grouped-human', 'continuation', 'root']) {
+  test(`${shape} origin exposes one retry independently of its header`, async ({ page }) => {
+    const fixture = await control('/held-origin-fixture', { shape });
+    await control('/release-hold-fixture', { resetAttempts: true, delayMs: 500 });
+    await page.goto(`http://127.0.0.1:${apiPort}/?room=${fixture.room}&token=next-e2e-token`);
+    if (shape === 'root') {
+      await page.getByTestId('unloaded-held-recovery').locator('summary').click();
+      await page.getByRole('button', { name: `Review message #${fixture.origin} for @worker` }).click();
+    }
+    const origin = page.locator(`[id="${fixture.origin}"]`);
+    const article = origin.locator('xpath=ancestor-or-self::article[1]');
+    await expect(article.locator('[data-testid$="-held"]')).toBeVisible();
+    if (shape === 'grouped-human') await expect(article).toHaveClass(/is-grouped/);
+    else await expect(article.locator('[data-testid$="-seen"]')).toHaveCount(0);
+    await article.locator('[data-testid$="-held"]').click();
+    const retry = article.getByTestId(`hold-${fixture.delivery}-release`);
+    await retry.evaluate((button: HTMLButtonElement) => { button.click(); button.click(); });
+    await expect(retry).toBeDisabled();
+    await expect.poll(async () => (await control('/release-hold-stats')).attempts).toBe(1);
+    await expect(article.locator('[data-testid$="-held"]')).toHaveCount(0);
+  });
+}
