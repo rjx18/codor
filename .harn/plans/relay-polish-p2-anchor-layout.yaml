@@ -1,0 +1,103 @@
+id: relay-polish-p2-anchor-layout
+title: Keep invisible transcript permalink targets out of flex row layout
+notes: >
+  Implement the contained Phase 2 renderer correction on the exact integrated
+  base 7cc14cd6c6ec5ed552361384ac68b997fe68744f. Historical and live transcript
+  rows may carry additional permanent #N targets for output and lifecycle-root
+  identities, but those invisible targets must not become flex items. Keep their
+  ids and row-relative jump positions, all existing prose/tool/tombstone
+  rendering and grouping, and every server/history/storage boundary unchanged.
+assumptions:
+  create:
+    - id: transcript-permalink-targets-are-layout-neutral
+      title: Invisible transcript permalink targets do not participate in row layout
+      statement: >
+        Every invisible historical or live permalink target retains its
+        permanent room-local id and resolves to the same rendered row, but has
+        no flex-flow footprint. A target for an output, lifecycle root, grouped
+        or ungrouped row, tombstone, or merged tool presentation therefore
+        leaves avatar, header, and text columns aligned while preserving desktop
+        and mobile fragment jumps. Finalized combined-history membership, live
+        grouping, tool evidence, tombstone placement, and the existing scroll
+        owner remain unchanged.
+      reason: >
+        Additional target spans are currently direct children of flex transcript
+        articles. aria-hidden does not remove them from layout, so each extra
+        span contributes the row gap and displaces the visible columns by 12px.
+        The correction belongs at the target markup/layout seam, not in history
+        unitization, grouping, or a fixture-specific geometry override.
+      depends_on:
+        - permalink-ids-stable
+        - transcript-targets-walk-combined-pages
+        - tool-only-evidence-batches-across-invisible-output-boundaries
+        - visible-transcript-grouping-ignores-hidden-boundaries
+        - finalized-browser-history-is-combined-page-owned
+  reviewed:
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Permanent room-local ids and fragment link behavior remain unchanged.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: Explicit target walking, page membership, and jump orchestration are
+        untouched.
+    - id: tool-only-evidence-batches-across-invisible-output-boundaries
+      outcome: unchanged
+      reason: Tool grouping and associated evidence remain exactly as rendered today.
+    - id: visible-transcript-grouping-ignores-hidden-boundaries
+      outcome: unchanged
+      reason: Grouped/ungrouped presentation state is not changed by target layout.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Finalized transcript membership and ordering remain page-owned.
+    - id: deleted-messages-purge-rows-and-files
+      outcome: unchanged
+      reason: Tombstone identity and placement remain intact.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: Existing transcript scroll and older-page anchoring remain the sole
+        geometry owner.
+files:
+  - .harn/plans/relay-polish-p2-anchor-layout.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/tests/room18-interleave.e2e.spec.ts
+  - packages/web-next/tests/room21-hydration.e2e.spec.ts
+anchors:
+  transcript-permalink-targets-are-layout-neutral:
+    permalink-target-markup:
+      action: change
+      reason: Mark all extra historical/live targets as row-relative, layout-neutral
+        anchors.
+    permalink-target-layout:
+      action: change
+      reason: Remove target spans from flex flow without changing their row-relative
+        jump position.
+    permalink-target-renderer-regression:
+      action: change
+      reason: Cover target identity and alignment inputs for grouped/ungrouped,
+        tombstone, and tool rows.
+    permalink-target-browser-regression:
+      action: change
+      reason: Reproduce the 12px displacement and verify aligned columns, fragment
+        links, and accessibility on desktop/mobile.
+  permalink-ids-stable:
+    permalink-target-browser-regression:
+      action: change
+      reason: Extend fragment coverage to extra live and historical target ids without
+        changing id allocation.
+verification: >
+  Check and clean-lock this plan from the exact clean
+  7cc14cd6c6ec5ed552361384ac68b997fe68744f base before editing. Reproduce the
+  Capri extra-anchor displacement through the actual renderer. Run focused
+  Transcript/run-timeline units, all web-next units, the production/PWA build,
+  and isolated desktop/mobile browser checks covering multiple historical and
+  live anchors, grouped and ungrouped rows, tombstones, merged tool output,
+  working fragment links, and Axe. Run harn find --changed, harn check, harn
+  apply, harn check --staged, and git diff --check; stage only this plan, the
+  Transcript renderer/unit and room CSS changes, the focused browser regression,
+  and generated truth, then create exactly one implementation commit. Do not
+  change server unitization, history pagination, grouping, CSS hiding semantics,
+  protocol, relay, held-target paging/removal, deployment, or release state.
+applied:
+  applied_at: 2026-09-08T12:35:48.581Z

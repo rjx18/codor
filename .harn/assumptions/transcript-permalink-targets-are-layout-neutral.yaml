@@ -1,0 +1,19 @@
+id: transcript-permalink-targets-are-layout-neutral
+hash: a-ab1bea046441
+title: Invisible transcript permalink targets do not participate in row layout
+state: active
+statement: >
+  Every invisible historical or live permalink target retains its permanent
+  room-local id and resolves to the same rendered row, but has no flex-flow
+  footprint. A target for an output, lifecycle root, grouped or ungrouped row,
+  tombstone, or merged tool presentation therefore leaves avatar, header, and
+  text columns aligned while preserving desktop and mobile fragment jumps.
+  Finalized combined-history membership, live grouping, tool evidence, tombstone
+  placement, and the existing scroll owner remain unchanged.
+depends_on:
+  - permalink-ids-stable
+  - transcript-targets-walk-combined-pages
+  - tool-only-evidence-batches-across-invisible-output-boundaries
+  - visible-transcript-grouping-ignores-hidden-boundaries
+  - finalized-browser-history-is-combined-page-owned
+created_by: relay-polish-p2-anchor-layout

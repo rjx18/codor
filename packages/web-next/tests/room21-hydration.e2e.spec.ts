@@ -62,6 +62,70 @@ test('adjacent tool-only outputs become one batch after an older page crosses th
 });
 // harn:end tool-only-evidence-batches-across-invisible-output-boundaries
 
+// harn:assume transcript-permalink-targets-are-layout-neutral ref=permalink-target-browser-regression
+test('extra historical anchors keep tool-row columns aligned and fragments usable', async ({ page }) => {
+  const fixture = await control<{ room: string; root: number; output: number }>('/seed-cross-output-tools');
+  for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/?room=${fixture.room}&token=next-e2e-token`);
+    await expect(page.getByTestId('timeline')).toBeVisible();
+    await expect(page.getByRole('button', { name: /Inspect Read/ })).toBeVisible();
+
+    const geometry = await page.evaluate((ids) => {
+      const rows = [...document.querySelectorAll<HTMLElement>('article.nx-turn')];
+      return rows.map((row) => {
+        const targets = [...row.children].filter((child) =>
+          child instanceof HTMLElement
+          && child.classList.contains('nx-permalink-target')
+          && child.getAttribute('aria-hidden') === 'true'
+          && child.id !== '');
+        const chip = [...row.children].find((child) => child instanceof HTMLElement
+          && child.classList.contains('nx-chip')) as HTMLElement | undefined;
+        const main = row.querySelector<HTMLElement>(':scope > .nx-turn-main');
+        return {
+          id: Number(row.id),
+          grouped: row.classList.contains('is-grouped'),
+          rowLeft: row.getBoundingClientRect().left,
+          targetIds: targets.map((target) => Number((target as HTMLElement).id)),
+          targetBoxes: targets.map((target) => {
+            const box = (target as HTMLElement).getBoundingClientRect();
+            return { width: box.width, height: box.height };
+          }),
+          chipRight: chip?.getBoundingClientRect().right,
+          chipLeft: chip?.getBoundingClientRect().left,
+          mainLeft: main?.getBoundingClientRect().left,
+        };
+      }).filter((row) => row.targetIds.some((id) => ids.includes(id)));
+    }, [fixture.root, fixture.output]);
+    console.info('[permalink-target-geometry]', JSON.stringify({ viewport, geometry }));
+
+    expect(geometry).toHaveLength(1);
+    const row = geometry[0]!;
+    expect(row.targetIds).toContain(fixture.root);
+    expect([row.id, ...row.targetIds]).toEqual(expect.arrayContaining([fixture.root, fixture.output]));
+    expect(row.targetBoxes.every((box) => box.width === 0 && box.height === 0)).toBe(true);
+    if (viewport.width === 1440) {
+      expect(row.chipLeft! - row.rowLeft).toBeLessThanOrEqual(0.5);
+      expect(row.chipRight).toBeDefined();
+      expect(row.mainLeft! - row.chipRight!).toBeLessThanOrEqual(12.5);
+    } else {
+      expect(row.mainLeft! - row.rowLeft).toBeLessThanOrEqual(0.5);
+    }
+
+    const rootTarget = page.locator(`[id="${String(fixture.root)}"]`).first();
+    await expect.poll(async () => rootTarget.evaluate((node) => {
+      const article = node.closest('article');
+      if (article === null) return Number.POSITIVE_INFINITY;
+      return Math.abs(node.getBoundingClientRect().top - article.getBoundingClientRect().top);
+    })).toBeLessThanOrEqual(0.5);
+    const outputRow = page.locator(`article[id="${String(fixture.output)}"]`);
+    await page.getByTestId('timeline').evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await outputRow.locator('.nx-permalink').click();
+    await expect(outputRow).toBeInViewport();
+  }
+});
+// harn:end transcript-permalink-targets-are-layout-neutral
+
 // harn:assume finalized-browser-history-is-combined-page-owned ref=combined-history-browser-regression
 test.describe('large-room hydration', () => {
   test('journal requests stay bounded and deduplicated, and the live run is never starved', async ({ page }) => {

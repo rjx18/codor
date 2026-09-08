@@ -10,6 +10,7 @@ import {
   continuationTrailingText,
   continuationVisibleMessages,
   deliveryIndicator,
+  extraPermalinkTargetIds,
   groupVisibleTranscriptRows,
   groupHistoricalPresentationUnits,
   groupAdjacentToolOnlyLiveMessages,
@@ -65,6 +66,16 @@ describe('scheduled transcript projection', () => {
     expect(settleScheduleCancelAttempt(pending, row, 2, 'old refusal', false)).toBeUndefined();
   });
 });
+
+// harn:assume transcript-permalink-targets-are-layout-neutral ref=permalink-target-renderer-regression
+describe('transcript permalink target ownership', () => {
+  it('keeps the primary row id and preserves every additional target in order', () => {
+    expect(extraPermalinkTargetIds([12, 18, 24])).toEqual([18, 24]);
+    expect(extraPermalinkTargetIds([12])).toEqual([]);
+    expect(extraPermalinkTargetIds([])).toEqual([]);
+  });
+});
+// harn:end transcript-permalink-targets-are-layout-neutral
 
 // harn:assume tool-only-evidence-batches-across-invisible-output-boundaries ref=cross-output-tool-batch-regression
 describe('cross-output historical tool presentation', () => {

@@ -79,6 +79,31 @@ test.describe('mid-run interleave', () => {
     expect(completed.outputIds).toHaveLength(2);
     expect(completed.outputIds[0]).toBe(started.runId);
 
+    const rootId = completed.outputIds[0]!;
+    const tailId = completed.outputIds[1]!;
+    const checkGeometry = async (phase: string): Promise<void> => {
+      const geometry = await page.evaluate((ids) => ids.map((id) => {
+        const row = document.querySelector<HTMLElement>(`article[id="${String(id)}"]`)!;
+        const chip = row.querySelector<HTMLElement>(':scope > .nx-chip')!;
+        const main = row.querySelector<HTMLElement>(':scope > .nx-turn-main')!;
+        return {
+          id,
+          rowLeft: row.getBoundingClientRect().left,
+          chipLeft: chip.getBoundingClientRect().left,
+          chipRight: chip.getBoundingClientRect().right,
+          mainLeft: main.getBoundingClientRect().left,
+        };
+      }), [rootId, tailId]);
+      for (const row of geometry) {
+        expect(row.chipLeft - row.rowLeft, `${phase} row ${String(row.id)} avatar alignment`).toBeLessThanOrEqual(0.5);
+        expect(row.mainLeft - row.chipRight, `${phase} row ${String(row.id)} content gap`).toBeLessThanOrEqual(12.5);
+      }
+    };
+    // harn:assume transcript-permalink-targets-are-layout-neutral ref=permalink-target-browser-regression
+    await expect(page.locator(`article[id="${String(rootId)}"]`)).toBeVisible();
+    await expect(page.locator(`article[id="${String(tailId)}"]`)).toBeVisible();
+    await checkGeometry('live');
+
     // Reload to assert the durable, re-fetched ordering rather than a live frame.
     await openRoom(page, INTERLEAVE);
     const turns = page.locator('.nx-column > .nx-turn');
@@ -93,8 +118,6 @@ test.describe('mid-run interleave', () => {
     // The lifecycle root and later output are separate permanent messages. The
     // operator row sits between their immutable ids; no hard UI grouping can
     // pull the root down when the continuation lands.
-    const rootId = completed.outputIds[0]!;
-    const tailId = completed.outputIds[1]!;
     expect(rootId).toBeLessThan(interjection.id);
     expect(interjection.id).toBeLessThan(tailId);
     const root = page.locator(`article[id="${String(rootId)}"]`);
@@ -105,6 +128,8 @@ test.describe('mid-run interleave', () => {
     await expect(tail.locator('.nx-permalink')).toHaveText(`#${String(tailId)}`);
     await expect(root).not.toHaveClass(/is-grouped/);
     await expect(tail).not.toHaveClass(/is-grouped/);
+    await checkGeometry('finalized');
+    // harn:end transcript-permalink-targets-are-layout-neutral
 
     // Permanent output rows must not introduce duplicate DOM ids.
     const { default: AxeBuilder } = await import('@axe-core/playwright');

@@ -217,6 +217,13 @@ export function qualifiedAuthorLabel(message: Message, author?: Member): string 
 }
 // harn:end cross-worktree-output-stays-in-origin
 
+// harn:assume transcript-permalink-targets-are-layout-neutral ref=permalink-target-renderer-regression
+/** The first target remains the row id; later targets point at the same row. */
+export function extraPermalinkTargetIds(ids: readonly number[]): number[] {
+  return ids.slice(1);
+}
+// harn:end transcript-permalink-targets-are-layout-neutral
+
 export function continuationVisibleMessages(
   ordered: readonly Message[],
   messages: Readonly<Record<number, Message>>,
@@ -1329,12 +1336,14 @@ function TurnBlock(props: {
     && props.historical.units[0]?.unit.kind === 'message'
     ? props.historical.units[0].unit
     : undefined;
-  const historyTargets = props.historical?.targetIds.slice(1).map((id) => (
-    <span key={id} id={String(id)} aria-hidden="true" />
+  // harn:assume transcript-permalink-targets-are-layout-neutral ref=permalink-target-markup
+  const historyTargets = extraPermalinkTargetIds(props.historical?.targetIds ?? []).map((id) => (
+    <span key={id} className="nx-permalink-target" id={String(id)} aria-hidden="true" />
   ));
   const liveTargets = props.liveFamilyMessages?.slice(1).map((target) => (
-    <span key={target.id} id={String(target.id)} aria-hidden="true" />
+    <span key={target.id} className="nx-permalink-target" id={String(target.id)} aria-hidden="true" />
   ));
+  // harn:end transcript-permalink-targets-are-layout-neutral
   // A message that @-mentions the viewer is highlighted so it stands out.
   const mentionsMe = props.viewerId !== undefined
     && message.mentions.some((mention) => mention.member_id === props.viewerId);
