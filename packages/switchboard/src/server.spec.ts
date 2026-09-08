@@ -2515,7 +2515,7 @@ describe('REST', () => {
     expect(fake.wasAttached(daemon.store.getMember('eng', alpha.id)!.session_ref!)).toBe(true);
   });
 
-  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-rest
+  // harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-rest
   // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-regression
   it('authorizes refresh and rejects stale spawn and starting-agent requests', async () => {
     const postRefresh = (token: string) => fetch(`${base}/api/adapters/refresh`, {
@@ -2580,7 +2580,7 @@ describe('REST', () => {
   });
   // harn:end acp-launch-is-structured-authorized-and-bounded
   // harn:end new-agent-requests-require-available-native-or-detected-acp
-  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end adapter-refresh-rediscovers-installed-models
 
   // harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-refresh-auth-regression
   it('authorizes the usage refresh, returns whether a probe ran, and leaks no credential', async () => {

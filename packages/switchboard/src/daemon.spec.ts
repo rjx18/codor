@@ -4060,6 +4060,42 @@ describe('adapter model discovery', () => {
 
   const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
+  it('coalesces startup and concurrent refresh, then rediscovers an installed catalog', async () => {
+    let finish!: (catalog: { models: string[]; source: string }) => void;
+    const listModels = vi.fn(() => new Promise<{ models: string[]; source: string }>((resolve) => { finish = resolve; }));
+    const daemon = daemonWith([adapterWith('codex', listModels)]);
+    try {
+      daemon.refreshAdapterAvailability(); daemon.refreshAdapterAvailability();
+      expect(daemon.modelDiscoveryPending()).toBe(true);
+      expect(daemon.registeredAdapters()[0]?.id).toBe('codex');
+      await settle(); expect(listModels).toHaveBeenCalledTimes(1);
+      finish({ models: ['gpt-6-astra'], source: 'discovered' }); await settle();
+      expect(daemon.registeredAdapters()[0]?.models).toEqual(['gpt-6-astra']);
+      listModels.mockResolvedValue({ models: ['future/model'], source: 'discovered' });
+      const immediate = daemon.refreshAdapterAvailability(); daemon.refreshAdapterAvailability();
+      expect(immediate[0]?.models).toEqual(['gpt-6-astra']);
+      await settle();
+      expect(listModels).toHaveBeenCalledTimes(2);
+      expect(daemon.registeredAdapters()[0]?.models).toEqual(['future/model']);
+      expect(daemon.modelDiscoveryPending()).toBe(false);
+    } finally { await daemon.close(); }
+  });
+
+  it('retains a prior catalog on failure and clears it on an honestly empty native result', async () => {
+    const listModels = vi.fn(async () => ({ models: ['native/model'], source: 'discovered' }));
+    const daemon = daemonWith([adapterWith('codex', listModels)]);
+    try {
+      await settle();
+      listModels.mockRejectedValueOnce(new Error('model/list unsupported'));
+      daemon.refreshAdapterAvailability(); await settle();
+      expect(daemon.registeredAdapters()[0]?.models).toEqual(['native/model']);
+      listModels.mockResolvedValueOnce({ models: [], source: 'discovered' });
+      daemon.refreshAdapterAvailability(); await settle();
+      expect(daemon.registeredAdapters()[0]?.models).toEqual([]);
+      expect(daemon.modelDiscoveryPending()).toBe(false);
+    } finally { await daemon.close(); }
+  });
+
   it('serves the models a harness reported, with their source', async () => {
     const daemon = daemonWith([
       adapterWith('discovers', () => Promise.resolve({ models: ['a/b'], source: 'discovered' })),
@@ -4164,7 +4200,7 @@ describe('adapter model discovery', () => {
   });
 
   // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
-  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
+  // harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-runtime
   // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-regression
   it('filters built-ins, refreshes newly available models once, and rejects stale creation', async () => {
     const available = new Set<string>();
@@ -4202,7 +4238,7 @@ describe('adapter model discovery', () => {
     });
     daemon.refreshAdapterAvailability();
     await settle();
-    expect(listModels).toHaveBeenCalledTimes(1);
+    expect(listModels).toHaveBeenCalledTimes(2);
     await daemon.close();
   });
 
@@ -4296,7 +4332,7 @@ describe('adapter model discovery', () => {
     rmSync(acpRoot, { recursive: true, force: true });
   });
   // harn:end new-agent-requests-require-available-native-or-detected-acp
-  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end adapter-refresh-rediscovers-installed-models
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
 });
 // harn:end adapters-own-their-model-catalog

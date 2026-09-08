@@ -203,11 +203,30 @@ The spend-gated `live.spec.ts` now exercises two turns through app-server when
 <!-- harn:assume adapters-own-their-model-catalog ref=codex-model-catalog-notes -->
 ## Model catalog
 
-The adapter does not perform model discovery on request paths. The curated
-catalog remains the existing documented set: `gpt-5.6-luna`, `gpt-5.6-terra`,
-`gpt-5.6-sol`, and `gpt-5.5`. App-server receives the selected id as `model`;
-provider/model rejection becomes an ordinary failed turn. No model call was
-made while migrating the transport.
+Startup and authorized Refresh enumerate the installed app-server's `model/list`
+in the background. The probe initializes the connection, requests pages with
+`includeHidden: false`, follows `nextCursor`, and uses each visible entry's
+`model` value (`id` is accepted for older responses). Concurrent discovery calls
+share one probe. There is no Codor-owned list of model names.
+
+The probe has a ten-second total enumeration deadline and at most 100 pages.
+It closes its transport and confirms process exit, escalating its own child from
+SIGTERM to SIGKILL if necessary (at most two additional seconds for cleanup).
+It never creates a thread or starts a turn. Ordinary catalog API requests serve
+the existing catalog and discovery-pending flag while this happens.
+
+The existing executable, daemon cwd and environment are inherited unchanged,
+including `CODEX_HOME`; no model, provider, catalog or context-window override is
+added. Richard's custom Astra catalog/context setting is therefore untouched.
+A pinned native catalog is still a snapshot: Refresh reports the installed
+runtime's effective picker and cannot discover models excluded by that file.
+Updating arbitrary user catalogs is outside this adapter's responsibility.
+
+Older CLIs without `model/list`, malformed output and failed/timed-out probes
+fall back to the existing custom-model entry when no catalog is available; an
+existing last successful daemon catalog remains usable on failure. A successful
+empty native catalog replaces the old list. A chosen model is still passed to
+app-server unchanged, and native rejection remains an ordinary turn error.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 <!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=codex-live-inbox-notes -->
