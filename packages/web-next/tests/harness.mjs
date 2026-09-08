@@ -1437,6 +1437,12 @@ let cryptoB;
 let relayStoreB;
 let relayLinkB;
 let phase5Fixture;
+const heldHistoryRequests = [];
+const originalHistoryPage = daemon.transcriptHistoryPage.bind(daemon);
+daemon.transcriptHistoryPage = (room, ...args) => {
+  if (room === 'held-history') heldHistoryRequests.push(args[0] ?? null);
+  return originalHistoryPage(room, ...args);
+};
 
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
@@ -1446,6 +1452,36 @@ createServer((req, res) => {
     let payload = {};
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname === '/held-history-status') {
+        payload = { requests: heldHistoryRequests };
+      }
+      if (url.pathname === '/held-history-refresh') {
+        for (const delivery of daemon.store.listDeliveries('held-history')) daemon.emitInbox('held-history', delivery);
+      }
+      if (url.pathname === '/held-history-fixture') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const room = 'held-history';
+        if (!daemon.store.getRoom(room)) {
+          daemon.createRoom({ id: room, name: 'Held History', owner: { handle: 'viewer', display_name: 'Viewer' } });
+          const owner = daemon.ownerOf(room);
+          const agent = daemon.spawnMember(room, { harness: 'fake', handle: 'held-worker', cwd: dir });
+          const removed = daemon.spawnMember(room, { harness: 'fake', handle: 'removed-worker', cwd: dir });
+          daemon.pauseMember(room, agent.id);
+          daemon.store.db.transaction(() => {
+            for (let id = 1; id <= 5165; id += 1) {
+              daemon.store.postMessage(room, { author: owner.id, kind: 'chat',
+                body: `History ${id}: ${'readable transcript '.repeat(12)}` });
+            }
+          })();
+          const delivery = daemon.store.createDelivery(room, { message_id: 2476, recipient: agent.id });
+          daemon.store.updateDelivery(room, delivery.id, { state: 'held' });
+          const stale = daemon.store.createDelivery(room, { message_id: 2475, recipient: removed.id });
+          daemon.store.updateDelivery(room, stale.id, { state: 'held' });
+          daemon.store.updateMember(room, removed.id, { state: 'dead', removed_ts: new Date().toISOString() });
+          if (body.removed) daemon.store.updateMember(room, agent.id, { state: 'dead', removed_ts: new Date().toISOString() });
+        }
+        payload = { room };
+      }
       if (url.pathname === '/enqueue') {
         const body = raw === '' ? {} : JSON.parse(raw);
         for (const turn of body.turns ?? []) fake.enqueue(turn);

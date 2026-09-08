@@ -417,13 +417,17 @@ export async function revealTranscriptTarget(
   room: string,
   id: number,
   token: () => string,
+  isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
   const source = sourceClientStore(store);
+  if (!isCurrent()) return false;
   if (!await ensureTranscriptHistoryFrom(source, room, token)) return false;
+  if (!isCurrent()) return false;
   while (!targetMaterialized(historyOf(source, room), id)) {
     const history = historyOf(source, room);
     if (!history.hasMore || history.beforeCursor === null || history.beforeCursor === undefined) return false;
     if (!await loadOlderTranscriptHistoryFrom(source, room, token)) return false;
+    if (!isCurrent()) return false;
   }
   return true;
 }

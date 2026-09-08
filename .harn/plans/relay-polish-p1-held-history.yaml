@@ -1,0 +1,84 @@
+id: relay-polish-p1-held-history
+title: Keep held recovery explicit and retire removed recipients
+notes: >
+  Phase 1 only at 7cc14cd6. Remove held-target mount walking, show explicit
+  nonmodal navigation for unloaded valid holds, stop retired-view walks, and
+  drain held/queued deliveries on removal via existing settlement methods.
+  Preserve origin retry, evidence, manual paging, permalink anchors and all
+  transport/generation architecture. Prepare Capri 2476 repair instructions with
+  read-only exact-ID preview; never execute against the host.
+assumptions:
+  create:
+    - id: held-history-expansion-requires-reader-intent
+      title: Held recovery never automatically expands transcript history
+      statement: >
+        Held inbox updates never start history target walking. A valid unloaded
+        hold has explicit nonmodal navigation to its origin; missing or removed
+        recipients cannot retry or cause paging. Explicit walks stop when their
+        viewing context is retired. Removing a recipient settles queued and held
+        ordinary/group work through existing terminal lifecycle operations while
+        preserving audit evidence and never starting a turn.
+      reason: Capri's stale hold caused unsolicited archive crawling and reader
+        displacement.
+      depends_on:
+        - transcript-targets-walk-combined-pages
+        - removed-members-remain-attribution-tombstones
+  reviewed:
+    - id: held-delivery-recovery-stays-on-origin-message
+      outcome: unchanged
+      reason: Retry remains on the origin once deliberately loaded; the detached entry
+        only navigates.
+    - id: held-delivery-release-is-one-shot-and-recoverable
+      outcome: unchanged
+      reason: Existing inline retry state and evidence remain intact.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: Explicit navigation still walks to materialization while its view
+        remains current.
+    - id: removing-an-agent-is-one-deliberate-step
+      outcome: unchanged
+      reason: Preserve existing removal contract and extend abandoned work cleanup to
+        held state.
+    - id: removed-members-remain-attribution-tombstones
+      outcome: unchanged
+      reason: Tombstone and evidence persist; no identity deletion.
+    - id: open-collaboration-groups-reconcile-without-resurrection
+      outcome: unchanged
+      reason: Reuse existing before-start skip and started-attempt settlement.
+files:
+  - .harn/plans/relay-polish-p1-held-history.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/panels.tsx
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room44-held-history.e2e.spec.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - docs/relay-polish-capri-held-repair.md
+anchors:
+  held-history-expansion-requires-reader-intent:
+    explicit-held-navigation:
+      action: change
+      reason: Explicit unloaded recovery without mount requests.
+    held-removal-regression:
+      action: change
+      reason: Queued and held removal coverage.
+  transcript-targets-walk-combined-pages:
+    combined-history-target-reveal:
+      action: change
+      reason: Stop target iteration after view retirement.
+  removing-an-agent-is-one-deliberate-step:
+    remove-drains-queued-work:
+      action: change
+      reason: Drain held work using existing lifecycle.
+    remove-member-regression:
+      action: change
+      reason: Held and queued removal regressions.
+  removed-members-remain-attribution-tombstones:
+    member-removal-daemon:
+      action: change
+      reason: Idempotent cleanup and audit notice.
+applied:
+  applied_at: 2026-09-08T12:27:11.567Z

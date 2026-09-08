@@ -247,6 +247,18 @@ describe('combined transcript page merging', () => {
 
 // harn:assume transcript-targets-walk-combined-pages ref=combined-history-target-regression
 describe('combined transcript target walking', () => {
+  // harn:assume held-history-expansion-requires-reader-intent ref=explicit-held-navigation
+  it('stops an explicit walk when its viewing context retires during a request', async () => {
+    const store = createClientStore();
+    let current = true;
+    api.fetch.mockImplementationOnce(async () => {
+      current = false;
+      return page([messageUnit(5000)], [message(5000)], 'older');
+    });
+    expect(await revealTranscriptTarget(store, 'same', 2476, () => 'token', () => current)).toBe(false);
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+  });
+  // harn:end held-history-expansion-requires-reader-intent
   it('does not treat a context-only complete message as a revealed target', async () => {
     const store = createClientStore();
     store.getState().setActiveRoom('same');

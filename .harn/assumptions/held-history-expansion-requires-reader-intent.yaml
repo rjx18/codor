@@ -1,0 +1,15 @@
+id: held-history-expansion-requires-reader-intent
+hash: a-7a27e6b4a9cd
+title: Held recovery never automatically expands transcript history
+state: active
+statement: >
+  Held inbox updates never start history target walking. A valid unloaded hold
+  has explicit nonmodal navigation to its origin; missing or removed recipients
+  cannot retry or cause paging. Explicit walks stop when their viewing context
+  is retired. Removing a recipient settles queued and held ordinary/group work
+  through existing terminal lifecycle operations while preserving audit evidence
+  and never starting a turn.
+depends_on:
+  - transcript-targets-walk-combined-pages
+  - removed-members-remain-attribution-tombstones
+created_by: relay-polish-p1-held-history

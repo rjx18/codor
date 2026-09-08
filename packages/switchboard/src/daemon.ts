@@ -2670,7 +2670,7 @@ export class Daemon {
     // harn:end removing-an-agent-is-one-deliberate-step
 
     const member = this.store.updateMember(room, memberId, {
-      removed_ts: new Date().toISOString(),
+      removed_ts: existing.removed_ts ?? new Date().toISOString(),
     });
     this.sessions.delete(memberId);
     this.staleSessions.delete(memberId);
@@ -2682,19 +2682,24 @@ export class Daemon {
     // Work addressed to a member that no longer exists has nowhere to go. Left queued it
     // would wait in the pump forever for an agent that is never coming back, and count
     // against a member the roster no longer shows.
-    const abandoned = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' });
+    const abandoned = this.store.listDeliveries(room, { recipient: memberId })
+      .filter((delivery) => delivery.state === 'queued' || delivery.state === 'held');
+    const started = abandoned.filter((delivery) => delivery.run_msg_id !== undefined);
+    this.refuseStaleScopedAttempt(room, started, `recipient @${member.handle} was removed`);
     for (const delivery of abandoned) {
+      if (delivery.run_msg_id !== undefined) continue;
       if (delivery.group_id !== undefined) this.skipUnavailableGroupDelivery(room, delivery);
-      else this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
+      else this.emitInbox(room, this.store.updateDelivery(room, delivery.id, { state: 'consumed' }));
     }
     // harn:end removing-an-agent-is-one-deliberate-step
 
     this.markRostersStale(room);
     this.emitMember(room, member);
+    if (existing.removed_ts !== undefined && abandoned.length === 0) return member;
     this.postSystemMessage(
       room,
       abandoned.length > 0
-        ? `@${member.handle} was removed; ${String(abandoned.length)} queued message${abandoned.length === 1 ? '' : 's'} dropped; its history remains attributed`
+        ? `@${member.handle} was removed; ${String(abandoned.length)} ${abandoned.some((delivery) => delivery.state === 'held') ? 'queued/held' : 'queued'} message${abandoned.length === 1 ? '' : 's'} dropped; its history remains attributed`
         : `@${member.handle} was removed; its history remains attributed`,
     );
     return member;
@@ -6058,6 +6063,11 @@ export class Daemon {
     const attemptProcess = this.store.getDeliveryAttemptProcess(room, deliveryId);
     if (attemptProcess && this.processAlive(attemptProcess)) {
       throw new Error(`delivery ${deliveryId} cannot be released while its adapter process is alive`);
+    }
+    const recipient = this.store.getMember(targetRoom, delivery.recipient);
+    if (!recipient || recipient.removed_ts !== undefined) {
+      this.refuseQualifiedDelivery(room, delivery, 'recipient was removed or is unavailable');
+      return;
     }
     if (delivery.run_msg_id !== undefined) {
       const runMsg = this.store.getMessage(room, delivery.run_msg_id);
