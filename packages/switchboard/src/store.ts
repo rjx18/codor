@@ -32,6 +32,9 @@ import {
   MemberSchema,
   type Message,
   MessageSchema,
+  type PostFrame,
+  type PostOutcome,
+  PostOutcomeSchema,
   type Schedule,
   ScheduleSchema,
   type ScheduledTarget,
@@ -308,6 +311,21 @@ CREATE TABLE IF NOT EXISTS changes (
 // harn:end collaboration-groups-are-durable-state
 // harn:end attach-custody-lease-tracks-child-pid
 // harn:end run-journals-own-evidence-across-output-messages
+
+// harn:assume post-receipts-commit-atomically-with-routing ref=p6-post-receipts-commit-atomically-with-routing
+// No foreign-key cascade or TTL: deletion must never permit resurrection.
+function migratePostReceipts(db: Database.Database): void {
+  db.exec('CREATE INDEX IF NOT EXISTS delivery_message_lookup ON deliveries (room, message_id)');
+  db.exec(`CREATE TABLE IF NOT EXISTS post_receipts (
+    sender TEXT NOT NULL,
+    submission_id TEXT NOT NULL,
+    request_fingerprint TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    PRIMARY KEY (sender, submission_id)
+  )`);
+}
+// harn:end post-receipts-commit-atomically-with-routing
 
 // harn:assume delivery-payload-snapshotted ref=delivery-payload-storage
 function migrateDeliveryPayloadSnapshot(db: Database.Database): void {
@@ -2068,6 +2086,7 @@ export class Store {
       migrateMemberAcpProvider(this.db);
       migrateMemberCredential(this.db);
       migrateScheduleStore(this.db);
+      migratePostReceipts(this.db);
       migrateMessageAck(this.db);
       migrateMessagePinned(this.db);
       migrateMessageDeleted(this.db);
@@ -3760,6 +3779,60 @@ export class Store {
     })();
   }
   // harn:end message-id-txn-allocation
+
+  // harn:assume post-receipts-commit-atomically-with-routing ref=p6-post-receipts-commit-atomically-with-routing
+  // harn:assume post-retry-identity-is-stable-authorized-and-payload-bound ref=p6-post-retry-identity-is-stable-authorized-and-payload-bound
+  /** Caller authenticates and authorizes the origin before entering this boundary.
+   * The immediate transaction serializes competing connections/processes before
+   * any routing, upload lookup, or relative-time parsing takes place. */
+  acceptSubmission(
+    sender: string,
+    frame: PostFrame & { submission_id: string },
+    create: () => PostOutcome,
+    authorizeDestination: (room: string) => void,
+  ): { outcome: PostOutcome; duplicate: boolean } {
+    // Fixed field order and defaults canonicalize optional fields, not prose or
+    // ordered attachments. No access token or raw payload is stored in receipts.
+    const canonical = JSON.stringify([
+      frame.room, frame.body, frame.reply_to ?? null, frame.attachments ?? [],
+      frame.voice === undefined ? null : [frame.voice.duration_seconds, frame.voice.levels],
+      frame.awaiting_reply ?? false,
+    ]);
+    const requestFingerprint = createHash('sha256').update(canonical).digest('hex');
+    return this.db.transaction(() => {
+      const prior = this.db.prepare(
+        'SELECT request_fingerprint, outcome FROM post_receipts WHERE sender = ? AND submission_id = ?',
+      ).get(sender, frame.submission_id) as { request_fingerprint: string; outcome: string } | undefined;
+      if (prior !== undefined) {
+        const outcome = PostOutcomeSchema.parse(JSON.parse(prior.outcome));
+        authorizeDestination(outcome.room);
+        if (prior.request_fingerprint !== requestFingerprint) {
+          throw new Error('submission ID was already used for a different post');
+        }
+        return { outcome, duplicate: true };
+      }
+      const outcome = PostOutcomeSchema.parse(create());
+      authorizeDestination(outcome.room);
+      const fingerprint = createHash('sha256').update(JSON.stringify([canonical, outcome.room])).digest('hex');
+      this.db.prepare(`INSERT INTO post_receipts
+        (sender, submission_id, request_fingerprint, fingerprint, outcome) VALUES (?, ?, ?, ?, ?)`,
+      ).run(sender, frame.submission_id, requestFingerprint, fingerprint, JSON.stringify(outcome));
+      return { outcome, duplicate: false };
+    }).immediate();
+  }
+
+  messageSubmissionOutcome(message: Message): PostOutcome {
+    const rows = this.db.prepare(
+      'SELECT id, group_id FROM deliveries WHERE room = ? AND message_id = ? ORDER BY rowid',
+    ).all(message.room, message.id) as { id: string; group_id: string | null }[];
+    const groupId = rows.find((row) => row.group_id !== null)?.group_id;
+    return {
+      kind: 'message', room: message.room, message_id: message.id, seq: message.seq,
+      delivery_ids: rows.map((row) => row.id), ...(groupId != null && { group_id: groupId }),
+    };
+  }
+  // harn:end post-retry-identity-is-stable-authorized-and-payload-bound
+  // harn:end post-receipts-commit-atomically-with-routing
 
   // harn:assume eligible-multi-agent-routing-starts-one-group ref=atomic-routed-message-commit
   commitRoutedMessage(

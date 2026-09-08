@@ -130,3 +130,15 @@ describe('browser compatibility gate', () => {
     });
   });
 });
+
+describe('optional post acknowledgement capability', () => {
+  it('requires an authenticated successful response with the explicit true field', async () => {
+    for (const status of [200, 401, 403, 426]) {
+      const result = await fetchBrowserCompatibility('token', async () => new Response(JSON.stringify({
+        post_acknowledgements: true,
+      }), { status }));
+      expect(result.postAcknowledgements === true).toBe(status === 200);
+    }
+    expect((await fetchBrowserCompatibility('token', async () => new Response('{}'))).postAcknowledgements).toBeUndefined();
+  });
+});

@@ -20,7 +20,7 @@ import { TunnelClient, type TunnelState, type TunnelStateListener } from '@runti
 import { setActiveComputer } from '@runtime/active-computer.js';
 
 import { createConnector, type ConnectorOptions, type RoomConnector } from './connector.js';
-import { fetchBrowserCompatibility, requireBrowserUpgrade } from './compatibility.js';
+import { fetchBrowserCompatibility, requireBrowserUpgrade, type BrowserCompatibilityResult } from './compatibility.js';
 import { forgetRoom, rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
 import {
   createClientStore,
@@ -169,7 +169,7 @@ export interface ComputerSessionDeps {
   makeTunnel(material: HostedComputerMaterial): SessionTunnel;
   authenticate(material: HostedComputerMaterial, tunnel: SessionTunnel, signal?: AbortSignal): Promise<BrowserDeviceSession>;
   loadRooms(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<RoomSummary[]>;
-  loadCompatibility(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<boolean>;
+  loadCompatibility(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<boolean | BrowserCompatibilityResult>;
   makeConnector(options: ConnectorOptions): RoomConnector;
   switchStored(id: string): Promise<void>;
   pair(code: string, relayUrl: string): Promise<void>;
@@ -211,7 +211,7 @@ const defaultDeps: ComputerSessionDeps = {
   },
   loadCompatibility: async (token, tunnel, signal) => (
     await fetchBrowserCompatibility(token, (input, init) => tunnel.fetch(input, { ...init, signal }))
-  ).combinedTranscriptHistory,
+  ),
   makeConnector: createConnector,
   switchStored: switchComputer,
   pair: pairThroughRelay,
@@ -702,7 +702,14 @@ export class ComputerSessionManager {
           setToken: (next) => this.setEntryToken(entry, next),
           refreshToken: () => this.refreshEntryToken(entry),
           tunnel: entry.tunnel,
-          combinedTranscriptHistory,
+          combinedTranscriptHistory: typeof combinedTranscriptHistory === 'boolean'
+            ? combinedTranscriptHistory : combinedTranscriptHistory.combinedTranscriptHistory,
+          postAcknowledgements: typeof combinedTranscriptHistory !== 'boolean'
+            && combinedTranscriptHistory.postAcknowledgements === true,
+          refreshPostAcknowledgements: async (currentToken) => {
+            const compatibility = await this.deps.loadCompatibility(currentToken, entry.tunnel);
+            return typeof compatibility !== 'boolean' && compatibility.postAcknowledgements === true;
+          },
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {
               // harn:assume combined-head-reconciliation-is-two-page-bounded ref=bounded-combined-history-resume

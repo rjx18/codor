@@ -1,0 +1,17 @@
+id: post-retry-identity-is-stable-authorized-and-payload-bound
+hash: a-f096460cf688
+title: Retries use authenticated stable identity and frozen payload
+state: active
+statement: A submission id is unique within one daemon computer and stable
+  authenticated sender identity, never an access token. Current authentication
+  and origin authorization precede receipt lookup; original destination
+  authorization precedes outcome disclosure. Canonical originating room, body,
+  reply, attachment ids and voice or wait metadata bind the id; changed payload
+  is refused. Duplicate resolution precedes routing, renamed handles, attachment
+  resolution and relative schedule parsing and returns the original permanent
+  outcome even after restart or message deletion.
+depends_on:
+  - roles-gate-human-acts-not-agents
+  - paired-browser-challenge-session
+  - target-worktree-owns-qualified-conversation
+created_by: relay-polish-p6-idempotent-posts

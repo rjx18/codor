@@ -1,7 +1,7 @@
 id: scheduled-composer-acknowledgement-preserves-raw-draft-ownership
 hash: a-f3727ecdff17
 title: Scheduled composer acknowledgement preserves exact raw draft ownership
-state: active
+state: retired
 statement: >
   A browser scheduled dispatch must retain its exact raw textarea value,
   canonical wire body, canonical clean scheduled body, destination room,
@@ -16,3 +16,4 @@ depends_on:
   - scheduled-state-streams-through-room-seq-v2
   - target-worktree-owns-qualified-conversation
 created_by: persistent-scheduled-messages-s2
+retired_by: relay-polish-p6-idempotent-posts

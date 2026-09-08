@@ -1,0 +1,16 @@
+id: pending-submission-retries-only-through-ready-owner
+hash: a-2fb06826bea3
+title: One pending submission retries through its ready owner
+state: active
+statement: Each computer connector retains at most one immutable pending
+  submission in memory and retries its same id and complete payload at most once
+  per ready socket generation only through the originating authenticated
+  connection and room. Stale callbacks, other rooms/computers, auth parks and
+  unready connections cannot retry or settle it. Missing capability retains
+  legacy dispatch with visible uncertainty and no automatic post retry; no
+  reconnect loop or persistent offline outbox is added.
+depends_on:
+  - hosted-app-streams-follow-tunnel-generations
+  - hosted-computer-sessions-keep-state-isolated
+  - post-acknowledgements-are-optional-and-correlated
+created_by: relay-polish-p6-idempotent-posts

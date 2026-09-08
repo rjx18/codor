@@ -1,13 +1,24 @@
 import type { Act, ServerFrame } from '@codor/protocol';
+import type { SubmissionResult } from '../app/pending-submission.js';
+
+export interface PostOptions {
+  room?: string;
+  replyTo?: number; attachments?: string[];
+  voice?: { duration_seconds: number; levels: number[] };
+  submissionId?: string;
+  onResult?: (result: SubmissionResult) => void;
+}
 
 import { setActiveBrowserAccessToken } from './crypto.js';
 import { HISTORY_PAGE_SIZE, useRoomStore } from './state.js';
 import { directCombinedTranscriptHistorySupported } from '../app/compatibility.js';
 
 export interface Connection {
+  readonly postAcknowledgements?: boolean;
+  readonly submissionPending?: boolean;
   post(
     body: string,
-    opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
+    opts?: PostOptions,
   ): boolean;
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel
   // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-transport

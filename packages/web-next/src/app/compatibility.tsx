@@ -12,6 +12,7 @@ export interface BrowserUpgrade {
 
 let required: BrowserUpgrade | undefined;
 let directCombinedTranscriptHistory = false;
+let directPostAcknowledgements = false;
 const listeners = new Set<() => void>();
 
 function publish(next: BrowserUpgrade): void {
@@ -35,6 +36,7 @@ export function requireBrowserUpgrade(frame: Extract<ServerFrame, { type: 'upgra
 
 export interface BrowserCompatibilityResult {
   combinedTranscriptHistory: boolean;
+  postAcknowledgements?: boolean;
   upgrade?: BrowserUpgrade;
 }
 
@@ -62,9 +64,11 @@ export async function fetchBrowserCompatibility(
       browser_protocol?: number;
       minimum_browser_protocol?: number;
       combined_transcript_history?: boolean;
+      post_acknowledgements?: boolean;
     };
     return {
       combinedTranscriptHistory: body.combined_transcript_history === true,
+      ...(response.ok && body.post_acknowledgements === true && { postAcknowledgements: true }),
       ...(response.status === 426 && {
         upgrade: {
           minimum: body.minimum_browser_protocol ?? BROWSER_PROTOCOL_EPOCH + 1,
@@ -82,6 +86,7 @@ export async function fetchBrowserCompatibility(
 export async function checkBrowserCompatibility(token: string): Promise<BrowserCompatibilityResult> {
   const result = await fetchBrowserCompatibility(token);
   directCombinedTranscriptHistory = result.combinedTranscriptHistory;
+  directPostAcknowledgements = result.postAcknowledgements === true;
   if (result.upgrade !== undefined) publish(result.upgrade);
   return result;
 }
@@ -90,6 +95,10 @@ export function directCombinedTranscriptHistorySupported(): boolean {
   return directCombinedTranscriptHistory;
 }
 // harn:end combined-history-capability-gates-socket-fallback
+
+export function directPostAcknowledgementsSupported(): boolean {
+  return directPostAcknowledgements;
+}
 
 function controllerChanged(): Promise<void> {
   return new Promise((resolve) => {
@@ -161,6 +170,7 @@ export function CompatibilityGate(props: { children: ReactNode }) {
 
 export function clearBrowserUpgradeForTest(): void {
   directCombinedTranscriptHistory = false;
+  directPostAcknowledgements = false;
   required = undefined;
   for (const listener of listeners) listener();
 }

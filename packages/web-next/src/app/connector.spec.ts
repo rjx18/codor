@@ -1153,3 +1153,73 @@ describe('connector hidden-room observation', () => {
   });
 });
 // harn:end worktree-conversation-status-is-live-and-independent
+
+describe('P6 submission connection ownership', () => {
+  const posts = (socket: FakeSocket) => socket.sent.map((value) => JSON.parse(value))
+    .filter((frame) => frame.type === 'post');
+  it('retries only after the original room is ready, keeps refreshed credentials, and ignores stale acks', async () => {
+    vi.useFakeTimers();
+    const connector = createConnector({ room: 'eng', token: 'old-token', postAcknowledgements: true,
+      refreshToken: async () => 'new-token',
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const first = latest(); first.accept();
+    expect(connector.post('too early')).toBe(false);
+    first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    const result = vi.fn();
+    expect(connector.post('immutable body', { submissionId: 'owned', onResult: result, attachments: ['file'] })).toBe(true);
+    const stale = first.onmessage;
+    connector.switchRoom('other'); first.drop(4401);
+    await flush(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); expect(second.url).toContain('new-token'); second.accept();
+    second.deliver({ type: 'sync_complete', room: 'other', seq: 0 });
+    expect(posts(second)).toHaveLength(0);
+    expect(second.subscriptions().map((value) => value.room)).toContain('eng');
+    second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(posts(second)).toEqual(posts(first));
+    const accepted = { type: 'post_accepted', submission_id: 'owned', origin_room: 'eng',
+      outcome: { kind: 'message', room: 'child', message_id: 1, seq: 5, delivery_ids: [] } };
+    stale?.({ data: JSON.stringify(accepted) }); expect(result).not.toHaveBeenCalled();
+    second.deliver(accepted); expect(result).toHaveBeenCalledOnce();
+    expect(roomSlice(useClientStore.getState(), 'other').seq).toBe(0);
+    connector.dispose();
+  });
+  it('new browser on an old daemon never adds an id or replays a possibly accepted post', async () => {
+    vi.useFakeTimers(); const connector = build(); const first = latest(); first.accept();
+    first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(connector.post('legacy')).toBe(true); expect(posts(first)[0]).not.toHaveProperty('submission_id');
+    first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(posts(second)).toHaveLength(0); connector.dispose();
+  });
+  it('cannot send a pending A submission through computer B or an auth-revoked owner', async () => {
+    vi.useFakeTimers();
+    const make = (id: string) => createConnector({ room: 'eng', computerId: id, token: id,
+      postAcknowledgements: true, store: createClientStore(), expose: false, setToken: (value) => value,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const a = make('A'); const socketA = latest(); socketA.accept(); socketA.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    a.post('A only', { submissionId: 'same' });
+    const b = make('B'); const socketB = latest(); socketB.accept(); socketB.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(posts(socketB)).toHaveLength(0);
+    socketA.drop(4403); await vi.advanceTimersByTimeAsync(30_000);
+    expect(a.state()).toBe('parked-auth'); expect(posts(socketB)).toHaveLength(0);
+    a.dispose(); b.dispose();
+  });
+});
+
+it('rechecks a replacement daemon capability and never retries an old receipt against a downgraded daemon', async () => {
+  vi.useFakeTimers();
+  const refresh = vi.fn(async () => false);
+  const connector = createConnector({ room: 'eng', token: 'token', postAcknowledgements: true,
+    refreshPostAcknowledgements: refresh,
+    socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+  const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+  connector.post('possibly accepted', { submissionId: 'keep-original' }); first.drop();
+  await vi.advanceTimersByTimeAsync(500); const second = latest(); second.accept();
+  second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 }); await flush();
+  expect(refresh).toHaveBeenCalledExactlyOnceWith('token');
+  expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toEqual([]);
+  expect(connector.submissionPending).toBe(true);
+  expect(connector.post('unsafe replacement')).toBe(false);
+  connector.dispose();
+});

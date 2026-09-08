@@ -11,7 +11,12 @@ import { tmpdir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
+import { createRequire } from 'node:module';
+const WebSocket = process.env.CODOR_P6_SWITCHBOARD_MODULE
+  ? createRequire(process.env.CODOR_P6_SWITCHBOARD_MODULE)('ws')
+  : (await import('ws')).default;
+
+const {
   CryptoVault,
   Daemon,
   FakeAdapter,
@@ -20,7 +25,7 @@ import {
   RelayPairingHost,
   RelayStore,
   startServer,
-} from '@codor/switchboard';
+} = await import(process.env.CODOR_P6_SWITCHBOARD_MODULE ?? '@codor/switchboard');
 
 import { startMockRelay } from './mock-relay.mjs';
 
@@ -111,6 +116,62 @@ const daemon = new Daemon({
   ledger,
   executableOnPath: (executable) => acpPresent.has(executable),
 });
+
+// P6 fault injection stays at the real daemon/WebSocket boundary. Captured
+// frames contain only fixture data; no production protocol seam is introduced.
+let p6Fault;
+const p6Attempts = [];
+const p6AppSockets = new Set();
+const p6SocketEmit = WebSocket.prototype.emit;
+WebSocket.prototype.emit = function (event, ...args) {
+  if (event === 'message' && this._socket?.localPort === API_PORT) {
+    p6AppSockets.add(this);
+    try {
+      const frame = JSON.parse(String(args[0]));
+      if (frame.type === 'post') {
+        p6Attempts.push(frame);
+        if (p6Attempts.length > 256) p6Attempts.shift();
+      }
+    } catch { /* other relay traffic is not app JSON */ }
+  }
+  return p6SocketEmit.call(this, event, ...args);
+};
+const p6SocketSend = WebSocket.prototype.send;
+WebSocket.prototype.send = function (data, ...args) {
+  if (p6Fault && this._socket?.localPort === API_PORT && typeof data === 'string') {
+    try {
+      const frame = JSON.parse(data);
+      if (frame.type === 'message' && frame.message.body.includes(p6Fault.needle)) return;
+      if (frame.type === 'post_accepted' && p6Fault.point === 'silent'
+        && p6Attempts.some((post) => post.submission_id === frame.submission_id && post.body.includes(p6Fault.needle))) return;
+    } catch { /* normal transport owns other data */ }
+  }
+  return p6SocketSend.call(this, data, ...args);
+};
+if (daemon.submitPost) {
+  const submitPost = daemon.submitPost.bind(daemon);
+  daemon.submitPost = (...args) => {
+    const fault = p6Fault;
+    if (fault?.point === 'reject' && args[1].body.includes(fault.needle)) {
+      p6Fault = undefined;
+      throw new Error('fixture post refused; edit or retry the draft');
+    }
+    const cut = fault && args[1].body.includes(fault.needle) && ['before', 'after'].includes(fault.point);
+    if (cut && fault.point === 'before') {
+      p6Fault = undefined;
+      for (const socket of p6AppSockets) socket.terminate();
+      p6AppSockets.clear();
+      throw new Error('fixture disconnect before acceptance');
+    }
+    const result = submitPost(...args);
+    if (cut) {
+      p6Fault = undefined;
+      for (const socket of p6AppSockets) socket.terminate();
+      p6AppSockets.clear();
+    }
+    return result;
+  };
+}
 
 // Browser-only action seam: exercise duplicate suppression, pending disabled
 // state, and visible server refusal without changing release_hold production
@@ -1735,6 +1796,30 @@ createServer((req, res) => {
         const roomId = String(body.room ?? 'eng');
         payload = daemon.store.roomSupport(roomId, daemon.ownerOf(roomId).id);
       }
+      if (url.pathname === '/p6-pause-group') {
+        for (const handle of ['p6-alpha', 'p6-beta']) {
+          const member = daemon.store.getMemberByHandle('eng', handle)
+            ?? daemon.store.addMember('eng', { kind: 'agent', handle, display_name: handle,
+              harness: 'fake', state: 'paused', cwd: dir });
+          daemon.emitMember('eng', member);
+        }
+        payload = { ok: true };
+      }
+      if (url.pathname === '/p6-fault') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        p6Fault = body.point ? { point: body.point, needle: body.needle } : undefined;
+        payload = { ok: true };
+      }
+      if (url.pathname === '/p6-evidence') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const selected = body.computer === 'B' ? daemonB : daemon;
+        const messages = selected.store.listRooms().flatMap((room) => selected.store.listMessages(room.id, { limit: 10000 }))
+          .filter((message) => message.body.includes(body.needle));
+        payload = { messages, voiceCalls: voiceCall, attempts: p6Attempts.filter((post) => post.body.includes(body.needle)),
+          deliveries: messages.flatMap((message) => selected.store.listDeliveries(message.room)
+            .filter((delivery) => delivery.message_id === message.id)),
+        };
+      }
       if (url.pathname === '/relay-pair') {
         const host = new RelayPairingHost({ store: relayStore, pairing: crypto.pairing, identity: crypto.keys.publicIdentity() });
         const offer = await host.pair(`http://127.0.0.1:${API_PORT}`);
@@ -2048,7 +2133,7 @@ createServer((req, res) => {
 }).listen(CONTROL_PORT, '127.0.0.1');
 
 // ── Serve: built SPA + API on one isolated port ──────────────────────────
-const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const staticRoot = process.env.CODOR_P6_WEB_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 // Bring up the blind relay + the switchboard's RelayLink before the server
 // listens, so the relay journey is ready the moment Playwright sees the port.
 mockRelay = await startMockRelay();

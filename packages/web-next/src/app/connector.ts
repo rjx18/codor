@@ -6,11 +6,12 @@
 // room and keeps every other subscription and the shared store intact. It does
 // not close the socket and does not reset the store — the previous comment here
 // described behaviour this connector has not had since in-place switching.
-import { BROWSER_PROTOCOL_EPOCH, type Act, type ServerFrame } from '@codor/protocol';
+import { BROWSER_PROTOCOL_EPOCH, type Act, type PostFrame, type ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
-import type { Connection } from '@runtime/ws.js';
+import type { Connection, PostOptions } from '@runtime/ws.js';
+import { PendingSubmission } from './pending-submission.js';
 
 import {
   HISTORY_PAGE_SIZE,
@@ -20,6 +21,8 @@ import {
 } from './store.js';
 import {
   directCombinedTranscriptHistorySupported,
+  directPostAcknowledgementsSupported,
+  fetchBrowserCompatibility,
   requireBrowserUpgrade,
 } from './compatibility.js';
 
@@ -76,6 +79,9 @@ export interface ConnectorOptions {
   /** Captured from this exact runtime's authenticated compatibility response.
    * Omitted only by legacy/direct callers, which retain socket history. */
   combinedTranscriptHistory?: boolean;
+  postAcknowledgements?: boolean;
+  /** Revalidate this exact daemon after a socket replacement before retrying. */
+  refreshPostAcknowledgements?: (token: string) => Promise<boolean>;
   /** Hosted-only tunnel generation gate. Direct/self-hosted callers omit it. */
   tunnel?: {
     readonly state: TunnelState;
@@ -115,6 +121,15 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const clientStore = options.store ?? useClientStore;
   const setToken = options.setToken ?? setActiveBrowserAccessToken;
   let currentRoom = options.room;
+  const pendingSubmission = new PendingSubmission();
+  let postAcknowledgements = options.postAcknowledgements
+    ?? (options.store === undefined && directPostAcknowledgementsSupported());
+  const refreshPostAcknowledgements = options.refreshPostAcknowledgements
+    ?? (options.socketFactory === undefined ? async (token: string) => (
+      await fetchBrowserCompatibility(token, (input, init) => fetch(new URL(input, origin.replace(/^ws/, 'http')), init))
+    ).postAcknowledgements === true : undefined);
+  let postCapabilityReady = true;
+  let openedOnce = false;
   let socket: WebSocket | undefined;
   // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
   /** Correlated acts keep their source room across in-place selection changes. */
@@ -417,6 +432,23 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     liveRooms = new Set();
     socket = socketFactory(`${origin}/ws?token=${encodeURIComponent(token)}`);
     const live = (): boolean => mine === generation && state !== 'disposed';
+    let appEvidence = false;
+    postCapabilityReady = !openedOnce || refreshPostAcknowledgements === undefined;
+    openedOnce = true;
+    if (!postCapabilityReady && refreshPostAcknowledgements !== undefined) {
+      // A replacement daemon may be older. Never send an old retained id until
+      // this generation explicitly advertises durable receipts again.
+      void refreshPostAcknowledgements(token).catch(() => false).then((supported) => {
+        if (!live()) return;
+        postAcknowledgements = supported;
+        postCapabilityReady = true;
+        if (appEvidence && state === 'connected') clientStore.getState().setConnected(true);
+        const room = pendingSubmission.room;
+        if (supported && state === 'connected' && room !== undefined && liveRooms.has(room)) {
+          pendingSubmission.ready(room, mine, send);
+        }
+      });
+    }
 
     socket.onopen = () => {
       if (!live()) return;
@@ -424,6 +456,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom, socketHistoryLimit);
+      if (pendingSubmission.room !== undefined) subscribe(pendingSubmission.room, socketHistoryLimit);
       for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
       startProbes(mine);
       if (streamRepairs > 0) probeNow(mine);
@@ -449,11 +482,16 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       trafficVersion++;
       streamRepairs = 0;
       retryMs = 500;
-      clientStore.getState().setConnected(true);
+      appEvidence = true;
+      clientStore.getState().setConnected(postCapabilityReady);
       // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
+      const submissionRoom = pendingSubmission.receive(frame);
+      // Receipts settle composer ownership only. Their original seq is not a
+      // new replay cursor and presentation remains ordinary live/history data.
+      if (frame.type === 'post_accepted') return;
       const frameRef = 'ref' in frame ? frame.ref : undefined;
       const resultRoom = frameRef === undefined ? undefined : actionRooms.get(frameRef);
-      clientStore.getState().applyFrame(frame, resultRoom ?? currentRoom);
+      clientStore.getState().applyFrame(frame, submissionRoom ?? resultRoom ?? currentRoom);
       // One explicit result retires one source-room mapping. Unmatched refs are
       // deliberately allowed to use the current-room fallback for legacy frames.
       if (frameRef !== undefined && frame.type !== 'rooms') actionRooms.delete(frameRef);
@@ -471,6 +509,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         }
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
+        if (postAcknowledgements && postCapabilityReady) pendingSubmission.ready(completed, mine, send);
       }
       // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
@@ -632,18 +671,23 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     room: () => currentRoom,
     state: () => state,
     // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=connector-post-dispatch-result
-    post: (
-      body: string,
-      opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
-    ) =>
-      send({
-        type: 'post',
-        room: currentRoom,
-        body,
+    get postAcknowledgements() { return postAcknowledgements; },
+    get submissionPending() { return pendingSubmission.active; },
+    post: (body: string, opts?: PostOptions) => {
+      const frame: PostFrame = {
+        type: 'post', room: opts?.room ?? currentRoom, body,
         ...(opts?.replyTo !== undefined && { reply_to: opts.replyTo }),
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
-      }),
+      };
+      if (!postCapabilityReady || pendingSubmission.active) return false;
+      if (!postAcknowledgements) return send(frame);
+      if (state !== 'connected' || !liveRooms.has(frame.room)
+        || (options.tunnel !== undefined && (options.tunnel.state !== 'connected'
+          || options.tunnel.generation !== openedTunnelGeneration))) return false;
+      frame.submission_id = opts?.submissionId ?? crypto.randomUUID();
+      return pendingSubmission.post(frame, generation, send, opts?.onResult);
+    },
     // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
@@ -706,6 +750,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       window.removeEventListener('online', onOnline);
       stopTunnel();
       actionRooms.clear();
+      pendingSubmission.dispose();
       retire(socket);
       socket = undefined;
     },

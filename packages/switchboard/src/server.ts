@@ -556,6 +556,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       || (protocol !== undefined && protocol >= minimumBrowserProtocol),
     // harn:assume combined-history-capability-gates-socket-fallback ref=combined-history-compatibility-response
     combined_transcript_history: true,
+    post_acknowledgements: true,
     // harn:end combined-history-capability-gates-socket-fallback
   });
 
@@ -1979,6 +1980,13 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
           && typeof parsed.ref === 'string' && parsed.ref.length > 0 && parsed.ref.length <= 128
           ? parsed.ref
           : undefined;
+        const rawSubmission = typeof parsed === 'object' && parsed !== null
+          && 'type' in parsed && parsed.type === 'post'
+          && 'submission_id' in parsed && typeof parsed.submission_id === 'string'
+          && parsed.submission_id.length > 0 && parsed.submission_id.length <= 128
+          ? parsed.submission_id : undefined;
+        const rawOrigin = typeof parsed === 'object' && parsed !== null && 'room' in parsed
+          && typeof parsed.room === 'string' ? parsed.room : undefined;
         let frame;
         try {
           frame = ClientFrameSchema.parse(parsed);
@@ -1987,6 +1995,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             type: 'error',
             message: `invalid frame: ${String(error)}`,
             ...(rawRef !== undefined && { ref: rawRef }),
+            ...(rawSubmission !== undefined && { submission_id: rawSubmission, origin_room: rawOrigin }),
           });
         }
         try {
@@ -2260,8 +2269,36 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               ...(sync.history_floor !== undefined && { history_floor: sync.history_floor }),
             });
           } else if (frame.type === 'post') {
+            // An opted-in retry rechecks the credential on this exact socket;
+            // expiry requests the existing refresh lifecycle, never a new send.
+            if (frame.submission_id !== undefined && authenticate(url) === undefined) {
+              socket.close(4401, 'unauthorized');
+              return;
+            }
             const actor = assertRoomCapability(principal, frame.room, 'post');
             const room = effectiveAgentRoom(principal, frame.room);
+            if (frame.submission_id !== undefined) {
+              const sender = principal.kind === 'owner' ? 'owner'
+                : principal.kind === 'browser' ? `browser:${principal.deviceId}`
+                : `${principal.kind}:${principal.memberId}`;
+              const outcome = daemon.submitPost(sender, { ...frame, submission_id: frame.submission_id }, {
+                id: actor.id, agent: principal.kind === 'agent', room,
+                ...(principal.kind === 'agent' && principal.invocation?.originRoom === room
+                  ? { authorTarget: principal.invocation.target } : {}),
+              }, (destination) => {
+                if (principal.kind === 'agent') {
+                  // Qualified agent routing stays inside its authenticated
+                  // repository. Its original durable destination needs no
+                  // renamed-handle or active-worktree re-resolution on replay.
+                  if (daemon.store.rootRoomId(destination) !== daemon.store.rootRoomId(room)) {
+                    throw new Error('forbidden: submission destination belongs to another repository');
+                  }
+                } else assertRoomCapability(principal, destination, 'post');
+              });
+              send({ type: 'post_accepted', submission_id: frame.submission_id,
+                origin_room: frame.room, outcome });
+              return;
+            }
             const scheduleNow = new Date();
             const scheduledDirective = parseScheduleDirective(frame.body, { now: scheduleNow });
             if (scheduledDirective !== undefined) {
@@ -2561,6 +2598,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
             type: 'error',
             message: String(error),
             ref: ('ref' in frame ? frame.ref : undefined) ?? frame.type,
+            ...(frame.type === 'post' && frame.submission_id !== undefined
+              && { submission_id: frame.submission_id, origin_room: frame.room }),
           });
           // harn:end management-frames-correlate-one-result
         }
