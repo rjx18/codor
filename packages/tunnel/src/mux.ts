@@ -193,6 +193,7 @@ export interface StreamMuxOptions {
 }
 
 export class StreamMux {
+  private disposed = false;
   private readonly streams = new Map<number, MuxStream>();
   private nextId: number;
   private readonly coalescer: PacketCoalescer;
@@ -211,6 +212,7 @@ export class StreamMux {
 
   /** Locally open a new stream. For APP_WS pass the browser session token. */
   openStream(kind: number, opts: { token?: Uint8Array; window?: number } = {}): MuxStream {
+    if (this.disposed) throw new Error('mux disposed');
     const id = this.nextId;
     this.nextId += 2;
     const window = opts.window ?? (kind === StreamKind.APP_WS ? APP_WS_WINDOW : DEFAULT_WINDOW);
@@ -229,6 +231,7 @@ export class StreamMux {
 
   /** Feed one decrypted inbound packet. */
   receivePacket(packet: Uint8Array): void {
+    if (this.disposed) return;
     for (const frame of decodePacket(packet)) this.handleFrame(frame);
   }
 
@@ -237,14 +240,29 @@ export class StreamMux {
     this.coalescer.flush();
   }
 
-  /** Reset every open stream and drop buffered output (shutdown). */
+  /** Graceful shutdown: flush buffered output and RESETs before disposal. */
   close(reason = 'closed'): void {
+    if (this.disposed) return;
     for (const stream of [...this.streams.values()]) stream.reset(reason);
     this.coalescer.flush();
-    this.coalescer.dispose();
+    this.dispose();
   }
 
+  // harn:assume browser-retired-muxes-cannot-emit ref=mux-discard
+  /** Retire a lost transport without emitting queued data or RESET packets. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.coalescer.dispose();
+    for (const stream of [...this.streams.values()]) {
+      stream.destroy();
+      stream.onData = stream.onHead = stream.onEnd = stream.onReset = stream.onWritable = undefined;
+    }
+  }
+  // harn:end browser-retired-muxes-cannot-emit
+
   emit(frame: Frame): void {
+    if (this.disposed) return;
     this.coalescer.push(frame);
   }
 

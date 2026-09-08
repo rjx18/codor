@@ -25,6 +25,43 @@ function pair() {
   return { host, client, inbound, settle };
 }
 
+describe('retired mux disposal', () => {
+  it('still delivers graceful close resets and surfaces active transport errors', () => {
+    const { client, inbound, settle } = pair();
+    client.openStream(StreamKind.HTTP);
+    settle();
+    const reset = vi.fn();
+    inbound.host[0]!.onReset = reset;
+    client.close('graceful'); client.close('duplicate'); settle();
+    expect(reset).toHaveBeenCalledExactlyOnceWith('graceful');
+    const broken = new StreamMux({ role: 'client', onStream: vi.fn(), onPacket: () => { throw new Error('active transport failure'); } });
+    broken.openStream(StreamKind.HTTP);
+    expect(() => broken.flush()).toThrow('active transport failure');
+    broken.dispose();
+  });
+  it('discards queued packets, stalled data and timers without weakening stream writes', () => {
+    vi.useFakeTimers();
+    try {
+      const send = vi.fn();
+      const mux = new StreamMux({ role: 'client', onPacket: send, onStream: vi.fn() });
+      const stream = mux.openStream(StreamKind.HTTP, { window: 1 });
+      stream.write(new Uint8Array(100));
+      expect(stream.bufferedAmount).toBe(99);
+      expect(vi.getTimerCount()).toBe(1);
+      mux.dispose(); mux.dispose(); mux.close();
+      expect(stream.bufferedAmount).toBe(0);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(() => stream.write(new Uint8Array(1))).toThrow('write after end/reset');
+      expect(() => mux.openStream(StreamKind.HTTP)).toThrow('mux disposed');
+      // Even an already queued inbound callback cannot revive retired streams.
+      mux.receivePacket(new Uint8Array([255]));
+      stream.consume(1); stream.reset('late'); mux.flush();
+      vi.runAllTimers();
+      expect(send).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});
+
 describe('linear message reassembly', () => {
   it.each([1, 4])('copies a fragmented %i MiB message only once', (mib) => {
     const payload = new Uint8Array(mib * 1024 * 1024).fill(17);

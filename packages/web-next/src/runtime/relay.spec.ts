@@ -71,6 +71,36 @@ afterEach(() => {
 });
 
 describe('TunnelClient resilience', () => {
+  it.each(['loss', 'replacement', 'disposal'] as const)('discards queued packets on %s', async (kind) => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    client.connect(); completeHandshake(dialed[0]!);
+    const old = dialed[0]!;
+    const app = client.socketFactory('wss://relay.test/ws?token=t');
+    const http = client.fetch('/api/rooms').catch((error: Error) => error);
+    const retired = (client as unknown as { mux: { streams: Map<number, unknown>; options: { onPacket: (p: Uint8Array) => void } } }).mux;
+    const before = old.sent.length;
+    if (kind === 'loss') old.close();
+    else if (kind === 'replacement') client.recover();
+    else client.dispose();
+    expect(() => vi.advanceTimersByTime(20)).not.toThrow();
+    expect(old.sent).toHaveLength(before);
+    expect(app.readyState).toBe(3);
+    expect(await http).toBeInstanceOf(Error);
+    expect(retired.streams.size).toBe(0);
+    if (kind !== 'disposal') {
+      vi.advanceTimersByTime(500);
+      expect(dialed).toHaveLength(2);
+      completeHandshake(dialed[1]!);
+      expect(client.state).toBe('connected');
+      const freshPackets = dialed[1]!.sent.length;
+      retired.options.onPacket(new Uint8Array([1]));
+      expect(dialed[1]!.sent).toHaveLength(freshPackets);
+      expect(old.sent).toHaveLength(before);
+    }
+    client.dispose(); client.dispose();
+    expect(vi.getTimerCount()).toBe(0);
+  });
   it('bounds HTTP diagnostics and excludes query text and credentials', async () => {
     const diagnostics: Array<{ target: string }> = [];
     vi.stubGlobal('window', { __codorRelayHttp: diagnostics });

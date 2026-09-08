@@ -258,6 +258,8 @@ test.describe('recovery journey', () => {
   // harn:assume relay-host-generations-retire-stale-clients ref=relay-host-replacement-browser-regression
   test('host replacement performs one fresh handshake and restores root plus worktree rooms', async ({ page }) => {
     test.setTimeout(120_000);
+    const pageErrors: string[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error.stack ?? error.message));
     await pairLive(page);
     await fastRecovery(page, 60_000);
     const beforeDials = await relayDials(page);
@@ -295,6 +297,7 @@ test.describe('recovery journey', () => {
 
     const diagnostics = await control<{ errors: string[] }>('/relay-errors');
     expect(diagnostics.errors.join('\n')).not.toContain('msg1 must be 40 bytes');
+    expect(pageErrors).toEqual([]);
   });
   // harn:end relay-host-generations-retire-stale-clients
   // harn:end hosted-app-streams-follow-tunnel-generations

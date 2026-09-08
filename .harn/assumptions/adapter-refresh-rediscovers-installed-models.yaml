@@ -1,0 +1,15 @@
+id: adapter-refresh-rediscovers-installed-models
+hash: a-4d25b49dfe5e
+title: Authorized refresh rediscoveries installed native catalogs asynchronously
+state: active
+statement: >
+  An authenticated global manage_agents refresh rescans executable presence
+  without mutating PATH and schedules installed native model catalogs in the
+  background, coalescing concurrent discovery per adapter. APIs serve the
+  existing catalog with the discovery-pending signal while work runs. Named ACP
+  presence detection remains non-invoking and authorization is unchanged.
+depends_on:
+  - built-in-adapters-require-daemon-path
+  - model-catalogs-reach-a-browser-that-arrives-early
+  - roles-gate-human-acts-not-agents
+created_by: relay-polish-p7-codex-model-discovery

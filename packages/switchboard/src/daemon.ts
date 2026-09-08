@@ -533,6 +533,7 @@ export class Daemon {
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
+  private readonly modelDiscoveryWork = new Map<string, Promise<void>>();
   private readonly sessions = new Map<string, Session>();
   // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-resolution
   /** One target member's session may speak for only one origin at a time. */
@@ -1362,8 +1363,8 @@ export class Daemon {
 
   // harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery
   /**
-   * Ask every adapter that can answer what models its harness takes. Runs once,
-   * in the background, at registration — never on a request path, because a hung
+   * Ask every adapter that can answer what models its harness takes. Runs in
+   * the background at registration or explicit refresh — never blocking a request, because a hung
    * CLI must not be able to wedge /api/adapters, which gates both dialogs.
    * Any failure leaves the harness without a list: the dialog then offers the
    * custom escape, which is a worse UI, not a broken one.
@@ -1375,19 +1376,19 @@ export class Daemon {
   }
 
   private discoverModelsFor(adapter: HarnessAdapter): void {
-    if (!adapter.listModels) return;
+    if (!adapter.listModels || this.modelDiscoveryWork.has(adapter.id)) return;
     this.pendingDiscoveries += 1;
-    void adapter.listModels().finally(() => {
+    const work = Promise.resolve().then(() => adapter.listModels!()).then((catalog) => {
+      if (!Array.isArray(catalog.models)) throw new Error(`${adapter.id} returned an invalid model catalog`);
+      const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
+      this.modelCatalogs.set(adapter.id, { ...catalog, models });
+    }).catch((error: unknown) => this.onBackgroundError(
+      error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
+    )).finally(() => {
       this.pendingDiscoveries -= 1;
-    }).then(
-      (catalog) => {
-        const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
-        if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
-      },
-      (error: unknown) => this.onBackgroundError(
-        error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
-      ),
-    );
+      if (this.modelDiscoveryWork.get(adapter.id) === work) this.modelDiscoveryWork.delete(adapter.id);
+    });
+    this.modelDiscoveryWork.set(adapter.id, work);
   }
 
   private detectAdapterAvailability(adapter: HarnessAdapter): boolean {
@@ -1400,20 +1401,19 @@ export class Daemon {
     return executable === undefined || this.executableOnPath(executable);
   }
 
-  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
+  // harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-runtime
   refreshAdapterAvailability(): ReturnType<Daemon['registeredAdapters']> {
     for (const adapter of this.adapters.values()) {
-      const wasInstalled = this.adapterAvailability.get(adapter.id) === true;
       const installed = this.detectAdapterAvailability(adapter);
       this.adapterAvailability.set(adapter.id, installed);
-      if (this.discoverAdapterModels && installed && !wasInstalled) this.discoverModelsFor(adapter);
+      if (this.discoverAdapterModels && installed) this.discoverModelsFor(adapter);
     }
     // The same authorized presence-only refresh recomputes named provider detection,
     // reflecting any native availability change into provider shadowing.
     this.detectAcpProviderCatalog();
     return this.registeredAdapters();
   }
-  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end adapter-refresh-rediscovers-installed-models
 
   // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-signal
   /**

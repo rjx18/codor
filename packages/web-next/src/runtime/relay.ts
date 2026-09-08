@@ -283,10 +283,14 @@ export class TunnelClient {
       const bytes = new Uint8Array(event.data as ArrayBuffer);
       if (!handshakeDone) {
         ws.send(initiator.receiveMsg2(bytes));
-        this.channel = initiator.channel();
+        const channel = initiator.channel();
+        this.channel = channel;
         this.mux = new StreamMux({
           role: 'client',
-          onPacket: (packet) => ws.send(this.channel!.seal(packet)),
+          onPacket: (packet) => {
+            if (this.disposed || this.ws !== ws || this.generationValue !== generation) return;
+            ws.send(channel.seal(packet));
+          },
           onStream: () => {},
         });
         handshakeDone = true;
@@ -348,6 +352,7 @@ export class TunnelClient {
     }
     this.keepalive?.stop();
     this.keepalive = undefined;
+    this.mux?.dispose();
     this.mux = undefined;
     this.channel = undefined;
     // Reject every in-flight tunneled fetch: the mux is gone, so their streams
@@ -396,6 +401,7 @@ export class TunnelClient {
   }
 
   private retireCurrentTransport(error: Error): void {
+    this.mux?.dispose();
     const ws = this.ws;
     this.ws = undefined;
     if (ws) {
@@ -407,7 +413,6 @@ export class TunnelClient {
     this.pendingHttp.clear();
     for (const socket of [...this.liveSockets]) socket.terminate();
     this.liveSockets.clear();
-    this.mux?.close(error.message);
     this.mux = undefined;
     this.channel = undefined;
     try {

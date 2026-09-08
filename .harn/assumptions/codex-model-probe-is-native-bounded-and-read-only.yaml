@@ -1,0 +1,15 @@
+id: codex-model-probe-is-native-bounded-and-read-only
+hash: a-45020ebde447
+title: Codex model discovery uses a disposable native picker probe
+state: active
+statement: >
+  Codex discovery uses only initialize, initialized and paginated model/list on
+  a disposable app-server, excludes hidden picker entries, and returns native
+  model identifiers without a hardcoded list. Concurrent calls share one probe.
+  A total timeout bounds enumeration and every exit closes the client and
+  terminates its owned process with bounded exit confirmation. The probe
+  inherits effective cwd/environment/configuration, never creates a thread or
+  turn, and never modifies a custom model catalog.
+depends_on:
+  - adapters-own-their-model-catalog
+created_by: relay-polish-p7-codex-model-discovery

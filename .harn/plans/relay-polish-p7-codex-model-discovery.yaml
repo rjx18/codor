@@ -1,0 +1,131 @@
+id: relay-polish-p7-codex-model-discovery
+title: Discover Codex picker models through a bounded native probe
+notes: >
+  P7 only at 18ee45c2. Use the existing app-server factory and JSONL client for
+  initialize/initialized/model-list only, with pagination, hidden filtering, a
+  total deadline and confirmed child teardown. Preserve command, cwd,
+  environment and effective native configuration without overrides or paid
+  turns. Failed/unsupported probes leave the existing custom-entry fallback and
+  last successful daemon catalog usable. Explicit authorized Refresh starts
+  background rediscovery for installed adapters and coalesces each adapter's
+  in-flight work. Named ACP provider presence detection remains PATH-only; its
+  dependent truth is reviewed unchanged because native model enumeration does
+  not invoke providers.
+assumptions:
+  retire:
+    - id: adapter-refresh-is-authorized-and-incremental
+      reason: Explicit Refresh must also rediscover already-installed native model
+        catalogs.
+  create:
+    - id: adapter-refresh-rediscovers-installed-models
+      title: Authorized refresh rediscoveries installed native catalogs asynchronously
+      statement: >
+        An authenticated global manage_agents refresh rescans executable
+        presence without mutating PATH and schedules installed native model
+        catalogs in the background, coalescing concurrent discovery per adapter.
+        APIs serve the existing catalog with the discovery-pending signal while
+        work runs. Named ACP presence detection remains non-invoking and
+        authorization is unchanged.
+      reason: Installed Codex model changes must appear on explicit Refresh.
+      depends_on:
+        - built-in-adapters-require-daemon-path
+        - model-catalogs-reach-a-browser-that-arrives-early
+        - roles-gate-human-acts-not-agents
+    - id: codex-model-probe-is-native-bounded-and-read-only
+      title: Codex model discovery uses a disposable native picker probe
+      statement: >
+        Codex discovery uses only initialize, initialized and paginated
+        model/list on a disposable app-server, excludes hidden picker entries,
+        and returns native model identifiers without a hardcoded list.
+        Concurrent calls share one probe. A total timeout bounds enumeration and
+        every exit closes the client and terminates its owned process with
+        bounded exit confirmation. The probe inherits effective
+        cwd/environment/configuration, never creates a thread or turn, and never
+        modifies a custom model catalog.
+      reason: Model churn and custom catalogs belong to the installed runtime.
+      depends_on:
+        - adapters-own-their-model-catalog
+  reviewed:
+    - id: context-peek-reads-session-artifacts
+      outcome: unchanged
+      reason: Adjacent Codex discovery edits cross this detected span; peek
+        implementation and context settings stay unchanged.
+    - id: named-acp-provider-catalog-is-path-detected-and-command-private
+      outcome: unchanged
+      reason: Only native listModels hooks are rediscovered; provider detection
+        remains PATH-only and command-private.
+    - id: adapters-own-their-model-catalog
+      outcome: unchanged
+      reason: Native enumeration replaces Codex's obsolete curated fallback.
+    - id: adapter-catalog-distinguishes-installed-and-configurable
+      outcome: unchanged
+      reason: Presence and configurable flags are unchanged.
+    - id: new-agent-requests-require-available-native-or-detected-acp
+      outcome: unchanged
+      reason: Existing admission and authorization remain unchanged in refresh
+        regressions.
+files:
+  - .harn/plans/relay-polish-p7-codex-model-discovery.yaml
+  - packages/adapters/codex/src/adapter.ts
+  - packages/adapters/codex/src/model-discovery.ts
+  - packages/adapters/codex/src/model-discovery.spec.ts
+  - packages/adapters/codex/NOTES.md
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/daemon.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/runtime/api.ts
+anchors:
+  context-peek-reads-session-artifacts:
+    codex-context-peek:
+      action: change
+      reason: Account for the detected adjacent catalog span without modifying context
+        peek behavior.
+  adapter-refresh-is-authorized-and-incremental:
+    adapter-refresh-runtime:
+      action: remove
+      reason: Replace the newly-installed-only contract.
+    adapter-refresh-rest:
+      action: remove
+      reason: Rename marker for the replacement contract without changing
+        authorization.
+    adapter-refresh-client:
+      action: remove
+      reason: Update the client marker only.
+  adapter-refresh-rediscovers-installed-models:
+    adapter-refresh-runtime:
+      action: change
+      reason: Background rediscovery for installed adapters.
+    adapter-refresh-rest:
+      action: change
+      reason: Preserve existing REST response and authorization.
+    adapter-refresh-client:
+      action: change
+      reason: Preserve the existing client contract.
+  adapters-own-their-model-catalog:
+    codex-model-catalog:
+      action: change
+      reason: Coalesce native discovery instead of curated IDs.
+    codex-model-catalog-notes:
+      action: change
+      reason: Document probe and pinned-catalog behavior.
+    adapter-model-discovery:
+      action: change
+      reason: Coalesce and publish background results.
+    adapter-model-discovery-regression:
+      action: change
+      reason: Verify concurrent refresh and empty native catalogs.
+  codex-model-probe-is-native-bounded-and-read-only:
+    native-model-probe:
+      action: change
+      reason: Bounded isolated probe and lifecycle tests.
+  adapter-catalog-distinguishes-installed-and-configurable:
+    adapter-catalog-regression:
+      action: change
+      reason: Existing enclosing refresh test span.
+  new-agent-requests-require-available-native-or-detected-acp:
+    new-agent-provider-availability-regression:
+      action: change
+      reason: Update refresh count while preserving admission.
+applied:
+  applied_at: 2026-09-08T15:14:18.551Z

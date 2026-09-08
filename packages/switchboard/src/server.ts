@@ -935,7 +935,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // harn:end model-catalogs-reach-a-browser-that-arrives-early
   });
 
-  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-rest
+  // harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-rest
   app.post('/api/adapters/refresh', (req, reply) => {
     const principal = authed(req, reply);
     if (!principal || !authorizeGlobal(principal, 'manage_agents', reply)) return;
@@ -947,7 +947,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       discovering: daemon.modelDiscoveryPending(),
     });
   });
-  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end adapter-refresh-rediscovers-installed-models
 
   // harn:assume account-usage-limits-are-probed-periodically-and-honestly-refreshable ref=usage-refresh-rest
   // A manual usage refresh runs the same account probe, gated like the adapter
