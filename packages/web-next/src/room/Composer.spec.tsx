@@ -143,7 +143,7 @@ describe('offscreen composer measurement', () => {
 });
 // harn:end composer-autogrow-measures-offscreen-before-live-height
 
-// harn:assume exact-trailing-mentions-send-before-completion ref=exact-trailing-mention-regression
+// harn:assume exact-trailing-mentions-send-before-owned-result ref=exact-trailing-mention-regression
 describe('exact trailing mention precedence', () => {
   const member = {
     id: '01BX5ZZKBKACTAV9WEVGEMMVRZ',
@@ -183,7 +183,7 @@ describe('exact trailing mention precedence', () => {
       .toBe(false);
   });
 });
-// harn:end exact-trailing-mentions-send-before-completion
+// harn:end exact-trailing-mentions-send-before-owned-result
 
 // harn:assume pending-composer-echo-is-destination-and-self-bound ref=destination-self-echo-regression
 describe('pending composer echo ownership', () => {
@@ -237,7 +237,7 @@ describe('pending composer echo ownership', () => {
 });
 // harn:end pending-composer-echo-is-destination-and-self-bound
 
-// harn:assume composer-acknowledgement-separates-raw-draft-from-canonical-echo ref=raw-draft-acknowledgement-regression
+// harn:assume composer-acknowledgement-preserves-owned-raw-drafts ref=raw-draft-acknowledgement-regression
 describe('raw composer acknowledgement ownership', () => {
   const message = (id: number, author: string, body: string) => ({
     id,
@@ -261,7 +261,7 @@ describe('raw composer acknowledgement ownership', () => {
     errorCount: 0,
   });
 
-  // harn:assume scheduled-composer-acknowledgement-preserves-raw-draft-ownership ref=scheduled-composer-acknowledgement-regression
+  // harn:assume scheduled-composer-settles-original-owned-outcome ref=scheduled-composer-acknowledgement-regression
   const scheduledRow = (id: string, author = 'owner-eng', room = 'eng') => ({
     id,
     room,
@@ -300,7 +300,7 @@ describe('raw composer acknowledgement ownership', () => {
     expect(selectPendingDestinationSchedules(state, 'other')).toEqual({});
     expect(selectPendingDestinationSchedules(state, undefined)).toBeUndefined();
   });
-  // harn:end scheduled-composer-acknowledgement-preserves-raw-draft-ownership
+  // harn:end scheduled-composer-settles-original-owned-outcome
 
   it.each([
     'please investigate @sol ',
@@ -351,7 +351,7 @@ describe('raw composer acknowledgement ownership', () => {
     expect(pendingComposerResolution(undefined, send, send.rawBody, 0)).toBeUndefined();
   });
 });
-// harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
+// harn:end composer-acknowledgement-preserves-owned-raw-drafts
 
 describe('composeVoiceBody', () => {
   it('prefixes the recipient mention before the plain transcript — no marker glyphs', () => {
@@ -538,3 +538,16 @@ describe('qualified composer refusal', () => {
   });
 });
 // harn:end invalid-qualified-targets-never-fallback
+
+describe('P6 correlated composer settlement', () => {
+  it('settles a lost echo by its own outcome, preserves edits, and ignores unrelated errors', () => {
+    const pending = { rawBody: 'raw ', body: 'raw', targetRoom: 'child', knownMessageIds: new Set<number>(),
+      authorId: 'self', errorCount: 0, submissionId: 'one' };
+    expect(pendingComposerResolution({}, pending, 'raw ', 10)).toBeUndefined();
+    const result = { type: 'post_accepted' as const, submission_id: 'one', origin_room: 'eng',
+      outcome: { kind: 'message' as const, room: 'child', message_id: 3, seq: 8, delivery_ids: [] } };
+    expect(pendingComposerResolution({}, { ...pending, result }, 'raw ', 10)).toBe('clear');
+    expect(pendingComposerResolution({}, { ...pending, result }, 'edited', 10)).toBe('preserve');
+    expect(pendingComposerResolution({}, { ...pending, result: { ...result, submission_id: 'other' } }, 'raw ', 10)).toBeUndefined();
+  });
+});

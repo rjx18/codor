@@ -66,9 +66,30 @@ export const SubscribeFrameSchema = z.object({
 // harn:end changelog-is-sync-cursor-v2
 export type SubscribeFrame = z.infer<typeof SubscribeFrameSchema>;
 
+// harn:assume post-acknowledgements-are-optional-and-correlated ref=p6-post-acknowledgements-are-optional-and-correlated
+export const SubmissionIdSchema = z.string().min(1).max(128);
+export const PostOutcomeSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('message'), room: RoomIdSchema, message_id: MessageIdSchema,
+    seq: SeqSchema, delivery_ids: z.array(z.string()), group_id: z.string().optional(),
+  }),
+  z.object({
+    kind: z.literal('schedule'), room: RoomIdSchema, schedule_id: ScheduleIdSchema,
+    seq: SeqSchema, due_ts: TimestampSchema,
+  }),
+]);
+export type PostOutcome = z.infer<typeof PostOutcomeSchema>;
+export const PostAcceptedFrameSchema = z.object({
+  type: z.literal('post_accepted'), submission_id: SubmissionIdSchema,
+  origin_room: RoomIdSchema, outcome: PostOutcomeSchema,
+});
+// harn:end post-acknowledgements-are-optional-and-correlated
+
+// harn:assume post-acknowledgements-are-optional-and-correlated ref=p6-post-acknowledgements-are-optional-and-correlated
 export const PostFrameSchema = z.object({
   type: z.literal('post'),
   room: RoomIdSchema,
+  submission_id: SubmissionIdSchema.optional(),
   body: z.string(), // may be empty when attachments carry the message (server refuses truly empty)
   reply_to: MessageIdSchema.optional(),
   // ids of files uploaded to this room beforehand; capped at 8 per message
@@ -81,6 +102,7 @@ export const PostFrameSchema = z.object({
   // harn:end awaiting-reply-marker-is-delivery-context
 });
 export type PostFrame = z.infer<typeof PostFrameSchema>;
+// harn:end post-acknowledgements-are-optional-and-correlated
 
 // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
 /** Opaque request ids are echoed only on the authoritative management result. */
@@ -436,6 +458,7 @@ export type AttachLease = z.infer<typeof AttachLeaseSchema>;
  * commits the consistent snapshot cursor. `run_event` frames are ephemeral.
  */
 export const ServerFrameSchema = z.discriminatedUnion('type', [
+  PostAcceptedFrameSchema,
   // harn:assume browser-protocol-epoch-blocks-only-stale-browser-ui ref=browser-protocol-epoch-contract
   z.object({
     type: z.literal('upgrade_required'),
@@ -573,6 +596,8 @@ export const ServerFrameSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('error'),
     message: z.string(),
+    submission_id: SubmissionIdSchema.optional(),
+    origin_room: RoomIdSchema.optional(),
     // harn:assume management-frames-correlate-one-result ref=management-correlation-protocol
     ref: ManagementRefSchema.optional(), // offending frame/act identifier when known
     // harn:end management-frames-correlate-one-result

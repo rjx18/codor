@@ -150,7 +150,7 @@ export class MuxStream implements MuxStreamHandlers {
     const wasStalled = this.sendWindow === 0 && this.sendQueue.length > 0;
     this.sendWindow += n;
     this.pump();
-    if (wasStalled && this.sendWindow > 0) this.onWritable?.();
+    if (wasStalled && (this.sendWindow > 0 || this.queuedBytes === 0)) this.onWritable?.();
   }
 
   receiveEnd(): void {
@@ -193,6 +193,7 @@ export interface StreamMuxOptions {
 }
 
 export class StreamMux {
+  private disposed = false;
   private readonly streams = new Map<number, MuxStream>();
   private nextId: number;
   private readonly coalescer: PacketCoalescer;
@@ -211,6 +212,7 @@ export class StreamMux {
 
   /** Locally open a new stream. For APP_WS pass the browser session token. */
   openStream(kind: number, opts: { token?: Uint8Array; window?: number } = {}): MuxStream {
+    if (this.disposed) throw new Error('mux disposed');
     const id = this.nextId;
     this.nextId += 2;
     const window = opts.window ?? (kind === StreamKind.APP_WS ? APP_WS_WINDOW : DEFAULT_WINDOW);
@@ -229,6 +231,7 @@ export class StreamMux {
 
   /** Feed one decrypted inbound packet. */
   receivePacket(packet: Uint8Array): void {
+    if (this.disposed) return;
     for (const frame of decodePacket(packet)) this.handleFrame(frame);
   }
 
@@ -237,14 +240,29 @@ export class StreamMux {
     this.coalescer.flush();
   }
 
-  /** Reset every open stream and drop buffered output (shutdown). */
+  /** Graceful shutdown: flush buffered output and RESETs before disposal. */
   close(reason = 'closed'): void {
+    if (this.disposed) return;
     for (const stream of [...this.streams.values()]) stream.reset(reason);
     this.coalescer.flush();
-    this.coalescer.dispose();
+    this.dispose();
   }
 
+  // harn:assume browser-retired-muxes-cannot-emit ref=mux-discard
+  /** Retire a lost transport without emitting queued data or RESET packets. */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.coalescer.dispose();
+    for (const stream of [...this.streams.values()]) {
+      stream.destroy();
+      stream.onData = stream.onHead = stream.onEnd = stream.onReset = stream.onWritable = undefined;
+    }
+  }
+  // harn:end browser-retired-muxes-cannot-emit
+
   emit(frame: Frame): void {
+    if (this.disposed) return;
     this.coalescer.push(frame);
   }
 
@@ -331,19 +349,42 @@ export function frameMessage(message: Uint8Array): Uint8Array {
 
 /** Reassembles whole length-delimited messages from a fragmented byte stream. */
 export class MessageReassembler {
-  private buffer = new Uint8Array(0);
+  private readonly header = new Uint8Array(4);
+  private headerBytes = 0;
+  private length: number | undefined;
+  private received = 0;
+  private readonly chunks: Uint8Array[] = [];
+
+  reset(): void {
+    this.headerBytes = 0;
+    this.length = undefined;
+    this.received = 0;
+    this.chunks.length = 0;
+  }
 
   push(chunk: Uint8Array): Uint8Array[] {
-    const combined = new Uint8Array(this.buffer.length + chunk.length);
-    combined.set(this.buffer);
-    combined.set(chunk, this.buffer.length);
-    this.buffer = combined;
     const messages: Uint8Array[] = [];
-    while (this.buffer.length >= 4) {
-      const length = new DataView(this.buffer.buffer, this.buffer.byteOffset, 4).getUint32(0, false);
-      if (this.buffer.length < 4 + length) break;
-      messages.push(this.buffer.slice(4, 4 + length));
-      this.buffer = this.buffer.slice(4 + length);
+    let offset = 0;
+    while (offset < chunk.length) {
+      if (this.length === undefined) {
+        const n = Math.min(4 - this.headerBytes, chunk.length - offset);
+        this.header.set(chunk.subarray(offset, offset + n), this.headerBytes);
+        this.headerBytes += n; offset += n;
+        if (this.headerBytes < 4) break;
+        this.length = new DataView(this.header.buffer).getUint32(0, false);
+      }
+      const n = Math.min(this.length - this.received, chunk.length - offset);
+      if (n > 0) this.chunks.push(chunk.subarray(offset, offset + n));
+      this.received += n; offset += n;
+      if (this.received === this.length) {
+        // Allocate only after the complete payload arrived; every byte is copied
+        // once, without allocating a peer-declared length before receiving it.
+        const message = new Uint8Array(this.length);
+        let position = 0;
+        for (const part of this.chunks) { message.set(part, position); position += part.length; }
+        messages.push(message);
+        this.reset();
+      }
     }
     return messages;
   }

@@ -364,8 +364,8 @@ describe('foreground probe intent', () => {
     connector.dispose();
   });
 
-  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=busy-watchdog-regression
-  it('defers replacement during unsettled HTTP and carries foreground intent to the next probe', async () => {
+  // harn:assume app-liveness-recovery-is-stream-first ref=busy-watchdog-regression
+  it('uses valid app traffic despite a delayed rooms probe and unsettled HTTP', async () => {
     vi.useFakeTimers();
     fireVisible();
     const tunnel = new FakeTunnel('connected');
@@ -384,11 +384,12 @@ describe('foreground probe intent', () => {
     fireVisible();
     await flush();
     expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+    for (let index = 0; index < 5; index++) socket.deliver({ type: 'self', room: 'eng', member_id: 'viewer' });
 
     await vi.advanceTimersByTimeAsync(8_000);
     expect(tunnel.recoveries).toBe(0);
     expect(FakeSocket.instances).toHaveLength(1);
-    expect(onResume).not.toHaveBeenCalled();
+    expect(onResume).toHaveBeenCalledTimes(1);
 
     tunnel.hasUnsettledHttp = false;
     // Reach the next interval without also reaching that probe's 8s timeout.
@@ -400,7 +401,7 @@ describe('foreground probe intent', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
     connector.dispose();
   });
-  // harn:end hosted-foreground-watchdog-defers-while-http-active
+  // harn:end app-liveness-recovery-is-stream-first
 });
 // harn:end foreground-watchdog-probes-are-refresh-neutral
 
@@ -801,6 +802,36 @@ it('carries a caller ref once and routes a late error to its originating room', 
 // harn:end context-reset-confirmation-is-anchored-and-member-local
 
 describe('foreground watchdog', () => {
+  it('attributes recovery to captured computers, rooms and app/tunnel generations', () => {
+    const socketFactory = (url: string) => new FakeSocket(url) as unknown as WebSocket;
+    const options = { room: 'eng', token: 'token-A', computerId: 'A', tunnel: new FakeTunnel('connected'), socketFactory };
+    const a = createConnector(options); const socketA = latest();
+    options.computerId = 'changed-after-capture';
+    const b = createConnector({ room: 'ops', token: 'token-B', computerId: 'B', tunnel: new FakeTunnel('connected'), socketFactory });
+    const socketB = latest();
+    socketA.accept(); socketB.accept(); socketA.drop(4403); socketB.drop(4403);
+    const records = (window as unknown as { __codorRecoveryDiagnostics: unknown[] }).__codorRecoveryDiagnostics.slice(-2);
+    expect(records).toMatchObject([
+      { computerId: 'A', room: 'eng', appGeneration: 1, tunnelGeneration: 1, code: 4403 },
+      { computerId: 'B', room: 'ops', appGeneration: 1, tunnelGeneration: 1, code: 4403 },
+    ]);
+    a.dispose(); b.dispose();
+  });
+  it('repairs one silent app stream before escalating despite pending HTTP', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    const tunnel = new FakeTunnel('connected'); tunnel.hasUnsettledHttp = true;
+    const connector = createConnector({ room: 'eng', token: 'token', tunnel,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    latest().accept(); latest().deliver({ type: 'rooms', rooms: [] });
+    await vi.advanceTimersByTimeAsync(28_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(tunnel.recoveries).toBe(0);
+    latest().accept();
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(tunnel.recoveries).toBe(1);
+    connector.dispose();
+  });
   const visible = (): void => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   };
@@ -1122,3 +1153,166 @@ describe('connector hidden-room observation', () => {
   });
 });
 // harn:end worktree-conversation-status-is-live-and-independent
+
+describe('P6 submission connection ownership', () => {
+  const posts = (socket: FakeSocket) => socket.sent.map((value) => JSON.parse(value))
+    .filter((frame) => frame.type === 'post');
+  it('retries only after the original room is ready, keeps refreshed credentials, and ignores stale acks', async () => {
+    vi.useFakeTimers();
+    const connector = createConnector({ room: 'eng', token: 'old-token', postAcknowledgements: true,
+      refreshToken: async () => 'new-token',
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const first = latest(); first.accept();
+    expect(connector.post('too early')).toBe(false);
+    first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    const result = vi.fn();
+    expect(connector.post('immutable body', { submissionId: 'owned', onResult: result, attachments: ['file'] })).toBe(true);
+    const stale = first.onmessage;
+    connector.switchRoom('other'); first.drop(4401);
+    await flush(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); expect(second.url).toContain('new-token'); second.accept();
+    second.deliver({ type: 'sync_complete', room: 'other', seq: 0 });
+    expect(posts(second)).toHaveLength(0);
+    expect(second.subscriptions().map((value) => value.room)).toContain('eng');
+    second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(posts(second)).toEqual(posts(first));
+    const accepted = { type: 'post_accepted', submission_id: 'owned', origin_room: 'eng',
+      outcome: { kind: 'message', room: 'child', message_id: 1, seq: 5, delivery_ids: [] } };
+    stale?.({ data: JSON.stringify(accepted) }); expect(result).not.toHaveBeenCalled();
+    second.deliver(accepted); expect(result).toHaveBeenCalledOnce();
+    expect(roomSlice(useClientStore.getState(), 'other').seq).toBe(0);
+    connector.dispose();
+  });
+  it('new browser on an old daemon never adds an id or replays a possibly accepted post', async () => {
+    vi.useFakeTimers(); const connector = build(); const first = latest(); first.accept();
+    first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(connector.post('legacy')).toBe(true); expect(posts(first)[0]).not.toHaveProperty('submission_id');
+    first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(posts(second)).toHaveLength(0); connector.dispose();
+  });
+  it('cannot send a pending A submission through computer B or an auth-revoked owner', async () => {
+    vi.useFakeTimers();
+    const make = (id: string) => createConnector({ room: 'eng', computerId: id, token: id,
+      postAcknowledgements: true, store: createClientStore(), expose: false, setToken: (value) => value,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const a = make('A'); const socketA = latest(); socketA.accept(); socketA.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    a.post('A only', { submissionId: 'same' });
+    const b = make('B'); const socketB = latest(); socketB.accept(); socketB.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    expect(posts(socketB)).toHaveLength(0);
+    socketA.drop(4403); await vi.advanceTimersByTimeAsync(30_000);
+    expect(a.state()).toBe('parked-auth'); expect(posts(socketB)).toHaveLength(0);
+    a.dispose(); b.dispose();
+  });
+});
+
+it('rechecks a replacement daemon capability and never retries an old receipt against a downgraded daemon', async () => {
+  vi.useFakeTimers();
+  const refresh = vi.fn(async () => false);
+  const connector = createConnector({ room: 'eng', token: 'token', postAcknowledgements: true,
+    refreshPostAcknowledgements: refresh,
+    socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+  const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+  connector.post('possibly accepted', { submissionId: 'keep-original' }); first.drop();
+  await vi.advanceTimersByTimeAsync(500); const second = latest(); second.accept();
+  second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 }); await flush();
+  expect(refresh).toHaveBeenCalledExactlyOnceWith('token', expect.any(AbortSignal));
+  expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toEqual([]);
+  expect(connector.submissionPending).toBe(true);
+  expect(connector.post('unsafe replacement')).toBe(false);
+  connector.dispose();
+});
+
+// harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+describe('review: capability verification recovers without replacing healthy sockets', () => {
+  it('aborts a timed-out check, coalesces healthy traffic, and retries the retained id once after verification', async () => {
+    vi.useFakeTimers();
+    let finishFirst!: (supported: boolean) => void;
+    const refresh = vi.fn((_token: string, _signal: AbortSignal): Promise<boolean | undefined> =>
+      refresh.mock.calls.length === 1 ? new Promise((resolve) => { finishFirst = resolve; }) : Promise.resolve(true));
+    const connector = createConnector({ room: 'eng', token: 'token', postAcknowledgements: true,
+      refreshPostAcknowledgements: refresh, socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    const result = vi.fn(); connector.post('frozen', { submissionId: 'original', onResult: result });
+    first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    for (let i = 0; i < 5; i++) second.deliver({ type: 'rooms', rooms: [{ id: 'eng' }] });
+    await flush();
+    expect(useClientStore.getState().connected).toBe(true);
+    expect(connector.postAcknowledgements).toBeUndefined(); expect(connector.post('new send')).toBe(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(refresh.mock.calls[0]![1].aborted).toBe(true);
+    expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    const posts = second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post');
+    expect(posts).toEqual([{ type: 'post', room: 'eng', body: 'frozen', submission_id: 'original' }]);
+    finishFirst(false); await flush(); expect(connector.postAcknowledgements).toBe(true);
+    expect(FakeSocket.instances).toHaveLength(2);
+    second.deliver({ type: 'post_accepted', submission_id: 'original', origin_room: 'eng',
+      outcome: { kind: 'message', room: 'eng', message_id: 1, seq: 1, delivery_ids: [] } });
+    expect(result).toHaveBeenCalledOnce();
+    connector.dispose(); await vi.advanceTimersByTimeAsync(60_000); expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses capped retries for unknown results and cancels them on park/disposal', async () => {
+    vi.useFakeTimers(); const refresh = vi.fn(async () => undefined);
+    const connector = createConnector({ room: 'eng', token: 'token', refreshPostAcknowledgements: refresh,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const socket = latest(); socket.accept(); socket.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    await flush(); await vi.advanceTimersByTimeAsync(3500);
+    expect(refresh.mock.calls.length).toBe(4); // initial, 0.5s, 1.5s, 3.5s
+    connector.disconnect(); await vi.advanceTimersByTimeAsync(60_000); expect(refresh.mock.calls.length).toBe(4);
+    connector.dispose();
+  });
+
+  it('coalesces direct capability 401 renewal with the socket renewal and retains the fresh credential', async () => {
+    vi.useFakeTimers();
+    let finish!: (token: string) => void;
+    const renewal = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const request = vi.fn(async (_input: unknown, init?: RequestInit) => new Headers(init?.headers).get('authorization') === 'Bearer fresh'
+      ? new Response('{"post_acknowledgements":true}') : new Response('{}', { status: 401 }));
+    vi.stubGlobal('fetch', request);
+    const connector = createConnector({ room: 'eng', token: 'old', postAcknowledgements: true, refreshToken: renewal });
+    const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    connector.post('owned', { submissionId: 'one' }); first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(renewal).toHaveBeenCalledTimes(1);
+    second.drop(4401); await flush(); expect(renewal).toHaveBeenCalledTimes(1);
+    finish('fresh'); await flush(); await vi.advanceTimersByTimeAsync(500);
+    const third = latest(); expect(third.url).toContain('fresh'); third.accept();
+    third.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    for (let i = 0; i < 32; i++) await Promise.resolve();
+    expect(renewal).toHaveBeenCalledTimes(1); expect(connector.postAcknowledgements).toBe(true);
+    expect(third.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post'))
+      .toEqual([{ type: 'post', room: 'eng', body: 'owned', submission_id: 'one' }]);
+    connector.dispose();
+  });
+
+  it('verified downgrade permits only explicit matching local release, never a legacy replay', async () => {
+    vi.useFakeTimers(); const refresh = vi.fn(async () => false); const result = vi.fn();
+    const connector = createConnector({ room: 'eng', token: 'token', postAcknowledgements: true,
+      refreshPostAcknowledgements: refresh, socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    connector.post('uncertain', { submissionId: 'one', onResult: result }); first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 }); await vi.advanceTimersByTimeAsync(0);
+    expect(connector.postAcknowledgements).toBe(false);
+    expect(connector.stopWaitingForSubmission!('other', 'one')).toBe(false);
+    expect(connector.stopWaitingForSubmission!('eng', 'different')).toBe(false);
+    expect(connector.post('blocked')).toBe(false);
+    expect(connector.stopWaitingForSubmission!('eng', 'one')).toBe(true);
+    expect(result).toHaveBeenCalledExactlyOnceWith({ type: 'post_wait_stopped', origin_room: 'eng', submission_id: 'one' });
+    expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toHaveLength(0);
+    second.deliver({ type: 'post_accepted', submission_id: 'one', origin_room: 'eng',
+      outcome: { kind: 'message', room: 'eng', message_id: 1, seq: 1, delivery_ids: [] } });
+    expect(result).toHaveBeenCalledOnce();
+    expect(connector.post('new intentional send')).toBe(true);
+    expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post'))
+      .toEqual([{ type: 'post', room: 'eng', body: 'new intentional send' }]);
+    connector.dispose();
+  });
+});
+// harn:end post-capability-recovery-is-owned-and-bounded

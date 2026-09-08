@@ -1,0 +1,14 @@
+id: exact-trailing-mentions-send-before-owned-result
+hash: a-7bd8f956ff82
+title: Exact trailing mentions send before autocomplete completion
+state: active
+statement: On desktop, Enter at the end of an exact registered local or
+  qualified mention submits the live unchanged draft; partial mentions retain
+  completion and mobile Enter retains newline behavior. Parser and server
+  refusal preserve the draft, and successful submission clears only after its
+  owned acknowledgement or legacy own echo.
+depends_on:
+  - composer-enter-uses-live-draft-state
+  - qualified-completion-lists-registered-targets-only
+  - echo-driven-composer-clearing
+created_by: relay-polish-p6-idempotent-posts

@@ -1,7 +1,7 @@
 id: exact-trailing-mentions-send-before-completion
 hash: a-7300c4dfcb53
 title: Exact trailing mentions send before autocomplete completion
-state: active
+state: retired
 statement: >
   On desktop, when the live textarea caret is at the end of an exact registered
   local @handle or complete qualified ~selector:@handle token, the first
@@ -14,3 +14,4 @@ depends_on:
   - qualified-completion-lists-registered-targets-only
   - echo-driven-composer-clearing
 created_by: worktree-delivery-composer-p2-correctness
+retired_by: relay-polish-p6-idempotent-posts

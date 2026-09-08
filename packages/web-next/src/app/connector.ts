@@ -6,11 +6,12 @@
 // room and keeps every other subscription and the shared store intact. It does
 // not close the socket and does not reset the store — the previous comment here
 // described behaviour this connector has not had since in-place switching.
-import { BROWSER_PROTOCOL_EPOCH, type Act, type ServerFrame } from '@codor/protocol';
+import { BROWSER_PROTOCOL_EPOCH, type Act, type PostFrame, type ServerFrame } from '@codor/protocol';
 
 import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
-import type { Connection } from '@runtime/ws.js';
+import type { Connection, PostOptions } from '@runtime/ws.js';
+import { PendingSubmission } from './pending-submission.js';
 
 import {
   HISTORY_PAGE_SIZE,
@@ -20,6 +21,8 @@ import {
 } from './store.js';
 import {
   directCombinedTranscriptHistorySupported,
+  directPostAcknowledgementsSupported,
+  fetchBrowserCompatibility,
   requireBrowserUpgrade,
 } from './compatibility.js';
 
@@ -49,6 +52,9 @@ export interface RoomConnector extends Connection {
 
 export interface ConnectorOptions {
   room: string;
+  /** Non-secret browser-local identity, captured for diagnostics only. */
+  computerId?: string;
+  compositionOwner?: object;
   token: string;
   /** ws(s):// origin; defaults to the page origin. Set to the relay origin when
    *  the browser reaches its switchboard through the blind relay tunnel. */
@@ -74,6 +80,9 @@ export interface ConnectorOptions {
   /** Captured from this exact runtime's authenticated compatibility response.
    * Omitted only by legacy/direct callers, which retain socket history. */
   combinedTranscriptHistory?: boolean;
+  postAcknowledgements?: boolean;
+  /** Revalidate this exact daemon after a socket replacement before retrying. */
+  refreshPostAcknowledgements?: (token: string, signal: AbortSignal) => Promise<boolean | undefined>;
   /** Hosted-only tunnel generation gate. Direct/self-hosted callers omit it. */
   tunnel?: {
     readonly state: TunnelState;
@@ -107,11 +116,40 @@ const PROBE_INTERVAL_MS = 20_000;
 const PROBE_TIMEOUT_MS = 8_000;
 
 export function createConnector(options: ConnectorOptions): RoomConnector {
+  const diagnosticComputerId = options.computerId ?? 'direct';
   const origin = (options.origin ?? window.location.origin).replace(/^http/, 'ws');
   const socketFactory = options.socketFactory ?? ((url: string) => new WebSocket(url));
   const clientStore = options.store ?? useClientStore;
   const setToken = options.setToken ?? setActiveBrowserAccessToken;
   let currentRoom = options.room;
+  const pendingSubmission = new PendingSubmission();
+  const postStateListeners = new Set<() => void>();
+  let postStateVersion = 0;
+  const publishPostState = (): void => {
+    postStateVersion++;
+    for (const listener of postStateListeners) listener();
+  };
+  const refreshPostAcknowledgements = options.refreshPostAcknowledgements
+    ?? (options.socketFactory === undefined ? async (currentToken: string, signal: AbortSignal) => (
+      await fetchBrowserCompatibility(currentToken, async (input, init) => {
+        const request = (accessToken: string) => {
+          const headers = new Headers(init?.headers);
+          headers.set('authorization', `Bearer ${accessToken}`);
+          return fetch(new URL(input, origin.replace(/^ws/, 'http')), { ...init, signal, headers });
+        };
+        const response = await request(currentToken);
+        if (response.status !== 401 || !options.refreshToken || signal.aborted) return response;
+        await response.body?.cancel();
+        const refreshed = await renewToken();
+        if (signal.aborted) throw signal.reason;
+        return request(refreshed);
+      })
+    ).postAcknowledgements : undefined);
+  let postAcknowledgements = options.postAcknowledgements
+    ?? (options.store === undefined ? directPostAcknowledgementsSupported() : undefined);
+  // Explicit test/legacy transports without a reader keep their legacy mode.
+  if (postAcknowledgements === undefined && refreshPostAcknowledgements === undefined) postAcknowledgements = false;
+  let openedOnce = false;
   let socket: WebSocket | undefined;
   // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
   /** Correlated acts keep their source room across in-place selection changes. */
@@ -156,6 +194,18 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let awaitingProbe = false;
   let foregroundProbePending = false;
   let token = options.token;
+  let tokenRenewal: Promise<string> | undefined;
+  const renewToken = (): Promise<string> => {
+    if (tokenRenewal) return tokenRenewal;
+    const mine = generation;
+    const pending = Promise.resolve().then(() => options.refreshToken!()).then((refreshed) => {
+      if (mine !== generation || !RESUMABLE.has(state)) throw new Error('retired credential renewal');
+      token = setToken(refreshed);
+      return token;
+    }).finally(() => { if (tokenRenewal === pending) tokenRenewal = undefined; });
+    tokenRenewal = pending;
+    return pending;
+  };
   // Every socket carries the generation that created it. A frozen tab can hand
   // back events from a socket we already replaced; without this they would
   // reset `connected`, schedule retries, or resubscribe on a dead wire.
@@ -163,6 +213,19 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let openedTunnelGeneration: number | undefined;
   let waitingTunnelGeneration: number | undefined;
   let resumeAfterTunnel = false;
+  let trafficVersion = 0;
+  let streamRepairs = 0;
+  const diagnose = (event: string, code?: number): void => {
+    const host = window as unknown as { __codorRecoveryDiagnostics?: Array<{
+      event: string; generation: number; appGeneration: number; tunnelGeneration: number | null;
+      computerId: string; room: string; code?: number;
+    }> };
+    const records = host.__codorRecoveryDiagnostics ??= [];
+    records.push({ event, generation, appGeneration: generation,
+      tunnelGeneration: openedTunnelGeneration ?? null, computerId: diagnosticComputerId,
+      room: currentRoom, ...(code === undefined ? {} : { code }) });
+    if (records.length > 64) records.shift();
+  };
   const combinedTranscriptHistory = options.combinedTranscriptHistory
     ?? directCombinedTranscriptHistorySupported();
   const socketHistoryLimit = combinedTranscriptHistory ? 0 : HISTORY_PAGE_SIZE;
@@ -196,6 +259,65 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       return false;
     }
   };
+
+  // harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+  let capabilityCheck: AbortController | undefined;
+  let capabilityRetry: ReturnType<typeof setTimeout> | undefined;
+  let capabilityBackoff = 500;
+  const setPostCapability = (supported: boolean | undefined): void => {
+    if (postAcknowledgements === supported) return;
+    postAcknowledgements = supported;
+    publishPostState();
+  };
+  const cancelCapabilityCheck = (): void => {
+    if (capabilityRetry !== undefined) clearTimeout(capabilityRetry);
+    capabilityRetry = undefined;
+    capabilityCheck?.abort(new Error('retired capability check'));
+    capabilityCheck = undefined;
+  };
+  const checkPostCapability = (mine: number): void => {
+    if (mine !== generation || state !== 'connected' || !refreshPostAcknowledgements
+      || postAcknowledgements !== undefined || capabilityCheck || capabilityRetry !== undefined) return;
+    const controller = new AbortController();
+    capabilityCheck = controller;
+    let aborted: () => void;
+    const deadline = setTimeout(() => controller.abort(new Error('capability check timed out')), 5_000);
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      aborted = () => reject(controller.signal.reason);
+      controller.signal.addEventListener('abort', aborted, { once: true });
+    });
+    void Promise.race([Promise.resolve().then(() => refreshPostAcknowledgements(token, controller.signal)), cancelled])
+      .catch(() => undefined)
+      .then((supported) => {
+        if (mine !== generation || state !== 'connected' || capabilityCheck !== controller) return;
+        setPostCapability(supported);
+        if (supported === true) {
+          const room = pendingSubmission.room;
+          if (room !== undefined && liveRooms.has(room)) pendingSubmission.ready(room, mine, send);
+        }
+      })
+      .finally(() => {
+        clearTimeout(deadline);
+        controller.signal.removeEventListener('abort', aborted);
+        if (capabilityCheck !== controller) return;
+        capabilityCheck = undefined;
+        if (mine !== generation || state !== 'connected' || postAcknowledgements !== undefined) return;
+        if (clientStore.getState().authRefused) {
+          state = 'parked-auth';
+          clientStore.getState().setConnected(false);
+          setToken('');
+          clearRetry(); clearProbes();
+          retire(socket); socket = undefined;
+          return;
+        }
+        capabilityRetry = setTimeout(() => {
+          capabilityRetry = undefined;
+          checkPostCapability(mine);
+        }, capabilityBackoff);
+        capabilityBackoff = Math.min(capabilityBackoff * 2, 10_000);
+      });
+  };
+  // harn:end post-capability-recovery-is-owned-and-bounded
 
   // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-socket-history
   const subscribe = (room: string, hydrateLimit: number): void => {
@@ -296,7 +418,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
    * protocol — it reuses a request whose `rooms` reply is proof the wire is
    * genuinely alive rather than merely OPEN.
    */
-  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=watchdog-probe-state
+  // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-state
   const probeNow = (mine: number, fromForeground = false): void => {
     if (mine !== generation || state !== 'connected') return;
     if (document.visibilityState !== 'visible') return;
@@ -319,14 +441,21 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     // outstanding. Preserve that intent across a busy timeout so the next
     // ordinary reply performs exactly one resume.
     foregroundProbePending = foregroundProbePending || fromForeground;
+    const observedTraffic = trafficVersion;
     send({ type: 'list_rooms' });
     probeDeadline = setTimeout(() => {
       if (mine !== generation || !awaitingProbe) return;
-      // Unanswered: the socket lies about being open. Go through the SAME
-      // resume path, so a manual or upgrade park is still respected.
+      // A delayed rooms reply is not a dead stream when other app traffic
+      // arrived. Actual silence uses the park-aware recovery path below.
       awaitingProbe = false;
       probeDeadline = undefined;
-      if (options.tunnel?.hasUnsettledHttp) return;
+      if (trafficVersion !== observedTraffic) {
+        diagnose('probe-delayed-with-app-traffic');
+        if (foregroundProbePending) options.onResume?.(currentRoom);
+        foregroundProbePending = false;
+        return;
+      }
+      diagnose('probe-silent');
       foregroundProbePending = false;
       resume();
     }, PROBE_TIMEOUT_MS);
@@ -339,7 +468,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const interval = (window as unknown as { __codorProbeMs?: number }).__codorProbeMs ?? PROBE_INTERVAL_MS;
     probeTimer = setInterval(() => probeNow(mine), interval);
   };
-  // harn:end hosted-foreground-watchdog-defers-while-http-active
+  // harn:end app-liveness-recovery-is-stream-first
 
   const waitForTunnel = (accelerate = false): void => {
     const tunnel = options.tunnel;
@@ -377,11 +506,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     }
     clearRetry();
     clearProbes();
+    cancelCapabilityCheck();
+    capabilityBackoff = 500;
     // Starting a replacement generation withdraws send admission immediately.
     // In relay mode the next WebSocket OPEN is optimistic: it proves only that
     // the mux stream exists, not that the host loopback can carry app frames.
     clientStore.getState().setConnected(false);
     const mine = ++generation;
+    tokenRenewal = undefined;
     retire(socket);
     subscribed = new Set();
     subscriptionBudgets = new Map();
@@ -394,17 +526,21 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     liveRooms = new Set();
     socket = socketFactory(`${origin}/ws?token=${encodeURIComponent(token)}`);
     const live = (): boolean => mine === generation && state !== 'disposed';
+    if (openedOnce && refreshPostAcknowledgements !== undefined) setPostCapability(undefined);
+    openedOnce = true;
 
     socket.onopen = () => {
       if (!live()) return;
-      retryMs = 500;
       state = 'connected';
+      checkPostCapability(mine);
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom, socketHistoryLimit);
+      if (pendingSubmission.room !== undefined) subscribe(pendingSubmission.room, socketHistoryLimit);
       for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
-      send({ type: 'list_rooms' });
       startProbes(mine);
+      if (streamRepairs > 0) probeNow(mine);
+      else send({ type: 'list_rooms' });
     };
     socket.onmessage = (event) => {
       if (!live()) return;
@@ -412,6 +548,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (frame.type === 'upgrade_required') {
         // A server-chosen park: never resumed automatically, only by reload.
         state = 'parked-upgrade';
+        cancelCapabilityCheck();
         clearProbes();
         clientStore.getState().setConnected(false);
         if (options.onUpgradeRequired) options.onUpgradeRequired(frame);
@@ -423,11 +560,19 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // A frame from the current generation is the first bidirectional evidence
       // that the server-side app socket is usable. Only now may the composer
       // trust `connected` and admit a post.
+      trafficVersion++;
+      streamRepairs = 0;
+      retryMs = 500;
       clientStore.getState().setConnected(true);
       // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
+      const submissionRoom = pendingSubmission.receive(frame);
+      if (submissionRoom !== undefined) publishPostState();
+      // Receipts settle composer ownership only. Their original seq is not a
+      // new replay cursor and presentation remains ordinary live/history data.
+      if (frame.type === 'post_accepted') return;
       const frameRef = 'ref' in frame ? frame.ref : undefined;
       const resultRoom = frameRef === undefined ? undefined : actionRooms.get(frameRef);
-      clientStore.getState().applyFrame(frame, resultRoom ?? currentRoom);
+      clientStore.getState().applyFrame(frame, submissionRoom ?? resultRoom ?? currentRoom);
       // One explicit result retires one source-room mapping. Unmatched refs are
       // deliberately allowed to use the current-room fallback for legacy frames.
       if (frameRef !== undefined && frame.type !== 'rooms') actionRooms.delete(frameRef);
@@ -445,8 +590,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         }
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
+        if (postAcknowledgements === true) pendingSubmission.ready(completed, mine, send);
       }
-      // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=watchdog-probe-reply
+      // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
         const foregroundProbe = foregroundProbePending;
         awaitingProbe = false;
@@ -463,11 +609,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         reconcile(frame.room_seqs, priorSubscribed);
         if (foregroundProbe) options.onResume?.(currentRoom);
       }
-      // harn:end hosted-foreground-watchdog-defers-while-http-active
+      // harn:end app-liveness-recovery-is-stream-first
     };
   // harn:end relay-app-socket-readiness-requires-server-evidence
     socket.onclose = (event) => {
       if (!live()) return;
+      diagnose('app-close', event.code);
+      cancelCapabilityCheck();
       clearProbes();
       if (state === 'connected' || state === 'disconnected') state = 'disconnected';
       clientStore.getState().setConnected(false);
@@ -495,13 +643,15 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         retryMs = Math.min(retryMs * 2, 10_000);
       };
       if (event.code === 4401 && options.refreshToken) {
-        void options.refreshToken().then(
-          (refreshed) => {
+        void renewToken().then(
+          () => {
             if (!live()) return;
-            token = setToken(refreshed);
             reconnect();
           },
-          reconnect,
+          () => {
+            if (clientStore.getState().authRefused) { state = 'parked-auth'; setToken(''); }
+            else reconnect();
+          },
         );
       } else reconnect();
     };
@@ -532,7 +682,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (!RESUMABLE.has(state)) return;
       if (options.tunnel) {
         resumeAfterTunnel = true;
-        waitForTunnel(true);
+        if (options.tunnel.state === 'connected' && streamRepairs === 0) {
+          streamRepairs++;
+          diagnose('app-stream-repair');
+          open(true);
+        } else {
+          diagnose('tunnel-repair');
+          waitForTunnel(true);
+        }
       } else {
         open(true);
         options.onResume?.(currentRoom);
@@ -577,6 +734,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const stopTunnel = options.tunnel?.subscribe((tunnelState, tunnelGeneration) => {
     if (!RESUMABLE.has(state)) return;
     if (tunnelState !== 'connected') {
+      cancelCapabilityCheck();
       clearRetry();
       clearProbes();
       state = 'disconnected';
@@ -594,19 +752,38 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const connector: RoomConnector = {
     room: () => currentRoom,
     state: () => state,
+    compositionOwner: options.compositionOwner ?? {},
+    subscribePostState: (listener) => {
+      postStateListeners.add(listener);
+      return () => { postStateListeners.delete(listener); };
+    },
+    postStateVersion: () => postStateVersion,
+    stopWaitingForSubmission: (room, id) => {
+      if (postAcknowledgements !== false || state !== 'connected' || !liveRooms.has(room)) return false;
+      const stopped = pendingSubmission.stopWaiting(room, id);
+      if (stopped) publishPostState();
+      return stopped;
+    },
     // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=connector-post-dispatch-result
-    post: (
-      body: string,
-      opts?: { replyTo?: number; attachments?: string[]; voice?: { duration_seconds: number; levels: number[] } },
-    ) =>
-      send({
-        type: 'post',
-        room: currentRoom,
-        body,
+    get postAcknowledgements() { return postAcknowledgements; },
+    get submissionPending() { return pendingSubmission.active; },
+    post: (body: string, opts?: PostOptions) => {
+      const frame: PostFrame = {
+        type: 'post', room: opts?.room ?? currentRoom, body,
         ...(opts?.replyTo !== undefined && { reply_to: opts.replyTo }),
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
-      }),
+      };
+      if (postAcknowledgements === undefined || pendingSubmission.active) return false;
+      if (!postAcknowledgements) return send(frame);
+      if (state !== 'connected' || !liveRooms.has(frame.room)
+        || (options.tunnel !== undefined && (options.tunnel.state !== 'connected'
+          || options.tunnel.generation !== openedTunnelGeneration))) return false;
+      frame.submission_id = opts?.submissionId ?? crypto.randomUUID();
+      const sent = pendingSubmission.post(frame, generation, send, opts?.onResult);
+      if (sent) publishPostState();
+      return sent;
+    },
     // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
@@ -624,6 +801,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     disconnect: () => {
       // An operator-chosen park: lifecycle events must not undo it.
       state = 'parked-manual';
+      cancelCapabilityCheck();
       clearRetry();
       clearProbes();
       generation += 1;
@@ -659,6 +837,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     },
     dispose: () => {
       state = 'disposed';
+      cancelCapabilityCheck();
+      postStateListeners.clear();
       clearRetry();
       clearProbes();
       // The page is going away: nothing should still read as connected.
@@ -669,6 +849,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       window.removeEventListener('online', onOnline);
       stopTunnel();
       actionRooms.clear();
+      pendingSubmission.dispose();
       retire(socket);
       socket = undefined;
     },

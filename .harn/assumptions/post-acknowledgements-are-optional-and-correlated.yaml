@@ -1,0 +1,14 @@
+id: post-acknowledgements-are-optional-and-correlated
+hash: a-f0fa8395df80
+title: Post acknowledgements are opt-in
+state: active
+statement: The authenticated compatibility response separately advertises
+  optional post_acknowledgements without an epoch bump. Only requests carrying a
+  valid submission id receive a correlated post_accepted result or correlated
+  error; outcomes identify the actual conversation and original message or
+  schedule ids and sequence, with the original due instant for schedules. Legacy
+  clients receive their existing frames with no unsolicited new frame.
+depends_on:
+  - browser-protocol-epoch-blocks-only-stale-browser-ui
+  - unix-socket-same-protocol
+created_by: relay-polish-p6-idempotent-posts

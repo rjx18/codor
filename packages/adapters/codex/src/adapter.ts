@@ -25,6 +25,7 @@ import {
   spawnCodexAppServer,
 } from './app-server-transport.js';
 import { probeCodexLimits } from './limits-probe.js';
+import { discoverCodexModels } from './model-discovery.js';
 import { peekCodexContextUsage } from './peek.js';
 import {
   agentUsageFromTokenUsage,
@@ -203,6 +204,7 @@ const COMPACTION_TIMEOUT_MS = 180_000;
 export interface CodexAdapterOptions {
   command?: string;
   appServerFactory?: CodexAppServerFactory;
+  modelDiscoveryTimeoutMs?: number;
 }
 
 function sortedEnvironment(env: NodeJS.ProcessEnv): string {
@@ -453,10 +455,13 @@ export class CodexAdapter implements HarnessAdapter {
   private readonly memberRuntimes = new Map<string, CodexRuntime>();
   private readonly command: string;
   private readonly appServerFactory: CodexAppServerFactory;
+  private readonly modelDiscoveryTimeoutMs: number;
+  private modelDiscovery?: Promise<ModelCatalog>;
 
   constructor(options: CodexAdapterOptions = {}) {
     this.command = options.command ?? 'codex';
     this.appServerFactory = options.appServerFactory ?? spawnCodexAppServer;
+    this.modelDiscoveryTimeoutMs = options.modelDiscoveryTimeoutMs ?? 10_000;
   }
 
   spawn(opts: SpawnOpts): Session {
@@ -472,12 +477,11 @@ export class CodexAdapter implements HarnessAdapter {
   }
 
   // harn:assume adapters-own-their-model-catalog ref=codex-model-catalog
-  /** Curated: `codex` has no listing command. Cited in NOTES.md. */
+  /** Enumerate the installed runtime's effective picker without starting a turn. */
   listModels(): Promise<ModelCatalog> {
-    return Promise.resolve({
-      models: ['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol', 'gpt-5.5'],
-      source: 'curated',
-    });
+    this.modelDiscovery ??= discoverCodexModels(this.appServerFactory, this.command, this.modelDiscoveryTimeoutMs)
+      .finally(() => { this.modelDiscovery = undefined; });
+    return this.modelDiscovery;
   }
   // harn:end adapters-own-their-model-catalog
 

@@ -1,0 +1,54 @@
+id: relay-polish-p3-default-recipient
+title: Rank substantive completed defaults by terminal output identity
+notes: >
+  Phase 3 only at d0cd0a05. Correct the Store query used by room support and
+  server fallback. Rank eligible completed runs by valid terminal result ID,
+  falling back to the root ID for legacy records. Require substantive aggregate
+  or visible result content and exclude acknowledgements, removed/deleted rows,
+  running, failed and interrupted runs. Preserve explicit replies, fallback
+  ordering and edited drafts. No history, relay or model discovery changes.
+assumptions:
+  create:
+    - id: default-agent-orders-successful-terminal-replies
+      title: Default agent follows the latest substantive successful result
+      statement: >
+        The latest default agent is selected only from completed
+        non-acknowledgement non-deleted runs by non-removed agents, ranked by
+        their valid terminal output message ID or legacy root ID. Substantive
+        root aggregate text remains eligible even when the terminal continuation
+        is empty. Failed, interrupted, running and empty runs cannot displace
+        that default. Room support and server fallback consume the same
+        selection, while explicit replies and edited composer drafts retain
+        their existing authority.
+      reason: Run-start ordering selected interrupted 2457 over completed
+        2455/result2462.
+      depends_on:
+        - default-recipient-fallback-chain
+        - continuation-writer-follows-journaled-output-ownership
+  reviewed:
+    - id: default-recipient-fallback-chain
+      outcome: unchanged
+      reason: Preserve precedence; correct the substantive finalized candidate
+        supplied to it.
+    - id: continuation-writer-follows-journaled-output-ownership
+      outcome: unchanged
+      reason: Read existing root aggregate and valid permanent result relationship
+        only.
+files:
+  - .harn/plans/relay-polish-p3-default-recipient.yaml
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/default-recipient.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room45-default-recipient.e2e.spec.ts
+anchors:
+  default-recipient-fallback-chain:
+    substantive-default-recipient:
+      action: change
+      reason: Select completed substantive terminal output order.
+  default-agent-orders-successful-terminal-replies:
+    terminal-default-regression:
+      action: change
+      reason: Root/result ordering
+      exclusions and shared support/router evidence.: null
+applied:
+  applied_at: 2026-09-08T12:54:15.224Z

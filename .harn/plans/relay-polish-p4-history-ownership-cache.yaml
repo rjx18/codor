@@ -1,0 +1,181 @@
+id: relay-polish-p4-history-ownership-cache
+title: Bind history operations and coalesce hosted background work
+notes: >
+  Phase 4 only at 03e831de. Capture source store, room, token, transport and
+  generation for an entire operation; abort/retire obsolete generations.
+  Preserve foreground view retirement, all subscriptions, complete evidence,
+  authoritative deletion order and 20/40-slot bounds. Prune history-owned maps
+  to retained units. Reuse valid cached overlap before fetching a predecessor.
+  Debounce snapshot construction/serialization using the latest valid connected
+  state; dispose/forget cancels and drains pending work. Ignore unchanged
+  connection and summary inputs. Filter live-only continuations from immutable
+  warming and bound coalesced background work across rooms/computers to two
+  jobs, allowing selected-room requests immediate priority. No authentication
+  policy, reconnect escalation, wire schemas, durable outbox or backend changes.
+assumptions:
+  create:
+    - id: history-operations-retain-session-ownership
+      title: History operations retain their session and generation
+      statement: >
+        Every history head, predecessor, older request and explicit walk
+        captures its concrete store, room, token and fetch transport once.
+        Replacing or disposing its tunnel generation aborts pending requests and
+        prevents old results, failures or target walks from committing or
+        issuing further work. A computer switch alone cannot reroute an owned
+        background request.
+      reason: Global transport changes must never cross computer ownership.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+    - id: history-background-work-is-coalesced-and-retained-data-bounded
+      title: History background work and retained data follow visible ownership
+      statement: >
+        Discarded history units release unreferenced historical bodies and
+        events; retained older units and live evidence keep their owners. Cached
+        overlap avoids an unnecessary predecessor within the two-page bound.
+        Only relevant changed room evidence schedules immutable warmups, with at
+        most two concurrent background jobs and one latest trailing intent per
+        room. Snapshot preparation runs after debounce on the latest valid owned
+        state and cannot resurrect forgotten computers. Unchanged connection and
+        summary inputs do not publish redundant updates.
+      reason: Bound avoidable CPU, network and retained memory while preserving
+        subscriptions.
+      depends_on:
+        - combined-head-reconciliation-is-two-page-bounded
+  reviewed:
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: live-before-history-materialization-reconciles
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: transcript-history-prepends-one-text-slot-page
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: combined-head-reconciliation-is-two-page-bounded
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: bounded-combined-head-adopts-authoritative-window
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: transcript-targets-walk-combined-pages
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: inactive-history-warming-persists-bounded-room-cache
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Preserve this existing ownership and observable contract while removing
+        redundant work.
+files:
+  - .harn/plans/relay-polish-p4-history-ownership-cache.yaml
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/runtime/last-good-room.ts
+  - packages/web-next/src/runtime/relay-transport.ts
+anchors:
+  history-operations-retain-session-ownership:
+    captured-history-operation:
+      action: change
+      reason: Bind and retire the complete operation by source owner.
+  history-background-work-is-coalesced-and-retained-data-bounded:
+    retained-history-projection:
+      action: change
+      reason: Prune discarded history while preserving retained unit references.
+  paged-history-live-message-reconciliation:
+    page-message-sequence-merge:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-materializer:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+    combined-history-store:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  live-before-history-materialization-reconciles:
+    history-materializer-uses-live-room-records:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  transcript-history-prepends-one-text-slot-page:
+    deliberate-text-slot-page-controller:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  combined-head-reconciliation-is-two-page-bounded:
+    bounded-combined-history-head-refresh:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+    bounded-combined-history-resume:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  bounded-combined-head-adopts-authoritative-window:
+    bounded-authoritative-head-merge:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  transcript-targets-walk-combined-pages:
+    combined-history-target-reveal:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  inactive-history-warming-persists-bounded-room-cache:
+    bounded-captured-head-refresh-coalescing:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-aware-computer-session:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-write-coalescing:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+    provisional-cache-lifecycle:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+    provisional-cache-snapshot:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+  hosted-background-computer-activity-is-visible:
+    background-computer-summary:
+      action: change
+      reason: Phase 4 ownership, pruning or coalescing within this existing boundary.
+applied:
+  applied_at: 2026-09-08T13:15:55.560Z

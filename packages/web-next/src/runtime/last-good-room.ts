@@ -267,8 +267,8 @@ export function snapshotLastGoodRoom(
   computerId: string,
   store: ClientStore,
   publicRoom: string,
+  state = store.getState(),
 ): LastGoodRoomSnapshot | undefined {
-  const state = store.getState();
   if (!state.connected) return undefined;
   const rooms = Object.fromEntries(Object.entries(state.rooms).flatMap(([roomId, slice]) => {
     const room = slice.room;

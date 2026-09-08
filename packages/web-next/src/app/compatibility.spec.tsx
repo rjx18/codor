@@ -37,7 +37,7 @@ describe('browser compatibility gate', () => {
       combined_transcript_history: true,
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     expect(await fetchBrowserCompatibility('token', capable)).toEqual({
-      combinedTranscriptHistory: true,
+      combinedTranscriptHistory: true, postAcknowledgements: false,
     });
 
     const legacy = vi.fn(async () => new Response(JSON.stringify({
@@ -46,7 +46,7 @@ describe('browser compatibility gate', () => {
       compatible: true,
     }), { status: 200, headers: { 'content-type': 'application/json' } }));
     expect(await fetchBrowserCompatibility('token', legacy)).toEqual({
-      combinedTranscriptHistory: false,
+      combinedTranscriptHistory: false, postAcknowledgements: false,
     });
   });
   // harn:end combined-history-capability-gates-socket-fallback
@@ -129,4 +129,29 @@ describe('browser compatibility gate', () => {
       await expect(refreshBrowserApp()).rejects.toThrow(/registration unavailable/);
     });
   });
+});
+
+describe('optional post acknowledgement capability', () => {
+  it('requires an authenticated successful response with the explicit true field', async () => {
+    for (const status of [200, 401, 403, 426]) {
+      const result = await fetchBrowserCompatibility('token', async () => new Response(JSON.stringify({
+        post_acknowledgements: true,
+      }), { status }));
+      expect(result.postAcknowledgements === true).toBe(status === 200);
+    }
+    expect((await fetchBrowserCompatibility('token', async () => new Response('{}'))).postAcknowledgements).toBe(false);
+  });
+});
+
+it('distinguishes verified absence from transient and malformed capability reads', async () => {
+  for (const status of [200, 404, 405]) {
+    expect((await fetchBrowserCompatibility('token', async () => new Response('{}', { status }))).postAcknowledgements).toBe(false);
+  }
+  for (const status of [401, 403, 429, 500, 503]) {
+    expect((await fetchBrowserCompatibility('token', async () => new Response('{}', { status }))).postAcknowledgements).toBeUndefined();
+  }
+  for (const body of ['[]', 'null', '{"post_acknowledgements":"invalid"}', '<html>unavailable</html>']) {
+    expect((await fetchBrowserCompatibility('token', async () => new Response(body))).postAcknowledgements).toBeUndefined();
+  }
+  expect((await fetchBrowserCompatibility('token', async () => { throw new Error('timeout'); })).postAcknowledgements).toBeUndefined();
 });

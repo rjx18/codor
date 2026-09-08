@@ -1,0 +1,15 @@
+id: post-receipts-commit-atomically-with-routing
+hash: a-b5050cf89674
+title: Submission receipts share the acceptance transaction
+state: active
+statement: For each opted-in submission the Store commits its durable receipt,
+  actual destination outcome, message or schedule, sequence/changelog, delivery
+  fanout and collaboration group records in one synchronous SQLite transaction.
+  Rollback or process death leaves both receipt and operation absent or both
+  durable; only after commit may publication, notifications or dispatch occur.
+  Replays never repeat those effects, and receipts have no expiry or deletion
+  cascade.
+depends_on:
+  - eligible-multi-agent-routing-starts-one-group
+  - scheduled-message-commit-is-exactly-once
+created_by: relay-polish-p6-idempotent-posts

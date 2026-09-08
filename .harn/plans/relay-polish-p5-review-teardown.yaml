@@ -1,0 +1,77 @@
+id: relay-polish-p5-review-teardown
+title: Retire browser mux work before clearing its authenticated generation
+notes: >
+  Follow-up to the installed restart seal failure at d789854f. Reproduce queued
+  coalescer output after disconnect, then dispose rather than flush retired
+  muxes. Capture encryption ownership. Preserve graceful close wire semantics,
+  stream write invariants, authentication meanings, stream-first recovery and P4
+  ownership. No P6, Worker, host changes or error swallowing. Verify full
+  web/tunnel suites, production builds and isolated hosted host-replacement
+  recovery with page errors.
+assumptions:
+  create:
+    - id: browser-retired-muxes-cannot-emit
+      title: Retired browser muxes cannot emit through another session
+      statement: >
+        Browser tunnel loss, replacement and disposal must discard pending mux
+        packets, cancel flush timers and destroy streams before clearing channel
+        ownership. Packet encryption uses its captured authenticated generation;
+        retired callbacks cannot encrypt or send through replacement state.
+        Graceful mux close retains its reset and flush semantics.
+      reason: Prevent delayed coalescer callbacks after transport teardown.
+      depends_on:
+        - tunnel-stream-mux
+        - browser-tunnel-readiness-follows-current-generation
+  reviewed:
+    - id: tunnel-stream-mux
+      outcome: unchanged
+      reason: Add non-flushing disposal without changing wire or flow control.
+    - id: browser-tunnel-readiness-follows-current-generation
+      outcome: unchanged
+      reason: Complete existing generation retirement.
+    - id: relay-host-generations-retire-stale-clients
+      outcome: unchanged
+      reason: Strengthen browser error verification during host replacement.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Preserve single app recovery and all parks.
+    - id: hosted-foregrounding-reuses-healthy-sessions
+      outcome: unchanged
+      reason: No recovery policy changes.
+files:
+  - .harn/plans/relay-polish-p5-review-teardown.yaml
+  - packages/tunnel/src/mux.ts
+  - packages/tunnel/src/mux.spec.ts
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+anchors:
+  browser-retired-muxes-cannot-emit:
+    mux-discard:
+      action: change
+      reason: Anchor the new non-flushing retirement obligation.
+  tunnel-stream-mux:
+    mux-stream-state:
+      action: change
+      reason: Add explicit disposal of pending work and streams.
+  browser-tunnel-readiness-follows-current-generation:
+    current-tunnel-generation:
+      action: change
+      reason: Bind and retire generation-owned packet callbacks.
+    idempotent-tunnel-recovery:
+      action: change
+      reason: Dispose mux before dropping references.
+  relay-host-generations-retire-stale-clients:
+    relay-host-replacement-browser-regression:
+      action: change
+      reason: Assert zero browser background errors.
+  hosted-app-streams-follow-tunnel-generations:
+    coordinated-recovery-browser-regression:
+      action: change
+      reason: Preserve real hosted recovery assertions.
+  hosted-foregrounding-reuses-healthy-sessions:
+    foreground-health-browser-regression:
+      action: change
+      reason: Nested hosted regression.
+applied:
+  applied_at: 2026-09-08T15:44:50.492Z

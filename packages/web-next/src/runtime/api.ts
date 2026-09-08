@@ -237,11 +237,11 @@ export async function fetchAdapters(options: ApiOptions): Promise<AdapterListing
   return { adapters: body.adapters, discovering: body.discovering === true };
 }
 
-// harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-client
+// harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-client
 export async function refreshAdapters(options: ApiOptions): Promise<AdapterListing> {
   return sendJson<AdapterListing>('/api/adapters/refresh', 'POST', undefined, options);
 }
-// harn:end adapter-refresh-is-authorized-and-incremental
+// harn:end adapter-refresh-rediscovers-installed-models
 
 export type UsageRefreshOutcome = 'refreshed' | 'cooldown' | 'coalesced' | 'failed';
 

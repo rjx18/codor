@@ -1,7 +1,7 @@
 id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
 hash: a-a0a3a4d62afb
 title: Composer acknowledgement separates raw draft ownership from canonical echo
-state: active
+state: retired
 statement: >
   Each composer dispatch must capture the exact raw textarea snapshot and the
   canonical submitted body; its pending send correlates only a newly committed
@@ -15,3 +15,4 @@ depends_on:
   - exact-trailing-mentions-send-before-completion
   - composer-enter-uses-live-draft-state
 created_by: lane-b-q1-exact-raw-composer-acknowledgement
+retired_by: relay-polish-p6-idempotent-posts

@@ -11,7 +11,12 @@ import { tmpdir } from 'node:os';
 import { dirname, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
+import { createRequire } from 'node:module';
+const WebSocket = process.env.CODOR_P6_SWITCHBOARD_MODULE
+  ? createRequire(process.env.CODOR_P6_SWITCHBOARD_MODULE)('ws')
+  : (await import('ws')).default;
+
+const {
   CryptoVault,
   Daemon,
   FakeAdapter,
@@ -20,7 +25,7 @@ import {
   RelayPairingHost,
   RelayStore,
   startServer,
-} from '@codor/switchboard';
+} = await import(process.env.CODOR_P6_SWITCHBOARD_MODULE ?? '@codor/switchboard');
 
 import { startMockRelay } from './mock-relay.mjs';
 
@@ -111,6 +116,64 @@ const daemon = new Daemon({
   ledger,
   executableOnPath: (executable) => acpPresent.has(executable),
 });
+
+// P6 fault injection stays at the real daemon/WebSocket boundary. Captured
+// frames contain only fixture data; no production protocol seam is introduced.
+let p6Fault;
+let p6CapabilityFault;
+let p6CapabilityRequests = 0;
+const p6Attempts = [];
+const p6AppSockets = new Set();
+const p6SocketEmit = WebSocket.prototype.emit;
+WebSocket.prototype.emit = function (event, ...args) {
+  if (event === 'message' && this._socket?.localPort === API_PORT) {
+    p6AppSockets.add(this);
+    try {
+      const frame = JSON.parse(String(args[0]));
+      if (frame.type === 'post') {
+        p6Attempts.push(frame);
+        if (p6Attempts.length > 256) p6Attempts.shift();
+      }
+    } catch { /* other relay traffic is not app JSON */ }
+  }
+  return p6SocketEmit.call(this, event, ...args);
+};
+const p6SocketSend = WebSocket.prototype.send;
+WebSocket.prototype.send = function (data, ...args) {
+  if (p6Fault && this._socket?.localPort === API_PORT && typeof data === 'string') {
+    try {
+      const frame = JSON.parse(data);
+      if (frame.type === 'message' && frame.message.body.includes(p6Fault.needle)) return;
+      if (frame.type === 'post_accepted' && p6Fault.point === 'silent'
+        && p6Attempts.some((post) => post.submission_id === frame.submission_id && post.body.includes(p6Fault.needle))) return;
+    } catch { /* normal transport owns other data */ }
+  }
+  return p6SocketSend.call(this, data, ...args);
+};
+if (daemon.submitPost) {
+  const submitPost = daemon.submitPost.bind(daemon);
+  daemon.submitPost = (...args) => {
+    const fault = p6Fault;
+    if (fault?.point === 'reject' && args[1].body.includes(fault.needle)) {
+      p6Fault = undefined;
+      throw new Error('fixture post refused; edit or retry the draft');
+    }
+    const cut = fault && args[1].body.includes(fault.needle) && ['before', 'after'].includes(fault.point);
+    if (cut && fault.point === 'before') {
+      p6Fault = undefined;
+      for (const socket of p6AppSockets) socket.terminate();
+      p6AppSockets.clear();
+      throw new Error('fixture disconnect before acceptance');
+    }
+    const result = submitPost(...args);
+    if (cut) {
+      p6Fault = undefined;
+      for (const socket of p6AppSockets) socket.terminate();
+      p6AppSockets.clear();
+    }
+    return result;
+  };
+}
 
 // Browser-only action seam: exercise duplicate suppression, pending disabled
 // state, and visible server refusal without changing release_hold production
@@ -1264,7 +1327,9 @@ const archivist = daemon.store.getMemberByHandle('hydration', 'archivist');
 const seedRun = (body, run, events = []) => {
   const posted = daemon.store.postMessage('hydration', { author: archivist.id, kind: 'run', body });
   const eventsRef = `runs/${posted.id}.jsonl`;
-  daemon.store.updateMessage('hydration', posted.id, { run: { ...run, tool_calls: 0, events_ref: eventsRef } });
+  daemon.store.updateMessage('hydration', posted.id, { run: { ...run,
+    tool_calls: events.filter((event) => event.type === 'run.item' && event.item_type === 'tool_call').length,
+    events_ref: eventsRef } });
   for (const event of events) daemon.blobs.append('hydration', eventsRef, event);
   return posted.id;
 };
@@ -1437,6 +1502,12 @@ let cryptoB;
 let relayStoreB;
 let relayLinkB;
 let phase5Fixture;
+const heldHistoryRequests = [];
+const originalHistoryPage = daemon.transcriptHistoryPage.bind(daemon);
+daemon.transcriptHistoryPage = (room, ...args) => {
+  if (room === 'held-history') heldHistoryRequests.push(args[0] ?? null);
+  return originalHistoryPage(room, ...args);
+};
 
 // ── Control endpoint: tests script upcoming fake turns just-in-time ──────
 createServer((req, res) => {
@@ -1446,6 +1517,119 @@ createServer((req, res) => {
     let payload = {};
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname === '/relay-expire-browser-sessions') {
+        for (const peer of crypto.keys.listPeers()) {
+          if (peer.kind === 'device') crypto.browserSessions.revoke(peer.device_id);
+        }
+        payload = { ok: true };
+      }
+      if (url.pathname === '/relay-revoke-browsers') {
+        for (const peer of crypto.keys.listPeers()) {
+          if (peer.kind === 'device') crypto.revokePeer(peer.device_id);
+        }
+        payload = { ok: true };
+      }
+      if (url.pathname === '/default-recipient-fixture') {
+        const room = 'default-recipient';
+        daemon.createRoom({ id: room, name: 'Default Recipient', owner: { handle: 'viewer', display_name: 'Viewer' } });
+        const owner = daemon.ownerOf(room);
+        const investigator = daemon.spawnMember(room, { harness: 'fake', handle: 'investigator', cwd: dir });
+        const sol = daemon.spawnMember(room, { harness: 'fake', handle: 'sol', cwd: dir });
+        daemon.pauseMember(room, investigator.id);
+        daemon.pauseMember(room, sol.id);
+        daemon.store.db.transaction(() => {
+          while (daemon.store.latestMessageId(room) < 2454) daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'old history' });
+        })();
+        const root = daemon.store.postMessage(room, { author: investigator.id, kind: 'run', body: 'substantive aggregate',
+          run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/2455.jsonl', output_mode: 'messages' } });
+        daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'interjection' });
+        const interrupted = daemon.store.postMessage(room, { author: sol.id, kind: 'run', body: '',
+          run: { status: 'interrupted', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/2457.jsonl' } });
+        while (daemon.store.latestMessageId(room) < 2461) daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'interjection' });
+        const result = daemon.store.createRunContinuation(room, root.id);
+        daemon.store.updateMessage(room, root.id, { run: { ...root.run, status: 'completed', ended_ts: new Date().toISOString(),
+          final_text: 'substantive aggregate', result_message_id: result.id } });
+        const plain = daemon.postHumanMessage(room, 'continue with default');
+        // The composer quote action inserts the author's mention with reply_to.
+        const reply = daemon.postHumanMessage(room, '@sol explicit reply', { reply_to: interrupted.id });
+        payload = { root: root.id, result: result.id, interrupted: interrupted.id,
+          defaultId: daemon.store.latestFinalizedAgentAuthor(room), investigatorId: investigator.id, solId: sol.id,
+          plainRecipients: daemon.store.listDeliveries(room).filter((d) => d.message_id === plain.id).map((d) => d.recipient),
+          replyRecipients: daemon.store.listDeliveries(room).filter((d) => d.message_id === reply.id).map((d) => d.recipient) };
+      }
+      if (url.pathname === '/default-recipient-change') {
+        const room = 'default-recipient';
+        const sol = daemon.store.getMemberByHandle(room, 'sol');
+        const message = daemon.store.postMessage(room, { author: sol.id, kind: 'run', body: 'new successful result',
+          run: { status: 'completed', started_ts: new Date().toISOString(), ended_ts: new Date().toISOString(),
+            tool_calls: 0, events_ref: 'runs/new-result.jsonl', final_text: 'new successful result' } });
+        daemon.emitMessage(room, message);
+        payload = { defaultId: daemon.store.latestFinalizedAgentAuthor(room) };
+      }
+      if (url.pathname === '/held-origin-fixture') {
+        const body = JSON.parse(raw);
+        const room = `held-origin-${body.shape}`;
+        daemon.createRoom({ id: room, name: room, owner: { handle: 'viewer', display_name: 'Viewer' } });
+        const owner = daemon.ownerOf(room);
+        const worker = daemon.spawnMember(room, { harness: 'fake', handle: 'worker', cwd: dir });
+        daemon.pauseMember(room, worker.id);
+        const writer = daemon.spawnMember(room, { harness: 'fake', handle: 'writer', cwd: dir });
+        daemon.pauseMember(room, writer.id);
+        let origin;
+        if (body.shape === 'grouped-human') {
+          daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'first human' });
+          origin = daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'held human origin' });
+        } else {
+          const root = daemon.store.postMessage(room, { author: writer.id, kind: 'run', body: '' });
+          daemon.store.updateMessage(room, root.id, { run: { status: 'running', started_ts: root.ts,
+            tool_calls: 0, events_ref: `runs/${root.id}.jsonl`, output_mode: 'messages' } });
+          const output = body.shape === 'agent' ? root : daemon.store.createRunContinuation(room, root.id);
+          daemon.blobs.append(room, `runs/${root.id}.jsonl`, { type: 'run.item', item_type: 'text_block',
+            output_message_id: output.id, payload: { text: 'held agent origin' } });
+          daemon.store.updateMessage(room, output.id, { body: 'held agent origin' });
+          daemon.store.updateMessage(room, root.id, { run: { ...daemon.store.getMessage(room, root.id).run,
+            status: 'completed', ended_ts: new Date().toISOString(), final_text: 'held agent origin', result_message_id: output.id } });
+          origin = body.shape === 'root' ? root : output;
+        }
+        const delivery = daemon.store.createDelivery(room, { message_id: origin.id, recipient: worker.id });
+        daemon.store.updateDelivery(room, delivery.id, { state: 'held' });
+        if (body.shape === 'root') {
+          for (let index = 0; index < 30; index += 1) {
+            daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: `newer ${index}` });
+          }
+        }
+        payload = { room, origin: origin.id, delivery: delivery.id };
+      }
+      if (url.pathname === '/held-history-status') {
+        payload = { requests: heldHistoryRequests };
+      }
+      if (url.pathname === '/held-history-refresh') {
+        for (const delivery of daemon.store.listDeliveries('held-history')) daemon.emitInbox('held-history', delivery);
+      }
+      if (url.pathname === '/held-history-fixture') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const room = 'held-history';
+        if (!daemon.store.getRoom(room)) {
+          daemon.createRoom({ id: room, name: 'Held History', owner: { handle: 'viewer', display_name: 'Viewer' } });
+          const owner = daemon.ownerOf(room);
+          const agent = daemon.spawnMember(room, { harness: 'fake', handle: 'held-worker', cwd: dir });
+          const removed = daemon.spawnMember(room, { harness: 'fake', handle: 'removed-worker', cwd: dir });
+          daemon.pauseMember(room, agent.id);
+          daemon.store.db.transaction(() => {
+            for (let id = 1; id <= 5165; id += 1) {
+              daemon.store.postMessage(room, { author: owner.id, kind: 'chat',
+                body: `History ${id}: ${'readable transcript '.repeat(12)}` });
+            }
+          })();
+          const delivery = daemon.store.createDelivery(room, { message_id: 2476, recipient: agent.id });
+          daemon.store.updateDelivery(room, delivery.id, { state: 'held' });
+          const stale = daemon.store.createDelivery(room, { message_id: 2475, recipient: removed.id });
+          daemon.store.updateDelivery(room, stale.id, { state: 'held' });
+          daemon.store.updateMember(room, removed.id, { state: 'dead', removed_ts: new Date().toISOString() });
+          if (body.removed) daemon.store.updateMember(room, agent.id, { state: 'dead', removed_ts: new Date().toISOString() });
+        }
+        payload = { room };
+      }
       if (url.pathname === '/enqueue') {
         const body = raw === '' ? {} : JSON.parse(raw);
         for (const turn of body.turns ?? []) fake.enqueue(turn);
@@ -1613,6 +1797,38 @@ createServer((req, res) => {
         const body = raw === '' ? {} : JSON.parse(raw);
         const roomId = String(body.room ?? 'eng');
         payload = daemon.store.roomSupport(roomId, daemon.ownerOf(roomId).id);
+      }
+      if (url.pathname === '/p6-pause-group') {
+        for (const handle of ['p6-alpha', 'p6-beta']) {
+          const member = daemon.store.getMemberByHandle('eng', handle)
+            ?? daemon.store.addMember('eng', { kind: 'agent', handle, display_name: handle,
+              harness: 'fake', state: 'paused', cwd: dir });
+          daemon.emitMember('eng', member);
+        }
+        payload = { ok: true };
+      }
+      if (url.pathname === '/p6-capability') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        if (body.mode !== undefined) {
+          p6CapabilityFault = body.mode === 'clear' ? undefined : { mode: body.mode, remaining: body.remaining ?? 1 };
+          p6CapabilityRequests = 0;
+        }
+        payload = { requests: p6CapabilityRequests };
+      }
+      if (url.pathname === '/p6-fault') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        p6Fault = body.point ? { point: body.point, needle: body.needle } : undefined;
+        payload = { ok: true };
+      }
+      if (url.pathname === '/p6-evidence') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const selected = body.computer === 'B' ? daemonB : daemon;
+        const messages = selected.store.listRooms().flatMap((room) => selected.store.listMessages(room.id, { limit: 10000 }))
+          .filter((message) => message.body.includes(body.needle));
+        payload = { messages, voiceCalls: voiceCall, attempts: p6Attempts.filter((post) => post.body.includes(body.needle)),
+          deliveries: messages.flatMap((message) => selected.store.listDeliveries(message.room)
+            .filter((delivery) => delivery.message_id === message.id)),
+        };
       }
       if (url.pathname === '/relay-pair') {
         const host = new RelayPairingHost({ store: relayStore, pairing: crypto.pairing, identity: crypto.keys.publicIdentity() });
@@ -1840,6 +2056,7 @@ createServer((req, res) => {
         // spec can call it per run without re-seeding.
         const body = raw === '' ? {} : JSON.parse(raw);
         const count = Math.min(400, Number(body.count ?? 180));
+        const toolCount = Math.min(500, Number(body.toolCount ?? 0));
         if (hydrationIds === undefined) {
           const base = Date.now() - (count + 30) * 60_000;
           // A uniquely-worded oldest message, hundreds of ids below the bounded
@@ -1865,7 +2082,13 @@ createServer((req, res) => {
             }
             seedRun(`archived run ${i + 1}`, {
               status: 'completed', started_ts: ts, ended_ts: ts, final_text: `archived run ${i + 1}`,
-            }, [proseEvent(`archived run ${i + 1}`, ts)]);
+            }, [proseEvent(`archived run ${i + 1}`, ts), ...(i === count - 1
+              ? Array.from({ length: toolCount }, (_, tool) => [
+                { type: 'run.item', item_type: 'tool_call', ts,
+                  payload: { call_id: `bulk-${tool}`, tool: 'Read', title: `archive tool ${tool}` } },
+                { type: 'run.item', item_type: 'tool_result', ts,
+                  payload: { call_id: `bulk-${tool}`, status: 'ok', output_text: 'substantial tool evidence '.repeat(128) } },
+              ]).flat() : [])]);
           }
           const liveRunId = seedRun('', { status: 'running', started_ts: minutesAgoIso(1) }, [
             proseEvent('live hydration prose that must survive a reload', minutesAgoIso(1)),
@@ -1883,7 +2106,10 @@ createServer((req, res) => {
           });
           hydrationIds = { liveRunId, neighbourRunId, orphanRunId, oldestId, nearTailId };
         }
-        payload = hydrationIds;
+        const archive = daemon.store.listRunMessages('hydration', { limit: 500 });
+        payload = { ...hydrationIds,
+          archivedRuns: archive.filter((run) => run.run?.status === 'completed').length,
+          toolCalls: archive.reduce((total, run) => total + (run.run?.tool_calls ?? 0), 0) };
       }
       if (url.pathname === '/seed-bulk') {
         // A long back-catalog for virtualization/paging proofs: N backdated
@@ -1917,7 +2143,7 @@ createServer((req, res) => {
 }).listen(CONTROL_PORT, '127.0.0.1');
 
 // ── Serve: built SPA + API on one isolated port ──────────────────────────
-const staticRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const staticRoot = process.env.CODOR_P6_WEB_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 // Bring up the blind relay + the switchboard's RelayLink before the server
 // listens, so the relay journey is ready the moment Playwright sees the port.
 mockRelay = await startMockRelay();
@@ -2080,7 +2306,7 @@ const voiceProviders = [{
     },
   }),
 }];
-await startServer({
+const p6Server = await startServer({
   daemon,
   token: TOKEN,
   port: API_PORT,
@@ -2102,6 +2328,29 @@ await startServer({
   voiceProvider: 'codex',
   voiceProviders,
 });
+// Replace only a compatibility response at the real HTTP boundary. A stalled
+// reply is released when the client's owned timeout aborts that request.
+const p6HttpEmit = p6Server.app.server.emit.bind(p6Server.app.server);
+p6Server.app.server.emit = function (event, ...args) {
+  if (event === 'request' && args[0].url?.startsWith('/api/client-compatibility')) {
+    p6CapabilityRequests++;
+    const fault = p6CapabilityFault;
+    if (fault && fault.remaining !== 0) {
+      fault.remaining--;
+      const response = args[1];
+      if (fault.mode === 'timeout') {
+        response.on('close', () => response.destroy());
+        return true;
+      }
+      response.writeHead(fault.mode === 'unsupported' ? 200 : 503, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(fault.mode === 'unsupported'
+        ? { browser_protocol: 2, combined_transcript_history: true, post_acknowledgements: false }
+        : { error: 'temporary capability failure' }));
+      return true;
+    }
+  }
+  return p6HttpEmit(event, ...args);
+};
 console.log(`  relay:  ${mockRelay.url}`);
 
 // Separate SPA origin: serve dist/ files, and fall back to index.html for every

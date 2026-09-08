@@ -21,10 +21,18 @@ export function setRelayTransport(
  * exact bug that same-origin test harnesses (SPA served by the switchboard) hid.
  */
 export function relayFetch(url: string, init?: RequestInit): Promise<Response> {
+  return captureRelayFetch()(url, init);
+}
+
+/** Freeze routing for a multi-request operation before the active computer changes. */
+export function captureRelayFetch(): typeof relayFetch {
+  const transport = relayTransport;
   const base = typeof location !== 'undefined' ? location.origin : 'http://localhost';
+  return (url, init) => {
   const target = new URL(url, base); // resolve page-relative paths against the page origin
-  if (relayTransport && (target.origin === base || target.origin === relayTransport.origin)) {
-    return relayTransport.fetch(target.pathname + target.search, init);
+  if (transport && (target.origin === base || target.origin === transport.origin)) {
+    return transport.fetch(target.pathname + target.search, init);
   }
   return fetch(url, init);
+  };
 }

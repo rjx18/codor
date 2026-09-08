@@ -1,0 +1,14 @@
+id: history-operations-retain-owner-across-renewal
+hash: a-07ef9cbff6ad
+title: History keeps its owner while renewing read credentials
+state: active
+statement: >
+  Every head, predecessor, older request and explicit walk captures its concrete
+  store, room and transport. Each read attempt captures a token; one idempotent
+  retry may adopt freshly renewed credentials only within the original computer
+  and tunnel generation. Replacing or disposing that generation aborts pending
+  work and prevents stale responses or failures from committing or restarting.
+  Switching computers cannot reroute owned background requests.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+created_by: relay-polish-p5-transport-recovery

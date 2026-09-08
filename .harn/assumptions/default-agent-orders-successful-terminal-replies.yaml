@@ -1,0 +1,16 @@
+id: default-agent-orders-successful-terminal-replies
+hash: a-09e4dfaef437
+title: Default agent follows the latest substantive successful result
+state: active
+statement: >
+  The latest default agent is selected only from completed non-acknowledgement
+  non-deleted runs by non-removed agents, ranked by their valid terminal output
+  message ID or legacy root ID. Substantive root aggregate text remains eligible
+  even when the terminal continuation is empty. Failed, interrupted, running and
+  empty runs cannot displace that default. Room support and server fallback
+  consume the same selection, while explicit replies and edited composer drafts
+  retain their existing authority.
+depends_on:
+  - default-recipient-fallback-chain
+  - continuation-writer-follows-journaled-output-ownership
+created_by: relay-polish-p3-default-recipient

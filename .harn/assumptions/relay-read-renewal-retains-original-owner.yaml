@@ -1,0 +1,14 @@
+id: relay-read-renewal-retains-original-owner
+hash: a-413058d37ee1
+title: Credential renewal preserves the originating read owner
+state: active
+statement: >
+  Managed credentials retain expiry and renewal coalesces per computer. Only
+  idempotent GET/HEAD reads may retry once after credential renewal, within
+  their original non-disposed tunnel generation. P4 retirement cannot strand the
+  refreshed read or permit old-credential results to commit; writes are never
+  automatically replayed.
+depends_on:
+  - history-operations-retain-owner-across-renewal
+  - paired-browser-challenge-session
+created_by: relay-polish-p5-transport-recovery

@@ -1,0 +1,14 @@
+id: history-operations-retain-session-ownership
+hash: a-a873f91f8727
+title: History operations retain their session and generation
+state: retired
+statement: >
+  Every history head, predecessor, older request and explicit walk captures its
+  concrete store, room, token and fetch transport once. Replacing or disposing
+  its tunnel generation aborts pending requests and prevents old results,
+  failures or target walks from committing or issuing further work. A computer
+  switch alone cannot reroute an owned background request.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+created_by: relay-polish-p4-history-ownership-cache
+retired_by: relay-polish-p5-transport-recovery

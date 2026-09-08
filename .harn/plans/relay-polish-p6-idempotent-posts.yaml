@@ -1,0 +1,471 @@
+id: relay-polish-p6-idempotent-posts
+title: Durable optional post acknowledgements and owned safe retries
+notes: Phase 6 only at 18ee45c2c8d4e46617213f616a0635a66b7b93b9. Keep P4/P5
+  history and authentication ownership, existing routing/delivery recovery, and
+  all native Codex discovery/catalog-refresh regions unchanged. One
+  implementation commit after clean lock; required draft-plan checkpoint is
+  mechanical. Run durable crash, concurrent/restart/tombstone, authorization,
+  media/schedule, direct/hosted and all three old/new browser-daemon
+  compatibility cases, full affected suites/builds and a packed installed-daemon
+  proof in this checkout with isolated ports. No external-action exactly-once
+  claim.
+assumptions:
+  retire:
+    - id: composer-acknowledgement-separates-raw-draft-from-canonical-echo
+      reason: Replace exclusive echo settlement with optional correlated
+        acknowledgement and legacy echo fallback.
+    - id: scheduled-composer-acknowledgement-preserves-raw-draft-ownership
+      reason: Replace exclusive echo settlement with optional correlated
+        acknowledgement and legacy echo fallback.
+    - id: exact-trailing-mentions-send-before-completion
+      reason: Replace exclusive echo settlement with optional correlated
+        acknowledgement and legacy echo fallback.
+  create:
+    - id: composer-acknowledgement-preserves-owned-raw-drafts
+      title: Composer acknowledgement separates raw draft ownership from canonical
+        echo
+      statement: Each composer dispatch captures its exact raw draft and canonical
+        submitted payload. An opted-in send settles only on its correlated
+        authoritative acceptance or refusal; a legacy send observes only its own
+        new canonical message echo in the destination. Acceptance clears the
+        originating draft only while its complete body, reply and attachment
+        selection still matches the captured snapshot, preserving edits and
+        other rooms or computers.
+      reason: P6 adds correlated acknowledgements while preserving legacy matching.
+      depends_on:
+        - pending-composer-echo-is-destination-and-self-bound
+        - exact-trailing-mentions-send-before-owned-result
+        - composer-enter-uses-live-draft-state
+    - id: scheduled-composer-settles-original-owned-outcome
+      title: Scheduled composer acknowledgement preserves exact raw draft ownership
+      statement: Scheduled composer submissions retain the raw draft, immutable
+        canonical directive, originating room and computer. An opted-in request
+        settles on its correlated original schedule outcome, including its
+        original due instant; legacy mode continues to match a newly observed
+        schedule by destination, authenticated author and clean body. Refusals
+        keep editable text and acceptance never clears a newer draft.
+      reason: P6 adds correlated acknowledgements while preserving legacy matching.
+      depends_on:
+        - composer-acknowledgement-preserves-owned-raw-drafts
+        - scheduled-state-streams-through-room-seq-v2
+        - target-worktree-owns-qualified-conversation
+    - id: exact-trailing-mentions-send-before-owned-result
+      title: Exact trailing mentions send before autocomplete completion
+      statement: On desktop, Enter at the end of an exact registered local or
+        qualified mention submits the live unchanged draft; partial mentions
+        retain completion and mobile Enter retains newline behavior. Parser and
+        server refusal preserve the draft, and successful submission clears only
+        after its owned acknowledgement or legacy own echo.
+      reason: P6 adds correlated acknowledgements while preserving legacy matching.
+      depends_on:
+        - composer-enter-uses-live-draft-state
+        - qualified-completion-lists-registered-targets-only
+        - echo-driven-composer-clearing
+    - id: post-receipts-commit-atomically-with-routing
+      title: Submission receipts share the acceptance transaction
+      statement: For each opted-in submission the Store commits its durable receipt,
+        actual destination outcome, message or schedule, sequence/changelog,
+        delivery fanout and collaboration group records in one synchronous
+        SQLite transaction. Rollback or process death leaves both receipt and
+        operation absent or both durable; only after commit may publication,
+        notifications or dispatch occur. Replays never repeat those effects, and
+        receipts have no expiry or deletion cascade.
+      reason: Explicit P6 acceptance obligation.
+      depends_on:
+        - eligible-multi-agent-routing-starts-one-group
+        - scheduled-message-commit-is-exactly-once
+    - id: post-retry-identity-is-stable-authorized-and-payload-bound
+      title: Retries use authenticated stable identity and frozen payload
+      statement: A submission id is unique within one daemon computer and stable
+        authenticated sender identity, never an access token. Current
+        authentication and origin authorization precede receipt lookup; original
+        destination authorization precedes outcome disclosure. Canonical
+        originating room, body, reply, attachment ids and voice or wait metadata
+        bind the id; changed payload is refused. Duplicate resolution precedes
+        routing, renamed handles, attachment resolution and relative schedule
+        parsing and returns the original permanent outcome even after restart or
+        message deletion.
+      reason: Explicit P6 acceptance obligation.
+      depends_on:
+        - roles-gate-human-acts-not-agents
+        - paired-browser-challenge-session
+        - target-worktree-owns-qualified-conversation
+    - id: post-acknowledgements-are-optional-and-correlated
+      title: Post acknowledgements are opt-in
+      statement: The authenticated compatibility response separately advertises
+        optional post_acknowledgements without an epoch bump. Only requests
+        carrying a valid submission id receive a correlated post_accepted result
+        or correlated error; outcomes identify the actual conversation and
+        original message or schedule ids and sequence, with the original due
+        instant for schedules. Legacy clients receive their existing frames with
+        no unsolicited new frame.
+      reason: Explicit P6 acceptance obligation.
+      depends_on:
+        - browser-protocol-epoch-blocks-only-stale-browser-ui
+        - unix-socket-same-protocol
+    - id: pending-submission-retries-only-through-ready-owner
+      title: One pending submission retries through its ready owner
+      statement: Each computer connector retains at most one immutable pending
+        submission in memory and retries its same id and complete payload at
+        most once per ready socket generation only through the originating
+        authenticated connection and room. Stale callbacks, other
+        rooms/computers, auth parks and unready connections cannot retry or
+        settle it. Missing capability retains legacy dispatch with visible
+        uncertainty and no automatic post retry; no reconnect loop or persistent
+        offline outbox is added.
+      reason: Explicit P6 acceptance obligation.
+      depends_on:
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - post-acknowledgements-are-optional-and-correlated
+    - id: composer-drafts-stay-in-memory-with-source-owner
+      title: Drafts retain their source owner in memory
+      statement: Draft body, reply, uploaded attachment selections and pending
+        submission settlement are retained only in page memory under their
+        originating connection and room across view changes and reconnect.
+        Correlated success and refusal update only that owner; newer edits
+        survive and rejected voice transcripts remain editable without
+        retranscribing or reuploading. Closing the page ends automatic recovery.
+      reason: Explicit P6 acceptance obligation.
+      depends_on:
+        - composer-acknowledgement-preserves-owned-raw-drafts
+        - pending-submission-retries-only-through-ready-owner
+  reviewed:
+    - id: agent-add-selects-public-adapter-or-detached-preset
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: attachments-are-capped-files-served-inert
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: child-files-voice-and-keys-are-isolated
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: combined-history-capability-gates-socket-fallback
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: context-reset-confirmation-is-anchored-and-member-local
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: eligible-multi-agent-routing-starts-one-group
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: interim-agent-posts-are-nonfinal-routing
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: pending-composer-echo-is-destination-and-self-bound
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: qualified-destination-refusals-are-atomic
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: reconnect-safe-post-dispatch-preserves-draft
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: scheduled-message-commit-is-exactly-once
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: scheduled-state-machine-recovers-from-one-next-due-alarm
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: scheduled-target-identity-is-frozen-at-creation
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: target-worktree-owns-qualified-conversation
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: target-worktree-turn-is-local-and-isolated
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: voice-message-metadata-is-bounded-and-additive
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: P6 preserves existing authority, ownership, routing and compatibility
+        behavior while adding the optional submission contract.
+files:
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/daemon.ts
+  - packages/switchboard/src/server.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/app/compatibility.tsx
+  - packages/web-next/src/runtime/ws.ts
+  - packages/protocol/src/ws.ts
+  - packages/protocol/src/ws.spec.ts
+  - packages/switchboard/src/post-submission.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/src/app/pending-submission.ts
+  - packages/web-next/src/app/pending-submission.spec.ts
+  - packages/web-next/src/room/composer-memory.ts
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/compatibility.spec.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room46-post-submissions.e2e.spec.ts
+  - scripts/p6-installed-proof.mjs
+  - docs/post-submissions.md
+  - .harn/plans/relay-polish-p6-idempotent-posts.yaml
+anchors:
+  scheduled-state-machine-recovers-from-one-next-due-alarm:
+    durable-schedule-store:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  interim-agent-posts-are-nonfinal-routing:
+    interim-post-classification:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  target-worktree-turn-is-local-and-isolated:
+    qualified-local-turn-orchestration:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  scheduled-target-identity-is-frozen-at-creation:
+    scheduled-target-resolution:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  target-worktree-owns-qualified-conversation:
+    qualified-destination-selection:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  qualified-destination-refusals-are-atomic:
+    qualified-destination-refusal:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  eligible-multi-agent-routing-starts-one-group:
+    multi-agent-group-ingress:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  agent-add-selects-public-adapter-or-detached-preset:
+    agent-add-catalog-resolution:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  child-files-voice-and-keys-are-isolated:
+    conversation-key-response:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  combined-history-capability-gates-socket-fallback:
+    combined-history-compatibility-response:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    combined-history-compatibility-client:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    capability-gated-history-regression:
+      action: change
+      reason: Update additive compatibility assertions without changing existing
+        capability or epoch behavior.
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    browser-protocol-compatibility-rest:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    browser-protocol-regression:
+      action: change
+      reason: Update additive compatibility assertions without changing existing
+        capability or epoch behavior.
+  management-frames-correlate-one-result:
+    management-correlation-server:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    management-correlation-protocol:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    correlated-browser-schedule-cancel-regression:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    correlated-browser-schedule-cancel:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-result:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  reconnect-safe-post-dispatch-preserves-draft:
+    connector-post-dispatch-result:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  context-reset-confirmation-is-anchored-and-member-local:
+    clear-context-result-router:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-app-connector:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+    generation-aware-computer-session:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-lifecycle:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  hosted-bootstrap-requests-are-abortable-and-generation-bounded:
+    bounded-managed-bootstrap-attempt:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Implement P6 post receipt, capability and source-owned pending
+        submission boundaries; preserve the existing invariant.
+  composer-acknowledgement-preserves-owned-raw-drafts:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: Replace the echo-only obligation with capability-gated correlated
+        settlement.
+    raw-draft-acknowledgement-regression:
+      action: change
+      reason: Replace the echo-only obligation with capability-gated correlated
+        settlement.
+  scheduled-composer-settles-original-owned-outcome:
+    scheduled-pending-composer-send:
+      action: change
+      reason: Replace the echo-only obligation with capability-gated correlated
+        settlement.
+    scheduled-composer-acknowledgement-regression:
+      action: change
+      reason: Replace the echo-only obligation with capability-gated correlated
+        settlement.
+  exact-trailing-mentions-send-before-owned-result:
+    exact-trailing-mention-keydown:
+      action: change
+      reason: Replace the echo-only obligation with capability-gated correlated
+        settlement.
+    exact-trailing-mention-regression:
+      action: change
+      reason: Replace the echo-only obligation with capability-gated correlated
+        settlement.
+  post-receipts-commit-atomically-with-routing:
+    p6-post-receipts-commit-atomically-with-routing:
+      action: change
+      reason: Add the P6 implementation and focused acceptance anchor.
+  post-retry-identity-is-stable-authorized-and-payload-bound:
+    p6-post-retry-identity-is-stable-authorized-and-payload-bound:
+      action: change
+      reason: Add the P6 implementation and focused acceptance anchor.
+  post-acknowledgements-are-optional-and-correlated:
+    p6-post-acknowledgements-are-optional-and-correlated:
+      action: change
+      reason: Add the P6 implementation and focused acceptance anchor.
+  pending-submission-retries-only-through-ready-owner:
+    p6-pending-submission-retries-only-through-ready-owner:
+      action: change
+      reason: Add the P6 implementation and focused acceptance anchor.
+  composer-drafts-stay-in-memory-with-source-owner:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: change
+      reason: Add the P6 implementation and focused acceptance anchor.
+applied:
+  applied_at: 2026-09-08T15:33:34.705Z

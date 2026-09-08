@@ -1,0 +1,98 @@
+id: relay-polish-p4-review-cache-priority
+title: Revalidate uncertain cache prefixes and promote selected history work
+notes: >
+  Contained P4 correction at db54542e. Reuse a prefix only when freshness is
+  established; headNeedsRevalidation requires the existing bounded predecessor.
+  Apply live tombstones to cached projections and discard their obsolete
+  evidence, including when a delayed response would otherwise restore an old
+  cached body. Promote queued selected work outside background slots and
+  preserve trailing intent after selection. Preserve the two-background-job and
+  two-page bounds.
+assumptions:
+  reviewed:
+    - id: history-operations-retain-session-ownership
+      outcome: unchanged
+      reason: Invalidate prefix freshness on retirement even without an in-flight
+        request.
+    - id: live-before-history-materialization-reconciles
+      outcome: unchanged
+      reason: Preserve source ownership while removing deleted content from history
+        projections.
+    - id: history-background-work-is-coalesced-and-retained-data-bounded
+      outcome: unchanged
+      reason: Correct freshness, persisted tombstones and selected work priority.
+    - id: paged-history-live-message-reconciliation
+      outcome: unchanged
+      reason: Newer live deletion must also own the persisted projection.
+    - id: combined-head-reconciliation-is-two-page-bounded
+      outcome: unchanged
+      reason: Uncertain prefixes use the existing one optional predecessor.
+    - id: bounded-combined-head-adopts-authoritative-window
+      outcome: unchanged
+      reason: Preserve head ordering and deletion truth.
+    - id: inactive-history-warming-persists-bounded-room-cache
+      outcome: unchanged
+      reason: Selection must not strand queued or trailing intent.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Preserve subscriptions and session lifecycle.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: Promote history without replacing a connection.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Selection and cache data stay source-owned.
+files:
+  - .harn/plans/relay-polish-p4-review-cache-priority.yaml
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+anchors:
+  history-operations-retain-session-ownership:
+    captured-history-operation:
+      action: change
+      reason: Retire freshness on every initialized owned history.
+  live-before-history-materialization-reconciles:
+    live-before-first-history-regression:
+      action: change
+      reason: Assert tombstone identity with purged content.
+  history-background-work-is-coalesced-and-retained-data-bounded:
+    retained-history-projection:
+      action: change
+      reason: Persist live deletion instead of old cached evidence.
+  paged-history-live-message-reconciliation:
+    live-history-message-map:
+      action: change
+      reason: Reconcile persisted tombstones.
+    page-message-sequence-merge:
+      action: change
+      reason: Preserve current sequence when preparing caches.
+  combined-head-reconciliation-is-two-page-bounded:
+    bounded-combined-history-head-refresh:
+      action: change
+      reason: Require freshness before reusing prefixes.
+  bounded-combined-head-adopts-authoritative-window:
+    bounded-authoritative-head-merge:
+      action: change
+      reason: Revalidate uncertain prefix.
+  inactive-history-warming-persists-bounded-room-cache:
+    bounded-captured-head-refresh-coalescing:
+      action: change
+      reason: Promote queued work and retain trailing intent.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Promotion of existing room work only.
+  hosted-computer-switching-reuses-warm-session:
+    warm-computer-activation:
+      action: change
+      reason: Promote when a computer becomes active.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Observe owned room selection.
+applied:
+  applied_at: 2026-09-08T13:35:05.449Z

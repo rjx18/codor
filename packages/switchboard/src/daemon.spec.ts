@@ -4060,6 +4060,42 @@ describe('adapter model discovery', () => {
 
   const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
+  it('coalesces startup and concurrent refresh, then rediscovers an installed catalog', async () => {
+    let finish!: (catalog: { models: string[]; source: string }) => void;
+    const listModels = vi.fn(() => new Promise<{ models: string[]; source: string }>((resolve) => { finish = resolve; }));
+    const daemon = daemonWith([adapterWith('codex', listModels)]);
+    try {
+      daemon.refreshAdapterAvailability(); daemon.refreshAdapterAvailability();
+      expect(daemon.modelDiscoveryPending()).toBe(true);
+      expect(daemon.registeredAdapters()[0]?.id).toBe('codex');
+      await settle(); expect(listModels).toHaveBeenCalledTimes(1);
+      finish({ models: ['gpt-6-astra'], source: 'discovered' }); await settle();
+      expect(daemon.registeredAdapters()[0]?.models).toEqual(['gpt-6-astra']);
+      listModels.mockResolvedValue({ models: ['future/model'], source: 'discovered' });
+      const immediate = daemon.refreshAdapterAvailability(); daemon.refreshAdapterAvailability();
+      expect(immediate[0]?.models).toEqual(['gpt-6-astra']);
+      await settle();
+      expect(listModels).toHaveBeenCalledTimes(2);
+      expect(daemon.registeredAdapters()[0]?.models).toEqual(['future/model']);
+      expect(daemon.modelDiscoveryPending()).toBe(false);
+    } finally { await daemon.close(); }
+  });
+
+  it('retains a prior catalog on failure and clears it on an honestly empty native result', async () => {
+    const listModels = vi.fn(async () => ({ models: ['native/model'], source: 'discovered' }));
+    const daemon = daemonWith([adapterWith('codex', listModels)]);
+    try {
+      await settle();
+      listModels.mockRejectedValueOnce(new Error('model/list unsupported'));
+      daemon.refreshAdapterAvailability(); await settle();
+      expect(daemon.registeredAdapters()[0]?.models).toEqual(['native/model']);
+      listModels.mockResolvedValueOnce({ models: [], source: 'discovered' });
+      daemon.refreshAdapterAvailability(); await settle();
+      expect(daemon.registeredAdapters()[0]?.models).toEqual([]);
+      expect(daemon.modelDiscoveryPending()).toBe(false);
+    } finally { await daemon.close(); }
+  });
+
   it('serves the models a harness reported, with their source', async () => {
     const daemon = daemonWith([
       adapterWith('discovers', () => Promise.resolve({ models: ['a/b'], source: 'discovered' })),
@@ -4164,7 +4200,7 @@ describe('adapter model discovery', () => {
   });
 
   // harn:assume adapter-catalog-distinguishes-installed-and-configurable ref=adapter-catalog-regression
-  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
+  // harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-runtime
   // harn:assume new-agent-requests-require-available-native-or-detected-acp ref=new-agent-provider-availability-regression
   it('filters built-ins, refreshes newly available models once, and rejects stale creation', async () => {
     const available = new Set<string>();
@@ -4202,7 +4238,7 @@ describe('adapter model discovery', () => {
     });
     daemon.refreshAdapterAvailability();
     await settle();
-    expect(listModels).toHaveBeenCalledTimes(1);
+    expect(listModels).toHaveBeenCalledTimes(2);
     await daemon.close();
   });
 
@@ -4296,7 +4332,7 @@ describe('adapter model discovery', () => {
     rmSync(acpRoot, { recursive: true, force: true });
   });
   // harn:end new-agent-requests-require-available-native-or-detected-acp
-  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end adapter-refresh-rediscovers-installed-models
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
 });
 // harn:end adapters-own-their-model-catalog
@@ -4626,6 +4662,54 @@ describe('a turn is never assembled from a mixture of old and new settings', () 
 
 // harn:assume removing-an-agent-is-one-deliberate-step ref=remove-member-regression
 describe('removing an agent leaves nothing of it behind', () => {
+  // harn:assume held-history-expansion-requires-reader-intent ref=held-removal-regression
+  it.each([false, true])('settles started held attempts on removal grouped=%s preserving evidence', (grouped) => {
+    const alpha = spawnAgent('started-alpha');
+    const beta = spawnAgent('started-beta');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.pauseMember('eng', beta.id);
+    daemon.postHumanMessage('eng', grouped ? '@started-alpha @started-beta work' : '@started-alpha work');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: alpha.id })[0]!;
+    const run = daemon.store.postMessage('eng', {
+      author: alpha.id, kind: 'run', body: 'preserved evidence',
+      run: { status: 'interrupted', started_ts: new Date().toISOString(), tool_calls: 0,
+        events_ref: 'runs/held.jsonl', final_text: 'preserved evidence' },
+    });
+    daemon.store.updateDelivery('eng', delivery.id, { state: 'held', run_msg_id: run.id });
+    daemon.removeMember('eng', alpha.id);
+    expect(daemon.store.getDelivery('eng', delivery.id)?.state).toBe('consumed');
+    expect(daemon.store.getMessage('eng', run.id)).toEqual(run);
+    if (grouped) expect(daemon.store.findCollaborationParticipantByDelivery('eng', delivery.id)?.terminal_status).toBe('interrupted');
+    const count = daemon.store.listMessages('eng', { limit: 1000 }).length;
+    daemon.removeMember('eng', alpha.id);
+    expect(daemon.store.listMessages('eng', { limit: 1000 })).toHaveLength(count);
+  });
+  it.each([false, true])('retires held and queued work including grouped=%s without replay', async (grouped) => {
+    const alpha = spawnAgent('held-alpha');
+    const beta = spawnAgent('held-beta');
+    daemon.pauseMember('eng', alpha.id);
+    daemon.pauseMember('eng', beta.id);
+    const original = daemon.postHumanMessage('eng', grouped
+      ? '@held-alpha @held-beta review' : '@held-alpha review');
+    const delivery = daemon.store.listDeliveries('eng', { recipient: alpha.id })[0]!;
+    daemon.holdDelivery('eng', delivery.id, 'fixture');
+    daemon.postHumanMessage('eng', '@held-alpha queued');
+    daemon.removeMember('eng', alpha.id);
+    await daemon.settle();
+    expect(daemon.store.listDeliveries('eng', { recipient: alpha.id })
+      .every((row) => row.state === 'consumed')).toBe(true);
+    expect(daemon.store.getMessage('eng', original.id)?.body).toBe(original.body);
+    if (grouped) {
+      const group = daemon.store.getCollaborationGroupByRoot('eng', original.id)!;
+      expect(daemon.store.listCollaborationParticipants('eng', group.id, 1)
+        .find((row) => row.member_id === alpha.id)?.terminal_status).toBe('skipped');
+    }
+    const count = daemon.store.listMessages('eng', { limit: 1000 }).length;
+    daemon.removeMember('eng', alpha.id);
+    expect(daemon.store.listMessages('eng', { limit: 1000 })).toHaveLength(count);
+    expect(() => daemon.releaseHold('eng', delivery.id)).toThrow(/not held/);
+  });
+  // harn:end held-history-expansion-requires-reader-intent
   it('removes a RUNNING member in one step, interrupting it first', async () => {
     const alpha = spawnAgent('alpha');
     fake.enqueue({

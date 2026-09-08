@@ -24,6 +24,8 @@ import type {
   Member,
   MemberStatusResponse,
   Message,
+  PostFrame,
+  PostOutcome,
   Schedule,
   PendingInteraction,
   ProducedArtifact,
@@ -531,6 +533,7 @@ export class Daemon {
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
   private pendingDiscoveries = 0;
+  private readonly modelDiscoveryWork = new Map<string, Promise<void>>();
   private readonly sessions = new Map<string, Session>();
   // harn:assume agent-authority-follows-one-active-invocation ref=agent-active-invocation-resolution
   /** One target member's session may speak for only one origin at a time. */
@@ -1360,8 +1363,8 @@ export class Daemon {
 
   // harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery
   /**
-   * Ask every adapter that can answer what models its harness takes. Runs once,
-   * in the background, at registration — never on a request path, because a hung
+   * Ask every adapter that can answer what models its harness takes. Runs in
+   * the background at registration or explicit refresh — never blocking a request, because a hung
    * CLI must not be able to wedge /api/adapters, which gates both dialogs.
    * Any failure leaves the harness without a list: the dialog then offers the
    * custom escape, which is a worse UI, not a broken one.
@@ -1373,19 +1376,19 @@ export class Daemon {
   }
 
   private discoverModelsFor(adapter: HarnessAdapter): void {
-    if (!adapter.listModels) return;
+    if (!adapter.listModels || this.modelDiscoveryWork.has(adapter.id)) return;
     this.pendingDiscoveries += 1;
-    void adapter.listModels().finally(() => {
+    const work = Promise.resolve().then(() => adapter.listModels!()).then((catalog) => {
+      if (!Array.isArray(catalog.models)) throw new Error(`${adapter.id} returned an invalid model catalog`);
+      const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
+      this.modelCatalogs.set(adapter.id, { ...catalog, models });
+    }).catch((error: unknown) => this.onBackgroundError(
+      error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
+    )).finally(() => {
       this.pendingDiscoveries -= 1;
-    }).then(
-      (catalog) => {
-        const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
-        if (models.length > 0) this.modelCatalogs.set(adapter.id, { ...catalog, models });
-      },
-      (error: unknown) => this.onBackgroundError(
-        error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
-      ),
-    );
+      if (this.modelDiscoveryWork.get(adapter.id) === work) this.modelDiscoveryWork.delete(adapter.id);
+    });
+    this.modelDiscoveryWork.set(adapter.id, work);
   }
 
   private detectAdapterAvailability(adapter: HarnessAdapter): boolean {
@@ -1398,20 +1401,19 @@ export class Daemon {
     return executable === undefined || this.executableOnPath(executable);
   }
 
-  // harn:assume adapter-refresh-is-authorized-and-incremental ref=adapter-refresh-runtime
+  // harn:assume adapter-refresh-rediscovers-installed-models ref=adapter-refresh-runtime
   refreshAdapterAvailability(): ReturnType<Daemon['registeredAdapters']> {
     for (const adapter of this.adapters.values()) {
-      const wasInstalled = this.adapterAvailability.get(adapter.id) === true;
       const installed = this.detectAdapterAvailability(adapter);
       this.adapterAvailability.set(adapter.id, installed);
-      if (this.discoverAdapterModels && installed && !wasInstalled) this.discoverModelsFor(adapter);
+      if (this.discoverAdapterModels && installed) this.discoverModelsFor(adapter);
     }
     // The same authorized presence-only refresh recomputes named provider detection,
     // reflecting any native availability change into provider shadowing.
     this.detectAcpProviderCatalog();
     return this.registeredAdapters();
   }
-  // harn:end adapter-refresh-is-authorized-and-incremental
+  // harn:end adapter-refresh-rediscovers-installed-models
 
   // harn:assume model-catalogs-reach-a-browser-that-arrives-early ref=adapter-discovery-pending-signal
   /**
@@ -2670,7 +2672,7 @@ export class Daemon {
     // harn:end removing-an-agent-is-one-deliberate-step
 
     const member = this.store.updateMember(room, memberId, {
-      removed_ts: new Date().toISOString(),
+      removed_ts: existing.removed_ts ?? new Date().toISOString(),
     });
     this.sessions.delete(memberId);
     this.staleSessions.delete(memberId);
@@ -2682,19 +2684,24 @@ export class Daemon {
     // Work addressed to a member that no longer exists has nowhere to go. Left queued it
     // would wait in the pump forever for an agent that is never coming back, and count
     // against a member the roster no longer shows.
-    const abandoned = this.store.listDeliveries(room, { recipient: memberId, state: 'queued' });
+    const abandoned = this.store.listDeliveries(room, { recipient: memberId })
+      .filter((delivery) => delivery.state === 'queued' || delivery.state === 'held');
+    const started = abandoned.filter((delivery) => delivery.run_msg_id !== undefined);
+    this.refuseStaleScopedAttempt(room, started, `recipient @${member.handle} was removed`);
     for (const delivery of abandoned) {
+      if (delivery.run_msg_id !== undefined) continue;
       if (delivery.group_id !== undefined) this.skipUnavailableGroupDelivery(room, delivery);
-      else this.store.updateDelivery(room, delivery.id, { state: 'consumed' });
+      else this.emitInbox(room, this.store.updateDelivery(room, delivery.id, { state: 'consumed' }));
     }
     // harn:end removing-an-agent-is-one-deliberate-step
 
     this.markRostersStale(room);
     this.emitMember(room, member);
+    if (existing.removed_ts !== undefined && abandoned.length === 0) return member;
     this.postSystemMessage(
       room,
       abandoned.length > 0
-        ? `@${member.handle} was removed; ${String(abandoned.length)} queued message${abandoned.length === 1 ? '' : 's'} dropped; its history remains attributed`
+        ? `@${member.handle} was removed; ${String(abandoned.length)} ${abandoned.some((delivery) => delivery.state === 'held') ? 'queued/held' : 'queued'} message${abandoned.length === 1 ? '' : 's'} dropped; its history remains attributed`
         : `@${member.handle} was removed; its history remains attributed`,
     );
     return member;
@@ -2855,6 +2862,59 @@ export class Daemon {
 
   // ── posting ───────────────────────────────────────────────────────────
 
+  // harn:assume post-receipts-commit-atomically-with-routing ref=p6-post-receipts-commit-atomically-with-routing
+  /** Optional acknowledged ingress. Existing CLI/bridge/internal posts retain
+   * their paths. All effects below are deferred until receipt and fanout commit. */
+  submitPost(
+    sender: string,
+    frame: PostFrame & { submission_id: string },
+    actor: { id: string; agent: boolean; room: string; authorTarget?: ScopedMemberTarget },
+    authorizeDestination: (room: string) => void,
+  ): PostOutcome {
+    const effects: Array<() => void> = [];
+    const afterCommit = (effect: () => void): void => { effects.push(effect); };
+    const accepted = this.store.acceptSubmission(sender, frame, () => {
+      const now = this.scheduleClock();
+      const directive = parseScheduleDirective(frame.body, { now });
+      if (directive !== undefined) {
+        if (frame.reply_to !== undefined || (frame.attachments?.length ?? 0) > 0
+          || frame.voice !== undefined || frame.awaiting_reply === true) {
+          throw new Error('scheduled requests are text-only and cannot carry replies, attachments, voice, or waits');
+        }
+        const schedule = this.scheduleMessage(actor.room, frame.body, actor.id, {
+          now, directive, authorTarget: actor.authorTarget, afterCommit,
+        });
+        return {
+          kind: 'schedule', room: schedule.room, schedule_id: schedule.id,
+          seq: this.store.scheduleChangeSeq(schedule.room, schedule.id)!, due_ts: schedule.due_ts,
+        };
+      }
+      let message: Message;
+      if (actor.agent) {
+        message = this.postAgentMessage(actor.room, actor.id, frame.body,
+          frame.reply_to, frame.awaiting_reply, afterCommit);
+      } else {
+        const attachments = this.resolveAttachmentsForPost(frame.room, frame.attachments);
+        if (frame.body.trim().length === 0 && attachments.length === 0) {
+          throw new Error('a post needs body text or at least one attachment');
+        }
+        message = this.postHumanMessage(frame.room, frame.body, {
+          author: actor.id, reply_to: frame.reply_to, attachments, voice: frame.voice, afterCommit,
+        });
+      }
+      return this.store.messageSubmissionOutcome(message);
+    }, authorizeDestination);
+    if (!accepted.duplicate) {
+      for (const effect of effects) {
+        // Durable acceptance cannot become a rejection because a socket or
+        // downstream dispatch failed. Existing replay and delivery WAL recover.
+        try { effect(); } catch { console.warn('[codor] accepted post publication deferred to recovery'); }
+      }
+    }
+    return accepted.outcome;
+  }
+  // harn:end post-receipts-commit-atomically-with-routing
+
   // harn:assume scheduled-target-identity-is-frozen-at-creation ref=scheduled-target-resolution
   /** Validate and persist a text-only scheduled request without creating a message yet. */
   scheduleMessage(
@@ -2863,6 +2923,7 @@ export class Daemon {
     authorId: string,
     options: {
       now?: Date;
+      afterCommit?: (effect: () => void) => void;
       hostOffsetMinutes?: number;
       directive?: ParsedScheduleDirective;
       authorTarget?: ScopedMemberTarget;
@@ -2959,8 +3020,12 @@ export class Daemon {
       host_offset_minutes: parsedDirective.host_offset_minutes,
       created_ts: capturedNow.toISOString(),
     });
-    this.emitSchedule(schedule, this.store.scheduleChangeSeq(schedule.room, schedule.id));
-    this.armScheduleTimer();
+    const publish = (): void => {
+      this.emitSchedule(schedule, this.store.scheduleChangeSeq(schedule.room, schedule.id));
+      this.armScheduleTimer();
+    };
+    if (options.afterCommit) options.afterCommit(publish);
+    else publish();
     return schedule;
   }
   // harn:end scheduled-target-identity-is-frozen-at-creation
@@ -3136,6 +3201,7 @@ export class Daemon {
     attachments?: Attachment[],
     voice?: VoiceNote,
     routing?: { executionRoom?: string; authorTarget?: ScopedMemberTarget },
+    afterCommit?: (effect: () => void) => void,
   ): Message {
     const executionRoom = routing?.executionRoom ?? room;
     const routingState = this.routingState(room);
@@ -3204,9 +3270,13 @@ export class Daemon {
         executionRoom,
       ).plan,
     });
-    this.emitMessage(destination, committed.message);
-    if (committed.member) this.emitMember(destination, committed.member);
-    this.dispatchCreatedDeliveries(destination, committed.deliveries);
+    const publish = (): void => {
+      this.emitMessage(destination, committed.message);
+      if (committed.member) this.emitMember(destination, committed.member);
+      this.dispatchCreatedDeliveries(destination, committed.deliveries);
+    };
+    if (afterCommit) afterCommit(publish);
+    else publish();
     // harn:end target-worktree-owns-qualified-conversation
     return committed.message;
   }
@@ -3214,13 +3284,13 @@ export class Daemon {
   postHumanMessage(
     room: string,
     body: string,
-    opts: { author?: string; reply_to?: number; attachments?: Attachment[]; voice?: VoiceNote } = {},
+    opts: { author?: string; reply_to?: number; attachments?: Attachment[]; voice?: VoiceNote; afterCommit?: (effect: () => void) => void } = {},
   ): Message {
     const authorId = opts.author ?? this.ownerOf(room).id;
     const author = this.store.getMember(room, authorId);
     if (author?.kind !== 'human') throw new Error(`no such human author: ${authorId}`);
     return this.postChatMessage(
-      room, body, authorId, opts.reply_to, false, false, opts.attachments, opts.voice,
+      room, body, authorId, opts.reply_to, false, false, opts.attachments, opts.voice, undefined, opts.afterCommit,
     );
   }
 
@@ -3231,6 +3301,7 @@ export class Daemon {
     body: string,
     replyTo?: number,
     awaitingReply = false,
+    afterCommit?: (effect: () => void) => void,
   ): Message {
     const invocation = this.activeInvocationForMember(memberId);
     if (invocation === null) {
@@ -3251,7 +3322,11 @@ export class Daemon {
       ?? (executionRoom !== room
         ? this.store.listRunMessages(executionRoom, { author: memberId, limit: 1 })[0]
         : undefined);
-    if (currentRun?.run?.status === 'running') this.noteRunActivity(room, currentRun.id);
+    if (currentRun?.run?.status === 'running') {
+      const noteActivity = (): void => this.noteRunActivity(room, currentRun.id);
+      if (afterCommit) afterCommit(noteActivity);
+      else noteActivity();
+    }
     // harn:end interim-agent-posts-are-nonfinal-routing
     return this.postChatMessage(
       room,
@@ -3265,6 +3340,7 @@ export class Daemon {
       invocation?.originRoom === room
         ? { executionRoom, authorTarget: invocation.target }
         : undefined,
+      afterCommit,
     );
   }
   // harn:end target-worktree-turn-is-local-and-isolated
@@ -6058,6 +6134,11 @@ export class Daemon {
     const attemptProcess = this.store.getDeliveryAttemptProcess(room, deliveryId);
     if (attemptProcess && this.processAlive(attemptProcess)) {
       throw new Error(`delivery ${deliveryId} cannot be released while its adapter process is alive`);
+    }
+    const recipient = this.store.getMember(targetRoom, delivery.recipient);
+    if (!recipient || recipient.removed_ts !== undefined) {
+      this.refuseQualifiedDelivery(room, delivery, 'recipient was removed or is unavailable');
+      return;
     }
     if (delivery.run_msg_id !== undefined) {
       const runMsg = this.store.getMessage(room, delivery.run_msg_id);

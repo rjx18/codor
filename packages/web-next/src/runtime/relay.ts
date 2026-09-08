@@ -62,7 +62,7 @@ const OPEN = 1;
 const CLOSED = 3;
 
 /** An app-WS mux stream presented as a browser-WebSocket-compatible object. */
-class TunnelSocket implements WebSocketLike {
+export class TunnelSocket implements WebSocketLike {
   readyState = 0; // CONNECTING
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -74,11 +74,15 @@ class TunnelSocket implements WebSocketLike {
 
   constructor(private readonly stream: MuxStream, optimisticOpen = true) {
     stream.onData = (chunk) => {
+      if (this.readyState === CLOSED) return;
       for (const message of this.reassembler.push(chunk)) this.onmessage?.({ data: fromUtf8(message) });
       stream.consume(chunk.length);
     };
     stream.onEnd = () => this.fireClose(1000, '');
-    stream.onReset = (reason) => this.fireClose(4000, reason);
+    stream.onReset = (reason) => this.fireClose(
+      reason === 'loopback-close-4401' ? 4401 : reason === 'loopback-close-4403' ? 4403 : 4000,
+      reason === 'loopback-close-4401' || reason === 'loopback-close-4403' ? reason : 'tunnel-stream-reset',
+    );
     // The host buffers app-WS writes until the loopback /ws opens, so a stream
     // on a LIVE tunnel may open optimistically; an auth failure arrives later
     // as a RESET → close. The no-tunnel fallback must instead close without an
@@ -118,6 +122,10 @@ class TunnelSocket implements WebSocketLike {
   private fireClose(code: number, reason: string): void {
     if (this.readyState === CLOSED) return;
     this.readyState = CLOSED;
+    this.reassembler.reset();
+    this.stream.onData = undefined;
+    this.stream.onEnd = undefined;
+    this.stream.onReset = undefined;
     this.onDetach?.();
     this.onclose?.({ code, reason });
   }
@@ -158,10 +166,12 @@ export class TunnelClient {
   private readonly clientStatic: TunnelKeypair;
   private readonly hostStaticPub: Uint8Array;
   private readonly sessionIdBytes: Uint8Array;
+  private readonly diagnosticComputerId: string;
   constructor(
     private readonly record: TunnelRecord,
-    opts: { keepaliveMs?: number; handshakeMs?: number; socketFactory?: (url: string) => WebSocket } = {},
+    opts: { computerId?: string; keepaliveMs?: number; handshakeMs?: number; socketFactory?: (url: string) => WebSocket } = {},
   ) {
+    this.diagnosticComputerId = opts.computerId ?? 'unmanaged';
     this.clientStatic = { publicKey: fromB64(record.client_static.pub), secretKey: fromB64(record.client_static.priv) };
     this.hostStaticPub = fromB64(record.host_static_pub);
     this.sessionIdBytes = fromHex(record.session_id);
@@ -178,10 +188,9 @@ export class TunnelClient {
     return this.generationValue;
   }
 
-  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=tunnel-http-activity-indicator
-  /** Read-only liveness context for the hosted app watchdog. A delayed probe
-   * must not replace a healthy tunnel while one of its HTTP streams is still
-   * doing the work that can temporarily monopolize the app socket. */
+  // harn:assume app-liveness-recovery-is-stream-first ref=tunnel-http-activity-indicator
+  /** Diagnostic activity only. An unsettled request is not proof of liveness;
+   * every HTTP stream has its own abortable deadline. */
   get hasUnsettledHttp(): boolean {
     return this.pendingHttp.size > 0;
   }
@@ -274,10 +283,14 @@ export class TunnelClient {
       const bytes = new Uint8Array(event.data as ArrayBuffer);
       if (!handshakeDone) {
         ws.send(initiator.receiveMsg2(bytes));
-        this.channel = initiator.channel();
+        const channel = initiator.channel();
+        this.channel = channel;
         this.mux = new StreamMux({
           role: 'client',
-          onPacket: (packet) => ws.send(this.channel!.seal(packet)),
+          onPacket: (packet) => {
+            if (this.disposed || this.ws !== ws || this.generationValue !== generation) return;
+            ws.send(channel.seal(packet));
+          },
           onStream: () => {},
         });
         handshakeDone = true;
@@ -339,6 +352,7 @@ export class TunnelClient {
     }
     this.keepalive?.stop();
     this.keepalive = undefined;
+    this.mux?.dispose();
     this.mux = undefined;
     this.channel = undefined;
     // Reject every in-flight tunneled fetch: the mux is gone, so their streams
@@ -387,6 +401,7 @@ export class TunnelClient {
   }
 
   private retireCurrentTransport(error: Error): void {
+    this.mux?.dispose();
     const ws = this.ws;
     this.ws = undefined;
     if (ws) {
@@ -398,7 +413,6 @@ export class TunnelClient {
     this.pendingHttp.clear();
     for (const socket of [...this.liveSockets]) socket.terminate();
     this.liveSockets.clear();
-    this.mux?.close(error.message);
     this.mux = undefined;
     this.channel = undefined;
     try {
@@ -449,6 +463,9 @@ export class TunnelClient {
       ? undefined
       : (window as unknown as {
         __codorRelayHttp?: Array<{
+          computerId: string;
+          room?: string;
+          tunnelGeneration: number;
           target: string;
           method: string;
           generation: number;
@@ -462,6 +479,7 @@ export class TunnelClient {
       let status = 0;
       let responseHeaders: Record<string, string> = {};
       const chunks: Uint8Array[] = [];
+      let receivedBytes = 0;
       // Register a rejecter so a session drop (onDisconnect) fails this fetch
       // instead of leaving it pending on a mux that no longer exists.
       let settled = false;
@@ -469,18 +487,28 @@ export class TunnelClient {
         if (!diagnostics) return;
         const now = typeof performance === 'undefined' ? Date.now() : performance.now();
         diagnostics.push({
-          target,
+          computerId: this.diagnosticComputerId,
+          ...(url.pathname.startsWith('/api/rooms/') && { room: url.pathname.split('/')[3] }),
+          tunnelGeneration: requestGeneration,
+          target: url.pathname,
           method,
           generation: requestGeneration,
           durationMs: Math.max(0, now - startedAt),
-          bytes: chunks.reduce((total, chunk) => total + chunk.length, 0),
+          bytes: receivedBytes,
           ...(status > 0 && { status }),
           outcome,
         });
+        if (diagnostics.length > 64) diagnostics.splice(0, diagnostics.length - 64);
       };
       const cleanup = (): void => {
+        clearTimeout(deadline);
         this.pendingHttp.delete(abort);
         init.signal?.removeEventListener('abort', onSignalAbort);
+        chunks.length = 0;
+        stream.onData = undefined;
+        stream.onHead = undefined;
+        stream.onEnd = undefined;
+        stream.onReset = undefined;
       };
       const settle = <T>(value: T, done: (value: T) => void): void => {
         if (settled) return;
@@ -504,6 +532,12 @@ export class TunnelClient {
         abort(reason);
       };
       this.pendingHttp.add(abort);
+      const timeoutMs = typeof window === 'undefined' ? 30_000
+        : (window as unknown as { __codorHttpTimeoutMs?: number }).__codorHttpTimeoutMs ?? 30_000;
+      const deadline = setTimeout(() => {
+        try { stream.reset('request-timeout'); } catch { /* transport may already be closing */ }
+        abort(new DOMException('Relay HTTP request timed out', 'TimeoutError'));
+      }, timeoutMs);
       init.signal?.addEventListener('abort', onSignalAbort, { once: true });
       stream.onHead = (head) => {
         const h = head as { status: number; headers: Record<string, string> };
@@ -511,17 +545,34 @@ export class TunnelClient {
         responseHeaders = h.headers ?? {};
       };
       stream.onData = (chunk) => {
+        if (settled) return;
+        receivedBytes += chunk.length;
+        if (receivedBytes > 32 * 1024 * 1024) {
+          stream.reset('response-too-large');
+          abort(new Error('Relay HTTP response exceeds 32 MiB'));
+          return;
+        }
         chunks.push(chunk);
         stream.consume(chunk.length);
       };
       stream.onEnd = () => {
-        if (!settled) record('ok');
-        settle(new Response(concatBytes(chunks) as unknown as BodyInit, { status, headers: responseHeaders }), resolve);
+        if (settled) return;
+        try {
+          const body = method === 'HEAD' || [204, 205, 304].includes(status) ? null : concatBytes(chunks) as unknown as BodyInit;
+          const response = new Response(body, { status, headers: responseHeaders });
+          record('ok');
+          settle(response, resolve);
+        } catch { abort(new Error('Invalid relay HTTP response')); }
       };
       stream.onReset = (reason) => abort(new Error(`tunnel http reset: ${reason}`));
-      stream.sendHead({ method, target, headers });
-      if (init.body !== undefined && init.body !== null) stream.write(bodyToBytes(init.body));
-      stream.end();
+      try {
+        stream.sendHead({ method, target, headers });
+        if (init.body !== undefined && init.body !== null) stream.write(bodyToBytes(init.body));
+        stream.end();
+      } catch (error) {
+        stream.reset('request-write-failed');
+        abort(error instanceof Error ? error : new Error('Relay HTTP write failed'));
+      }
     });
   };
   // harn:end hosted-bootstrap-requests-are-abortable-and-generation-bounded

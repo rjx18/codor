@@ -364,6 +364,42 @@ export function supportRemovedUnsettledRun(
   );
 }
 
+/** Deleted evidence must not survive in either a rendered or persisted window. */
+export function purgeDeletedHistory<T extends Pick<TranscriptHistoryState, 'messages' | 'journals' | 'units'>>(projection: T): T {
+  const deleted = new Set(Object.values(projection.messages).filter((message) => message.deleted).map((message) => message.id));
+  if (deleted.size === 0) return projection;
+  const emitted = new Set<number>();
+  const units: TranscriptHistoryUnit[] = [];
+  for (const unit of projection.units) {
+    const tombstone = unit.kind === 'message' ? (deleted.has(unit.message_id) ? unit.message_id : undefined)
+      : deleted.has(unit.root_message_id) ? unit.root_message_id
+        : deleted.has(unit.output_message_id) ? unit.output_message_id : undefined;
+    if (tombstone === undefined) units.push(unit);
+    else if (!emitted.has(tombstone)) {
+      emitted.add(tombstone); units.push({ kind: 'message', message_id: tombstone });
+    }
+  }
+  const ids = new Set<number>();
+  const selected = new Map<number, Set<number>>();
+  for (const unit of units) {
+    if (unit.kind === 'message') { ids.add(unit.message_id); continue; }
+    ids.add(unit.root_message_id); ids.add(unit.output_message_id);
+    const indices = selected.get(unit.root_message_id) ?? new Set<number>();
+    unit.event_indices.forEach((index) => indices.add(index)); selected.set(unit.root_message_id, indices);
+  }
+  return { ...projection, units,
+    messages: Object.fromEntries([...ids].flatMap((id) => {
+      const message = projection.messages[id];
+      return message === undefined ? [] : [[id, deleted.has(id)
+        ? { ...message, body: '', run: undefined, attachments: undefined, voice: undefined } : message]];
+    })),
+    journals: Object.fromEntries([...selected].flatMap(([root, indices]) => {
+      const journal = projection.journals[root];
+      return journal ? [[root, { ...journal, events: journal.events.filter((event) => indices.has(event.index)) }]] : [];
+    })),
+  };
+}
+
 function rollingTail(messages: Record<number, Message>, next: Message): Record<number, Message> {
   const merged = { ...messages, [next.id]: next };
   const ordered = Object.values(merged).sort((left, right) => left.id - right.id);
@@ -430,7 +466,7 @@ const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHist
  *  the exported singleton below remains the unchanged direct/self-hosted path. */
 export function createClientStore(): ClientStore {
   const staging = new Map<string, HydrationStaging>();
-  const store = create<ClientState>((set) => ({
+  const store = create<ClientState>((set, get) => ({
   connected: false,
   authRefused: false,
   activeRoom: '',
@@ -603,7 +639,7 @@ export function createClientStore(): ClientStore {
             ? { ...current.messages, [frame.message.id]: frame.message }
             : rollingTail(current.messages, frame.message);
           const historical = current.transcriptHistory.messages[frame.message.id];
-          const transcriptHistory = historical !== undefined
+          let transcriptHistory = historical !== undefined
             && frame.message.seq > historical.seq
             ? {
                 ...current.transcriptHistory,
@@ -613,6 +649,14 @@ export function createClientStore(): ClientStore {
                 },
               }
             : current.transcriptHistory;
+          const cache = transcriptHistory.cacheWindow;
+          const cachedMessage = cache?.messages[frame.message.id];
+          if (cache && cachedMessage && frame.message.seq > cachedMessage.seq) {
+            transcriptHistory = { ...transcriptHistory, cacheWindow: purgeDeletedHistory({
+              ...cache, messages: { ...cache.messages, [frame.message.id]: frame.message },
+            }) };
+          }
+          if (frame.message.deleted) transcriptHistory = purgeDeletedHistory(transcriptHistory);
           next = {
             ...current,
             seq: bump,
@@ -819,7 +863,16 @@ export function createClientStore(): ClientStore {
     });
   },
 
-  setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
+  setConnected: (connected) => {
+    const state = get();
+    if (state.connected === connected && (!connected || !state.authRefused)) return;
+    set(connected ? { connected, authRefused: false } : { connected,
+      rooms: Object.fromEntries(Object.entries(state.rooms).map(([room, slice]) => [room,
+        slice.transcriptHistory.initialized && !slice.transcriptHistory.headNeedsRevalidation
+          ? { ...slice, transcriptHistory: { ...slice.transcriptHistory, headNeedsRevalidation: true } } : slice,
+      ])),
+    });
+  },
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-hydration

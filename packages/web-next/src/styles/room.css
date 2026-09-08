@@ -434,11 +434,23 @@
   color: var(--c-accent-text);
 }
 
+/* harn:assume transcript-permalink-targets-are-layout-neutral ref=permalink-target-layout */
 .nx-turn {
   display: flex;
   gap: var(--sp-3);
+  position: relative;
   scroll-margin-top: var(--sp-6);
 }
+.nx-turn > .nx-permalink-target {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 0;
+  block-size: 0;
+  overflow: visible;
+  scroll-margin-top: var(--sp-6);
+}
+/* harn:end transcript-permalink-targets-are-layout-neutral */
 .nx-turn.is-grouped {
   margin-top: calc(-1 * var(--sp-3));
   padding-left: calc(34px + var(--sp-3));

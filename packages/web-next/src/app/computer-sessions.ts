@@ -13,13 +13,14 @@ import {
   switchComputer,
   type HostedComputerMaterial,
   type BrowserDeviceSession,
+  BrowserAuthenticationError,
 } from '@runtime/crypto.js';
 import { setRelayTransport } from '@runtime/relay-transport.js';
 import { TunnelClient, type TunnelState, type TunnelStateListener } from '@runtime/relay.js';
 import { setActiveComputer } from '@runtime/active-computer.js';
 
 import { createConnector, type ConnectorOptions, type RoomConnector } from './connector.js';
-import { fetchBrowserCompatibility, requireBrowserUpgrade } from './compatibility.js';
+import { fetchBrowserCompatibility, requireBrowserUpgrade, type BrowserCompatibilityResult } from './compatibility.js';
 import { forgetRoom, rememberedRoom, rememberRoom, resolveStartupRoom } from './startup.js';
 import {
   createClientStore,
@@ -31,6 +32,8 @@ import { refreshMutableRunJournals } from '../room/run-journals.js';
 import {
   finalizedTranscriptRoots,
   refreshTranscriptHistoryHead,
+  bindTranscriptHistoryOwner,
+  retireTranscriptHistory,
 } from '../room/transcript-history.js';
 import {
   deleteLastGoodRoom,
@@ -38,7 +41,6 @@ import {
   loadLastGoodRoom,
   saveLastGoodRoom,
   snapshotLastGoodRoom,
-  type LastGoodRoomSnapshot,
 } from '../runtime/last-good-room.js';
 
 export interface ComputerActivitySummary {
@@ -86,10 +88,14 @@ interface SessionTunnel {
 }
 
 interface SessionEntry {
+  compositionOwner: object;
   material: HostedComputerMaterial;
   tunnel: SessionTunnel;
   store: ClientStore;
   token: string;
+  expiresAt?: number;
+  renewal?: Promise<string>;
+  renewalAbort?: AbortController;
   connector?: RoomConnector;
   cachedConnector?: RoomConnector;
   /** The session's remembered PUBLIC root. The warm connector may have a
@@ -106,7 +112,8 @@ interface SessionEntry {
   cacheRevision?: string;
   cacheWrite: Promise<void>;
   cacheSaveTimer?: ReturnType<typeof setTimeout>;
-  pendingCache?: { snapshot: LastGoodRoomSnapshot; revision: string };
+  pendingCache?: { state: ClientState; publicRoot: string };
+  historyAbort: AbortController;
   historyWarming: Map<string, HistoryWarmState>;
   stopStore: () => void;
   stopTunnel: () => void;
@@ -138,14 +145,20 @@ export function historyEvidenceRooms(
   const rooms: string[] = [];
   for (const [room, current] of Object.entries(state.rooms)) {
     const prior = previous.rooms[room];
+    if (current === prior) continue;
     const priorMessages = prior?.messages ?? {};
-    const newMessage = Object.entries(current.messages).some(([id, message]) => {
+    const newMessage = current.messages !== prior?.messages && Object.entries(current.messages).some(([id, message]) => {
       const before = priorMessages[Number(id)];
-      return before === undefined || (isTerminalRun(message) && !isTerminalRun(before));
+      if (message === before) return false;
+      if (message.deleted && !before?.deleted) return true;
+      if (message.run_parent_id !== undefined || message.kind === 'run') {
+        return isTerminalRun(message) && (!isTerminalRun(before) || message.seq !== before?.seq);
+      }
+      return before === undefined || message.seq !== before.seq;
     });
-    const priorActiveRuns = new Set((prior?.support?.active_runs ?? []).map((run) => run.id));
-    const currentActiveRuns = new Set((current.support?.active_runs ?? []).map((run) => run.id));
-    const terminalSupportRun = [...priorActiveRuns].some((id) => !currentActiveRuns.has(id));
+    const terminalSupportRun = current.support?.active_runs !== prior?.support?.active_runs
+      && (prior?.support?.active_runs ?? []).some((run) =>
+        !current.support?.active_runs.some((candidate) => candidate.id === run.id));
     if (newMessage || terminalSupportRun) rooms.push(room);
   }
   return rooms;
@@ -157,7 +170,7 @@ export interface ComputerSessionDeps {
   makeTunnel(material: HostedComputerMaterial): SessionTunnel;
   authenticate(material: HostedComputerMaterial, tunnel: SessionTunnel, signal?: AbortSignal): Promise<BrowserDeviceSession>;
   loadRooms(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<RoomSummary[]>;
-  loadCompatibility(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<boolean>;
+  loadCompatibility(token: string, tunnel: Pick<SessionTunnel, 'fetch'>, signal?: AbortSignal): Promise<boolean | BrowserCompatibilityResult>;
   makeConnector(options: ConnectorOptions): RoomConnector;
   switchStored(id: string): Promise<void>;
   pair(code: string, relayUrl: string): Promise<void>;
@@ -173,7 +186,7 @@ const defaultDeps: ComputerSessionDeps = {
     const index = await listPairedComputers();
     return { materials, activeId: index.active_id };
   },
-  makeTunnel: (material) => new TunnelClient(material.relay),
+  makeTunnel: (material) => new TunnelClient(material.relay, { computerId: material.computer.id }),
   authenticate: (material, tunnel, signal) => openBrowserDeviceSessionWith(
     material.switchboard,
     (input, init) => tunnel.fetch(input, { ...init, signal }),
@@ -199,7 +212,7 @@ const defaultDeps: ComputerSessionDeps = {
   },
   loadCompatibility: async (token, tunnel, signal) => (
     await fetchBrowserCompatibility(token, (input, init) => tunnel.fetch(input, { ...init, signal }))
-  ).combinedTranscriptHistory,
+  ),
   makeConnector: createConnector,
   switchStored: switchComputer,
   pair: pairThroughRelay,
@@ -227,6 +240,10 @@ export class ComputerSessionManager {
   private startupExplicitRoom?: string;
   private snapshot: ComputerSessionsSnapshot = { computers: [] };
   private disposed = false;
+  private backgroundCount = 0;
+  private backgroundQueue: Array<{ entry: SessionEntry; room: string; state: HistoryWarmState; generation: number }> = [];
+  private summaryInputs = new WeakMap<SessionEntry, { summaries: ClientState['roomSummaries'];
+    rooms: Array<{ members: unknown; summary: unknown; room: unknown }>; connected: boolean; value: ComputerActivitySummary }>();
 
   constructor(private readonly deps: ComputerSessionDeps = defaultDeps) {}
 
@@ -330,6 +347,7 @@ export class ComputerSessionManager {
       entry.connector.switchRoom(publicRoot);
     }
     if (publicRoot !== undefined) rememberRoom(publicRoot, id);
+    this.promoteHistory(entry, entry.store.getState().activeRoom);
     if (entry.upgrade) requireBrowserUpgrade(entry.upgrade);
     this.publish();
     return entry.connector !== undefined;
@@ -343,6 +361,7 @@ export class ComputerSessionManager {
     const entry = this.entries.get(this.activeId);
     if (entry) entry.publicRoot = room;
     rememberRoom(room, this.activeId);
+    this.publish();
   }
 
   async add(code: string, relayUrl: string): Promise<boolean> {
@@ -447,6 +466,7 @@ export class ComputerSessionManager {
     const store = createClientStore();
     const tunnel = this.deps.makeTunnel(material);
     const entry: SessionEntry = {
+      compositionOwner: {},
       material,
       tunnel,
       store,
@@ -458,15 +478,33 @@ export class ComputerSessionManager {
       resolveCachedReady,
       cacheWrite: Promise.resolve(),
       historyWarming: new Map(),
+      historyAbort: new AbortController(),
       stopStore: () => undefined,
       stopTunnel: () => undefined,
     };
+    bindTranscriptHistoryOwner(store, () => this.captureEntryRequest(entry));
     entry.stopStore = store.subscribe((state, previous) => {
+      if (state.activeRoom !== previous.activeRoom && entry.material.computer.id === this.activeId) {
+        this.promoteHistory(entry, state.activeRoom);
+      }
       for (const room of historyEvidenceRooms(state, previous)) this.warmInactiveHistory(entry, room);
-      this.persistEntrySnapshot(entry);
+      if (state.rooms !== previous.rooms || state.roomSummaries !== previous.roomSummaries) this.persistEntrySnapshot(entry);
+      this.publish(false);
+    });
+    let historyGeneration = tunnel.generation;
+    entry.stopTunnel = tunnel.subscribe(() => {
+      if (historyGeneration !== tunnel.generation) {
+        historyGeneration = tunnel.generation;
+        entry.renewalAbort?.abort(new Error('retired authentication generation'));
+        entry.renewal = undefined;
+        entry.historyAbort.abort();
+        entry.historyAbort = new AbortController();
+        entry.historyWarming.clear();
+        this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+        retireTranscriptHistory(store);
+      }
       this.publish();
     });
-    entry.stopTunnel = tunnel.subscribe(() => this.publish());
     this.entries.set(material.computer.id, entry);
     tunnel.connect();
     void this.hydrateEntrySnapshot(entry);
@@ -474,36 +512,61 @@ export class ComputerSessionManager {
   }
 
   // harn:assume inactive-history-warming-persists-bounded-room-cache ref=bounded-captured-head-refresh-coalescing
-  private warmInactiveHistory(entry: SessionEntry, room: string): void {
+  private warmInactiveHistory(entry: SessionEntry, room: string, followUp = false): void {
     if (entry.disposed || entry.connector === undefined || entry.token === '') return;
     const activeComputer = entry.material.computer.id === this.activeId;
     const selectedRoom = entry.connector.room() === room;
-    if (activeComputer && selectedRoom) return;
-
     let state = entry.historyWarming.get(room);
     if (state?.inFlight !== undefined) {
       state.trailing = true;
       return;
     }
+    if (activeComputer && selectedRoom && !followUp) return;
     state ??= { trailing: false };
     entry.historyWarming.set(room, state);
-    const run = async (): Promise<boolean> => {
-      let refreshed = false;
-      do {
-        state!.trailing = false;
-        refreshed = await refreshTranscriptHistoryHead(
-          entry.store,
-          room,
-          () => entry.token,
-          entry.tunnel.fetch.bind(entry.tunnel),
-          true,
-        );
-      } while (state!.trailing && !entry.disposed);
+    // Reserve queued intent as well as running work; another frame only marks
+    // one trailing intent instead of adding another job.
+    state.inFlight = Promise.resolve(false);
+    if (activeComputer && selectedRoom) {
+      this.runHistoryJob(entry, room, state, entry.tunnel.generation, false);
+      return;
+    }
+    this.backgroundQueue.push({ entry, room, state, generation: entry.tunnel.generation });
+    this.drainBackgroundHistory();
+  }
+
+  private promoteHistory(entry: SessionEntry, room: string): void {
+    const index = this.backgroundQueue.findIndex((job) => job.entry === entry && job.room === room);
+    if (index < 0 || entry.disposed) return;
+    const job = this.backgroundQueue.splice(index, 1)[0]!;
+    if (job.generation !== entry.tunnel.generation) return;
+    this.runHistoryJob(entry, room, job.state, job.generation, false);
+  }
+
+  private runHistoryJob(entry: SessionEntry, room: string, state: HistoryWarmState, generation: number, background: boolean): void {
+    state.trailing = false;
+    if (background) this.backgroundCount++;
+    state.inFlight = refreshTranscriptHistoryHead(entry.store, room, () => entry.token,
+      entry.tunnel.fetch.bind(entry.tunnel), true);
+    void state.inFlight.catch(() => false).finally(() => {
+      if (background) this.backgroundCount--;
       if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
-      return refreshed;
-    };
-    state.inFlight = run();
-    void state.inFlight.catch(() => undefined);
+      if (state.trailing && !entry.disposed && entry.tunnel.generation === generation) this.warmInactiveHistory(entry, room, true);
+      this.drainBackgroundHistory();
+    });
+  }
+
+  private drainBackgroundHistory(): void {
+    this.backgroundQueue.sort((a, b) => Number(b.entry.material.computer.id === this.activeId)
+      - Number(a.entry.material.computer.id === this.activeId));
+    while (this.backgroundCount < 2 && this.backgroundQueue.length > 0) {
+      const { entry, room, state, generation } = this.backgroundQueue.shift()!;
+      if (entry.disposed || generation !== entry.tunnel.generation) {
+        if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
+        continue;
+      }
+      this.runHistoryJob(entry, room, state, generation, true);
+    }
   }
   // harn:end inactive-history-warming-persists-bounded-room-cache
 
@@ -526,27 +589,25 @@ export class ComputerSessionManager {
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-write-coalescing
   private persistEntrySnapshot(entry: SessionEntry): void {
     if (entry.disposed || entry.token === '' || entry.publicRoot === undefined) return;
-    const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, entry.publicRoot);
-    if (!snapshot) return;
-    const revision = JSON.stringify({
-      publicRoom: snapshot.publicRoom,
-      summaries: snapshot.summaries,
-      rooms: snapshot.rooms,
-    });
-    if (revision === entry.cacheRevision) return;
-    entry.cacheRevision = revision;
-    entry.pendingCache = { snapshot, revision };
+    const state = entry.store.getState();
+    if (!state.connected) return;
+    entry.pendingCache = { state, publicRoot: entry.publicRoot };
     if (entry.cacheSaveTimer !== undefined) return;
     entry.cacheSaveTimer = setTimeout(() => {
       entry.cacheSaveTimer = undefined;
       const pending = entry.pendingCache;
       entry.pendingCache = undefined;
       if (entry.disposed || pending === undefined) return;
+      const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, pending.publicRoot, pending.state);
+      if (!snapshot) return;
+      const revision = JSON.stringify({ publicRoom: snapshot.publicRoom, summaries: snapshot.summaries, rooms: snapshot.rooms });
+      if (revision === entry.cacheRevision) return;
+      entry.cacheRevision = revision;
       entry.cacheWrite = entry.cacheWrite
         .catch(() => undefined)
-        .then(async () => await saveLastGoodRoom(pending.snapshot))
+        .then(async () => { if (!entry.disposed) await saveLastGoodRoom(snapshot); })
         .catch(() => {
-          if (entry.cacheRevision === pending.revision) entry.cacheRevision = undefined;
+          if (entry.cacheRevision === revision) entry.cacheRevision = undefined;
         });
     }, CACHE_WRITE_DELAY_MS);
   }
@@ -556,6 +617,7 @@ export class ComputerSessionManager {
     return {
       room: () => room,
       state: () => 'disconnected',
+      compositionOwner: entry.compositionOwner,
       // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=cached-connector-rejection
       // A cached offline shell is read-only and cannot accept a post. Report
       // that refusal so the composer keeps the draft retryable.
@@ -635,6 +697,8 @@ export class ComputerSessionManager {
         rememberRoom(room, entry.material.computer.id);
         entry.connector = this.deps.makeConnector({
           room,
+          computerId: entry.material.computer.id,
+          compositionOwner: entry.compositionOwner,
           token,
           origin: relayAccessOrigin(entry.material.relay.relay_url).replace(/^http/, 'ws'),
           socketFactory: entry.tunnel.socketFactory.bind(entry.tunnel),
@@ -642,7 +706,17 @@ export class ComputerSessionManager {
           setToken: (next) => this.setEntryToken(entry, next),
           refreshToken: () => this.refreshEntryToken(entry),
           tunnel: entry.tunnel,
-          combinedTranscriptHistory,
+          combinedTranscriptHistory: typeof combinedTranscriptHistory === 'boolean'
+            ? combinedTranscriptHistory : combinedTranscriptHistory.combinedTranscriptHistory,
+          postAcknowledgements: typeof combinedTranscriptHistory === 'boolean'
+            ? false : combinedTranscriptHistory.postAcknowledgements,
+          refreshPostAcknowledgements: async (currentToken, signal) => {
+            // Use the same captured session read/renewal path as other owned
+            // idempotent reads, never the subsequently selected global tunnel.
+            const request = this.captureEntryRequest(entry);
+            const compatibility = await this.deps.loadCompatibility(currentToken, { fetch: request.fetch }, signal);
+            return typeof compatibility === 'boolean' ? false : compatibility.postAcknowledgements;
+          },
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {
               // harn:assume combined-head-reconciliation-is-two-page-bounded ref=bounded-combined-history-resume
@@ -678,16 +752,96 @@ export class ComputerSessionManager {
   // harn:end hosted-computer-sessions-keep-state-isolated
   // harn:end hosted-app-streams-follow-tunnel-generations
 
-  private async refreshEntryToken(entry: SessionEntry, signal?: AbortSignal): Promise<string> {
-    const session = await this.deps.authenticate(entry.material, entry.tunnel, signal);
+  // harn:assume relay-read-renewal-retains-original-owner ref=owned-credential-renewal
+  private captureEntryRequest(entry: SessionEntry) {
+    const generation = entry.tunnel.generation;
+    let token = entry.token;
+    let signal = entry.historyAbort.signal;
+    const sameOwner = () => !entry.disposed && entry.tunnel.generation === generation
+      && !entry.store.getState().authRefused;
+    const adopt = (): void => {
+      if (!sameOwner()) throw new Error('retired history operation');
+      token = entry.token; signal = entry.historyAbort.signal;
+    };
+    return {
+      token,
+      isCurrent: () => sameOwner() && !signal.aborted && token === entry.token,
+      fetch: async (input: string, init: RequestInit = {}): Promise<Response> => {
+        if (!sameOwner() || init.signal?.aborted) throw new Error('retired history operation');
+        const read = ['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
+        if (read && entry.expiresAt !== undefined && entry.expiresAt <= Date.now() + 30_000) {
+          await this.refreshEntryToken(entry); adopt();
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (!sameOwner() || init.signal?.aborted) throw new Error('retired history operation');
+          const headers = new Headers(init.headers);
+          headers.set('authorization', `Bearer ${token}`);
+          try {
+            const response = await entry.tunnel.fetch(input, { ...init, headers,
+              signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal });
+            if (!sameOwner()) throw new Error('retired history operation');
+            if (read && attempt === 0 && (response.status === 401 || signal.aborted || token !== entry.token)) {
+              await response.body?.cancel();
+              if (token === entry.token) await this.refreshEntryToken(entry);
+              adopt(); continue;
+            }
+            if (signal.aborted || token !== entry.token) throw new Error('retired credentials');
+            return response;
+          } catch (error) {
+            if (!read || attempt > 0 || !sameOwner() || init.signal?.aborted || token === entry.token) throw error;
+            adopt();
+          }
+        }
+        throw new Error('credential retry exhausted');
+      },
+    };
+  }
+
+  private refreshEntryToken(entry: SessionEntry, signal?: AbortSignal): Promise<string> {
+    if (entry.renewal) return entry.renewal;
+    const generation = entry.tunnel.generation;
+    const controller = new AbortController();
+    entry.renewalAbort = controller;
+    const cancel = () => controller.abort(signal?.reason);
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
+    let timer: ReturnType<typeof setTimeout>;
+    const pending = (async () => {
+    const session = await Promise.race([
+      this.deps.authenticate(entry.material, entry.tunnel, controller.signal),
+      new Promise<never>((_resolve, reject) => {
+        const aborted = () => reject(controller.signal.reason ?? new Error('authentication cancelled'));
+        controller.signal.addEventListener('abort', aborted, { once: true });
+        if (controller.signal.aborted) aborted();
+        timer = setTimeout(() => controller.abort(new Error('Device authentication timed out')), requestDeadlineMs());
+      }),
+    ]);
+    if (entry.disposed || entry.tunnel.generation !== generation || controller.signal.aborted) throw new Error('retired authentication generation');
     // harn:assume hosted-generated-computer-label-follows-authenticated-hostname ref=authenticated-computer-label
     if (session.hostname) {
       const computer = await this.deps.adoptHostname(entry.material.computer.id, session.hostname);
       if (computer) entry.material = { ...entry.material, computer };
     }
     // harn:end hosted-generated-computer-label-follows-authenticated-hostname
+    if (entry.disposed || entry.tunnel.generation !== generation) throw new Error('retired authentication generation');
+    entry.expiresAt = session.expiresAt;
     return this.setEntryToken(entry, session.token);
+    })().catch((error: unknown) => {
+      if (error instanceof BrowserAuthenticationError && error.status === 403
+        && !entry.disposed && entry.tunnel.generation === generation) {
+        entry.store.getState().setAuthRefused(true);
+        this.setEntryToken(entry, '');
+      }
+      throw error;
+    }).finally(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      if (entry.renewal === pending) { entry.renewal = undefined; entry.renewalAbort = undefined; }
+    });
+    entry.renewal = pending;
+    return pending;
   }
+  // harn:end relay-read-renewal-retains-original-owner
 
   private async withEntryDeadline<T>(
     entry: SessionEntry,
@@ -706,19 +860,31 @@ export class ComputerSessionManager {
       const timer = setTimeout(() => {
         const error = new DOMException('Hosted bootstrap request timed out', 'TimeoutError');
         controller.abort(error);
-        // Recovery advances/retains only this entry's tunnel generation and
-        // rejects sibling work on the stale mux before the retry loop continues.
-        if (entry.tunnel.generation === generation) entry.tunnel.recover();
+        // This deadline owns one HTTP operation, not every stream on a healthy tunnel.
         finish(() => reject(error));
       }, requestDeadlineMs());
       void work(controller.signal).then(
-        (value) => finish(() => resolve(value)),
+        (value) => finish(() => entry.tunnel.generation === generation ? resolve(value) : reject(new Error('retired bootstrap generation'))),
         (error: unknown) => finish(() => reject(error)),
       );
     });
   }
 
   private setEntryToken(entry: SessionEntry, token: string): string {
+    if (entry.token !== token) {
+      entry.historyAbort.abort();
+      entry.historyAbort = new AbortController();
+      // A successful renewal can migrate reads within this same generation.
+      // Keep queued/trailing intent; revocation still retires it completely.
+      if (token === '') {
+        entry.historyWarming.clear();
+        this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+        retireTranscriptHistory(entry.store);
+      }
+      // Successful renewal keeps admitted operations registered: their owned
+      // fetch retries adopt this epoch. Clearing the map here permits a second
+      // reactive head to race the authoritative original.
+    }
     entry.token = token;
     if (entry.material.computer.id === this.activeId) setActiveBrowserAccessToken(token);
     this.publish();
@@ -730,7 +896,7 @@ export class ComputerSessionManager {
     if (!entry) return;
     setActiveComputer(entry.material.computer.id);
     const origin = relayAccessOrigin(entry.material.relay.relay_url);
-    setRelayTransport({ origin, fetch: entry.tunnel.fetch.bind(entry.tunnel) });
+    setRelayTransport({ origin, fetch: (input, init) => this.captureEntryRequest(entry).fetch(input, init) });
     setActiveBrowserAccessToken(entry.token);
     mirrorClientStore(entry.store);
     const connector = entry.connector ?? entry.cachedConnector;
@@ -743,6 +909,10 @@ export class ComputerSessionManager {
     const entry = this.entries.get(id);
     if (!entry) return;
     entry.disposed = true;
+    entry.renewalAbort?.abort(new Error('computer disposed'));
+    entry.historyAbort.abort();
+    retireTranscriptHistory(entry.store);
+    this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
     if (entry.cacheSaveTimer !== undefined) clearTimeout(entry.cacheSaveTimer);
     entry.cacheSaveTimer = undefined;
     entry.pendingCache = undefined;
@@ -778,6 +948,13 @@ export class ComputerSessionManager {
   // harn:assume hosted-background-computer-activity-is-visible ref=background-computer-summary
   private summary(entry: SessionEntry): ComputerActivitySummary {
     const state = entry.store.getState();
+    const inputs = Object.values(state.rooms).map((slice) => ({ members: slice.members, summary: slice.support?.summary, room: slice.room }));
+    const previous = this.summaryInputs.get(entry);
+    if (previous && previous.connected === state.connected && previous.summaries === state.roomSummaries
+      && previous.rooms.length === inputs.length && inputs.every((value, index) => {
+        const prior = previous.rooms[index]!;
+        return value.members === prior.members && value.summary === prior.summary && value.room === prior.room;
+      })) return previous.value;
     const byRoom = new Map(state.roomSummaries.map((summary) => [summary.id, summary]));
     for (const slice of Object.values(state.rooms)) {
       if (slice.support) byRoom.set(slice.support.room, slice.support.summary);
@@ -790,17 +967,19 @@ export class ComputerSessionManager {
           member.kind === 'agent' && (member.state === 'running' || member.state === 'queued')))
         .flatMap((slice) => slice.room === undefined ? [] : [slice.room.id]),
     ]);
-    return {
+    const value = {
       connected: state.connected,
       unread: summaries.reduce((total, room) => total + room.unread, 0),
       attention: summaries.some((room) => room.attention),
       attentionCount: summaries.filter((room) => room.attention).length,
       working: workingRooms.size,
     };
+    this.summaryInputs.set(entry, { connected: state.connected, summaries: state.roomSummaries, rooms: inputs, value });
+    return value;
   }
 
-  private publish(): void {
-    this.snapshot = {
+  private publish(force = true): void {
+    const snapshot = {
       activeId: this.activeId,
       computers: [...this.entries.values()].map((entry) => ({
         id: entry.material.computer.id,
@@ -811,6 +990,8 @@ export class ComputerSessionManager {
         ...this.summary(entry),
       })),
     };
+    if (!force && JSON.stringify(snapshot) === JSON.stringify(this.snapshot)) return;
+    this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
   }
   // harn:end hosted-background-computer-activity-is-visible
