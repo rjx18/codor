@@ -1,14 +1,15 @@
 id: release-0-10-14-alpha-8
 title: Prepare the accepted relay reliability program as alpha 0.10.14-alpha.8
 notes: >
-  Release-only identity change on the curated alpha branch after merging accepted
-  source 864069b6. Preserve alpha-only release history and theme-audit settling.
-  Change only the common version, matching ACP clientInfo, CLI fixtures, and
-  exact-version release audit. Do not change product behavior, npm latest,
-  workflows, credentials or real hosts. Full combined source and candidate gates
-  must pass before pushing the signed alpha.8 tag; the existing CI/OIDC workflow
-  remains the only publisher. Main receives accepted source without release
-  version commits and deploys codor.app through its ordinary CI workflow.
+  Release-only identity change on the curated alpha branch after merging
+  accepted source 864069b6. Preserve alpha-only release history and theme-audit
+  settling. Change only the common version, matching ACP clientInfo, CLI
+  fixtures, and exact-version release audit. Do not change product behavior, npm
+  latest, workflows, credentials or real hosts. Full combined source and
+  candidate gates must pass before pushing the signed alpha.8 tag; the existing
+  CI/OIDC workflow remains the only publisher. Main receives accepted source
+  without release version commits and deploys codor.app through its ordinary CI
+  workflow.
 assumptions:
   retire: []
   create: []
@@ -130,3 +131,5 @@ verification: >
   workflow green, then verify npm alpha, GitHub prerelease assets and checksums,
   public npx metadata, and Codor.app production deployment. Do not move npm
   latest or modify runtime behavior.
+applied:
+  applied_at: 2026-09-08T16:29:27.339Z
