@@ -57,6 +57,50 @@ import { reconcileSelectedRoomHistory } from '../room/RoomPage.js';
 beforeEach(() => lastGoodCache.snapshots.clear());
 
 describe('bounded hosted background work', () => {
+  it('keeps one same-room head through renewal and reactive refresh with reversed responses', async () => {
+    const actual = await vi.importActual<typeof import('../room/transcript-history.js')>('../room/transcript-history.js');
+    const h = harness(); const make = h.deps.makeTunnel;
+    const tokens: string[] = []; const fresh: Array<(id: number) => void> = [];
+    h.deps.makeTunnel = (material) => {
+      const tunnel = make(material);
+      tunnel.fetch = async (_input, init) => {
+        const token = new Headers(init?.headers).get('authorization')!; tokens.push(token);
+        if (token !== 'Bearer fresh-A') return new Response('', { status: 401 });
+        return new Promise<Response>((resolve) => fresh.push((id) => resolve(new Response(JSON.stringify({
+          units: [{ kind: 'message', message_id: id }], journals: [], before_cursor: null, has_more: false,
+          messages: [{ id, room: 'same-room', author: '01ARZ3NDEKTSV4RRFFQ69G5FAV', kind: 'chat',
+            body: `message ${id}`, mentions: [], refs: [], ledger_refs: [], seq: id, ts: '2026-09-08T00:00:00Z' }],
+        })))));
+      };
+      return tunnel;
+    };
+    const manager = new ComputerSessionManager(h.deps); await manager.start();
+    for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+    const store = h.connectorOptions.get('A')!.store!; store.getState().setActiveRoom('same-room');
+    actual.bindTranscriptHistoryOwner(store, recovery.bindOwner.mock.calls.find((call) => call[0] === store)![1]);
+    recovery.retireHistory.mockImplementation(actual.retireTranscriptHistory);
+    h.deps.authenticate = async () => ({ token: 'fresh-A' });
+    let reactive: Promise<boolean> | undefined;
+    const stop = manager.subscribe(() => {
+      if (!reactive && manager.activeToken() === 'fresh-A') {
+        reactive = actual.refreshTranscriptHistoryHead(store, 'same-room', () => 'fresh-A');
+      }
+    });
+    try {
+      const original = actual.refreshTranscriptHistoryHead(store, 'same-room', () => 'token-A');
+      for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+      // A duplicate fresh head would complete newer-first, then overwrite it
+      // with the older response. Resolve both if the regression reappears.
+      for (let index = fresh.length - 1; index >= 0; index--) {
+        fresh[index]!(index === fresh.length - 1 ? 20 : 10);
+        for (let tick = 0; tick < 16; tick++) await Promise.resolve();
+      }
+      await Promise.all([original, reactive]);
+      expect(tokens).toEqual(['Bearer token-A', 'Bearer fresh-A']);
+      expect(reactive).toBe(original);
+      expect(store.getState().rooms['same-room']?.transcriptHistory.units).toEqual([{ kind: 'message', message_id: 20 }]);
+    } finally { stop(); manager.dispose(); recovery.retireHistory.mockReset(); }
+  });
   it('publishes a changed public room even when activity summaries are unchanged', async () => {
     const h = harness(); const manager = new ComputerSessionManager(h.deps);
     await manager.start();

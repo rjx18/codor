@@ -49,6 +49,8 @@ export interface RoomConnector extends Connection {
 
 export interface ConnectorOptions {
   room: string;
+  /** Non-secret browser-local identity, captured for diagnostics only. */
+  computerId?: string;
   token: string;
   /** ws(s):// origin; defaults to the page origin. Set to the relay origin when
    *  the browser reaches its switchboard through the blind relay tunnel. */
@@ -107,6 +109,7 @@ const PROBE_INTERVAL_MS = 20_000;
 const PROBE_TIMEOUT_MS = 8_000;
 
 export function createConnector(options: ConnectorOptions): RoomConnector {
+  const diagnosticComputerId = options.computerId ?? 'direct';
   const origin = (options.origin ?? window.location.origin).replace(/^http/, 'ws');
   const socketFactory = options.socketFactory ?? ((url: string) => new WebSocket(url));
   const clientStore = options.store ?? useClientStore;
@@ -166,9 +169,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let trafficVersion = 0;
   let streamRepairs = 0;
   const diagnose = (event: string, code?: number): void => {
-    const host = window as unknown as { __codorRecoveryDiagnostics?: Array<{ event: string; generation: number; code?: number }> };
+    const host = window as unknown as { __codorRecoveryDiagnostics?: Array<{
+      event: string; generation: number; appGeneration: number; tunnelGeneration: number | null;
+      computerId: string; room: string; code?: number;
+    }> };
     const records = host.__codorRecoveryDiagnostics ??= [];
-    records.push({ event, generation, ...(code === undefined ? {} : { code }) });
+    records.push({ event, generation, appGeneration: generation,
+      tunnelGeneration: openedTunnelGeneration ?? null, computerId: diagnosticComputerId,
+      room: currentRoom, ...(code === undefined ? {} : { code }) });
     if (records.length > 64) records.shift();
   };
   const combinedTranscriptHistory = options.combinedTranscriptHistory

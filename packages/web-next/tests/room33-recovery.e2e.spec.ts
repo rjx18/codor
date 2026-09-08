@@ -112,7 +112,23 @@ async function fastRecovery(page: Page, extendedMs: number): Promise<void> {
 test.describe('recovery journey', () => {
   test('renews expired sessions through the real bridge, stays live, then parks revocation', async ({ page }) => {
     test.setTimeout(120_000);
+    const archive = await control<{ archivedRuns: number; toolCalls: number }>('/seed-runs', { count: 300, toolCount: 200 });
+    expect(archive.archivedRuns).toBeGreaterThanOrEqual(300);
+    expect(archive.toolCalls).toBeGreaterThanOrEqual(200);
+    await page.addInitScript(() => { (window as unknown as { __codorRelayHttp: unknown[] }).__codorRelayHttp = []; });
     await pairLive(page);
+    await page.getByTestId('room-link-hydration').click();
+    await expect(page).toHaveURL(/room=hydration/);
+    await expect(page.getByTestId('timeline')).toContainText('archived run 300');
+    await expect(page.getByText('Ran 200 tools', { exact: true })).toBeVisible();
+    const historyRequests = () => page.evaluate(() => ((window as unknown as {
+      __codorRelayHttp: Array<{ target: string; status?: number; bytes: number; computerId: string; room?: string }>;
+    }).__codorRelayHttp).filter((entry) => entry.target === '/api/rooms/hydration/transcript-history'));
+    const initial = await historyRequests();
+    expect(initial).toHaveLength(1);
+    expect(initial[0]!.bytes).toBeGreaterThan(300_000);
+    expect(initial[0]!.room).toBe('hydration');
+    expect(initial[0]!.computerId).not.toBe('unmanaged');
     const codes = () => page.evaluate(() => ((window as unknown as {
       __codorRecoveryDiagnostics?: Array<{ code?: number }>;
     }).__codorRecoveryDiagnostics ?? []).flatMap((entry) => entry.code === undefined ? [] : [entry.code]));
@@ -121,8 +137,12 @@ test.describe('recovery journey', () => {
     await expect.poll(codes, { timeout: 30_000 }).toContain(4401);
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
     expect(await noReload(page)).toBe(true);
-    await page.getByText('Hydration', { exact: true }).first().click();
-    await expect(page).toHaveURL(/room=hydration/);
+    await expect.poll(async () => (await historyRequests()).filter((entry) => entry.status === 200).length)
+      .toBeGreaterThanOrEqual(2);
+    await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0);
+    const afterExpiry = await historyRequests();
+    expect(afterExpiry.length - initial.length).toBeLessThanOrEqual(4);
+    await page.evaluate(() => { (window as unknown as { __codorRelayHttp: unknown[] }).__codorRelayHttp = []; });
     // Cross both application-probe and relay-keepalive intervals with actual
     // messages on concurrently subscribed rooms after credential replacement.
     for (let index = 0; index < 7; index++) {
@@ -131,11 +151,19 @@ test.describe('recovery journey', () => {
       await page.waitForTimeout(5_000);
       await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
     }
+    expect(await historyRequests()).toHaveLength(0);
     await control('/relay-revoke-browsers');
     await expect.poll(codes, { timeout: 30_000 }).toContain(4403);
     await expect.poll(() => page.evaluate(() => (window as unknown as {
       __codor?: { state(): string };
     }).__codor?.state())).toBe('parked-auth');
+    const authEvents = await page.evaluate(() => ((window as unknown as { __codorRecoveryDiagnostics:
+      Array<{ code?: number; computerId: string; room: string; appGeneration: number; tunnelGeneration: number }> }).__codorRecoveryDiagnostics)
+      .filter((entry) => entry.code === 4401 || entry.code === 4403));
+    expect(authEvents.every((entry) => entry.computerId === initial[0]!.computerId
+      && entry.room === 'hydration' && entry.appGeneration > 0 && entry.tunnelGeneration > 0)).toBe(true);
+    console.info('[renewal-large-history]', JSON.stringify({ archivedRuns: archive.archivedRuns, toolCalls: archive.toolCalls,
+      initialRequests: initial.length, initialBytes: initial[0]!.bytes, renewalRequests: afterExpiry.length - initial.length }));
     expect(await noReload(page)).toBe(true);
   });
   // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-regression

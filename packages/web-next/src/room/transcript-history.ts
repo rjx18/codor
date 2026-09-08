@@ -275,7 +275,19 @@ const runRequest = (
   const map = requestMap(store);
   const existing = map.get(key);
   if (existing !== undefined) return existing;
-  const promise = task().finally(() => { if (map.get(key) === promise) map.delete(key); });
+  const promise = task().finally(() => {
+    if (map.get(key) !== promise) return;
+    map.delete(key);
+    const history = historyOf(store, room);
+    // A response retired during parsing must release its own loading flag.
+    // Generation retirement removes its registry entry, so it cannot clear a
+    // newer operation's state here.
+    if (kind === 'head' && history.loadingHead) {
+      update(store, room, (current) => ({ ...current, loadingHead: false, headNeedsRevalidation: true }));
+    } else if (history.loadingCursor !== undefined && kind === `cursor:${history.loadingCursor}`) {
+      update(store, room, (current) => ({ ...current, loadingCursor: undefined }));
+    }
+  });
   map.set(key, promise);
   return promise;
 };

@@ -802,6 +802,21 @@ it('carries a caller ref once and routes a late error to its originating room', 
 // harn:end context-reset-confirmation-is-anchored-and-member-local
 
 describe('foreground watchdog', () => {
+  it('attributes recovery to captured computers, rooms and app/tunnel generations', () => {
+    const socketFactory = (url: string) => new FakeSocket(url) as unknown as WebSocket;
+    const options = { room: 'eng', token: 'token-A', computerId: 'A', tunnel: new FakeTunnel('connected'), socketFactory };
+    const a = createConnector(options); const socketA = latest();
+    options.computerId = 'changed-after-capture';
+    const b = createConnector({ room: 'ops', token: 'token-B', computerId: 'B', tunnel: new FakeTunnel('connected'), socketFactory });
+    const socketB = latest();
+    socketA.accept(); socketB.accept(); socketA.drop(4403); socketB.drop(4403);
+    const records = (window as unknown as { __codorRecoveryDiagnostics: unknown[] }).__codorRecoveryDiagnostics.slice(-2);
+    expect(records).toMatchObject([
+      { computerId: 'A', room: 'eng', appGeneration: 1, tunnelGeneration: 1, code: 4403 },
+      { computerId: 'B', room: 'ops', appGeneration: 1, tunnelGeneration: 1, code: 4403 },
+    ]);
+    a.dispose(); b.dispose();
+  });
   it('repairs one silent app stream before escalating despite pending HTTP', async () => {
     vi.useFakeTimers();
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });

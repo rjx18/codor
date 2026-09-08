@@ -185,7 +185,7 @@ const defaultDeps: ComputerSessionDeps = {
     const index = await listPairedComputers();
     return { materials, activeId: index.active_id };
   },
-  makeTunnel: (material) => new TunnelClient(material.relay),
+  makeTunnel: (material) => new TunnelClient(material.relay, { computerId: material.computer.id }),
   authenticate: (material, tunnel, signal) => openBrowserDeviceSessionWith(
     material.switchboard,
     (input, init) => tunnel.fetch(input, { ...init, signal }),
@@ -694,6 +694,7 @@ export class ComputerSessionManager {
         rememberRoom(room, entry.material.computer.id);
         entry.connector = this.deps.makeConnector({
           room,
+          computerId: entry.material.computer.id,
           token,
           origin: relayAccessOrigin(entry.material.relay.relay_url).replace(/^http/, 'ws'),
           socketFactory: entry.tunnel.socketFactory.bind(entry.tunnel),
@@ -864,8 +865,11 @@ export class ComputerSessionManager {
       if (token === '') {
         entry.historyWarming.clear();
         this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+        retireTranscriptHistory(entry.store);
       }
-      retireTranscriptHistory(entry.store);
+      // Successful renewal keeps admitted operations registered: their owned
+      // fetch retries adopt this epoch. Clearing the map here permits a second
+      // reactive head to race the authoritative original.
     }
     entry.token = token;
     if (entry.material.computer.id === this.activeId) setActiveBrowserAccessToken(token);

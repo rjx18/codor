@@ -166,10 +166,12 @@ export class TunnelClient {
   private readonly clientStatic: TunnelKeypair;
   private readonly hostStaticPub: Uint8Array;
   private readonly sessionIdBytes: Uint8Array;
+  private readonly diagnosticComputerId: string;
   constructor(
     private readonly record: TunnelRecord,
-    opts: { keepaliveMs?: number; handshakeMs?: number; socketFactory?: (url: string) => WebSocket } = {},
+    opts: { computerId?: string; keepaliveMs?: number; handshakeMs?: number; socketFactory?: (url: string) => WebSocket } = {},
   ) {
+    this.diagnosticComputerId = opts.computerId ?? 'unmanaged';
     this.clientStatic = { publicKey: fromB64(record.client_static.pub), secretKey: fromB64(record.client_static.priv) };
     this.hostStaticPub = fromB64(record.host_static_pub);
     this.sessionIdBytes = fromHex(record.session_id);
@@ -456,6 +458,9 @@ export class TunnelClient {
       ? undefined
       : (window as unknown as {
         __codorRelayHttp?: Array<{
+          computerId: string;
+          room?: string;
+          tunnelGeneration: number;
           target: string;
           method: string;
           generation: number;
@@ -477,6 +482,9 @@ export class TunnelClient {
         if (!diagnostics) return;
         const now = typeof performance === 'undefined' ? Date.now() : performance.now();
         diagnostics.push({
+          computerId: this.diagnosticComputerId,
+          ...(url.pathname.startsWith('/api/rooms/') && { room: url.pathname.split('/')[3] }),
+          tunnelGeneration: requestGeneration,
           target: url.pathname,
           method,
           generation: requestGeneration,

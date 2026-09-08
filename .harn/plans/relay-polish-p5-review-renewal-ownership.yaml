@@ -1,0 +1,61 @@
+id: relay-polish-p5-review-renewal-ownership
+title: Keep renewed heads coalesced and attribute recovery diagnostics
+notes: >
+  Review correction at e2d464a7. Successful same-generation credential renewal
+  must keep the authoritative head request registered while it retries. Genuine
+  generation retirement and revocation still clear obsolete requests. Release
+  flags owned by an abandoned operation without clearing a newer operation.
+  Capture non-secret computer/room/generation diagnostics and seed/assert a real
+  large archive with tool evidence in the sustained hosted browser journey.
+  Preserve one bounded read retry and zero mutation retries. No Worker/P6/P7.
+assumptions:
+  reviewed:
+    - id: relay-read-renewal-retains-original-owner
+      outcome: unchanged
+      reason: Retain head coalescing across the permitted retry.
+    - id: history-operations-retain-owner-across-renewal
+      outcome: unchanged
+      reason: Retire only genuinely obsolete ownership and settle its flags safely.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Attribute diagnostics to the captured session.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Pass the existing public computer identifier into diagnostics.
+    - id: app-liveness-recovery-is-stream-first
+      outcome: unchanged
+      reason: Keep recovery policy while identifying each event's owner.
+    - id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
+      outcome: unchanged
+      reason: Add only ownership metadata to HTTP diagnostics.
+files:
+  - .harn/plans/relay-polish-p5-review-renewal-ownership.yaml
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/room/transcript-history.ts
+  - packages/web-next/src/room/transcript-history.spec.ts
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+anchors:
+  relay-read-renewal-retains-original-owner:
+    owned-credential-renewal:
+      action: change
+      reason: Preserve an admitted read through renewal.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Preserve the head registry and identify the session.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Attach captured diagnostic ownership.
+  hosted-bootstrap-requests-are-abortable-and-generation-bounded:
+    abortable-tunnel-fetch:
+      action: change
+      reason: Attribute bounded HTTP diagnostics.
+applied:
+  applied_at: 2026-09-08T14:44:56.734Z

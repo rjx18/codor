@@ -1264,7 +1264,9 @@ const archivist = daemon.store.getMemberByHandle('hydration', 'archivist');
 const seedRun = (body, run, events = []) => {
   const posted = daemon.store.postMessage('hydration', { author: archivist.id, kind: 'run', body });
   const eventsRef = `runs/${posted.id}.jsonl`;
-  daemon.store.updateMessage('hydration', posted.id, { run: { ...run, tool_calls: 0, events_ref: eventsRef } });
+  daemon.store.updateMessage('hydration', posted.id, { run: { ...run,
+    tool_calls: events.filter((event) => event.type === 'run.item' && event.item_type === 'tool_call').length,
+    events_ref: eventsRef } });
   for (const event of events) daemon.blobs.append('hydration', eventsRef, event);
   return posted.id;
 };
@@ -1959,6 +1961,7 @@ createServer((req, res) => {
         // spec can call it per run without re-seeding.
         const body = raw === '' ? {} : JSON.parse(raw);
         const count = Math.min(400, Number(body.count ?? 180));
+        const toolCount = Math.min(500, Number(body.toolCount ?? 0));
         if (hydrationIds === undefined) {
           const base = Date.now() - (count + 30) * 60_000;
           // A uniquely-worded oldest message, hundreds of ids below the bounded
@@ -1984,7 +1987,13 @@ createServer((req, res) => {
             }
             seedRun(`archived run ${i + 1}`, {
               status: 'completed', started_ts: ts, ended_ts: ts, final_text: `archived run ${i + 1}`,
-            }, [proseEvent(`archived run ${i + 1}`, ts)]);
+            }, [proseEvent(`archived run ${i + 1}`, ts), ...(i === count - 1
+              ? Array.from({ length: toolCount }, (_, tool) => [
+                { type: 'run.item', item_type: 'tool_call', ts,
+                  payload: { call_id: `bulk-${tool}`, tool: 'Read', title: `archive tool ${tool}` } },
+                { type: 'run.item', item_type: 'tool_result', ts,
+                  payload: { call_id: `bulk-${tool}`, status: 'ok', output_text: 'substantial tool evidence '.repeat(128) } },
+              ]).flat() : [])]);
           }
           const liveRunId = seedRun('', { status: 'running', started_ts: minutesAgoIso(1) }, [
             proseEvent('live hydration prose that must survive a reload', minutesAgoIso(1)),
@@ -2002,7 +2011,10 @@ createServer((req, res) => {
           });
           hydrationIds = { liveRunId, neighbourRunId, orphanRunId, oldestId, nearTailId };
         }
-        payload = hydrationIds;
+        const archive = daemon.store.listRunMessages('hydration', { limit: 500 });
+        payload = { ...hydrationIds,
+          archivedRuns: archive.filter((run) => run.run?.status === 'completed').length,
+          toolCalls: archive.reduce((total, run) => total + (run.run?.tool_calls ?? 0), 0) };
       }
       if (url.pathname === '/seed-bulk') {
         // A long back-catalog for virtualization/paging proofs: N backdated

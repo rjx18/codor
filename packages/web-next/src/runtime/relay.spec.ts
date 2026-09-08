@@ -75,7 +75,7 @@ describe('TunnelClient resilience', () => {
     const diagnostics: Array<{ target: string }> = [];
     vi.stubGlobal('window', { __codorRelayHttp: diagnostics });
     const { dialed, socketFactory } = tracker();
-    const client = new TunnelClient(record, { socketFactory });
+    const client = new TunnelClient(record, { socketFactory, computerId: 'computer-A' });
     try {
       client.connect(); completeHandshake(dialed[0]!);
       for (let index = 0; index < 70; index++) {
@@ -88,6 +88,7 @@ describe('TunnelClient resilience', () => {
       }
       expect(diagnostics).toHaveLength(64);
       expect(diagnostics.every((entry) => entry.target === '/api/search')).toBe(true);
+      expect(diagnostics[0]).toMatchObject({ computerId: 'computer-A', tunnelGeneration: 1 });
       expect(JSON.stringify(diagnostics)).not.toContain('private-');
       expect(client.hasUnsettledHttp).toBe(false);
     } finally { client.dispose(); vi.unstubAllGlobals(); }
