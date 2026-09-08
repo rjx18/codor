@@ -1,0 +1,45 @@
+id: release-alpha8-room42-theme-settle
+title: Wait for the settled theme before the Room 42 accessibility assertion
+notes: >
+  Test-only release correction at exact alpha.8 candidate
+  79f7a22013f3cd238350a3934c14f1e9c8c670d6. The scheduled-message surface
+  already settles to accessible light and dark theme tokens; Room 42 sampled the
+  transient mixed-theme frame immediately after changing data-theme. Keep the
+  full Axe assertion and use the existing finite-animation completion boundary
+  established by Room 38.
+assumptions:
+  reviewed:
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      outcome: unchanged
+      reason: >
+        The scheduled card remains the authoritative, nonduplicating surface;
+        this correction only waits for its existing theme transition before
+        measuring accessibility.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: >
+        Light and dark semantic tokens and their accessibility contract are
+        unchanged; the test now observes the settled token state rather than the
+        intermediate transition frame.
+anchors:
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    scheduled-card-browser-regression:
+      action: change
+      reason: >
+        Await all finite theme animations after each explicit theme change
+        before running the unchanged full Axe assertion.
+files:
+  - .harn/plans/release-alpha8-room42-theme-settle.yaml
+  - packages/web-next/tests/room42-scheduled-messages.e2e.spec.ts
+verification: >
+  Verify the exact clean base and lock with dirty_at_lock false before editing.
+  Reproduce the intermediate light/dark transition contrast failure and prove
+  the settled colors pass. Add only the existing Room 38 finite-animation
+  completion boundary to Room 42; retain the complete Axe assertion with no
+  exclusions, disabled rules, or arbitrary sleep. Run Room 42 twice with fresh
+  harnesses and Room 38 once, then run Harn check/apply/staged checks and git
+  diff --check. Create exactly one implementation commit with applied truth,
+  preserving runtime code, release version, and CI policy. Do not push, deploy,
+  publish, delegate, or monitor.
+applied:
+  applied_at: 2026-09-08T17:29:07.121Z
