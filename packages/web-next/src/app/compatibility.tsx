@@ -12,7 +12,7 @@ export interface BrowserUpgrade {
 
 let required: BrowserUpgrade | undefined;
 let directCombinedTranscriptHistory = false;
-let directPostAcknowledgements = false;
+let directPostAcknowledgements: boolean | undefined;
 const listeners = new Set<() => void>();
 
 function publish(next: BrowserUpgrade): void {
@@ -36,6 +36,7 @@ export function requireBrowserUpgrade(frame: Extract<ServerFrame, { type: 'upgra
 
 export interface BrowserCompatibilityResult {
   combinedTranscriptHistory: boolean;
+  /** Undefined is an unverified read, false is verified unsupported. */
   postAcknowledgements?: boolean;
   upgrade?: BrowserUpgrade;
 }
@@ -58,7 +59,7 @@ export async function fetchBrowserCompatibility(
     });
     // A missing field (including an old-host 404) is intentionally legacy.
     if (response.status === 404 || response.status === 405) {
-      return { combinedTranscriptHistory: false };
+      return { combinedTranscriptHistory: false, postAcknowledgements: false };
     }
     const body = await response.json() as {
       browser_protocol?: number;
@@ -68,7 +69,9 @@ export async function fetchBrowserCompatibility(
     };
     return {
       combinedTranscriptHistory: body.combined_transcript_history === true,
-      ...(response.ok && body.post_acknowledgements === true && { postAcknowledgements: true }),
+      ...(response.ok && typeof body === 'object' && body !== null && !Array.isArray(body)
+        && (body.post_acknowledgements === undefined || typeof body.post_acknowledgements === 'boolean')
+        && { postAcknowledgements: body.post_acknowledgements === true }),
       ...(response.status === 426 && {
         upgrade: {
           minimum: body.minimum_browser_protocol ?? BROWSER_PROTOCOL_EPOCH + 1,
@@ -86,7 +89,7 @@ export async function fetchBrowserCompatibility(
 export async function checkBrowserCompatibility(token: string): Promise<BrowserCompatibilityResult> {
   const result = await fetchBrowserCompatibility(token);
   directCombinedTranscriptHistory = result.combinedTranscriptHistory;
-  directPostAcknowledgements = result.postAcknowledgements === true;
+  directPostAcknowledgements = result.postAcknowledgements;
   if (result.upgrade !== undefined) publish(result.upgrade);
   return result;
 }
@@ -96,7 +99,7 @@ export function directCombinedTranscriptHistorySupported(): boolean {
 }
 // harn:end combined-history-capability-gates-socket-fallback
 
-export function directPostAcknowledgementsSupported(): boolean {
+export function directPostAcknowledgementsSupported(): boolean | undefined {
   return directPostAcknowledgements;
 }
 
@@ -170,7 +173,7 @@ export function CompatibilityGate(props: { children: ReactNode }) {
 
 export function clearBrowserUpgradeForTest(): void {
   directCombinedTranscriptHistory = false;
-  directPostAcknowledgements = false;
+  directPostAcknowledgements = undefined;
   required = undefined;
   for (const listener of listeners) listener();
 }

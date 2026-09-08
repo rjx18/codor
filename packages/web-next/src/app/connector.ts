@@ -54,6 +54,7 @@ export interface ConnectorOptions {
   room: string;
   /** Non-secret browser-local identity, captured for diagnostics only. */
   computerId?: string;
+  compositionOwner?: object;
   token: string;
   /** ws(s):// origin; defaults to the page origin. Set to the relay origin when
    *  the browser reaches its switchboard through the blind relay tunnel. */
@@ -81,7 +82,7 @@ export interface ConnectorOptions {
   combinedTranscriptHistory?: boolean;
   postAcknowledgements?: boolean;
   /** Revalidate this exact daemon after a socket replacement before retrying. */
-  refreshPostAcknowledgements?: (token: string) => Promise<boolean>;
+  refreshPostAcknowledgements?: (token: string, signal: AbortSignal) => Promise<boolean | undefined>;
   /** Hosted-only tunnel generation gate. Direct/self-hosted callers omit it. */
   tunnel?: {
     readonly state: TunnelState;
@@ -122,13 +123,32 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const setToken = options.setToken ?? setActiveBrowserAccessToken;
   let currentRoom = options.room;
   const pendingSubmission = new PendingSubmission();
-  let postAcknowledgements = options.postAcknowledgements
-    ?? (options.store === undefined && directPostAcknowledgementsSupported());
+  const postStateListeners = new Set<() => void>();
+  let postStateVersion = 0;
+  const publishPostState = (): void => {
+    postStateVersion++;
+    for (const listener of postStateListeners) listener();
+  };
   const refreshPostAcknowledgements = options.refreshPostAcknowledgements
-    ?? (options.socketFactory === undefined ? async (token: string) => (
-      await fetchBrowserCompatibility(token, (input, init) => fetch(new URL(input, origin.replace(/^ws/, 'http')), init))
-    ).postAcknowledgements === true : undefined);
-  let postCapabilityReady = true;
+    ?? (options.socketFactory === undefined ? async (currentToken: string, signal: AbortSignal) => (
+      await fetchBrowserCompatibility(currentToken, async (input, init) => {
+        const request = (accessToken: string) => {
+          const headers = new Headers(init?.headers);
+          headers.set('authorization', `Bearer ${accessToken}`);
+          return fetch(new URL(input, origin.replace(/^ws/, 'http')), { ...init, signal, headers });
+        };
+        const response = await request(currentToken);
+        if (response.status !== 401 || !options.refreshToken || signal.aborted) return response;
+        await response.body?.cancel();
+        const refreshed = await renewToken();
+        if (signal.aborted) throw signal.reason;
+        return request(refreshed);
+      })
+    ).postAcknowledgements : undefined);
+  let postAcknowledgements = options.postAcknowledgements
+    ?? (options.store === undefined ? directPostAcknowledgementsSupported() : undefined);
+  // Explicit test/legacy transports without a reader keep their legacy mode.
+  if (postAcknowledgements === undefined && refreshPostAcknowledgements === undefined) postAcknowledgements = false;
   let openedOnce = false;
   let socket: WebSocket | undefined;
   // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
@@ -174,6 +194,18 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let awaitingProbe = false;
   let foregroundProbePending = false;
   let token = options.token;
+  let tokenRenewal: Promise<string> | undefined;
+  const renewToken = (): Promise<string> => {
+    if (tokenRenewal) return tokenRenewal;
+    const mine = generation;
+    const pending = Promise.resolve().then(() => options.refreshToken!()).then((refreshed) => {
+      if (mine !== generation || !RESUMABLE.has(state)) throw new Error('retired credential renewal');
+      token = setToken(refreshed);
+      return token;
+    }).finally(() => { if (tokenRenewal === pending) tokenRenewal = undefined; });
+    tokenRenewal = pending;
+    return pending;
+  };
   // Every socket carries the generation that created it. A frozen tab can hand
   // back events from a socket we already replaced; without this they would
   // reset `connected`, schedule retries, or resubscribe on a dead wire.
@@ -227,6 +259,65 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       return false;
     }
   };
+
+  // harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+  let capabilityCheck: AbortController | undefined;
+  let capabilityRetry: ReturnType<typeof setTimeout> | undefined;
+  let capabilityBackoff = 500;
+  const setPostCapability = (supported: boolean | undefined): void => {
+    if (postAcknowledgements === supported) return;
+    postAcknowledgements = supported;
+    publishPostState();
+  };
+  const cancelCapabilityCheck = (): void => {
+    if (capabilityRetry !== undefined) clearTimeout(capabilityRetry);
+    capabilityRetry = undefined;
+    capabilityCheck?.abort(new Error('retired capability check'));
+    capabilityCheck = undefined;
+  };
+  const checkPostCapability = (mine: number): void => {
+    if (mine !== generation || state !== 'connected' || !refreshPostAcknowledgements
+      || postAcknowledgements !== undefined || capabilityCheck || capabilityRetry !== undefined) return;
+    const controller = new AbortController();
+    capabilityCheck = controller;
+    let aborted: () => void;
+    const deadline = setTimeout(() => controller.abort(new Error('capability check timed out')), 5_000);
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      aborted = () => reject(controller.signal.reason);
+      controller.signal.addEventListener('abort', aborted, { once: true });
+    });
+    void Promise.race([Promise.resolve().then(() => refreshPostAcknowledgements(token, controller.signal)), cancelled])
+      .catch(() => undefined)
+      .then((supported) => {
+        if (mine !== generation || state !== 'connected' || capabilityCheck !== controller) return;
+        setPostCapability(supported);
+        if (supported === true) {
+          const room = pendingSubmission.room;
+          if (room !== undefined && liveRooms.has(room)) pendingSubmission.ready(room, mine, send);
+        }
+      })
+      .finally(() => {
+        clearTimeout(deadline);
+        controller.signal.removeEventListener('abort', aborted);
+        if (capabilityCheck !== controller) return;
+        capabilityCheck = undefined;
+        if (mine !== generation || state !== 'connected' || postAcknowledgements !== undefined) return;
+        if (clientStore.getState().authRefused) {
+          state = 'parked-auth';
+          clientStore.getState().setConnected(false);
+          setToken('');
+          clearRetry(); clearProbes();
+          retire(socket); socket = undefined;
+          return;
+        }
+        capabilityRetry = setTimeout(() => {
+          capabilityRetry = undefined;
+          checkPostCapability(mine);
+        }, capabilityBackoff);
+        capabilityBackoff = Math.min(capabilityBackoff * 2, 10_000);
+      });
+  };
+  // harn:end post-capability-recovery-is-owned-and-bounded
 
   // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-socket-history
   const subscribe = (room: string, hydrateLimit: number): void => {
@@ -415,11 +506,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     }
     clearRetry();
     clearProbes();
+    cancelCapabilityCheck();
+    capabilityBackoff = 500;
     // Starting a replacement generation withdraws send admission immediately.
     // In relay mode the next WebSocket OPEN is optimistic: it proves only that
     // the mux stream exists, not that the host loopback can carry app frames.
     clientStore.getState().setConnected(false);
     const mine = ++generation;
+    tokenRenewal = undefined;
     retire(socket);
     subscribed = new Set();
     subscriptionBudgets = new Map();
@@ -432,27 +526,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     liveRooms = new Set();
     socket = socketFactory(`${origin}/ws?token=${encodeURIComponent(token)}`);
     const live = (): boolean => mine === generation && state !== 'disposed';
-    let appEvidence = false;
-    postCapabilityReady = !openedOnce || refreshPostAcknowledgements === undefined;
+    if (openedOnce && refreshPostAcknowledgements !== undefined) setPostCapability(undefined);
     openedOnce = true;
-    if (!postCapabilityReady && refreshPostAcknowledgements !== undefined) {
-      // A replacement daemon may be older. Never send an old retained id until
-      // this generation explicitly advertises durable receipts again.
-      void refreshPostAcknowledgements(token).catch(() => false).then((supported) => {
-        if (!live()) return;
-        postAcknowledgements = supported;
-        postCapabilityReady = true;
-        if (appEvidence && state === 'connected') clientStore.getState().setConnected(true);
-        const room = pendingSubmission.room;
-        if (supported && state === 'connected' && room !== undefined && liveRooms.has(room)) {
-          pendingSubmission.ready(room, mine, send);
-        }
-      });
-    }
 
     socket.onopen = () => {
       if (!live()) return;
       state = 'connected';
+      checkPostCapability(mine);
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom, socketHistoryLimit);
@@ -468,6 +548,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (frame.type === 'upgrade_required') {
         // A server-chosen park: never resumed automatically, only by reload.
         state = 'parked-upgrade';
+        cancelCapabilityCheck();
         clearProbes();
         clientStore.getState().setConnected(false);
         if (options.onUpgradeRequired) options.onUpgradeRequired(frame);
@@ -482,10 +563,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       trafficVersion++;
       streamRepairs = 0;
       retryMs = 500;
-      appEvidence = true;
-      clientStore.getState().setConnected(postCapabilityReady);
+      clientStore.getState().setConnected(true);
       // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
       const submissionRoom = pendingSubmission.receive(frame);
+      if (submissionRoom !== undefined) publishPostState();
       // Receipts settle composer ownership only. Their original seq is not a
       // new replay cursor and presentation remains ordinary live/history data.
       if (frame.type === 'post_accepted') return;
@@ -509,7 +590,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         }
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
-        if (postAcknowledgements && postCapabilityReady) pendingSubmission.ready(completed, mine, send);
+        if (postAcknowledgements === true) pendingSubmission.ready(completed, mine, send);
       }
       // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
@@ -534,6 +615,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     socket.onclose = (event) => {
       if (!live()) return;
       diagnose('app-close', event.code);
+      cancelCapabilityCheck();
       clearProbes();
       if (state === 'connected' || state === 'disconnected') state = 'disconnected';
       clientStore.getState().setConnected(false);
@@ -561,10 +643,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         retryMs = Math.min(retryMs * 2, 10_000);
       };
       if (event.code === 4401 && options.refreshToken) {
-        void options.refreshToken().then(
-          (refreshed) => {
+        void renewToken().then(
+          () => {
             if (!live()) return;
-            token = setToken(refreshed);
             reconnect();
           },
           () => {
@@ -653,6 +734,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const stopTunnel = options.tunnel?.subscribe((tunnelState, tunnelGeneration) => {
     if (!RESUMABLE.has(state)) return;
     if (tunnelState !== 'connected') {
+      cancelCapabilityCheck();
       clearRetry();
       clearProbes();
       state = 'disconnected';
@@ -670,6 +752,18 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const connector: RoomConnector = {
     room: () => currentRoom,
     state: () => state,
+    compositionOwner: options.compositionOwner ?? {},
+    subscribePostState: (listener) => {
+      postStateListeners.add(listener);
+      return () => { postStateListeners.delete(listener); };
+    },
+    postStateVersion: () => postStateVersion,
+    stopWaitingForSubmission: (room, id) => {
+      if (postAcknowledgements !== false || state !== 'connected' || !liveRooms.has(room)) return false;
+      const stopped = pendingSubmission.stopWaiting(room, id);
+      if (stopped) publishPostState();
+      return stopped;
+    },
     // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=connector-post-dispatch-result
     get postAcknowledgements() { return postAcknowledgements; },
     get submissionPending() { return pendingSubmission.active; },
@@ -680,13 +774,15 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       };
-      if (!postCapabilityReady || pendingSubmission.active) return false;
+      if (postAcknowledgements === undefined || pendingSubmission.active) return false;
       if (!postAcknowledgements) return send(frame);
       if (state !== 'connected' || !liveRooms.has(frame.room)
         || (options.tunnel !== undefined && (options.tunnel.state !== 'connected'
           || options.tunnel.generation !== openedTunnelGeneration))) return false;
       frame.submission_id = opts?.submissionId ?? crypto.randomUUID();
-      return pendingSubmission.post(frame, generation, send, opts?.onResult);
+      const sent = pendingSubmission.post(frame, generation, send, opts?.onResult);
+      if (sent) publishPostState();
+      return sent;
     },
     // harn:end reconnect-safe-post-dispatch-preserves-draft
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
@@ -705,6 +801,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     disconnect: () => {
       // An operator-chosen park: lifecycle events must not undo it.
       state = 'parked-manual';
+      cancelCapabilityCheck();
       clearRetry();
       clearProbes();
       generation += 1;
@@ -740,6 +837,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     },
     dispose: () => {
       state = 'disposed';
+      cancelCapabilityCheck();
+      postStateListeners.clear();
       clearRetry();
       clearProbes();
       // The page is going away: nothing should still read as connected.

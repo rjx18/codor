@@ -2,7 +2,9 @@
 
 An authenticated `/api/client-compatibility` response can advertise
 `post_acknowledgements: true`. This is additive; browser protocol epoch 2 is
-unchanged. Missing support means legacy posting and **no automatic post retry**.
+unchanged. A successful compatibility response without the field, or a verified
+404/405, means legacy posting and **no automatic post retry**. Timeouts, failed
+responses and malformed data leave support unknown; they do not prove a downgrade.
 
 A capable caller sends its ordinary `post` frame with one opaque
 `submission_id` (1–128 characters). Generate a fresh random ID per intentional
@@ -58,11 +60,22 @@ The browser keeps one already-dispatched immutable submission per computer
 connector. Only the original room's ready authenticated socket generation may
 retry it, once per replacement generation. The capability is rechecked on a
 replacement connection, so a downgraded daemon cannot accidentally accept a
-retained ID as a second legacy post. An unresolved retained submission stays
-visible if support disappears. Current-generation results settle only their own
+retained ID as a second legacy post. Unknown results recover through one owned,
+abortable check at a time (five-second deadline, retry backoff from 500ms capped
+at ten seconds). Managed reads use the same session credential-renewal path as
+other idempotent reads. Retirement cancels checks; healthy app traffic stays
+connected, and only verified support permits the original-ID retry.
+
+For a verified unsupported replacement, the source composer offers **Stop
+waiting** after the user confirms checking delivery in the destination
+conversation. This releases only local waiting, preserves the full draft and
+warns that delivery remains uncertain. It neither cancels nor resends anything
+on the server, and a late acknowledgement cannot clear the preserved draft. Current-generation results settle only their own
 source room/computer. Body, reply, attachments, edited-draft state and completed
-voice transcripts stay in page memory while switching views; a result clears
-only the unchanged original draft. Rejected voice can be edited or sent again
+voice transcripts stay in page memory while switching views. Cached and live connectors of the same computer session
+share one composition owner, retaining edited-empty drafts, replies and media
+state across that handover without sharing them with another computer or
+forgotten pairing. A result clears only the unchanged original draft. Rejected voice can be edited or sent again
 without transcription/upload being repeated automatically.
 
 `Connection.post()` reports local socket write acceptance, not server acceptance.
@@ -87,7 +100,9 @@ exactly-once agent external actions or delivery through a permanent outage.
 insertion and after commit (messages/groups and schedules), restart, concurrent
 socket requests, stable refreshed credentials, revocation, authorization,
 qualified routing, changed payloads and attachment/voice deletion tombstones.
-`room46-post-submissions.e2e.spec.ts` exercises direct and hosted real browsers,
+`room47-submission-recovery.e2e.spec.ts` additionally proves transient capability
+timeouts, explicit downgrade recovery and actual cached-to-live draft/reply
+handover. `room46-post-submissions.e2e.spec.ts` exercises direct and hosted real browsers,
 old/new combinations, loss boundaries, edited drafts, room/computer switching,
 grouped attachment posts and voice retries. Its optional runtime and web-root
 inputs permit the unchanged base and locally installed npm packages to supply
@@ -103,10 +118,5 @@ drafts without reload. Test storage can stay
 inside a checkout by setting `TMPDIR` there and `GIT_CEILING_DIRECTORIES` to that
 test root, preventing non-repository fixtures from inheriting the checkout.
 
-The installed browser restart proof records one inherited P5 relay teardown
-diagnostic: a coalescer flush attempts `channel.seal` after the channel was
-cleared. The unchanged browser and daemon at clean base `18ee45c2` reproduce the
-same exception on an ordinary hosted restart without P6. Both versions recover;
-P6 receipt, retry and draft assertions pass. The proof permits only that exact
-known diagnostic (at most once per hosted restart) and fails on other browser
-errors. Relay teardown source is unchanged in this phase.
+The installed browser restart proof requires zero page errors through both direct
+and hosted daemon restarts; no teardown exception is permitted.

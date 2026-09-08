@@ -1,7 +1,7 @@
 id: composer-drafts-stay-in-memory-with-source-owner
 hash: a-a479b020d0a1
 title: Drafts retain their source owner in memory
-state: active
+state: retired
 statement: Draft body, reply, uploaded attachment selections and pending
   submission settlement are retained only in page memory under their originating
   connection and room across view changes and reconnect. Correlated success and
@@ -12,3 +12,4 @@ depends_on:
   - composer-acknowledgement-preserves-owned-raw-drafts
   - pending-submission-retries-only-through-ready-owner
 created_by: relay-polish-p6-idempotent-posts
+retired_by: relay-polish-p6-review-capability-drafts

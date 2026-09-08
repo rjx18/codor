@@ -2,7 +2,8 @@ import type { PostFrame, ServerFrame } from '@codor/protocol';
 
 export type SubmissionResult =
   | Extract<ServerFrame, { type: 'post_accepted' }>
-  | Extract<ServerFrame, { type: 'error' }>;
+  | Extract<ServerFrame, { type: 'error' }>
+  | { type: 'post_wait_stopped'; origin_room: string; submission_id: string };
 
 // harn:assume pending-submission-retries-only-through-ready-owner ref=p6-pending-submission-retries-only-through-ready-owner
 /** One already-dispatched operation, never an offline queue. The connector
@@ -48,6 +49,16 @@ export class PendingSubmission {
     pending.result?.(frame);
     return pending.frame.room;
   }
+
+  // harn:assume unsupported-submissions-can-stop-local-wait ref=stop-local-submission-wait
+  stopWaiting(room: string, id: string): boolean {
+    const pending = this.pending;
+    if (!pending || pending.frame.room !== room || pending.frame.submission_id !== id) return false;
+    this.pending = undefined;
+    pending.result?.({ type: 'post_wait_stopped', origin_room: room, submission_id: id });
+    return true;
+  }
+  // harn:end unsupported-submissions-can-stop-local-wait
 
   dispose(): void { this.pending = undefined; }
 }

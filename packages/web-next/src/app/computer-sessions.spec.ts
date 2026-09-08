@@ -1162,3 +1162,35 @@ describe('ComputerSessionManager', () => {
   });
   // harn:end worktree-conversation-status-is-live-and-independent
 });
+
+it('renews capability reads through the originating session while another computer is active', async () => {
+  const h = harness(); const make = h.deps.makeTunnel;
+  const requests: Array<{ computer: string; token: string | null }> = [];
+  h.deps.makeTunnel = (material) => ({ ...make(material), fetch: async (_input, init) => {
+    const token = new Headers(init?.headers).get('authorization');
+    requests.push({ computer: material.computer.id, token });
+    return token === 'Bearer refreshed-A' ? new Response('{"supported":true}') : new Response('{}', { status: 401 });
+  } });
+  const manager = new ComputerSessionManager(h.deps); await manager.start();
+  for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+  let finish!: () => void;
+  const renew = vi.fn(async () => {
+    await new Promise<void>((resolve) => { finish = resolve; }); return { token: 'refreshed-A' };
+  });
+  h.deps.authenticate = renew;
+  h.deps.loadCompatibility = async (_token, transport, signal) => {
+    const response = await transport.fetch('/api/client-compatibility', { signal });
+    return { combinedTranscriptHistory: true, postAcknowledgements: response.ok ? (await response.json()).supported : undefined };
+  };
+  try {
+    const read = h.connectorOptions.get('A')!.refreshPostAcknowledgements!;
+    const a = read('token-A', new AbortController().signal);
+    const b = read('token-A', new AbortController().signal);
+    for (let tick = 0; tick < 20; tick++) await Promise.resolve();
+    await manager.activate('B'); expect(renew).toHaveBeenCalledTimes(1); finish();
+    expect(await Promise.all([a, b])).toEqual([true, true]);
+    expect(requests.every((request) => request.computer === 'A')).toBe(true);
+    expect(requests.slice(-2).map((request) => request.token)).toEqual(['Bearer refreshed-A', 'Bearer refreshed-A']);
+    expect(h.connectorOptions.get('A')!.compositionOwner).not.toBe(h.connectorOptions.get('B')!.compositionOwner);
+  } finally { manager.dispose(); }
+});

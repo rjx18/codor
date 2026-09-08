@@ -1217,9 +1217,102 @@ it('rechecks a replacement daemon capability and never retries an old receipt ag
   connector.post('possibly accepted', { submissionId: 'keep-original' }); first.drop();
   await vi.advanceTimersByTimeAsync(500); const second = latest(); second.accept();
   second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 }); await flush();
-  expect(refresh).toHaveBeenCalledExactlyOnceWith('token');
+  expect(refresh).toHaveBeenCalledExactlyOnceWith('token', expect.any(AbortSignal));
   expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toEqual([]);
   expect(connector.submissionPending).toBe(true);
   expect(connector.post('unsafe replacement')).toBe(false);
   connector.dispose();
 });
+
+// harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+describe('review: capability verification recovers without replacing healthy sockets', () => {
+  it('aborts a timed-out check, coalesces healthy traffic, and retries the retained id once after verification', async () => {
+    vi.useFakeTimers();
+    let finishFirst!: (supported: boolean) => void;
+    const refresh = vi.fn((_token: string, _signal: AbortSignal): Promise<boolean | undefined> =>
+      refresh.mock.calls.length === 1 ? new Promise((resolve) => { finishFirst = resolve; }) : Promise.resolve(true));
+    const connector = createConnector({ room: 'eng', token: 'token', postAcknowledgements: true,
+      refreshPostAcknowledgements: refresh, socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    const result = vi.fn(); connector.post('frozen', { submissionId: 'original', onResult: result });
+    first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    for (let i = 0; i < 5; i++) second.deliver({ type: 'rooms', rooms: [{ id: 'eng' }] });
+    await flush();
+    expect(useClientStore.getState().connected).toBe(true);
+    expect(connector.postAcknowledgements).toBeUndefined(); expect(connector.post('new send')).toBe(false);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(refresh.mock.calls[0]![1].aborted).toBe(true);
+    expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    const posts = second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post');
+    expect(posts).toEqual([{ type: 'post', room: 'eng', body: 'frozen', submission_id: 'original' }]);
+    finishFirst(false); await flush(); expect(connector.postAcknowledgements).toBe(true);
+    expect(FakeSocket.instances).toHaveLength(2);
+    second.deliver({ type: 'post_accepted', submission_id: 'original', origin_room: 'eng',
+      outcome: { kind: 'message', room: 'eng', message_id: 1, seq: 1, delivery_ids: [] } });
+    expect(result).toHaveBeenCalledOnce();
+    connector.dispose(); await vi.advanceTimersByTimeAsync(60_000); expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses capped retries for unknown results and cancels them on park/disposal', async () => {
+    vi.useFakeTimers(); const refresh = vi.fn(async () => undefined);
+    const connector = createConnector({ room: 'eng', token: 'token', refreshPostAcknowledgements: refresh,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const socket = latest(); socket.accept(); socket.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    await flush(); await vi.advanceTimersByTimeAsync(3500);
+    expect(refresh.mock.calls.length).toBe(4); // initial, 0.5s, 1.5s, 3.5s
+    connector.disconnect(); await vi.advanceTimersByTimeAsync(60_000); expect(refresh.mock.calls.length).toBe(4);
+    connector.dispose();
+  });
+
+  it('coalesces direct capability 401 renewal with the socket renewal and retains the fresh credential', async () => {
+    vi.useFakeTimers();
+    let finish!: (token: string) => void;
+    const renewal = vi.fn(() => new Promise<string>((resolve) => { finish = resolve; }));
+    const request = vi.fn(async (_input: unknown, init?: RequestInit) => new Headers(init?.headers).get('authorization') === 'Bearer fresh'
+      ? new Response('{"post_acknowledgements":true}') : new Response('{}', { status: 401 }));
+    vi.stubGlobal('fetch', request);
+    const connector = createConnector({ room: 'eng', token: 'old', postAcknowledgements: true, refreshToken: renewal });
+    const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    connector.post('owned', { submissionId: 'one' }); first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    expect(renewal).toHaveBeenCalledTimes(1);
+    second.drop(4401); await flush(); expect(renewal).toHaveBeenCalledTimes(1);
+    finish('fresh'); await flush(); await vi.advanceTimersByTimeAsync(500);
+    const third = latest(); expect(third.url).toContain('fresh'); third.accept();
+    third.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    for (let i = 0; i < 32; i++) await Promise.resolve();
+    expect(renewal).toHaveBeenCalledTimes(1); expect(connector.postAcknowledgements).toBe(true);
+    expect(third.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post'))
+      .toEqual([{ type: 'post', room: 'eng', body: 'owned', submission_id: 'one' }]);
+    connector.dispose();
+  });
+
+  it('verified downgrade permits only explicit matching local release, never a legacy replay', async () => {
+    vi.useFakeTimers(); const refresh = vi.fn(async () => false); const result = vi.fn();
+    const connector = createConnector({ room: 'eng', token: 'token', postAcknowledgements: true,
+      refreshPostAcknowledgements: refresh, socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    const first = latest(); first.accept(); first.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    connector.post('uncertain', { submissionId: 'one', onResult: result }); first.drop(); await vi.advanceTimersByTimeAsync(500);
+    const second = latest(); second.accept(); second.deliver({ type: 'sync_complete', room: 'eng', seq: 0 }); await vi.advanceTimersByTimeAsync(0);
+    expect(connector.postAcknowledgements).toBe(false);
+    expect(connector.stopWaitingForSubmission!('other', 'one')).toBe(false);
+    expect(connector.stopWaitingForSubmission!('eng', 'different')).toBe(false);
+    expect(connector.post('blocked')).toBe(false);
+    expect(connector.stopWaitingForSubmission!('eng', 'one')).toBe(true);
+    expect(result).toHaveBeenCalledExactlyOnceWith({ type: 'post_wait_stopped', origin_room: 'eng', submission_id: 'one' });
+    expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post')).toHaveLength(0);
+    second.deliver({ type: 'post_accepted', submission_id: 'one', origin_room: 'eng',
+      outcome: { kind: 'message', room: 'eng', message_id: 1, seq: 1, delivery_ids: [] } });
+    expect(result).toHaveBeenCalledOnce();
+    expect(connector.post('new intentional send')).toBe(true);
+    expect(second.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post'))
+      .toEqual([{ type: 'post', room: 'eng', body: 'new intentional send' }]);
+    connector.dispose();
+  });
+});
+// harn:end post-capability-recovery-is-owned-and-bounded

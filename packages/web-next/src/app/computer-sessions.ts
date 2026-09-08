@@ -88,6 +88,7 @@ interface SessionTunnel {
 }
 
 interface SessionEntry {
+  compositionOwner: object;
   material: HostedComputerMaterial;
   tunnel: SessionTunnel;
   store: ClientStore;
@@ -169,7 +170,7 @@ export interface ComputerSessionDeps {
   makeTunnel(material: HostedComputerMaterial): SessionTunnel;
   authenticate(material: HostedComputerMaterial, tunnel: SessionTunnel, signal?: AbortSignal): Promise<BrowserDeviceSession>;
   loadRooms(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<RoomSummary[]>;
-  loadCompatibility(token: string, tunnel: SessionTunnel, signal?: AbortSignal): Promise<boolean | BrowserCompatibilityResult>;
+  loadCompatibility(token: string, tunnel: Pick<SessionTunnel, 'fetch'>, signal?: AbortSignal): Promise<boolean | BrowserCompatibilityResult>;
   makeConnector(options: ConnectorOptions): RoomConnector;
   switchStored(id: string): Promise<void>;
   pair(code: string, relayUrl: string): Promise<void>;
@@ -465,6 +466,7 @@ export class ComputerSessionManager {
     const store = createClientStore();
     const tunnel = this.deps.makeTunnel(material);
     const entry: SessionEntry = {
+      compositionOwner: {},
       material,
       tunnel,
       store,
@@ -615,6 +617,7 @@ export class ComputerSessionManager {
     return {
       room: () => room,
       state: () => 'disconnected',
+      compositionOwner: entry.compositionOwner,
       // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=cached-connector-rejection
       // A cached offline shell is read-only and cannot accept a post. Report
       // that refusal so the composer keeps the draft retryable.
@@ -695,6 +698,7 @@ export class ComputerSessionManager {
         entry.connector = this.deps.makeConnector({
           room,
           computerId: entry.material.computer.id,
+          compositionOwner: entry.compositionOwner,
           token,
           origin: relayAccessOrigin(entry.material.relay.relay_url).replace(/^http/, 'ws'),
           socketFactory: entry.tunnel.socketFactory.bind(entry.tunnel),
@@ -704,11 +708,14 @@ export class ComputerSessionManager {
           tunnel: entry.tunnel,
           combinedTranscriptHistory: typeof combinedTranscriptHistory === 'boolean'
             ? combinedTranscriptHistory : combinedTranscriptHistory.combinedTranscriptHistory,
-          postAcknowledgements: typeof combinedTranscriptHistory !== 'boolean'
-            && combinedTranscriptHistory.postAcknowledgements === true,
-          refreshPostAcknowledgements: async (currentToken) => {
-            const compatibility = await this.deps.loadCompatibility(currentToken, entry.tunnel);
-            return typeof compatibility !== 'boolean' && compatibility.postAcknowledgements === true;
+          postAcknowledgements: typeof combinedTranscriptHistory === 'boolean'
+            ? false : combinedTranscriptHistory.postAcknowledgements,
+          refreshPostAcknowledgements: async (currentToken, signal) => {
+            // Use the same captured session read/renewal path as other owned
+            // idempotent reads, never the subsequently selected global tunnel.
+            const request = this.captureEntryRequest(entry);
+            const compatibility = await this.deps.loadCompatibility(currentToken, { fetch: request.fetch }, signal);
+            return typeof compatibility === 'boolean' ? false : compatibility.postAcknowledgements;
           },
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {

@@ -14,6 +14,11 @@ import { HISTORY_PAGE_SIZE, useRoomStore } from './state.js';
 import { directCombinedTranscriptHistorySupported } from '../app/compatibility.js';
 
 export interface Connection {
+  /** Stable page-memory identity shared by cached/live shells of one session. */
+  readonly compositionOwner?: object;
+  subscribePostState?(listener: () => void): () => void;
+  postStateVersion?(): number;
+  stopWaitingForSubmission?(room: string, id: string): boolean;
   readonly postAcknowledgements?: boolean;
   readonly submissionPending?: boolean;
   post(

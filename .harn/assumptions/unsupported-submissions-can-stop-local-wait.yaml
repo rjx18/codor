@@ -1,0 +1,15 @@
+id: unsupported-submissions-can-stop-local-wait
+hash: a-829198048214
+title: Unsupported pending submissions can release local waiting explicitly
+state: active
+statement: A verified unsupported replacement exposes an explicit
+  originating-submission control to stop waiting after the user confirms
+  checking delivery. It releases only that local pending latch, preserves the
+  editable composition, warns that delivery remains uncertain and does not claim
+  server cancellation. It sends no post or cancellation, never automatically
+  retries through legacy semantics, and ignores late results for the released
+  ID.
+depends_on:
+  - post-capability-recovery-is-owned-and-bounded
+  - composer-acknowledgement-preserves-owned-raw-drafts
+created_by: relay-polish-p6-review-capability-drafts

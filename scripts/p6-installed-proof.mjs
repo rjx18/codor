@@ -156,15 +156,10 @@ async function browserRestartProof() {
       assert.deepEqual(received.at(-1), original);
       assert.equal(await page.getByTestId('composer-input').inputValue(), edited);
       assert.equal(query('SELECT id FROM messages WHERE room = ? AND body = ?', 'proof', body).length, 1);
-      // The exact clean pre-P6 installed browser reproduces one coalescer
-      // flush after relay teardown with channel already cleared (18ee45c2).
-      // Record that inherited P5 diagnostic explicitly; every other error fails.
-      const inheritedErrors = errors.filter((error) => hosted
-        && error.includes("Cannot read properties of undefined (reading 'seal')")
-        && error.includes('.onPacket') && error.includes('.flush'));
-      assert.deepEqual(errors.filter((error) => !inheritedErrors.includes(error)), []);
-      assert.ok(inheritedErrors.length <= 1);
-      proofs.push({ inherited_p5_teardown_errors: inheritedErrors, transport: hosted ? 'hosted' : 'direct', submission_id: original.submission_id,
+      // harn:assume browser-retired-muxes-cannot-emit ref=packed-zero-error-restarts
+      assert.deepEqual(errors, []);
+      // harn:end browser-retired-muxes-cannot-emit
+      proofs.push({ browser_errors: errors, transport: hosted ? 'hosted' : 'direct', submission_id: original.submission_id,
         message_id: original.outcome.message_id, same_id_after_sigkill: true, edited_draft_preserved: true });
       await context.close();
     }

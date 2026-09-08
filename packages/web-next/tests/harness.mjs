@@ -120,6 +120,8 @@ const daemon = new Daemon({
 // P6 fault injection stays at the real daemon/WebSocket boundary. Captured
 // frames contain only fixture data; no production protocol seam is introduced.
 let p6Fault;
+let p6CapabilityFault;
+let p6CapabilityRequests = 0;
 const p6Attempts = [];
 const p6AppSockets = new Set();
 const p6SocketEmit = WebSocket.prototype.emit;
@@ -1805,6 +1807,14 @@ createServer((req, res) => {
         }
         payload = { ok: true };
       }
+      if (url.pathname === '/p6-capability') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        if (body.mode !== undefined) {
+          p6CapabilityFault = body.mode === 'clear' ? undefined : { mode: body.mode, remaining: body.remaining ?? 1 };
+          p6CapabilityRequests = 0;
+        }
+        payload = { requests: p6CapabilityRequests };
+      }
       if (url.pathname === '/p6-fault') {
         const body = raw === '' ? {} : JSON.parse(raw);
         p6Fault = body.point ? { point: body.point, needle: body.needle } : undefined;
@@ -2296,7 +2306,7 @@ const voiceProviders = [{
     },
   }),
 }];
-await startServer({
+const p6Server = await startServer({
   daemon,
   token: TOKEN,
   port: API_PORT,
@@ -2318,6 +2328,29 @@ await startServer({
   voiceProvider: 'codex',
   voiceProviders,
 });
+// Replace only a compatibility response at the real HTTP boundary. A stalled
+// reply is released when the client's owned timeout aborts that request.
+const p6HttpEmit = p6Server.app.server.emit.bind(p6Server.app.server);
+p6Server.app.server.emit = function (event, ...args) {
+  if (event === 'request' && args[0].url?.startsWith('/api/client-compatibility')) {
+    p6CapabilityRequests++;
+    const fault = p6CapabilityFault;
+    if (fault && fault.remaining !== 0) {
+      fault.remaining--;
+      const response = args[1];
+      if (fault.mode === 'timeout') {
+        response.on('close', () => response.destroy());
+        return true;
+      }
+      response.writeHead(fault.mode === 'unsupported' ? 200 : 503, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(fault.mode === 'unsupported'
+        ? { browser_protocol: 2, combined_transcript_history: true, post_acknowledgements: false }
+        : { error: 'temporary capability failure' }));
+      return true;
+    }
+  }
+  return p6HttpEmit(event, ...args);
+};
 console.log(`  relay:  ${mockRelay.url}`);
 
 // Separate SPA origin: serve dist/ files, and fall back to index.html for every

@@ -10,7 +10,7 @@ import {
   type WorktreeRoutingTarget,
 } from '@codor/protocol';
 import { ArrowUp, AtSign, Mic, Paperclip, X } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
 import type { SubmissionResult } from '../app/pending-submission.js';
@@ -40,6 +40,8 @@ import {
 import { MiniWaveform } from './MiniWaveform.js';
 
 const MAX_ROWS = 8;
+const noPostSubscription = () => () => undefined;
+const noPostVersion = () => 0;
 
 const COMPOSER_MEASURE_PROPERTIES = [
   'box-sizing',
@@ -285,10 +287,11 @@ export function pendingComposerResolution(
   currentRawBody: string,
   errorCount: number,
   schedules?: Readonly<Record<string, Schedule>>,
-): 'clear' | 'preserve' | 'error' | undefined {
+): 'clear' | 'preserve' | 'error' | 'uncertain' | undefined {
   if (pending.submissionId !== undefined) {
     if (pending.result?.submission_id !== pending.submissionId) return undefined;
     if (pending.result.type === 'error') return 'error';
+    if (pending.result.type === 'post_wait_stopped') return 'uncertain';
     return currentRawBody === pending.rawBody ? 'clear' : 'preserve';
   }
   // harn:assume scheduled-composer-settles-original-owned-outcome ref=scheduled-pending-composer-send
@@ -334,6 +337,9 @@ export function Composer(props: { room: string; token: () => string; connection:
 
 function OwnedComposer(props: { room: string; token: () => string; connection: Connection }) {
   const isMobile = useIsMobile();
+  const postVersion = useSyncExternalStore(props.connection.subscribePostState ?? noPostSubscription,
+    props.connection.postStateVersion ?? noPostVersion, noPostVersion);
+  const [checkedDelivery, setCheckedDelivery] = useState(false);
   const connected = useClientStore((state) => state.connected);
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const members = slice.members;
@@ -361,6 +367,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   const [routingCatalog, setRoutingCatalog] = useState<WorktreeRoutingCatalog>();
   const [qualifiedMention, setQualifiedMention] = useState<QualifiedMentionQuery>();
   const [pendingSend, setPendingSend] = useComposerMemory<PendingComposerSend | undefined>(props.connection, props.room, 'submission', undefined);
+  useEffect(() => setCheckedDelivery(false), [pendingSend?.submissionId, props.connection.postAcknowledgements]);
   // The selector closes over one pending destination and returns only its
   // message-map identity. Member/inbox churn there, and every update in every
   // other room, therefore leaves the active composer alone while typing.
@@ -467,8 +474,12 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   // frame arrives. A lifecycle race therefore remains visible and retryable.
   useEffect(() => {
     if (pendingSend === undefined) return;
-    if (pendingSend.submissionId !== undefined && connected && !props.connection.postAcknowledgements) {
-      setHint('This server cannot confirm the earlier send. Check the conversation before sending it again.');
+    if (pendingSend.submissionId !== undefined && connected) {
+      setHint(props.connection.postAcknowledgements === undefined
+        ? 'Checking whether this computer can confirm the earlier send…'
+        : props.connection.postAcknowledgements === false
+          ? 'This computer cannot confirm the earlier send. Check its delivery before stopping local waiting.'
+          : 'Waiting for acknowledgement…');
     }
     const resolution = pendingComposerResolution(
       pendingDestinationMessages,
@@ -497,12 +508,19 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       }
       return;
     }
+    if (resolution === 'uncertain') {
+      seededRef.current = true;
+      setPendingSend(undefined);
+      setCheckedDelivery(false);
+      setHint('Stopped waiting locally. Delivery is still uncertain; the send was not cancelled.');
+      return;
+    }
     if (resolution === 'error') {
       setHint(pendingSend.result?.type === 'error' ? pendingSend.result.message
         : pendingSourceErrors.at(-1) ?? 'Message was refused');
       setPendingSend(undefined);
     }
-  }, [connected, props.connection, draft, pending, replyTo, pendingDestinationMessages, pendingDestinationSchedules, pendingSend, pendingSourceErrors, setPendingSend]);
+  }, [postVersion, connected, props.connection, draft, pending, replyTo, pendingDestinationMessages, pendingDestinationSchedules, pendingSend, pendingSourceErrors, setPendingSend]);
   // harn:end invalid-qualified-targets-never-fallback
 
   // Until the operator edits, the seeded draft follows hydration as the latest
@@ -584,7 +602,8 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
     return () => cancelAnimationFrame(raf);
   }, [panelOpen, recording]);
 
-  const canSend = connected && hydrated && !uploading && pendingSend === undefined && (draft.trim().length > 0 || pending.length > 0);
+  const canSend = connected && hydrated && !uploading && pendingSend === undefined
+    && (props.connection.postStateVersion === undefined || props.connection.postAcknowledgements !== undefined) && (draft.trim().length > 0 || pending.length > 0);
 
   // Attach files: enforce the caps with plain messaging, then upload each so the
   // post frame can reference server ids. Chips show what will ride the message.
@@ -743,6 +762,10 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   const sendDictation = (): void => {
     const session = sessionRef.current;
     if (!session || sending || pendingSend !== undefined || props.connection.submissionPending || !mediaMutationAllowed('voice')) return;
+    if (props.connection.postStateVersion && props.connection.postAcknowledgements === undefined) {
+      setHint('Checking message support. Your recording is preserved.');
+      return;
+    }
     setSending(true); // single-slot: a second press is impossible
     setHint(undefined);
     session.sendWhenReady()
@@ -938,6 +961,10 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
     // state render under load. Read the controlled element at the action edge
     // so an overwritten seeded @mention can never be submitted from a stale
     // closure.
+    if (props.connection.postStateVersion && props.connection.postAcknowledgements === undefined) {
+      setHint('Checking message support. Your draft is preserved.');
+      return;
+    }
     const snapshot = composerDispatchSnapshot(areaRef.current?.value ?? draft);
     const body = canonicalizeScheduleRequest(snapshot.body);
     if (props.connection.submissionPending && pendingSend === undefined) {
@@ -1033,6 +1060,21 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       {hint !== undefined && (
         <p className="nx-composer-hint" role="alert" data-testid="composer-hint">{hint}</p>
       )}
+      {/* harn:assume unsupported-submissions-can-stop-local-wait ref=stop-local-submission-wait */}
+      {connected && props.connection.postAcknowledgements === false && pendingSend?.submissionId !== undefined && (
+        <div className="nx-composer-hint" data-testid="submission-uncertain">
+          <label style={{ display: 'flex', alignItems: 'center', minHeight: 44 }}>
+            <input type="checkbox" checked={checkedDelivery} onChange={(event) => setCheckedDelivery(event.target.checked)} />
+            I checked delivery in the destination conversation
+          </label>
+          <button type="button" className="nx-btn" disabled={!checkedDelivery}
+            onClick={() => props.connection.stopWaitingForSubmission?.(props.room, pendingSend.submissionId!)}>
+            Stop waiting
+          </button>
+          <p>Only local waiting stops. Delivery remains uncertain; this does not cancel or resend the message.</p>
+        </div>
+      )}
+      {/* harn:end unsupported-submissions-can-stop-local-wait */}
       <input
         ref={fileRef}
         type="file"
