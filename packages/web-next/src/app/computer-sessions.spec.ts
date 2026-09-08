@@ -3,6 +3,7 @@ import type { Message, RoomSummary } from '@codor/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const recovery = vi.hoisted(() => ({
+  bindOwner: vi.fn(),
   refresh: vi.fn(),
   refreshHead: vi.fn((_store: unknown, _room: string, _token: () => string) => Promise.resolve(true)),
   finalizedRoots: vi.fn((_store: unknown, _room: string) => new Set<number>()),
@@ -11,6 +12,8 @@ const recovery = vi.hoisted(() => ({
 const lastGoodCache = vi.hoisted(() => ({ snapshots: new Map<string, unknown>() }));
 vi.mock('../room/run-journals.js', () => ({ refreshMutableRunJournals: recovery.refresh }));
 vi.mock('../room/transcript-history.js', () => ({
+  bindTranscriptHistoryOwner: recovery.bindOwner,
+  retireTranscriptHistory: vi.fn(),
   refreshTranscriptHistoryHead: recovery.refreshHead,
   finalizedTranscriptRoots: recovery.finalizedRoots,
 }));
@@ -22,6 +25,7 @@ vi.mock('../runtime/last-good-room.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../runtime/last-good-room.js')>();
   return {
     ...actual,
+    snapshotLastGoodRoom: vi.fn(actual.snapshotLastGoodRoom),
     loadLastGoodRoom: vi.fn(async (id: string) => lastGoodCache.snapshots.get(id)),
     saveLastGoodRoom: vi.fn(async (snapshot: { computerId: string }) => {
       lastGoodCache.snapshots.set(snapshot.computerId, snapshot);
@@ -44,11 +48,89 @@ import {
   deleteLastGoodRoom,
   loadLastGoodRoom,
   saveLastGoodRoom,
+  snapshotLastGoodRoom,
   type LastGoodRoomSnapshot,
 } from '../runtime/last-good-room.js';
 import { reconcileSelectedRoomHistory } from '../room/RoomPage.js';
 
 beforeEach(() => lastGoodCache.snapshots.clear());
+
+describe('bounded hosted background work', () => {
+  it('aborts the captured transport when its tunnel generation is replaced', async () => {
+    const h = harness(); const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    try {
+      const store = h.connectorOptions.get('A')!.store!;
+      const capture = recovery.bindOwner.mock.calls.find((call) => call[0] === store)![1];
+      const operation = capture();
+      expect(operation.token).toBe('token-A');
+      expect(operation.isCurrent()).toBe(true);
+      h.tunnels.get('A')!.set('connected', true);
+      expect(operation.isCurrent()).toBe(false);
+      await expect(operation.fetch('/old')).rejects.toThrow('retired history operation');
+      expect(capture().isCurrent()).toBe(true);
+    } finally { manager.dispose(); }
+  });
+  it('ignores live roots and continuations but observes terminal and deleted evidence', async () => {
+    const h = harness(); const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    try {
+      const store = h.connectorOptions.get('B')!.store!;
+      store.getState().setActiveRoom('same-room');
+      const prior = store.getState();
+      const withMessage = (message: Message) => ({ ...prior, rooms: { ...prior.rooms, 'same-room': {
+        ...prior.rooms['same-room']!, messages: { [message.id]: message },
+      } } });
+      const running = { id: 1, room: 'same-room', kind: 'run', seq: 1, run: { status: 'running' } } as Message;
+      expect(historyEvidenceRooms(withMessage(running), prior)).toEqual([]);
+      expect(historyEvidenceRooms(withMessage({ ...running, run: undefined, run_parent_id: 1, id: 2 }), prior)).toEqual([]);
+      expect(historyEvidenceRooms(withMessage({ ...running, run: { ...running.run!, status: 'completed' } }), prior)).toEqual(['same-room']);
+      expect(historyEvidenceRooms(withMessage({ ...running, deleted: true }), prior)).toEqual(['same-room']);
+    } finally { manager.dispose(); }
+  });
+
+  it('bounds background rooms to two jobs and drops queued generation work on disposal', async () => {
+    const h = harness(); const manager = new ComputerSessionManager(h.deps);
+    const releases: Array<() => void> = [];
+    recovery.refreshHead.mockImplementation(() => new Promise<boolean>((resolve) => { releases.push(() => resolve(true)); }));
+    try {
+      await manager.start();
+      for (let id = 0; id < 8; id++) {
+        const store = h.connectorOptions.get(id % 2 === 0 ? 'B' : 'A')!.store!;
+        const room = `background-${id}`;
+        store.getState().setActiveRoom(room);
+        store.getState().applyFrame({ type: 'message', seq: 1,
+          message: { id: 1, room, seq: 1, kind: 'chat', body: 'new' } } as never);
+      }
+      expect(releases).toHaveLength(2);
+      releases[0]!();
+      for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+      expect(releases).toHaveLength(3);
+      manager.dispose();
+      for (const release of releases) release();
+      for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+      expect(releases).toHaveLength(3);
+    } finally {
+      manager.dispose(); for (const release of releases) release();
+      recovery.refreshHead.mockImplementation(() => Promise.resolve(true));
+    }
+  });
+
+  it('does not notify listeners for unchanged connection and visible summary inputs', async () => {
+    const h = harness(); const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    try {
+      const store = h.connectorOptions.get('A')!.store!;
+      const notify = vi.fn(); const stop = manager.subscribe(notify);
+      const snapshot = manager.getSnapshot();
+      store.getState().setConnected(true);
+      store.getState().setConnected(true);
+      store.setState({ rooms: { ...store.getState().rooms } });
+      expect(manager.getSnapshot()).toBe(snapshot);
+      expect(notify).not.toHaveBeenCalled(); stop();
+    } finally { manager.dispose(); }
+  });
+});
 
 const material = (id: string, gen = 1): HostedComputerMaterial => ({
   computer: { id, gen, label: `Computer ${id}`, label_source: 'fallback', paired_at: `2026-08-0${gen}` },
@@ -321,6 +403,7 @@ describe('ComputerSessionManager', () => {
         },
       }));
       vi.mocked(saveLastGoodRoom).mockClear();
+      vi.mocked(snapshotLastGoodRoom).mockClear();
 
       // Each state notification captures the latest projection, but the timer
       // keeps the stream from issuing one IndexedDB put per event.
@@ -328,11 +411,19 @@ describe('ComputerSessionManager', () => {
       storeA.getState().setConnected(true);
       storeA.getState().setConnected(true);
       expect(saveLastGoodRoom).not.toHaveBeenCalled();
+      expect(snapshotLastGoodRoom).not.toHaveBeenCalled();
+      storeA.getState().setConnected(false);
       await vi.advanceTimersByTimeAsync(249);
       expect(saveLastGoodRoom).not.toHaveBeenCalled();
       await vi.advanceTimersByTimeAsync(1);
       await Promise.resolve();
       expect(saveLastGoodRoom).toHaveBeenCalledTimes(1);
+      expect(snapshotLastGoodRoom).toHaveBeenCalledTimes(1);
+      storeA.getState().setConnected(true);
+      storeA.getState().updateTranscriptHistory('same-room', (history) => ({ ...history }));
+      await manager.forget('A');
+      await vi.advanceTimersByTimeAsync(500);
+      expect(await loadLastGoodRoom('A')).toBeUndefined();
     } finally {
       manager.dispose();
       vi.useRealTimers();

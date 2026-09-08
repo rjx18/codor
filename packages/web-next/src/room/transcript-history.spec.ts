@@ -26,6 +26,8 @@ import {
   useClientStore,
 } from '../app/store.js';
 import {
+  bindTranscriptHistoryOwner,
+  retireTranscriptHistory,
   ensureTranscriptHistory,
   mergeTranscriptPages,
   refreshTranscriptHistoryHead,
@@ -91,8 +93,88 @@ const emptyHistory = (): TranscriptHistoryState => ({
   hasMore: true,
 });
 
-beforeEach(() => api.fetch.mockReset());
+beforeEach(() => { api.fetch.mockReset(); });
 afterEach(resetClientStoreForTest);
+
+describe('owned history work and retained windows', () => {
+  it('does not append an older page after its foreground view retires', async () => {
+    const store = createClientStore(); let visible = true;
+    store.getState().updateTranscriptHistory('same', (history) => mergeTranscriptPages(history,
+      [page([messageUnit(9)], [message(9)], 'older')], 'head'));
+    api.fetch.mockImplementationOnce(async () => {
+      visible = false;
+      return page([messageUnit(5)], [message(5)], 'more');
+    });
+    expect(await revealTranscriptTarget(store, 'same', 1, () => 'token', () => visible)).toBe(false);
+    const history = roomSlice(store.getState(), 'same').transcriptHistory;
+    expect(history.units).toEqual([messageUnit(9)]);
+    expect(history.loadingCursor).toBeUndefined();
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+  });
+  it('keeps head and predecessor on A when the mirror and token switch to B', async () => {
+    const a = createClientStore(); const b = createClientStore();
+    a.getState().setActiveRoom('same'); b.getState().setActiveRoom('same');
+    const fetchA = vi.fn(); const fetchB = vi.fn();
+    bindTranscriptHistoryOwner(a, () => ({ token: 'A', fetch: fetchA, isCurrent: () => true }));
+    bindTranscriptHistoryOwner(b, () => ({ token: 'B', fetch: fetchB, isCurrent: () => true }));
+    let release!: (page: TranscriptHistoryPage) => void;
+    api.fetch.mockImplementation((_room, cursor, options) => {
+      if (options.token === 'A' && cursor === undefined) return new Promise((resolve) => { release = resolve; });
+      return Promise.resolve(page([messageUnit(1)], [{ ...message(1), body: options.token }], null));
+    });
+    mirrorClientStore(a);
+    let token = 'A';
+    const pending = refreshTranscriptHistoryHead(useClientStore, 'same', () => token, undefined, true);
+    mirrorClientStore(b); token = 'B';
+    await refreshTranscriptHistoryHead(useClientStore, 'same', () => token);
+    release(page([messageUnit(2)], [{ ...message(2), body: 'A head' }], 'older'));
+    await pending;
+    expect(api.fetch.mock.calls.map((call) => [call[2].token, call[2].fetch])).toEqual([
+      ['A', fetchA], ['B', fetchB], ['A', fetchA],
+    ]);
+    expect(roomSlice(a.getState(), 'same').transcriptHistory.messages[1]?.body).toBe('A');
+    expect(roomSlice(b.getState(), 'same').transcriptHistory.messages[1]?.body).toBe('B');
+  });
+
+  it('retires stale responses before any predecessor or commit and allows a new generation', async () => {
+    const store = createClientStore(); let generation = 1;
+    bindTranscriptHistoryOwner(store, () => {
+      const captured = generation;
+      return { token: `${captured}`, fetch: vi.fn(), isCurrent: () => generation === captured };
+    });
+    let release!: (page: TranscriptHistoryPage) => void;
+    api.fetch.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const pending = refreshTranscriptHistoryHead(store, 'same', () => '', undefined, true);
+    generation++; retireTranscriptHistory(store);
+    api.fetch.mockResolvedValueOnce(page([messageUnit(9)], [message(9)], null));
+    await refreshTranscriptHistoryHead(store, 'same', () => '');
+    release(page([messageUnit(1)], [message(1)], 'obsolete'));
+    expect(await pending).toBe(false);
+    expect(api.fetch).toHaveBeenCalledTimes(2);
+    expect(Object.keys(roomSlice(store.getState(), 'same').transcriptHistory.messages)).toEqual(['9']);
+  });
+
+  it('releases discarded bodies and journal events after 100 disjoint heads', () => {
+    let history = emptyHistory();
+    for (let id = 1; id <= 100; id++) history = mergeTranscriptPages(history,
+      [{ ...page([proseUnit(id, id, 0)], [message(id, 'run')], null), journals: [{ root_message_id: id,
+        events: [{ index: 0, event: { type: 'run.item', item_type: 'text_block', payload: { text: 'text' } } }] }] }], 'head');
+    expect(Object.keys(history.messages)).toEqual(['100']);
+    expect(Object.keys(history.journals)).toEqual(['100']);
+  });
+
+  it('reuses an unchanged cached overlap without a predecessor request', async () => {
+    const store = createClientStore();
+    const old = page([messageUnit(1), messageUnit(2)], [message(1), message(2)], 'older');
+    store.getState().updateTranscriptHistory('same', (history) => mergeTranscriptPages(history, [old], 'head'));
+    api.fetch.mockResolvedValue(page([messageUnit(2)], [message(2)], 'before-two'));
+    await refreshTranscriptHistoryHead(store, 'same', () => 'token');
+    expect(api.fetch).toHaveBeenCalledTimes(1);
+    const history = roomSlice(store.getState(), 'same').transcriptHistory;
+    expect(history.cacheWindow?.units).toEqual(old.units);
+    expect(history.cacheWindow?.beforeCursor).toBe('older');
+  });
+});
 
 // harn:assume transcript-history-prepends-one-text-slot-page ref=deliberate-text-slot-top-reach-regression
 describe('combined transcript page merging', () => {
@@ -207,7 +289,7 @@ describe('combined transcript page merging', () => {
     expect(merged.units.map(transcriptUnitKey)).toEqual(['message:3', 'message:4']);
   });
 
-  it('keeps a live-only message record without giving it history membership', () => {
+  it('leaves live-only records with their live owner without historical copies', () => {
     const current = mergeTranscriptPages(
       emptyHistory(),
       [page([messageUnit(2)], [message(2)], null, false)],
@@ -219,10 +301,12 @@ describe('combined transcript page merging', () => {
       withLive,
       [page([messageUnit(1), messageUnit(2)], [message(1), message(2)], null, false)],
       'head',
+      { 99: liveOnly },
     );
 
     expect(merged.units.map(transcriptUnitKey)).toEqual(['message:1', 'message:2']);
-    expect(merged.messages[99]).toEqual(liveOnly);
+    expect(merged.messages[99]).toBeUndefined();
+    expect(withLive.messages[99]).toEqual(liveOnly);
   });
   // harn:end bounded-combined-head-adopts-authoritative-window
 

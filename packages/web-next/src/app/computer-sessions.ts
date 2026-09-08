@@ -31,6 +31,8 @@ import { refreshMutableRunJournals } from '../room/run-journals.js';
 import {
   finalizedTranscriptRoots,
   refreshTranscriptHistoryHead,
+  bindTranscriptHistoryOwner,
+  retireTranscriptHistory,
 } from '../room/transcript-history.js';
 import {
   deleteLastGoodRoom,
@@ -38,7 +40,6 @@ import {
   loadLastGoodRoom,
   saveLastGoodRoom,
   snapshotLastGoodRoom,
-  type LastGoodRoomSnapshot,
 } from '../runtime/last-good-room.js';
 
 export interface ComputerActivitySummary {
@@ -106,7 +107,8 @@ interface SessionEntry {
   cacheRevision?: string;
   cacheWrite: Promise<void>;
   cacheSaveTimer?: ReturnType<typeof setTimeout>;
-  pendingCache?: { snapshot: LastGoodRoomSnapshot; revision: string };
+  pendingCache?: { state: ClientState; publicRoot: string };
+  historyAbort: AbortController;
   historyWarming: Map<string, HistoryWarmState>;
   stopStore: () => void;
   stopTunnel: () => void;
@@ -138,14 +140,20 @@ export function historyEvidenceRooms(
   const rooms: string[] = [];
   for (const [room, current] of Object.entries(state.rooms)) {
     const prior = previous.rooms[room];
+    if (current === prior) continue;
     const priorMessages = prior?.messages ?? {};
-    const newMessage = Object.entries(current.messages).some(([id, message]) => {
+    const newMessage = current.messages !== prior?.messages && Object.entries(current.messages).some(([id, message]) => {
       const before = priorMessages[Number(id)];
-      return before === undefined || (isTerminalRun(message) && !isTerminalRun(before));
+      if (message === before) return false;
+      if (message.deleted && !before?.deleted) return true;
+      if (message.run_parent_id !== undefined || message.kind === 'run') {
+        return isTerminalRun(message) && (!isTerminalRun(before) || message.seq !== before?.seq);
+      }
+      return before === undefined || message.seq !== before.seq;
     });
-    const priorActiveRuns = new Set((prior?.support?.active_runs ?? []).map((run) => run.id));
-    const currentActiveRuns = new Set((current.support?.active_runs ?? []).map((run) => run.id));
-    const terminalSupportRun = [...priorActiveRuns].some((id) => !currentActiveRuns.has(id));
+    const terminalSupportRun = current.support?.active_runs !== prior?.support?.active_runs
+      && (prior?.support?.active_runs ?? []).some((run) =>
+        !current.support?.active_runs.some((candidate) => candidate.id === run.id));
     if (newMessage || terminalSupportRun) rooms.push(room);
   }
   return rooms;
@@ -227,6 +235,10 @@ export class ComputerSessionManager {
   private startupExplicitRoom?: string;
   private snapshot: ComputerSessionsSnapshot = { computers: [] };
   private disposed = false;
+  private backgroundCount = 0;
+  private backgroundQueue: Array<{ entry: SessionEntry; room: string; state: HistoryWarmState; generation: number }> = [];
+  private summaryInputs = new WeakMap<SessionEntry, { summaries: ClientState['roomSummaries'];
+    rooms: Array<{ members: unknown; summary: unknown; room: unknown }>; connected: boolean; value: ComputerActivitySummary }>();
 
   constructor(private readonly deps: ComputerSessionDeps = defaultDeps) {}
 
@@ -458,15 +470,40 @@ export class ComputerSessionManager {
       resolveCachedReady,
       cacheWrite: Promise.resolve(),
       historyWarming: new Map(),
+      historyAbort: new AbortController(),
       stopStore: () => undefined,
       stopTunnel: () => undefined,
     };
+    bindTranscriptHistoryOwner(store, () => {
+      const generation = tunnel.generation;
+      const token = entry.token;
+      const signal = entry.historyAbort.signal;
+      return {
+        token,
+        isCurrent: () => !entry.disposed && !signal.aborted && tunnel.generation === generation && entry.token === token,
+        fetch: (input, init) => {
+          if (signal.aborted || entry.disposed || tunnel.generation !== generation) return Promise.reject(new Error('retired history operation'));
+          return tunnel.fetch(input, { ...init, signal });
+        },
+      };
+    });
     entry.stopStore = store.subscribe((state, previous) => {
       for (const room of historyEvidenceRooms(state, previous)) this.warmInactiveHistory(entry, room);
-      this.persistEntrySnapshot(entry);
+      if (state.rooms !== previous.rooms || state.roomSummaries !== previous.roomSummaries) this.persistEntrySnapshot(entry);
+      this.publish(false);
+    });
+    let historyGeneration = tunnel.generation;
+    entry.stopTunnel = tunnel.subscribe(() => {
+      if (historyGeneration !== tunnel.generation) {
+        historyGeneration = tunnel.generation;
+        entry.historyAbort.abort();
+        entry.historyAbort = new AbortController();
+        entry.historyWarming.clear();
+        this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+        retireTranscriptHistory(store);
+      }
       this.publish();
     });
-    entry.stopTunnel = tunnel.subscribe(() => this.publish());
     this.entries.set(material.computer.id, entry);
     tunnel.connect();
     void this.hydrateEntrySnapshot(entry);
@@ -487,23 +524,33 @@ export class ComputerSessionManager {
     }
     state ??= { trailing: false };
     entry.historyWarming.set(room, state);
-    const run = async (): Promise<boolean> => {
-      let refreshed = false;
-      do {
-        state!.trailing = false;
-        refreshed = await refreshTranscriptHistoryHead(
-          entry.store,
-          room,
-          () => entry.token,
-          entry.tunnel.fetch.bind(entry.tunnel),
-          true,
-        );
-      } while (state!.trailing && !entry.disposed);
-      if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
-      return refreshed;
-    };
-    state.inFlight = run();
-    void state.inFlight.catch(() => undefined);
+    // Reserve queued intent as well as running work; another frame only marks
+    // one trailing intent instead of adding another job.
+    state.inFlight = Promise.resolve(false);
+    this.backgroundQueue.push({ entry, room, state, generation: entry.tunnel.generation });
+    this.drainBackgroundHistory();
+  }
+
+  private drainBackgroundHistory(): void {
+    this.backgroundQueue.sort((a, b) => Number(b.entry.material.computer.id === this.activeId)
+      - Number(a.entry.material.computer.id === this.activeId));
+    while (this.backgroundCount < 2 && this.backgroundQueue.length > 0) {
+      const { entry, room, state, generation } = this.backgroundQueue.shift()!;
+      if (entry.disposed || generation !== entry.tunnel.generation) {
+        if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
+        continue;
+      }
+      state.trailing = false;
+      this.backgroundCount++;
+      state.inFlight = refreshTranscriptHistoryHead(entry.store, room, () => entry.token,
+        entry.tunnel.fetch.bind(entry.tunnel), true);
+      void state.inFlight.catch(() => false).finally(() => {
+        this.backgroundCount--;
+        if (entry.historyWarming.get(room) === state) entry.historyWarming.delete(room);
+        if (state.trailing && !entry.disposed && entry.tunnel.generation === generation) this.warmInactiveHistory(entry, room);
+        this.drainBackgroundHistory();
+      });
+    }
   }
   // harn:end inactive-history-warming-persists-bounded-room-cache
 
@@ -526,27 +573,25 @@ export class ComputerSessionManager {
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-write-coalescing
   private persistEntrySnapshot(entry: SessionEntry): void {
     if (entry.disposed || entry.token === '' || entry.publicRoot === undefined) return;
-    const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, entry.publicRoot);
-    if (!snapshot) return;
-    const revision = JSON.stringify({
-      publicRoom: snapshot.publicRoom,
-      summaries: snapshot.summaries,
-      rooms: snapshot.rooms,
-    });
-    if (revision === entry.cacheRevision) return;
-    entry.cacheRevision = revision;
-    entry.pendingCache = { snapshot, revision };
+    const state = entry.store.getState();
+    if (!state.connected) return;
+    entry.pendingCache = { state, publicRoot: entry.publicRoot };
     if (entry.cacheSaveTimer !== undefined) return;
     entry.cacheSaveTimer = setTimeout(() => {
       entry.cacheSaveTimer = undefined;
       const pending = entry.pendingCache;
       entry.pendingCache = undefined;
       if (entry.disposed || pending === undefined) return;
+      const snapshot = snapshotLastGoodRoom(entry.material.computer.id, entry.store, pending.publicRoot, pending.state);
+      if (!snapshot) return;
+      const revision = JSON.stringify({ publicRoom: snapshot.publicRoom, summaries: snapshot.summaries, rooms: snapshot.rooms });
+      if (revision === entry.cacheRevision) return;
+      entry.cacheRevision = revision;
       entry.cacheWrite = entry.cacheWrite
         .catch(() => undefined)
-        .then(async () => await saveLastGoodRoom(pending.snapshot))
+        .then(async () => { if (!entry.disposed) await saveLastGoodRoom(snapshot); })
         .catch(() => {
-          if (entry.cacheRevision === pending.revision) entry.cacheRevision = undefined;
+          if (entry.cacheRevision === revision) entry.cacheRevision = undefined;
         });
     }, CACHE_WRITE_DELAY_MS);
   }
@@ -719,6 +764,13 @@ export class ComputerSessionManager {
   }
 
   private setEntryToken(entry: SessionEntry, token: string): string {
+    if (entry.token !== token) {
+      entry.historyAbort.abort();
+      entry.historyAbort = new AbortController();
+      entry.historyWarming.clear();
+      this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+      retireTranscriptHistory(entry.store);
+    }
     entry.token = token;
     if (entry.material.computer.id === this.activeId) setActiveBrowserAccessToken(token);
     this.publish();
@@ -743,6 +795,9 @@ export class ComputerSessionManager {
     const entry = this.entries.get(id);
     if (!entry) return;
     entry.disposed = true;
+    entry.historyAbort.abort();
+    retireTranscriptHistory(entry.store);
+    this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
     if (entry.cacheSaveTimer !== undefined) clearTimeout(entry.cacheSaveTimer);
     entry.cacheSaveTimer = undefined;
     entry.pendingCache = undefined;
@@ -778,6 +833,13 @@ export class ComputerSessionManager {
   // harn:assume hosted-background-computer-activity-is-visible ref=background-computer-summary
   private summary(entry: SessionEntry): ComputerActivitySummary {
     const state = entry.store.getState();
+    const inputs = Object.values(state.rooms).map((slice) => ({ members: slice.members, summary: slice.support?.summary, room: slice.room }));
+    const previous = this.summaryInputs.get(entry);
+    if (previous && previous.connected === state.connected && previous.summaries === state.roomSummaries
+      && previous.rooms.length === inputs.length && inputs.every((value, index) => {
+        const prior = previous.rooms[index]!;
+        return value.members === prior.members && value.summary === prior.summary && value.room === prior.room;
+      })) return previous.value;
     const byRoom = new Map(state.roomSummaries.map((summary) => [summary.id, summary]));
     for (const slice of Object.values(state.rooms)) {
       if (slice.support) byRoom.set(slice.support.room, slice.support.summary);
@@ -790,17 +852,19 @@ export class ComputerSessionManager {
           member.kind === 'agent' && (member.state === 'running' || member.state === 'queued')))
         .flatMap((slice) => slice.room === undefined ? [] : [slice.room.id]),
     ]);
-    return {
+    const value = {
       connected: state.connected,
       unread: summaries.reduce((total, room) => total + room.unread, 0),
       attention: summaries.some((room) => room.attention),
       attentionCount: summaries.filter((room) => room.attention).length,
       working: workingRooms.size,
     };
+    this.summaryInputs.set(entry, { connected: state.connected, summaries: state.roomSummaries, rooms: inputs, value });
+    return value;
   }
 
-  private publish(): void {
-    this.snapshot = {
+  private publish(force = true): void {
+    const snapshot = {
       activeId: this.activeId,
       computers: [...this.entries.values()].map((entry) => ({
         id: entry.material.computer.id,
@@ -811,6 +875,8 @@ export class ComputerSessionManager {
         ...this.summary(entry),
       })),
     };
+    if (!force && JSON.stringify(snapshot) === JSON.stringify(this.snapshot)) return;
+    this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
   }
   // harn:end hosted-background-computer-activity-is-visible

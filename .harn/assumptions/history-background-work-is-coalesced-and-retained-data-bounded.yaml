@@ -1,0 +1,16 @@
+id: history-background-work-is-coalesced-and-retained-data-bounded
+hash: a-cb30ba3c19b2
+title: History background work and retained data follow visible ownership
+state: active
+statement: >
+  Discarded history units release unreferenced historical bodies and events;
+  retained older units and live evidence keep their owners. Cached overlap
+  avoids an unnecessary predecessor within the two-page bound. Only relevant
+  changed room evidence schedules immutable warmups, with at most two concurrent
+  background jobs and one latest trailing intent per room. Snapshot preparation
+  runs after debounce on the latest valid owned state and cannot resurrect
+  forgotten computers. Unchanged connection and summary inputs do not publish
+  redundant updates.
+depends_on:
+  - combined-head-reconciliation-is-two-page-bounded
+created_by: relay-polish-p4-history-ownership-cache

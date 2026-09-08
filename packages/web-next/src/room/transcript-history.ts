@@ -7,6 +7,7 @@ import type {
 import {
   HISTORICAL_TRANSCRIPT_CACHE_SIZE,
   newestTranscriptHistoryUnits,
+  transcriptHistoryTextSlotCount,
 } from '@codor/protocol';
 
 import {
@@ -16,9 +17,38 @@ import {
 
 import type { ClientState, ClientStore, TranscriptHistoryState } from '../app/store.js';
 import { roomSlice, sourceClientStore } from '../app/store.js';
+import { captureRelayFetch } from '../runtime/relay-transport.js';
 
 type RequestKind = 'head' | `cursor:${string}`;
 type HistoryFetch = (input: string, init?: RequestInit) => Promise<Response>;
+// harn:assume history-operations-retain-session-ownership ref=captured-history-operation
+interface HistoryOperation {
+  token: string;
+  fetch: HistoryFetch;
+  isCurrent: () => boolean;
+  isOwnerCurrent?: () => boolean;
+}
+const owners = new WeakMap<ClientStore, () => HistoryOperation>();
+export function bindTranscriptHistoryOwner(store: ClientStore, capture: () => HistoryOperation): void {
+  owners.set(store, capture);
+}
+export function retireTranscriptHistory(store: ClientStore): void {
+  requestMap(store).clear();
+  for (const [room, slice] of Object.entries(store.getState().rooms)) {
+    if (!slice.transcriptHistory.loadingHead && !slice.transcriptHistory.loadingCursor) continue;
+    update(store, room, (history) => ({ ...history, loadingHead: false, loadingCursor: undefined, headNeedsRevalidation: true }));
+  }
+}
+function captureHistory(store: ClientStore, token: () => string, request?: HistoryFetch): HistoryOperation {
+  return owners.get(store)?.() ?? { token: token(), fetch: request ?? captureRelayFetch(), isCurrent: () => true };
+}
+function discardRetiredView(store: ClientStore, room: string, operation: HistoryOperation): false {
+  if (operation.isOwnerCurrent?.()) {
+    update(store, room, (history) => ({ ...history, loadingHead: false, loadingCursor: undefined }));
+  }
+  return false;
+}
+// harn:end history-operations-retain-session-ownership
 
 const requests = new WeakMap<ClientState['updateTranscriptHistory'], Map<string, Promise<boolean>>>();
 
@@ -170,6 +200,7 @@ export function indexedEventsForUnit(
 
 /** Merge one older page or a newest-to-oldest head bridge without allowing a
  * page boundary to regroup the server's authoritative visible units. */
+// harn:assume history-background-work-is-coalesced-and-retained-data-bounded ref=retained-history-projection
 export function mergeTranscriptPages(
   current: TranscriptHistoryState,
   pagesNewestFirst: readonly TranscriptHistoryPage[],
@@ -187,6 +218,18 @@ export function mergeTranscriptPages(
     ? uniqueUnits([...incoming, ...current.units])
     : mergeAuthoritativeHeadUnits(current.units, incoming);
   const oldestFetched = pagesNewestFirst.at(-1);
+  const retainedMessages = mergeMessages(current.messages, pagesNewestFirst, liveMessages);
+  const retainedJournals = mergeJournals(current.journals, pagesNewestFirst);
+  const ids = new Set<number>();
+  const eventIds = new Map<number, Set<number>>();
+  for (const unit of units) {
+    if (unit.kind === 'message') { ids.add(unit.message_id); continue; }
+    ids.add(unit.root_message_id);
+    ids.add(unit.output_message_id);
+    const selected = eventIds.get(unit.root_message_id) ?? new Set<number>();
+    unit.event_indices.forEach((index) => selected.add(index));
+    eventIds.set(unit.root_message_id, selected);
+  }
   return {
     ...current,
     initialized: true,
@@ -195,8 +238,9 @@ export function mergeTranscriptPages(
     failed: false,
     loadingHead: false,
     loadingCursor: undefined,
-    messages: mergeMessages(current.messages, pagesNewestFirst, liveMessages),
-    journals: mergeJournals(current.journals, pagesNewestFirst),
+    messages: Object.fromEntries([...ids].flatMap((id) => retainedMessages[id] ? [[id, retainedMessages[id]]] : [])),
+    journals: Object.fromEntries([...eventIds].flatMap(([root, selected]) => retainedJournals[root]
+      ? [[root, { root_message_id: root, events: retainedJournals[root]!.events.filter((event) => selected.has(event.index)) }]] : [])),
     units,
     ...(mode === 'head' && pagesNewestFirst[0] !== undefined
       ? { cacheWindow: projectCacheWindow(pagesNewestFirst) }
@@ -207,6 +251,7 @@ export function mergeTranscriptPages(
     } : {}),
   };
 }
+// harn:end history-background-work-is-coalesced-and-retained-data-bounded
 // harn:end live-before-history-materialization-reconciles
 // harn:end finalized-browser-history-is-combined-page-owned
 
@@ -229,7 +274,7 @@ const runRequest = (
   const map = requestMap(store);
   const existing = map.get(key);
   if (existing !== undefined) return existing;
-  const promise = task().finally(() => map.delete(key));
+  const promise = task().finally(() => { if (map.get(key) === promise) map.delete(key); });
   map.set(key, promise);
   return promise;
 };
@@ -239,14 +284,17 @@ async function loadOlderTranscriptHistoryFrom(
   store: ClientStore,
   room: string,
   token: () => string,
+  operation = captureHistory(store, token),
 ): Promise<boolean> {
+  if (!operation.isCurrent()) return false;
   const cursor = historyOf(store, room).beforeCursor;
   if (cursor === undefined || cursor === null) return false;
   return runRequest(store, room, `cursor:${cursor}`, async () => {
     if (historyOf(store, room).loadingCursor !== undefined) return false;
     update(store, room, (history) => ({ ...history, loadingCursor: cursor, failed: false }));
     try {
-      const page = await fetchTranscriptHistory(room, cursor, { token: token() });
+      const page = await fetchTranscriptHistory(room, cursor, { token: operation.token, fetch: operation.fetch });
+      if (!operation.isCurrent()) return discardRetiredView(store, room, operation);
       update(store, room, (history) => mergeTranscriptPages(
         history,
         [page],
@@ -255,6 +303,7 @@ async function loadOlderTranscriptHistoryFrom(
       ));
       return true;
     } catch {
+      if (!operation.isCurrent()) return discardRetiredView(store, room, operation);
       update(store, room, (history) => ({
         ...history,
         loadingCursor: history.loadingCursor === cursor ? undefined : history.loadingCursor,
@@ -282,18 +331,32 @@ function refreshTranscriptHistoryHeadFrom(
   token: () => string,
   request?: HistoryFetch,
   includePredecessor = true,
+  operation = captureHistory(store, token, request),
 ): Promise<boolean> {
+  if (!operation.isCurrent()) return Promise.resolve(false);
   if (historyOf(store, room).legacyFallback) return Promise.resolve(true);
   return runRequest(store, room, 'head', async () => {
     update(store, room, (history) => ({ ...history, loadingHead: true, failed: false }));
     const pages: TranscriptHistoryPage[] = [];
     try {
-      const head = await fetchTranscriptHistory(room, undefined, { token: token(), fetch: request });
+      const head = await fetchTranscriptHistory(room, undefined, { token: operation.token, fetch: operation.fetch });
+      if (!operation.isCurrent()) return discardRetiredView(store, room, operation);
       pages.push(head);
-      if (includePredecessor && head.has_more && head.before_cursor !== null) {
+      const cache = historyOf(store, room).cacheWindow;
+      const headKeys = new Set(head.units.map(transcriptUnitKey));
+      const overlap = cache?.units.findIndex((unit) => headKeys.has(transcriptUnitKey(unit))) ?? -1;
+      const cachedPrefix = overlap >= 0 ? cache!.units.slice(0, overlap) : [];
+      const reuseCache = overlap >= 0 && transcriptHistoryTextSlotCount([...cachedPrefix, ...head.units]) <= HISTORICAL_TRANSCRIPT_CACHE_SIZE;
+      if (includePredecessor && head.has_more && reuseCache && cache) {
+        // Keep only the prefix outside the authoritative head. Its original
+        // predecessor cursor is still truthful because no prefix was trimmed.
+        pages.push({ units: cachedPrefix, messages: Object.values(cache.messages), journals: Object.values(cache.journals),
+          before_cursor: cache.beforeCursor, has_more: cache.hasMore });
+      } else if (includePredecessor && head.has_more && head.before_cursor !== null) {
         pages.push(await fetchTranscriptHistory(room, head.before_cursor, {
-          token: token(), fetch: request,
+          token: operation.token, fetch: operation.fetch,
         }));
+        if (!operation.isCurrent()) return discardRetiredView(store, room, operation);
       }
       update(store, room, (history) => mergeTranscriptPages(
         history,
@@ -303,6 +366,7 @@ function refreshTranscriptHistoryHeadFrom(
       ));
       return true;
     } catch (error) {
+      if (!operation.isCurrent()) return discardRetiredView(store, room, operation);
       const current = historyOf(store, room);
       // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-legacy-fallback
       if (
@@ -357,7 +421,9 @@ function ensureTranscriptHistoryFrom(
   store: ClientStore,
   room: string,
   token: () => string,
+  operation = captureHistory(store, token),
 ): Promise<boolean> {
+  if (!operation.isCurrent()) return Promise.resolve(false);
   const history = historyOf(store, room);
   if (history.initialized && !history.headNeedsRevalidation) return Promise.resolve(true);
   if (history.coldMessageIds === undefined) {
@@ -374,6 +440,7 @@ function ensureTranscriptHistoryFrom(
     token,
     undefined,
     history.headNeedsRevalidation,
+    operation,
   );
 }
 
@@ -420,13 +487,15 @@ export async function revealTranscriptTarget(
   isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
   const source = sourceClientStore(store);
+  const owned = captureHistory(source, token);
+  const operation = { ...owned, isOwnerCurrent: owned.isCurrent, isCurrent: () => isCurrent() && owned.isCurrent() };
   if (!isCurrent()) return false;
-  if (!await ensureTranscriptHistoryFrom(source, room, token)) return false;
+  if (!await ensureTranscriptHistoryFrom(source, room, token, operation)) return false;
   if (!isCurrent()) return false;
   while (!targetMaterialized(historyOf(source, room), id)) {
     const history = historyOf(source, room);
     if (!history.hasMore || history.beforeCursor === null || history.beforeCursor === undefined) return false;
-    if (!await loadOlderTranscriptHistoryFrom(source, room, token)) return false;
+    if (!await loadOlderTranscriptHistoryFrom(source, room, token, operation)) return false;
     if (!isCurrent()) return false;
   }
   return true;

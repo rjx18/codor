@@ -430,7 +430,7 @@ const clientStoreByHistoryAction = new WeakMap<ClientState['updateTranscriptHist
  *  the exported singleton below remains the unchanged direct/self-hosted path. */
 export function createClientStore(): ClientStore {
   const staging = new Map<string, HydrationStaging>();
-  const store = create<ClientState>((set) => ({
+  const store = create<ClientState>((set, get) => ({
   connected: false,
   authRefused: false,
   activeRoom: '',
@@ -819,7 +819,11 @@ export function createClientStore(): ClientStore {
     });
   },
 
-  setConnected: (connected) => set(connected ? { connected, authRefused: false } : { connected }),
+  setConnected: (connected) => {
+    const state = get();
+    if (state.connected === connected && (!connected || !state.authRefused)) return;
+    set(connected ? { connected, authRefused: false } : { connected });
+  },
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-hydration
