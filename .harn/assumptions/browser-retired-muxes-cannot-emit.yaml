@@ -1,0 +1,14 @@
+id: browser-retired-muxes-cannot-emit
+hash: a-d715ffee11dd
+title: Retired browser muxes cannot emit through another session
+state: active
+statement: >
+  Browser tunnel loss, replacement and disposal must discard pending mux
+  packets, cancel flush timers and destroy streams before clearing channel
+  ownership. Packet encryption uses its captured authenticated generation;
+  retired callbacks cannot encrypt or send through replacement state. Graceful
+  mux close retains its reset and flush semantics.
+depends_on:
+  - tunnel-stream-mux
+  - browser-tunnel-readiness-follows-current-generation
+created_by: relay-polish-p5-review-teardown
