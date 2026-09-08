@@ -4193,13 +4193,24 @@ export class Store {
       `SELECT messages.author
        FROM messages
        JOIN members ON members.room = messages.room AND members.id = messages.author
+       LEFT JOIN messages AS result ON result.room = messages.room
+         AND result.id = json_extract(messages.run, '$.result_message_id')
+         AND result.author = messages.author
+         AND (result.id = messages.id OR result.run_parent_id = messages.id)
        WHERE messages.room = ?
          AND messages.kind = 'run'
          AND members.kind = 'agent'
          AND members.removed_ts IS NULL
          AND messages.ack = 0
-         AND json_extract(messages.run, '$.status') <> 'running'
-       ORDER BY messages.id DESC
+         AND messages.deleted = 0
+         AND (result.id IS NULL OR (result.deleted = 0 AND result.ack = 0))
+         AND json_extract(messages.run, '$.status') = 'completed'
+         AND COALESCE(
+           NULLIF(trim(json_extract(messages.run, '$.final_text'), char(9)||char(10)||char(13)||' '), ''),
+           NULLIF(trim(messages.body, char(9)||char(10)||char(13)||' '), ''),
+           NULLIF(trim(result.body, char(9)||char(10)||char(13)||' '), '')
+         ) IS NOT NULL
+       ORDER BY COALESCE(result.id, messages.id) DESC, messages.id DESC
        LIMIT 1`,
     ).get(room) as { author: string } | undefined;
     return row?.author;

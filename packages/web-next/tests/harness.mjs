@@ -1452,6 +1452,43 @@ createServer((req, res) => {
     let payload = {};
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname === '/default-recipient-fixture') {
+        const room = 'default-recipient';
+        daemon.createRoom({ id: room, name: 'Default Recipient', owner: { handle: 'viewer', display_name: 'Viewer' } });
+        const owner = daemon.ownerOf(room);
+        const investigator = daemon.spawnMember(room, { harness: 'fake', handle: 'investigator', cwd: dir });
+        const sol = daemon.spawnMember(room, { harness: 'fake', handle: 'sol', cwd: dir });
+        daemon.pauseMember(room, investigator.id);
+        daemon.pauseMember(room, sol.id);
+        daemon.store.db.transaction(() => {
+          while (daemon.store.latestMessageId(room) < 2454) daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'old history' });
+        })();
+        const root = daemon.store.postMessage(room, { author: investigator.id, kind: 'run', body: 'substantive aggregate',
+          run: { status: 'running', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/2455.jsonl', output_mode: 'messages' } });
+        daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'interjection' });
+        const interrupted = daemon.store.postMessage(room, { author: sol.id, kind: 'run', body: '',
+          run: { status: 'interrupted', started_ts: new Date().toISOString(), tool_calls: 0, events_ref: 'runs/2457.jsonl' } });
+        while (daemon.store.latestMessageId(room) < 2461) daemon.store.postMessage(room, { author: owner.id, kind: 'chat', body: 'interjection' });
+        const result = daemon.store.createRunContinuation(room, root.id);
+        daemon.store.updateMessage(room, root.id, { run: { ...root.run, status: 'completed', ended_ts: new Date().toISOString(),
+          final_text: 'substantive aggregate', result_message_id: result.id } });
+        const plain = daemon.postHumanMessage(room, 'continue with default');
+        // The composer quote action inserts the author's mention with reply_to.
+        const reply = daemon.postHumanMessage(room, '@sol explicit reply', { reply_to: interrupted.id });
+        payload = { root: root.id, result: result.id, interrupted: interrupted.id,
+          defaultId: daemon.store.latestFinalizedAgentAuthor(room), investigatorId: investigator.id, solId: sol.id,
+          plainRecipients: daemon.store.listDeliveries(room).filter((d) => d.message_id === plain.id).map((d) => d.recipient),
+          replyRecipients: daemon.store.listDeliveries(room).filter((d) => d.message_id === reply.id).map((d) => d.recipient) };
+      }
+      if (url.pathname === '/default-recipient-change') {
+        const room = 'default-recipient';
+        const sol = daemon.store.getMemberByHandle(room, 'sol');
+        const message = daemon.store.postMessage(room, { author: sol.id, kind: 'run', body: 'new successful result',
+          run: { status: 'completed', started_ts: new Date().toISOString(), ended_ts: new Date().toISOString(),
+            tool_calls: 0, events_ref: 'runs/new-result.jsonl', final_text: 'new successful result' } });
+        daemon.emitMessage(room, message);
+        payload = { defaultId: daemon.store.latestFinalizedAgentAuthor(room) };
+      }
       if (url.pathname === '/held-origin-fixture') {
         const body = JSON.parse(raw);
         const room = `held-origin-${body.shape}`;
