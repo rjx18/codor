@@ -13,6 +13,7 @@ import {
   switchComputer,
   type HostedComputerMaterial,
   type BrowserDeviceSession,
+  BrowserAuthenticationError,
 } from '@runtime/crypto.js';
 import { setRelayTransport } from '@runtime/relay-transport.js';
 import { TunnelClient, type TunnelState, type TunnelStateListener } from '@runtime/relay.js';
@@ -91,6 +92,9 @@ interface SessionEntry {
   tunnel: SessionTunnel;
   store: ClientStore;
   token: string;
+  expiresAt?: number;
+  renewal?: Promise<string>;
+  renewalAbort?: AbortController;
   connector?: RoomConnector;
   cachedConnector?: RoomConnector;
   /** The session's remembered PUBLIC root. The warm connector may have a
@@ -356,6 +360,7 @@ export class ComputerSessionManager {
     const entry = this.entries.get(this.activeId);
     if (entry) entry.publicRoot = room;
     rememberRoom(room, this.activeId);
+    this.publish();
   }
 
   async add(code: string, relayUrl: string): Promise<boolean> {
@@ -475,19 +480,7 @@ export class ComputerSessionManager {
       stopStore: () => undefined,
       stopTunnel: () => undefined,
     };
-    bindTranscriptHistoryOwner(store, () => {
-      const generation = tunnel.generation;
-      const token = entry.token;
-      const signal = entry.historyAbort.signal;
-      return {
-        token,
-        isCurrent: () => !entry.disposed && !signal.aborted && tunnel.generation === generation && entry.token === token,
-        fetch: (input, init) => {
-          if (signal.aborted || entry.disposed || tunnel.generation !== generation) return Promise.reject(new Error('retired history operation'));
-          return tunnel.fetch(input, { ...init, signal });
-        },
-      };
-    });
+    bindTranscriptHistoryOwner(store, () => this.captureEntryRequest(entry));
     entry.stopStore = store.subscribe((state, previous) => {
       if (state.activeRoom !== previous.activeRoom && entry.material.computer.id === this.activeId) {
         this.promoteHistory(entry, state.activeRoom);
@@ -500,6 +493,8 @@ export class ComputerSessionManager {
     entry.stopTunnel = tunnel.subscribe(() => {
       if (historyGeneration !== tunnel.generation) {
         historyGeneration = tunnel.generation;
+        entry.renewalAbort?.abort(new Error('retired authentication generation'));
+        entry.renewal = undefined;
         entry.historyAbort.abort();
         entry.historyAbort = new AbortController();
         entry.historyWarming.clear();
@@ -742,16 +737,96 @@ export class ComputerSessionManager {
   // harn:end hosted-computer-sessions-keep-state-isolated
   // harn:end hosted-app-streams-follow-tunnel-generations
 
-  private async refreshEntryToken(entry: SessionEntry, signal?: AbortSignal): Promise<string> {
-    const session = await this.deps.authenticate(entry.material, entry.tunnel, signal);
+  // harn:assume relay-read-renewal-retains-original-owner ref=owned-credential-renewal
+  private captureEntryRequest(entry: SessionEntry) {
+    const generation = entry.tunnel.generation;
+    let token = entry.token;
+    let signal = entry.historyAbort.signal;
+    const sameOwner = () => !entry.disposed && entry.tunnel.generation === generation
+      && !entry.store.getState().authRefused;
+    const adopt = (): void => {
+      if (!sameOwner()) throw new Error('retired history operation');
+      token = entry.token; signal = entry.historyAbort.signal;
+    };
+    return {
+      token,
+      isCurrent: () => sameOwner() && !signal.aborted && token === entry.token,
+      fetch: async (input: string, init: RequestInit = {}): Promise<Response> => {
+        if (!sameOwner() || init.signal?.aborted) throw new Error('retired history operation');
+        const read = ['GET', 'HEAD'].includes((init.method ?? 'GET').toUpperCase());
+        if (read && entry.expiresAt !== undefined && entry.expiresAt <= Date.now() + 30_000) {
+          await this.refreshEntryToken(entry); adopt();
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (!sameOwner() || init.signal?.aborted) throw new Error('retired history operation');
+          const headers = new Headers(init.headers);
+          headers.set('authorization', `Bearer ${token}`);
+          try {
+            const response = await entry.tunnel.fetch(input, { ...init, headers,
+              signal: init.signal ? AbortSignal.any([signal, init.signal]) : signal });
+            if (!sameOwner()) throw new Error('retired history operation');
+            if (read && attempt === 0 && (response.status === 401 || signal.aborted || token !== entry.token)) {
+              await response.body?.cancel();
+              if (token === entry.token) await this.refreshEntryToken(entry);
+              adopt(); continue;
+            }
+            if (signal.aborted || token !== entry.token) throw new Error('retired credentials');
+            return response;
+          } catch (error) {
+            if (!read || attempt > 0 || !sameOwner() || init.signal?.aborted || token === entry.token) throw error;
+            adopt();
+          }
+        }
+        throw new Error('credential retry exhausted');
+      },
+    };
+  }
+
+  private refreshEntryToken(entry: SessionEntry, signal?: AbortSignal): Promise<string> {
+    if (entry.renewal) return entry.renewal;
+    const generation = entry.tunnel.generation;
+    const controller = new AbortController();
+    entry.renewalAbort = controller;
+    const cancel = () => controller.abort(signal?.reason);
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (signal?.aborted) cancel();
+    let timer: ReturnType<typeof setTimeout>;
+    const pending = (async () => {
+    const session = await Promise.race([
+      this.deps.authenticate(entry.material, entry.tunnel, controller.signal),
+      new Promise<never>((_resolve, reject) => {
+        const aborted = () => reject(controller.signal.reason ?? new Error('authentication cancelled'));
+        controller.signal.addEventListener('abort', aborted, { once: true });
+        if (controller.signal.aborted) aborted();
+        timer = setTimeout(() => controller.abort(new Error('Device authentication timed out')), requestDeadlineMs());
+      }),
+    ]);
+    if (entry.disposed || entry.tunnel.generation !== generation || controller.signal.aborted) throw new Error('retired authentication generation');
     // harn:assume hosted-generated-computer-label-follows-authenticated-hostname ref=authenticated-computer-label
     if (session.hostname) {
       const computer = await this.deps.adoptHostname(entry.material.computer.id, session.hostname);
       if (computer) entry.material = { ...entry.material, computer };
     }
     // harn:end hosted-generated-computer-label-follows-authenticated-hostname
+    if (entry.disposed || entry.tunnel.generation !== generation) throw new Error('retired authentication generation');
+    entry.expiresAt = session.expiresAt;
     return this.setEntryToken(entry, session.token);
+    })().catch((error: unknown) => {
+      if (error instanceof BrowserAuthenticationError && error.status === 403
+        && !entry.disposed && entry.tunnel.generation === generation) {
+        entry.store.getState().setAuthRefused(true);
+        this.setEntryToken(entry, '');
+      }
+      throw error;
+    }).finally(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', cancel);
+      if (entry.renewal === pending) { entry.renewal = undefined; entry.renewalAbort = undefined; }
+    });
+    entry.renewal = pending;
+    return pending;
   }
+  // harn:end relay-read-renewal-retains-original-owner
 
   private async withEntryDeadline<T>(
     entry: SessionEntry,
@@ -770,13 +845,11 @@ export class ComputerSessionManager {
       const timer = setTimeout(() => {
         const error = new DOMException('Hosted bootstrap request timed out', 'TimeoutError');
         controller.abort(error);
-        // Recovery advances/retains only this entry's tunnel generation and
-        // rejects sibling work on the stale mux before the retry loop continues.
-        if (entry.tunnel.generation === generation) entry.tunnel.recover();
+        // This deadline owns one HTTP operation, not every stream on a healthy tunnel.
         finish(() => reject(error));
       }, requestDeadlineMs());
       void work(controller.signal).then(
-        (value) => finish(() => resolve(value)),
+        (value) => finish(() => entry.tunnel.generation === generation ? resolve(value) : reject(new Error('retired bootstrap generation'))),
         (error: unknown) => finish(() => reject(error)),
       );
     });
@@ -786,8 +859,12 @@ export class ComputerSessionManager {
     if (entry.token !== token) {
       entry.historyAbort.abort();
       entry.historyAbort = new AbortController();
-      entry.historyWarming.clear();
-      this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+      // A successful renewal can migrate reads within this same generation.
+      // Keep queued/trailing intent; revocation still retires it completely.
+      if (token === '') {
+        entry.historyWarming.clear();
+        this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);
+      }
       retireTranscriptHistory(entry.store);
     }
     entry.token = token;
@@ -801,7 +878,7 @@ export class ComputerSessionManager {
     if (!entry) return;
     setActiveComputer(entry.material.computer.id);
     const origin = relayAccessOrigin(entry.material.relay.relay_url);
-    setRelayTransport({ origin, fetch: entry.tunnel.fetch.bind(entry.tunnel) });
+    setRelayTransport({ origin, fetch: (input, init) => this.captureEntryRequest(entry).fetch(input, init) });
     setActiveBrowserAccessToken(entry.token);
     mirrorClientStore(entry.store);
     const connector = entry.connector ?? entry.cachedConnector;
@@ -814,6 +891,7 @@ export class ComputerSessionManager {
     const entry = this.entries.get(id);
     if (!entry) return;
     entry.disposed = true;
+    entry.renewalAbort?.abort(new Error('computer disposed'));
     entry.historyAbort.abort();
     retireTranscriptHistory(entry.store);
     this.backgroundQueue = this.backgroundQueue.filter((job) => job.entry !== entry);

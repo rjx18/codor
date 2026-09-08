@@ -1452,6 +1452,18 @@ createServer((req, res) => {
     let payload = {};
     try {
       const url = new URL(req.url ?? '/', 'http://localhost');
+      if (url.pathname === '/relay-expire-browser-sessions') {
+        for (const peer of crypto.keys.listPeers()) {
+          if (peer.kind === 'device') crypto.browserSessions.revoke(peer.device_id);
+        }
+        payload = { ok: true };
+      }
+      if (url.pathname === '/relay-revoke-browsers') {
+        for (const peer of crypto.keys.listPeers()) {
+          if (peer.kind === 'device') crypto.revokePeer(peer.device_id);
+        }
+        payload = { ok: true };
+      }
       if (url.pathname === '/default-recipient-fixture') {
         const room = 'default-recipient';
         daemon.createRoom({ id: room, name: 'Default Recipient', owner: { handle: 'viewer', display_name: 'Viewer' } });

@@ -1,0 +1,14 @@
+id: app-liveness-recovery-is-stream-first
+hash: a-4bb0cab5dc8b
+title: App recovery trusts traffic and repairs streams before tunnels
+state: active
+statement: >
+  Valid current-generation application traffic satisfies liveness despite a
+  delayed rooms reply. Pending HTTP alone cannot indefinitely suppress recovery.
+  A connected tunnel first repairs the app stream, then escalates persistent
+  silence to tunnel recovery; auth, upgrade and manual parks remain terminal to
+  automatic recovery. Retry backoff resets only after server evidence. Periodic
+  probes remain refresh-neutral.
+depends_on:
+  - foreground-watchdog-probes-are-refresh-neutral
+created_by: relay-polish-p5-transport-recovery

@@ -163,6 +163,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   let openedTunnelGeneration: number | undefined;
   let waitingTunnelGeneration: number | undefined;
   let resumeAfterTunnel = false;
+  let trafficVersion = 0;
+  let streamRepairs = 0;
+  const diagnose = (event: string, code?: number): void => {
+    const host = window as unknown as { __codorRecoveryDiagnostics?: Array<{ event: string; generation: number; code?: number }> };
+    const records = host.__codorRecoveryDiagnostics ??= [];
+    records.push({ event, generation, ...(code === undefined ? {} : { code }) });
+    if (records.length > 64) records.shift();
+  };
   const combinedTranscriptHistory = options.combinedTranscriptHistory
     ?? directCombinedTranscriptHistorySupported();
   const socketHistoryLimit = combinedTranscriptHistory ? 0 : HISTORY_PAGE_SIZE;
@@ -296,7 +304,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
    * protocol — it reuses a request whose `rooms` reply is proof the wire is
    * genuinely alive rather than merely OPEN.
    */
-  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=watchdog-probe-state
+  // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-state
   const probeNow = (mine: number, fromForeground = false): void => {
     if (mine !== generation || state !== 'connected') return;
     if (document.visibilityState !== 'visible') return;
@@ -319,14 +327,21 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     // outstanding. Preserve that intent across a busy timeout so the next
     // ordinary reply performs exactly one resume.
     foregroundProbePending = foregroundProbePending || fromForeground;
+    const observedTraffic = trafficVersion;
     send({ type: 'list_rooms' });
     probeDeadline = setTimeout(() => {
       if (mine !== generation || !awaitingProbe) return;
-      // Unanswered: the socket lies about being open. Go through the SAME
-      // resume path, so a manual or upgrade park is still respected.
+      // A delayed rooms reply is not a dead stream when other app traffic
+      // arrived. Actual silence uses the park-aware recovery path below.
       awaitingProbe = false;
       probeDeadline = undefined;
-      if (options.tunnel?.hasUnsettledHttp) return;
+      if (trafficVersion !== observedTraffic) {
+        diagnose('probe-delayed-with-app-traffic');
+        if (foregroundProbePending) options.onResume?.(currentRoom);
+        foregroundProbePending = false;
+        return;
+      }
+      diagnose('probe-silent');
       foregroundProbePending = false;
       resume();
     }, PROBE_TIMEOUT_MS);
@@ -339,7 +354,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     const interval = (window as unknown as { __codorProbeMs?: number }).__codorProbeMs ?? PROBE_INTERVAL_MS;
     probeTimer = setInterval(() => probeNow(mine), interval);
   };
-  // harn:end hosted-foreground-watchdog-defers-while-http-active
+  // harn:end app-liveness-recovery-is-stream-first
 
   const waitForTunnel = (accelerate = false): void => {
     const tunnel = options.tunnel;
@@ -397,14 +412,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
 
     socket.onopen = () => {
       if (!live()) return;
-      retryMs = 500;
       state = 'connected';
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom, socketHistoryLimit);
       for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
-      send({ type: 'list_rooms' });
       startProbes(mine);
+      if (streamRepairs > 0) probeNow(mine);
+      else send({ type: 'list_rooms' });
     };
     socket.onmessage = (event) => {
       if (!live()) return;
@@ -423,6 +438,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // A frame from the current generation is the first bidirectional evidence
       // that the server-side app socket is usable. Only now may the composer
       // trust `connected` and admit a post.
+      trafficVersion++;
+      streamRepairs = 0;
+      retryMs = 500;
       clientStore.getState().setConnected(true);
       // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
       const frameRef = 'ref' in frame ? frame.ref : undefined;
@@ -446,7 +464,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
       }
-      // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=watchdog-probe-reply
+      // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
         const foregroundProbe = foregroundProbePending;
         awaitingProbe = false;
@@ -463,11 +481,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         reconcile(frame.room_seqs, priorSubscribed);
         if (foregroundProbe) options.onResume?.(currentRoom);
       }
-      // harn:end hosted-foreground-watchdog-defers-while-http-active
+      // harn:end app-liveness-recovery-is-stream-first
     };
   // harn:end relay-app-socket-readiness-requires-server-evidence
     socket.onclose = (event) => {
       if (!live()) return;
+      diagnose('app-close', event.code);
       clearProbes();
       if (state === 'connected' || state === 'disconnected') state = 'disconnected';
       clientStore.getState().setConnected(false);
@@ -501,7 +520,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
             token = setToken(refreshed);
             reconnect();
           },
-          reconnect,
+          () => {
+            if (clientStore.getState().authRefused) { state = 'parked-auth'; setToken(''); }
+            else reconnect();
+          },
         );
       } else reconnect();
     };
@@ -532,7 +554,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (!RESUMABLE.has(state)) return;
       if (options.tunnel) {
         resumeAfterTunnel = true;
-        waitForTunnel(true);
+        if (options.tunnel.state === 'connected' && streamRepairs === 0) {
+          streamRepairs++;
+          diagnose('app-stream-repair');
+          open(true);
+        } else {
+          diagnose('tunnel-repair');
+          waitForTunnel(true);
+        }
       } else {
         open(true);
         options.onResume?.(currentRoom);

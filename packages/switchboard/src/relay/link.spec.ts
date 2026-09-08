@@ -114,7 +114,7 @@ function connectedMux(options: {
     onPacket: (packet) => relay.deliver(prefixConn(connId, channel.seal(packet))),
     onStream: () => {},
   });
-  return { link, loopback, mux, relay };
+  return { link, loopback, mux, relay, channel };
 }
 
 describe('RelayLink backoff', () => {
@@ -179,6 +179,42 @@ describe('RelayLink handshake admission', () => {
 
 // harn:assume relay-bridge-callbacks-retire-before-mux-streams ref=relay-bridge-lifecycle-regression
 describe('RelayLink loopback bridge lifecycle', () => {
+  it('preserves revocation before retiring the loopback callback', () => {
+    const errors: unknown[] = [];
+    const { link, mux, relay, channel } = connectedMux({ onError: (error) => errors.push(error) });
+    const stream = mux.openStream(StreamKind.APP_WS);
+    const reasons: string[] = []; stream.onReset = (reason) => reasons.push(reason);
+    link.dropDevice('dev-bridge');
+    for (const packet of relay.sent.splice(0)) mux.receivePacket(channel.open(packet.subarray(4)));
+    expect(reasons).toEqual(['loopback-close-4403']);
+    relay.deliver(prefixConn(17, new Uint8Array(80)));
+    expect(errors).toEqual([]);
+    link.stop();
+  });
+  it('stops pulling a slow HTTP consumer while app traffic can still progress', async () => {
+    let pulls = 0; let cancelled = false;
+    const response = new Response(new ReadableStream<Uint8Array>({
+      pull(controller) { pulls++; controller.enqueue(new Uint8Array(64 * 1024)); },
+      cancel() { cancelled = true; },
+    }));
+    const { link, mux, loopback, relay } = connectedMux({ fetchLoopback: async () => response });
+    try {
+      const http = mux.openStream(StreamKind.HTTP);
+      http.sendHead({ method: 'GET', target: '/api/rooms', headers: {} }); http.end();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(pulls).toBeGreaterThan(0);
+      expect(pulls).toBeLessThanOrEqual(12);
+      const count = relay.sent.length;
+      mux.openStream(StreamKind.APP_WS);
+      loopback.open(); loopback.message(new TextEncoder().encode('interactive'));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(relay.sent.length).toBeGreaterThan(count);
+      expect(pulls).toBeLessThanOrEqual(12);
+      http.reset('cancel slow consumer');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(cancelled).toBe(true);
+    } finally { link.stop(); }
+  });
   it('ignores late WebSocket callbacks after teardown and closes only once', () => {
     const errors: unknown[] = [];
     const { link, loopback, mux, relay } = connectedMux({ onError: (error) => errors.push(error) });

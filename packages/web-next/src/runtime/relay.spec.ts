@@ -1,7 +1,7 @@
-import { SessionResponder, generateTunnelKeypair } from '@codor/tunnel';
+import { SessionResponder, generateTunnelKeypair, type MuxStream } from '@codor/tunnel';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TunnelClient, type TunnelRecord } from './relay.js';
+import { TunnelClient, TunnelSocket, type TunnelRecord } from './relay.js';
 
 const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString('base64');
 const toArrayBuffer = (bytes: Uint8Array): ArrayBuffer => bytes.slice().buffer;
@@ -71,6 +71,50 @@ afterEach(() => {
 });
 
 describe('TunnelClient resilience', () => {
+  it('bounds HTTP diagnostics and excludes query text and credentials', async () => {
+    const diagnostics: Array<{ target: string }> = [];
+    vi.stubGlobal('window', { __codorRelayHttp: diagnostics });
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory });
+    try {
+      client.connect(); completeHandshake(dialed[0]!);
+      for (let index = 0; index < 70; index++) {
+        const controller = new AbortController();
+        const pending = client.fetch('/api/search?q=private-message-text', {
+          signal: controller.signal, headers: { authorization: 'Bearer private-credential' },
+        });
+        controller.abort();
+        await pending.catch(() => undefined);
+      }
+      expect(diagnostics).toHaveLength(64);
+      expect(diagnostics.every((entry) => entry.target === '/api/search')).toBe(true);
+      expect(JSON.stringify(diagnostics)).not.toContain('private-');
+      expect(client.hasUnsettledHttp).toBe(false);
+    } finally { client.dispose(); vi.unstubAllGlobals(); }
+  });
+  it.each([4401, 4403])('preserves loopback close %i for the connector', async (code) => {
+    const stream = { consume() {}, end() {}, onReset: undefined } as unknown as MuxStream;
+    const socket = new TunnelSocket(stream);
+    const lateData = stream.onData!;
+    const message = vi.fn(); socket.onmessage = message;
+    const close = vi.fn(); socket.onclose = close;
+    await Promise.resolve();
+    stream.onReset?.(`loopback-close-${code}`);
+    expect(close).toHaveBeenCalledWith({ code, reason: `loopback-close-${code}` });
+    lateData(new Uint8Array(4));
+    expect(message).not.toHaveBeenCalled();
+  });
+  it('times out a stalled HTTP request and releases pending activity without replacing the tunnel', async () => {
+    const { dialed, socketFactory } = tracker();
+    const client = new TunnelClient(record, { socketFactory }); client.connect(); completeHandshake(dialed[0]!);
+    const pending = client.fetch('/api/rooms');
+    const failed = expect(pending).rejects.toThrow('Relay HTTP request timed out');
+    await vi.advanceTimersByTimeAsync(30_000);
+    await failed;
+    expect(client.hasUnsettledHttp).toBe(false);
+    expect(client.state).toBe('connected');
+    client.dispose();
+  });
   // harn:assume browser-tunnel-readiness-follows-current-generation ref=tunnel-generation-regression
   it('publishes current-generation readiness and coalesces recovery attempts', async () => {
     const { dialed, socketFactory } = tracker();
@@ -239,7 +283,7 @@ describe('TunnelClient resilience', () => {
     client.dispose();
   });
 
-  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=tunnel-http-activity-regression
+  // harn:assume app-liveness-recovery-is-stream-first ref=tunnel-http-activity-regression
   it('reports unsettled HTTP work until the request settles', async () => {
     const { dialed, socketFactory } = tracker();
     const client = new TunnelClient(record, { socketFactory });
@@ -254,7 +298,7 @@ describe('TunnelClient resilience', () => {
     expect(client.hasUnsettledHttp).toBe(false);
     client.dispose();
   });
-  // harn:end hosted-foreground-watchdog-defers-while-http-active
+  // harn:end app-liveness-recovery-is-stream-first
 
   // harn:assume hosted-bootstrap-requests-are-abortable-and-generation-bounded ref=bounded-managed-bootstrap-regression
   it('aborts one stalled HTTP stream exactly once without dropping the tunnel', async () => {

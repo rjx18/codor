@@ -1,7 +1,7 @@
 id: hosted-foreground-watchdog-defers-while-http-active
 hash: a-cd34479922fe
 title: Hosted watchdog replacement waits for unsettled tunnel HTTP
-state: active
+state: retired
 statement: A hosted app watchdog must not replace a connected tunnel merely
   because its list_rooms probe expires while the tunnel has unsettled
   authenticated HTTP work such as a slow combined-history request. It must allow
@@ -16,3 +16,4 @@ depends_on:
   - hosted-bootstrap-requests-are-abortable-and-generation-bounded
   - hosted-foregrounding-reuses-healthy-sessions
 created_by: hosted-provisional-runs-and-busy-watchdog
+retired_by: relay-polish-p5-transport-recovery

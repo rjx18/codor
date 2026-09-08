@@ -364,8 +364,8 @@ describe('foreground probe intent', () => {
     connector.dispose();
   });
 
-  // harn:assume hosted-foreground-watchdog-defers-while-http-active ref=busy-watchdog-regression
-  it('defers replacement during unsettled HTTP and carries foreground intent to the next probe', async () => {
+  // harn:assume app-liveness-recovery-is-stream-first ref=busy-watchdog-regression
+  it('uses valid app traffic despite a delayed rooms probe and unsettled HTTP', async () => {
     vi.useFakeTimers();
     fireVisible();
     const tunnel = new FakeTunnel('connected');
@@ -384,11 +384,12 @@ describe('foreground probe intent', () => {
     fireVisible();
     await flush();
     expect(socket.sent.filter((raw) => JSON.parse(raw).type === 'list_rooms')).toHaveLength(2);
+    for (let index = 0; index < 5; index++) socket.deliver({ type: 'self', room: 'eng', member_id: 'viewer' });
 
     await vi.advanceTimersByTimeAsync(8_000);
     expect(tunnel.recoveries).toBe(0);
     expect(FakeSocket.instances).toHaveLength(1);
-    expect(onResume).not.toHaveBeenCalled();
+    expect(onResume).toHaveBeenCalledTimes(1);
 
     tunnel.hasUnsettledHttp = false;
     // Reach the next interval without also reaching that probe's 8s timeout.
@@ -400,7 +401,7 @@ describe('foreground probe intent', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
     connector.dispose();
   });
-  // harn:end hosted-foreground-watchdog-defers-while-http-active
+  // harn:end app-liveness-recovery-is-stream-first
 });
 // harn:end foreground-watchdog-probes-are-refresh-neutral
 
@@ -801,6 +802,21 @@ it('carries a caller ref once and routes a late error to its originating room', 
 // harn:end context-reset-confirmation-is-anchored-and-member-local
 
 describe('foreground watchdog', () => {
+  it('repairs one silent app stream before escalating despite pending HTTP', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    const tunnel = new FakeTunnel('connected'); tunnel.hasUnsettledHttp = true;
+    const connector = createConnector({ room: 'eng', token: 'token', tunnel,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket });
+    latest().accept(); latest().deliver({ type: 'rooms', rooms: [] });
+    await vi.advanceTimersByTimeAsync(28_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(tunnel.recoveries).toBe(0);
+    latest().accept();
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(tunnel.recoveries).toBe(1);
+    connector.dispose();
+  });
   const visible = (): void => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
   };

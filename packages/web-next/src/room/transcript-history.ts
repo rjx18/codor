@@ -21,7 +21,7 @@ import { captureRelayFetch } from '../runtime/relay-transport.js';
 
 type RequestKind = 'head' | `cursor:${string}`;
 type HistoryFetch = (input: string, init?: RequestInit) => Promise<Response>;
-// harn:assume history-operations-retain-session-ownership ref=captured-history-operation
+// harn:assume history-operations-retain-owner-across-renewal ref=captured-history-operation
 interface HistoryOperation {
   token: string;
   fetch: HistoryFetch;
@@ -48,7 +48,7 @@ function discardRetiredView(store: ClientStore, room: string, operation: History
   }
   return false;
 }
-// harn:end history-operations-retain-session-ownership
+// harn:end history-operations-retain-owner-across-renewal
 
 const requests = new WeakMap<ClientState['updateTranscriptHistory'], Map<string, Promise<boolean>>>();
 

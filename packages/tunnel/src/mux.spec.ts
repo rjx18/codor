@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_WINDOW, MessageReassembler, MuxStream, StreamKind, StreamMux, frameMessage, openToken } from './mux.js';
 
 /**
@@ -24,6 +24,26 @@ function pair() {
   };
   return { host, client, inbound, settle };
 }
+
+describe('linear message reassembly', () => {
+  it.each([1, 4])('copies a fragmented %i MiB message only once', (mib) => {
+    const payload = new Uint8Array(mib * 1024 * 1024).fill(17);
+    const wire = frameMessage(payload);
+    const original = Uint8Array.prototype.set;
+    let copied = 0;
+    const spy = vi.spyOn(Uint8Array.prototype, 'set').mockImplementation(function(this: Uint8Array, source, offset) {
+      copied += source.length; original.call(this, source, offset);
+    });
+    try {
+      const assembler = new MessageReassembler();
+      const messages: Uint8Array[] = [];
+      for (let offset = 0; offset < wire.length; offset += 65536) messages.push(...assembler.push(wire.subarray(offset, offset + 65536)));
+      expect(messages).toHaveLength(1);
+      expect(Buffer.from(messages[0]!).equals(Buffer.from(payload))).toBe(true);
+      expect(copied).toBe(payload.length + 4);
+    } finally { spy.mockRestore(); }
+  });
+});
 
 /** Collect DATA on a stream, auto-returning credit as it drains. */
 function drain(stream: MuxStream) {
@@ -74,6 +94,16 @@ describe('StreamMux basics', () => {
 });
 
 describe('StreamMux flow control', () => {
+  it('notifies a drain even when returned credit exactly empties the queue', () => {
+    const { client, inbound, settle } = pair();
+    const stream = client.openStream(StreamKind.HTTP); settle();
+    const peer = inbound.host[0]!;
+    stream.write(new Uint8Array(DEFAULT_WINDOW + 10)); settle();
+    const writable = vi.fn(); stream.onWritable = writable;
+    peer.consume(10); settle();
+    expect(stream.bufferedAmount).toBe(0);
+    expect(writable).toHaveBeenCalledTimes(1);
+  });
   it('stalls the sender at the window and drains after WINDOW refills — both directions at once', () => {
     const { client, inbound, settle } = pair();
     const s = client.openStream(StreamKind.HTTP); // 512 KiB window each direction

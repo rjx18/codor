@@ -304,6 +304,13 @@ export interface HostedComputerMaterial {
 export interface BrowserDeviceSession {
   token: string;
   hostname?: string;
+  expiresAt?: number;
+}
+
+export class BrowserAuthenticationError extends Error {
+  constructor(readonly status: number) {
+    super(`device authentication failed: ${status}`);
+  }
 }
 
 export async function storedRelayRecord(): Promise<StoredRelayRecord | undefined> {
@@ -638,7 +645,7 @@ export async function openBrowserDeviceSessionWith(
     body: JSON.stringify({ device_id: identity.device_id }),
   });
   if (!challengeResponse.ok) {
-    throw new Error(`device authentication failed: ${String(challengeResponse.status)}`);
+    throw new BrowserAuthenticationError(challengeResponse.status);
   }
   const offered = await challengeResponse.json() as {
     challenge?: BrowserAuthChallenge;
@@ -659,6 +666,7 @@ export async function openBrowserDeviceSessionWith(
     typeof challenge.transcript_hash !== 'string' ||
     challenge.transcript_hash !== expectedTranscript ||
     typeof challenge.expires_at !== 'string' ||
+    !Number.isFinite(Date.parse(challenge.expires_at)) ||
     Date.parse(challenge.expires_at) <= Date.now()
   ) {
     throw new Error('device authentication challenge is invalid');
@@ -673,7 +681,7 @@ export async function openBrowserDeviceSessionWith(
     body: JSON.stringify({ challenge_id: challenge.challenge_id, signature }),
   });
   if (!sessionResponse.ok) {
-    throw new Error(`device authentication failed: ${String(sessionResponse.status)}`);
+    throw new BrowserAuthenticationError(sessionResponse.status);
   }
   const session = await sessionResponse.json() as {
     access_token?: unknown;
@@ -685,12 +693,13 @@ export async function openBrowserDeviceSessionWith(
     typeof session.access_token !== 'string' || session.access_token === '' ||
     session.device_id !== identity.device_id ||
     typeof session.expires_at !== 'string' ||
+    !Number.isFinite(Date.parse(session.expires_at)) ||
     Date.parse(session.expires_at) <= Date.now()
   ) {
     throw new Error('device authentication session is invalid');
   }
   const hostname = isBoundedRelayHostname(session.hostname) ? session.hostname : undefined;
-  return { token: session.access_token, ...(hostname ? { hostname } : {}) };
+  return { token: session.access_token, expiresAt: Date.parse(session.expires_at), ...(hostname ? { hostname } : {}) };
 }
 
 export async function restoreBrowserAccess(origin = window.location.origin): Promise<string> {

@@ -110,6 +110,34 @@ async function fastRecovery(page: Page, extendedMs: number): Promise<void> {
 }
 
 test.describe('recovery journey', () => {
+  test('renews expired sessions through the real bridge, stays live, then parks revocation', async ({ page }) => {
+    test.setTimeout(120_000);
+    await pairLive(page);
+    const codes = () => page.evaluate(() => ((window as unknown as {
+      __codorRecoveryDiagnostics?: Array<{ code?: number }>;
+    }).__codorRecoveryDiagnostics ?? []).flatMap((entry) => entry.code === undefined ? [] : [entry.code]));
+    await control('/relay-expire-browser-sessions');
+    await control('/relay-replace-host');
+    await expect.poll(codes, { timeout: 30_000 }).toContain(4401);
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    expect(await noReload(page)).toBe(true);
+    await page.getByText('Hydration', { exact: true }).first().click();
+    await expect(page).toHaveURL(/room=hydration/);
+    // Cross both application-probe and relay-keepalive intervals with actual
+    // messages on concurrently subscribed rooms after credential replacement.
+    for (let index = 0; index < 7; index++) {
+      await control('/live-chat', { room: 'eng', body: `renewed session ${index}`, route: false });
+      await control('/live-chat', { room: 'ops', body: `background session ${index}`, route: false });
+      await page.waitForTimeout(5_000);
+      await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
+    }
+    await control('/relay-revoke-browsers');
+    await expect.poll(codes, { timeout: 30_000 }).toContain(4403);
+    await expect.poll(() => page.evaluate(() => (window as unknown as {
+      __codor?: { state(): string };
+    }).__codor?.state())).toBe('parked-auth');
+    expect(await noReload(page)).toBe(true);
+  });
   // harn:assume cached-transcript-head-stays-stale-until-revalidated ref=cached-history-revalidation-regression
   test('a hard refresh reads the cached head then reconciles newer host truth without duplicates', async ({ page }) => {
     test.setTimeout(120_000);

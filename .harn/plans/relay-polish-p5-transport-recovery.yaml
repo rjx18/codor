@@ -1,0 +1,211 @@
+id: relay-polish-p5-transport-recovery
+title: Preserve relay authentication and bound stream recovery
+notes: >
+  Phase 5 only on 119f5c5f. Preserve app 4401/4403 close semantics across the
+  existing mux reset representation. Coalesce owned credential renewal, retain
+  expiry and retry GET/HEAD at most once after renewal while migrating only that
+  read to the new credential within its original tunnel generation. Never replay
+  writes. Integrate with P4 retirement so old responses cannot commit and fresh
+  reads do not strand. Use current app traffic as liveness, repair app streams
+  before escalating an unresponsive connected tunnel, and reset backoff only on
+  server evidence. Bound HTTP duration and clear cancelled buffers, make message
+  reassembly linear, honor send-window backpressure and yield bulk HTTP batches.
+  Keep bounded diagnostics free of queries, plaintext messages and credentials.
+  Worker, wire format and acknowledged posts unchanged.
+assumptions:
+  retire:
+    - id: history-operations-retain-session-ownership
+      reason: Permit one authenticated read retry while keeping the original computer
+        and generation.
+    - id: hosted-foreground-watchdog-defers-while-http-active
+      reason: An unsettled HTTP request is not liveness proof; every request now has a
+        bounded lifetime.
+  create:
+    - id: history-operations-retain-owner-across-renewal
+      title: History keeps its owner while renewing read credentials
+      statement: >
+        Every head, predecessor, older request and explicit walk captures its
+        concrete store, room and transport. Each read attempt captures a token;
+        one idempotent retry may adopt freshly renewed credentials only within
+        the original computer and tunnel generation. Replacing or disposing that
+        generation aborts pending work and prevents stale responses or failures
+        from committing or restarting. Switching computers cannot reroute owned
+        background requests.
+      reason: Make credential renewal explicit without weakening P4 ownership.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+    - id: app-liveness-recovery-is-stream-first
+      title: App recovery trusts traffic and repairs streams before tunnels
+      statement: >
+        Valid current-generation application traffic satisfies liveness despite
+        a delayed rooms reply. Pending HTTP alone cannot indefinitely suppress
+        recovery. A connected tunnel first repairs the app stream, then
+        escalates persistent silence to tunnel recovery; auth, upgrade and
+        manual parks remain terminal to automatic recovery. Retry backoff resets
+        only after server evidence. Periodic probes remain refresh-neutral.
+      reason: Separate evidence of delayed reconciliation from a dead transport.
+      depends_on:
+        - foreground-watchdog-probes-are-refresh-neutral
+    - id: relay-read-renewal-retains-original-owner
+      title: Credential renewal preserves the originating read owner
+      statement: >
+        Managed credentials retain expiry and renewal coalesces per computer.
+        Only idempotent GET/HEAD reads may retry once after credential renewal,
+        within their original non-disposed tunnel generation. P4 retirement
+        cannot strand the refreshed read or permit old-credential results to
+        commit; writes are never automatically replayed.
+      reason: Close-code fidelity and renewal must compose with request retirement.
+      depends_on:
+        - history-operations-retain-owner-across-renewal
+        - paired-browser-challenge-session
+  reviewed:
+    - id: tunnel-stream-mux
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: relay-link-lifecycle
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: relay-bridge-callbacks-retire-before-mux-streams
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: paired-browser-challenge-session
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: hosted-generated-computer-label-follows-authenticated-hostname
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: hosted-foregrounding-reuses-healthy-sessions
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: foreground-watchdog-probes-are-refresh-neutral
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+    - id: browser-tunnel-readiness-follows-current-generation
+      outcome: unchanged
+      reason: Preserve the existing contract while correcting P5 transport mechanics.
+files:
+  - packages/web-next/src/room/transcript-history.ts
+  - .harn/plans/relay-polish-p5-transport-recovery.yaml
+  - packages/tunnel/src/mux.ts
+  - packages/tunnel/src/mux.spec.ts
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - packages/switchboard/src/relay/integration.spec.ts
+  - packages/web-next/src/runtime/relay.ts
+  - packages/web-next/src/runtime/relay.spec.ts
+  - packages/web-next/src/runtime/crypto.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+anchors:
+  history-operations-retain-owner-across-renewal:
+    captured-history-operation:
+      action: change
+      reason: Update only the ownership marker for the explicit renewal contract.
+  tunnel-stream-mux:
+    mux-stream-state:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  relay-bridge-callbacks-retire-before-mux-streams:
+    relay-bridge-lifecycle-regression:
+      action: change
+      reason: Prove slow consumers bound reads and preserve interactive traffic.
+    relay-bridge-lifecycle:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  paired-browser-challenge-session:
+    browser-session-signin:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-aware-computer-session:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+    generation-gated-app-connector:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  hosted-generated-computer-label-follows-authenticated-hostname:
+    authenticated-computer-label:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  hosted-bootstrap-requests-are-abortable-and-generation-bounded:
+    abortable-tunnel-fetch:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+    bounded-managed-bootstrap-attempt:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+    bounded-managed-bootstrap-regression:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  hosted-foregrounding-reuses-healthy-sessions:
+    foreground-health-probe:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  foreground-watchdog-probes-are-refresh-neutral:
+    watchdog-probe-regression:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  browser-tunnel-readiness-follows-current-generation:
+    current-tunnel-generation:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+    idempotent-tunnel-recovery:
+      action: change
+      reason: Scoped P5 lifecycle and regression changes.
+  app-liveness-recovery-is-stream-first:
+    watchdog-probe-state:
+      action: change
+      reason: Traffic-based stream-first recovery.
+    watchdog-probe-reply:
+      action: change
+      reason: Preserve reconciliation intent.
+    busy-watchdog-regression:
+      action: change
+      reason: Valid frames replace pending-HTTP assumptions.
+    tunnel-http-activity-indicator:
+      action: change
+      reason: Bounded activity diagnostics only.
+    tunnel-http-activity-regression:
+      action: change
+      reason: Verify bounded pending work.
+  relay-read-renewal-retains-original-owner:
+    owned-credential-renewal:
+      action: change
+      reason: Coalesce auth and migrate only fresh reads.
+applied:
+  applied_at: 2026-09-08T14:20:04.483Z

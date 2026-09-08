@@ -123,6 +123,9 @@ export class RelayLink {
   private socket?: RelaySocket;
   private keepalive?: Keepalive;
   private conns = new Map<number, ConnState>();
+  // Keep only the retired connection ID until its disconnect control arrives;
+  // late ciphertext must never be treated as another Noise msg1.
+  private readonly retiredConns = new Set<number>();
   private attempt = 0;
   private reconnectTimer?: ReturnType<typeof setTimeout>;
   private running = false;
@@ -165,6 +168,7 @@ export class RelayLink {
     this.keepalive = undefined;
     for (const conn of [...this.conns.values()]) this.teardownConn(conn);
     this.conns.clear();
+    this.retiredConns.clear();
     this.socket?.close(1000, 'shutdown');
     this.socket = undefined;
   }
@@ -179,7 +183,8 @@ export class RelayLink {
   dropDevice(deviceId: string): void {
     for (const conn of [...this.conns.values()]) {
       if (conn.deviceId === deviceId) {
-        this.teardownConn(conn);
+        this.retiredConns.add(conn.connId);
+        this.teardownConn(conn, 'loopback-close-4403');
         this.conns.delete(conn.connId);
       }
     }
@@ -270,6 +275,7 @@ export class RelayLink {
     this.socket = undefined;
     for (const conn of [...this.conns.values()]) this.teardownConn(conn);
     this.conns.clear();
+    this.retiredConns.clear();
     // Decide whether to alternate to the other {canonical, alias} member (default-URL
     // only): a pre-open connect failure alternates at once (connect-class); a socket
     // that opened but died before proving healthy is an early death — count them, and
@@ -305,6 +311,7 @@ export class RelayLink {
       try {
         const msg = JSON.parse(utf8Decode(data)) as { type?: string; conn?: number };
         if (msg.type === 'client-disconnected' && typeof msg.conn === 'number') {
+          this.retiredConns.delete(msg.conn);
           const conn = this.conns.get(msg.conn);
           if (conn) {
             this.teardownConn(conn);
@@ -322,6 +329,7 @@ export class RelayLink {
   }
 
   private handleConn(connId: number, payload: Uint8Array): void {
+    if (this.retiredConns.has(connId)) return;
     let conn = this.conns.get(connId);
     if (!conn) {
       conn = this.newConn(connId);
@@ -382,10 +390,10 @@ export class RelayLink {
     this.socket?.send(prefixConn(connId, payload));
   }
 
-  private teardownConn(conn: ConnState): void {
+  private teardownConn(conn: ConnState, reason = 'teardown'): void {
     for (const bridge of conn.bridges) bridge.close();
     conn.bridges.clear();
-    conn.mux?.close('teardown');
+    conn.mux?.close(reason);
   }
 
   private bridgeStream(conn: ConnState, stream: MuxStream): void {
@@ -408,6 +416,7 @@ export class RelayLink {
       active = false;
       open = false;
       pending.length = 0;
+      reassembler.reset();
       conn.bridges.delete(bridge);
       if (closeLoopback && !loopbackClosed) {
         loopbackClosed = true;
@@ -484,10 +493,18 @@ export class RelayLink {
     let done = false;
     let active = true;
     const controller = new AbortController();
+    const deadline = setTimeout(() => {
+      if (!active) return;
+      retire(true);
+      stream.reset('http-timeout');
+    }, 30_000);
+    deadline.unref();
     const retire = (abort: boolean): boolean => {
       if (!active) return false;
       active = false;
       done = true;
+      body.length = 0;
+      clearTimeout(deadline);
       conn.bridges.delete(bridge);
       if (abort) controller.abort();
       return true;
@@ -557,6 +574,10 @@ export class RelayLink {
         return;
       }
       let total = 0;
+      let writtenChunks = 0;
+      const cancelReader = (): void => { void reader.cancel().catch(() => undefined); };
+      signal.addEventListener('abort', cancelReader, { once: true });
+      try {
       for (;;) {
         const { done: finished, value } = await reader.read();
         if (!isActive()) {
@@ -573,9 +594,28 @@ export class RelayLink {
         for (let offset = 0; offset < value.length; offset += HTTP_CHUNK) {
           if (!isActive()) return;
           stream.write(value.subarray(offset, offset + HTTP_CHUNK));
+          if (stream.bufferedAmount > 0) {
+            await new Promise<void>((resolve, reject) => {
+              const previous = stream.onWritable;
+              const cleanup = (): void => { stream.onWritable = previous; signal.removeEventListener('abort', aborted); };
+              const aborted = (): void => { cleanup(); reject(new DOMException('HTTP stream cancelled', 'AbortError')); };
+              stream.onWritable = () => { previous?.(); if (stream.bufferedAmount === 0) { cleanup(); resolve(); } };
+              signal.addEventListener('abort', aborted, { once: true });
+              if (signal.aborted) aborted();
+              else if (stream.bufferedAmount === 0) { cleanup(); resolve(); }
+            });
+          }
+          // Give app/control traffic a turn even when the peer grants credit
+          // immediately and loopback produces a large already-buffered body.
+          if (++writtenChunks % 8 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
       if (isActive()) stream.end();
+      } finally {
+        signal.removeEventListener('abort', cancelReader);
+        if (signal.aborted || !isActive()) await reader.cancel().catch(() => undefined);
+        reader.releaseLock();
+      }
     } catch (error) {
       if (!isActive() || (error as { name?: string }).name === 'AbortError') return; // reset/teardown/over-limit
       stream.reset('loopback-error');

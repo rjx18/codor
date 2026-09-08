@@ -3,6 +3,7 @@ import type { Message, RoomSummary } from '@codor/protocol';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const recovery = vi.hoisted(() => ({
+  retireHistory: vi.fn(),
   bindOwner: vi.fn(),
   refresh: vi.fn(),
   refreshHead: vi.fn((_store: unknown, _room: string, _token: () => string) => Promise.resolve(true)),
@@ -13,7 +14,7 @@ const lastGoodCache = vi.hoisted(() => ({ snapshots: new Map<string, unknown>() 
 vi.mock('../room/run-journals.js', () => ({ refreshMutableRunJournals: recovery.refresh }));
 vi.mock('../room/transcript-history.js', () => ({
   bindTranscriptHistoryOwner: recovery.bindOwner,
-  retireTranscriptHistory: vi.fn(),
+  retireTranscriptHistory: recovery.retireHistory,
   refreshTranscriptHistoryHead: recovery.refreshHead,
   finalizedTranscriptRoots: recovery.finalizedRoots,
 }));
@@ -56,6 +57,82 @@ import { reconcileSelectedRoomHistory } from '../room/RoomPage.js';
 beforeEach(() => lastGoodCache.snapshots.clear());
 
 describe('bounded hosted background work', () => {
+  it('publishes a changed public room even when activity summaries are unchanged', async () => {
+    const h = harness(); const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+    try {
+      const snapshot = manager.getSnapshot();
+      manager.rememberActiveRoom('workspace');
+      expect(manager.getSnapshot()).not.toBe(snapshot);
+      expect(manager.active()?.room).toBe('workspace');
+    } finally { manager.dispose(); }
+  });
+  it('does not renew or retry a rejected mutating request', async () => {
+    const h = harness();
+    const make = h.deps.makeTunnel;
+    const request = vi.fn(async () => new Response('', { status: 401 }));
+    h.deps.makeTunnel = (material) => Object.assign(make(material), { fetch: request });
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+    const renew = vi.fn(async () => ({ token: 'unexpected' })); h.deps.authenticate = renew;
+    try {
+      const store = h.connectorOptions.get('A')!.store!;
+      const capture = recovery.bindOwner.mock.calls.find((call) => call[0] === store)![1];
+      const response = await capture().fetch('/api/rooms', { method: 'POST', body: '{}' });
+      expect(response.status).toBe(401);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(renew).not.toHaveBeenCalled();
+    } finally { manager.dispose(); }
+  });
+  it.each(['expired', '401'])('coalesces %s renewal and completes fresh history despite P4 retirement', async (mode) => {
+    const actual = await vi.importActual<typeof import('../room/transcript-history.js')>('../room/transcript-history.js');
+    const h = harness();
+    const originalAuth = h.deps.authenticate;
+    h.deps.authenticate = async (...args) => ({ ...await originalAuth(...args), expiresAt: Date.now() + 3_600_000 });
+    const originalTunnel = h.deps.makeTunnel;
+    const tokens: string[] = [];
+    h.deps.makeTunnel = (material) => {
+      const tunnel = originalTunnel(material);
+      tunnel.fetch = async (_input, init) => {
+        const token = new Headers(init?.headers).get('authorization') ?? '';
+        tokens.push(token);
+        return token === 'Bearer fresh-A'
+          ? new Response(JSON.stringify({ messages: [], journals: [], units: [], before_cursor: null, has_more: false }))
+          : new Response('', { status: 401 });
+      };
+      return tunnel;
+    };
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+    const clock = mode === 'expired' ? vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 3_601_000) : undefined;
+    let finish!: () => void;
+    const renewal = vi.fn(async () => {
+      await new Promise<void>((resolve) => { finish = resolve; });
+      return { token: 'fresh-A', expiresAt: Date.now() + 3_600_000 };
+    });
+    h.deps.authenticate = renewal;
+    const store = h.connectorOptions.get('A')!.store!;
+    const capture = recovery.bindOwner.mock.calls.find((call) => call[0] === store)![1];
+    const operations: Array<{ isCurrent(): boolean }> = [];
+    actual.bindTranscriptHistoryOwner(store, () => { const operation = capture(); operations.push(operation); return operation; });
+    recovery.retireHistory.mockImplementation(actual.retireTranscriptHistory);
+    try {
+      const a = actual.refreshTranscriptHistoryHead(store, 'alpha', () => 'token-A');
+      const b = actual.refreshTranscriptHistoryHead(store, 'beta', () => 'token-A');
+      for (let tick = 0; tick < 16; tick++) await Promise.resolve();
+      expect(renewal).toHaveBeenCalledTimes(1);
+      finish();
+      expect(await Promise.all([a, b])).toEqual([true, true]);
+      expect(tokens.filter((token) => token === 'Bearer fresh-A')).toHaveLength(2);
+      expect(tokens).toHaveLength(mode === 'expired' ? 2 : 4);
+      expect(operations.every((operation) => operation.isCurrent())).toBe(true);
+      expect(store.getState().rooms.alpha?.transcriptHistory.loadingHead).toBe(false);
+      expect(store.getState().rooms.beta?.transcriptHistory.initialized).toBe(true);
+    } finally { manager.dispose(); clock?.mockRestore(); recovery.retireHistory.mockReset(); }
+  });
   it.each([false, true])('promotes selected work and preserves trailing intent, inFlight=%s', async (inFlight) => {
     const h = harness(); const manager = new ComputerSessionManager(h.deps);
     const calls: Array<{ room: string; release: () => void }> = [];
@@ -64,6 +141,7 @@ describe('bounded hosted background work', () => {
     }));
     try {
       await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
       const store = h.connectorOptions.get('A')!.store!;
       const seed = (room: string, id = 1) => {
         store.getState().applyFrame({ type: 'message', seq: id,
@@ -88,6 +166,7 @@ describe('bounded hosted background work', () => {
   it('aborts the captured transport when its tunnel generation is replaced', async () => {
     const h = harness(); const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     try {
       const store = h.connectorOptions.get('A')!.store!;
       const capture = recovery.bindOwner.mock.calls.find((call) => call[0] === store)![1];
@@ -103,6 +182,7 @@ describe('bounded hosted background work', () => {
   it('ignores live roots and continuations but observes terminal and deleted evidence', async () => {
     const h = harness(); const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     try {
       const store = h.connectorOptions.get('B')!.store!;
       store.getState().setActiveRoom('same-room');
@@ -124,6 +204,7 @@ describe('bounded hosted background work', () => {
     recovery.refreshHead.mockImplementation(() => new Promise<boolean>((resolve) => { releases.push(() => resolve(true)); }));
     try {
       await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
       for (let id = 0; id < 8; id++) {
         const store = h.connectorOptions.get(id % 2 === 0 ? 'B' : 'A')!.store!;
         const room = `background-${id}`;
@@ -133,11 +214,11 @@ describe('bounded hosted background work', () => {
       }
       expect(releases).toHaveLength(2);
       releases[0]!();
-      for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+      for (let tick = 0; tick < 64; tick++) await Promise.resolve();
       expect(releases).toHaveLength(3);
       manager.dispose();
       for (const release of releases) release();
-      for (let tick = 0; tick < 8; tick++) await Promise.resolve();
+      for (let tick = 0; tick < 64; tick++) await Promise.resolve();
       expect(releases).toHaveLength(3);
     } finally {
       manager.dispose(); for (const release of releases) release();
@@ -148,6 +229,7 @@ describe('bounded hosted background work', () => {
   it('does not notify listeners for unchanged connection and visible summary inputs', async () => {
     const h = harness(); const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     try {
       const store = h.connectorOptions.get('A')!.store!;
       const notify = vi.fn(); const stop = manager.subscribe(notify);
@@ -318,7 +400,8 @@ describe('ComputerSessionManager', () => {
     const manager = new ComputerSessionManager(h.deps);
     try {
       await manager.start();
-      for (let tick = 0; tick < 8 && h.connectorOptions.size < 2; tick += 1) await Promise.resolve();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+      for (let tick = 0; tick < 64 && h.connectorOptions.size < 2; tick += 1) await Promise.resolve();
       expect(h.connectorOptions.get('A')?.combinedTranscriptHistory).toBe(true);
       expect(h.connectorOptions.get('B')?.combinedTranscriptHistory).toBe(false);
     } finally {
@@ -349,6 +432,7 @@ describe('ComputerSessionManager', () => {
     const manager = new ComputerSessionManager(h.deps);
     try {
       await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
       const storeB = h.connectorOptions.get('B')!.store!;
       storeB.getState().setActiveRoom('same-room');
       const previous = storeB.getState();
@@ -377,11 +461,11 @@ describe('ComputerSessionManager', () => {
       } as never);
       expect(calls).toHaveLength(1);
       calls[0]!.release();
-      for (let tick = 0; tick < 8 && calls.length < 2; tick += 1) await Promise.resolve();
+      for (let tick = 0; tick < 64 && calls.length < 2; tick += 1) await Promise.resolve();
       expect(calls).toHaveLength(2);
       expect(calls[1]).toMatchObject({ store: storeB, room: 'same-room', token: 'token-B' });
       calls[1]!.release();
-      for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
+      for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
       // A warmed destination is already initialized, so activation itself has
       // no extra head request or transport creation to hide the result.
@@ -413,6 +497,7 @@ describe('ComputerSessionManager', () => {
     const manager = new ComputerSessionManager(h.deps);
     try {
       await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
       const storeA = h.connectorOptions.get('A')!.store!;
       storeA.getState().setActiveRoom('same-room');
       storeA.getState().applyFrame({
@@ -474,14 +559,15 @@ describe('ComputerSessionManager', () => {
     };
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
-    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
     h.tunnels.get('A')?.set('disconnected', true);
     h.tunnels.get('A')?.set('connected');
     releaseFirstA();
     // The generation-bound request wrapper adds a settlement hop so stale
     // authentication and room-summary work cannot outlive its abort cleanup.
-    for (let tick = 0; tick < 24; tick += 1) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
     expect(aAttempts).toBe(2);
     expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
@@ -516,6 +602,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     h.connectorOptions.get('B')?.store?.getState().setAuthRefused(true);
     expect(manager.getSnapshot().computers.find((computer) => computer.id === 'B')).toMatchObject({
@@ -529,6 +616,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     expect(await manager.add('CODE', 'wss://relay.test')).toBe(true);
     expect(h.tunnelStarts.sort()).toEqual(['A', 'B', 'C']);
@@ -553,6 +641,7 @@ describe('ComputerSessionManager', () => {
     });
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     expect(manager.getSnapshot().computers).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'A', label: 'host-a' }),
@@ -570,6 +659,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     expect(manager.getSnapshot().computers.map((computer) => computer.label).sort()).toEqual(['Computer A', 'Computer B']);
     manager.dispose();
   });
@@ -583,6 +673,7 @@ describe('ComputerSessionManager', () => {
     h.deps.sleep = async () => undefined;
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     expect(await manager.add('CODE', 'wss://relay.test')).toBe(false);
     expect(manager.active()?.id).toBe('A');
@@ -601,7 +692,8 @@ describe('ComputerSessionManager', () => {
     h.deps.sleep = async () => undefined;
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
-    for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
     expect(manager.activeToken()).toBe('token-A');
     expect(manager.active()).toBeUndefined();
@@ -621,7 +713,8 @@ describe('ComputerSessionManager', () => {
     (window as unknown as { __CODOR_SESSION_BOOT_MS?: number }).__CODOR_SESSION_BOOT_MS = 1;
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
-    for (let i = 0; i < 8; i += 1) await Promise.resolve();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+    for (let i = 0; i < 64; i += 1) await Promise.resolve();
 
     expect(manager.getSnapshot().computers.find((computer) => computer.id === 'B')).toMatchObject({ ready: true, connected: true });
     expect(await manager.activate('B')).toBe(true);
@@ -652,11 +745,12 @@ describe('ComputerSessionManager', () => {
     (window as unknown as { __CODOR_SESSION_REQUEST_MS?: number }).__CODOR_SESSION_REQUEST_MS = 25;
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     await vi.advanceTimersByTimeAsync(25);
-    for (let tick = 0; tick < 16; tick += 1) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
     expect(firstSignal?.aborted).toBe(true);
-    expect(h.tunnels.get('A')?.recoveries).toBe(1);
+    expect(h.tunnels.get('A')?.recoveries).toBe(0);
     expect(h.tunnels.get('B')?.recoveries).toBe(0);
     expect(h.connectorStarts.filter((id) => id === 'A')).toHaveLength(1);
     expect(h.connectorStarts.filter((id) => id === 'B')).toHaveLength(1);
@@ -670,6 +764,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     h.connectorOptions.get('A')?.setToken?.('');
     expect(manager.active()).toMatchObject({ id: 'A', token: '' });
@@ -687,7 +782,8 @@ describe('ComputerSessionManager', () => {
     h.deps.loadRooms = async (token) => token.endsWith('B') ? [] : [summary('A', 1)];
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
-    for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
     expect(manager.getSnapshot().computers.find((computer) => computer.id === 'B')?.ready).toBe(false);
     const before = [...h.switches];
@@ -736,10 +832,11 @@ describe('ComputerSessionManager', () => {
 
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     expect(manager.renderableActive()).toMatchObject({ id: 'A', room: 'same-room', token: '' });
 
     resolveEmpty([]);
-    for (let tick = 0; tick < 24 && await loadLastGoodRoom('A') !== undefined; tick += 1) {
+    for (let tick = 0; tick < 64 && await loadLastGoodRoom('A') !== undefined; tick += 1) {
       await Promise.resolve();
     }
     expect(manager.activeHasNoRooms()).toBe(true);
@@ -788,6 +885,7 @@ describe('ComputerSessionManager', () => {
     const manager = new ComputerSessionManager(h.deps);
     try {
       await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
       expect(manager.renderableActive()).toMatchObject({ id: 'A', room: 'eng', token: '' });
 
       // This is the early cached ManagedBootstrap canonicalization that used to
@@ -797,7 +895,7 @@ describe('ComputerSessionManager', () => {
         { ...summary('A', 1), id: 'eng', name: 'Engineering' },
         { ...summary('A', 0), id: 'workspace', name: 'Workspace' },
       ]);
-      for (let tick = 0; tick < 24 && manager.active()?.room !== 'workspace'; tick += 1) {
+      for (let tick = 0; tick < 64 && manager.active()?.room !== 'workspace'; tick += 1) {
         await Promise.resolve();
       }
       expect(manager.active()).toMatchObject({ id: 'A', room: 'workspace', token: 'token-A' });
@@ -814,6 +912,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     h.connectorOptions.get('B')?.onResume?.('same-room');
     expect(recovery.refresh).not.toHaveBeenCalled();
@@ -863,6 +962,7 @@ describe('ComputerSessionManager', () => {
     const manager = new ComputerSessionManager(h.deps);
     try {
       await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
       const storeA = h.connectorOptions.get('A')!.store!;
       const storeB = h.connectorOptions.get('B')!.store!;
       const connectorA = h.connectors.get('A')!;
@@ -901,6 +1001,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     const frame = {
       type: 'upgrade_required' as const,
       current_browser_protocol: 1,
@@ -919,6 +1020,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     expect(await manager.forget('A')).toBe(true);
     expect(manager.active()?.id).toBe('B');
@@ -931,7 +1033,8 @@ describe('ComputerSessionManager', () => {
     h.deps.loadRooms = async (token) => token.endsWith('B') ? [] : [summary('A', 1)];
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
-    for (let tick = 0; tick < 8; tick += 1) await Promise.resolve();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
     const before = manager.getSnapshot();
 
     expect(await manager.forget('A')).toBe(false);
@@ -943,6 +1046,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     h.connectors.get('A')!.setDesiredRooms(['wt-child-on-a']);
     h.connectors.get('B')!.setDesiredRooms(['wt-child-on-b-1', 'wt-child-on-b-2']);
@@ -962,6 +1066,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     const connectorA = h.connectors.get('A')!;
     const connectorB = h.connectors.get('B')!;
     connectorA.setDesiredRooms(['wt-a']);
@@ -989,6 +1094,7 @@ describe('ComputerSessionManager', () => {
     const h = harness();
     const manager = new ComputerSessionManager(h.deps);
     await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
 
     // A top-level switch names the session's public root.
     manager.rememberActiveRoom('root-on-a');
