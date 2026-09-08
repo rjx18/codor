@@ -1,0 +1,264 @@
+id: relay-polish-p6-review-capability-drafts
+title: Recover unknown post capabilities and preserve cached startup compositions
+notes: One contained P6 correction on ddc0e629b030d5cb6e6ea5a26cd4205227a0eaf2. Preserve reviewed server
+  receipt transactions and accepted P7/P5 teardown code. Distinguish unknown capability from verified
+  unsupported; bounded coalesced owned reads with renewal, no unsafe replay; explicit local waiting release
+  only after checking delivery. Preserve composition across same-session cached/live connector handover.
+  Remove all permitted seal-error exceptions and prove zero-error direct/hosted installed daemon restarts.
+  Full web suite, affected regressions, compatibility matrix, production/PWA build and locally packed
+  installed proof. Use the established mechanical draft-plan checkpoint if needed for a clean lock.
+assumptions:
+  retire:
+  - id: composer-drafts-stay-in-memory-with-source-owner
+    reason: Replace connection-instance ownership with stable in-memory computer-session ownership.
+  create:
+  - id: composer-memory-survives-session-connector-handover
+    title: Composition memory survives cached-to-live session handover
+    statement: A computer session gives its cached and live connectors the same nonpersistent composition
+      owner. Body, edited-empty state, reply, uploaded attachment selection, completed voice metadata
+      and pending result state stay scoped to that owner and room across connector replacement. Other
+      computer sessions, forgotten pairings and page reloads cannot inherit the memory. No draft or outbox
+      is written to persistent storage.
+    reason: Correct the connection-instance ownership that loses drafts on cached startup.
+    depends_on:
+    - hosted-computer-sessions-keep-state-isolated
+    - composer-acknowledgement-preserves-owned-raw-drafts
+    - pending-submission-retries-only-through-ready-owner
+  - id: post-capability-recovery-is-owned-and-bounded
+    title: Unknown post capability retries through its ready owner
+    statement: Timeouts, transport errors and failed compatibility responses leave post capability unknown,
+      distinct from verified supported or unsupported. One bounded abortable compatibility check per owning
+      socket generation uses that session's credential renewal, coalesces concurrent intent, and retries
+      unknown results with bounded backoff while the connection is healthy. Generation retirement and
+      auth/manual/upgrade/disposal parks cancel the checks. Only verified support permits replay of the
+      original immutable pending ID; verification never replaces a healthy connection or sends legacy
+      retries.
+    reason: A transient read failure must not permanently strand a pending submission.
+    depends_on:
+    - pending-submission-retries-only-through-ready-owner
+    - relay-read-renewal-retains-original-owner
+    - hosted-app-streams-follow-tunnel-generations
+  - id: unsupported-submissions-can-stop-local-wait
+    title: Unsupported pending submissions can release local waiting explicitly
+    statement: A verified unsupported replacement exposes an explicit originating-submission control to
+      stop waiting after the user confirms checking delivery. It releases only that local pending latch,
+      preserves the editable composition, warns that delivery remains uncertain and does not claim server
+      cancellation. It sends no post or cancellation, never automatically retries through legacy semantics,
+      and ignores late results for the released ID.
+    reason: Actual downgrade needs a usable recovery path without duplicate legacy sends.
+    depends_on:
+    - post-capability-recovery-is-owned-and-bounded
+    - composer-acknowledgement-preserves-owned-raw-drafts
+  reviewed:
+  - id: pending-submission-retries-only-through-ready-owner
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: combined-history-capability-gates-socket-fallback
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: hosted-app-streams-follow-tunnel-generations
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: relay-app-socket-readiness-requires-server-evidence
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: app-liveness-recovery-is-stream-first
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: reconnect-safe-post-dispatch-preserves-draft
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: context-reset-requests-settle-by-explicit-ref
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: context-reset-confirmation-is-anchored-and-member-local
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: hosted-computer-sessions-keep-state-isolated
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: hosted-app-keeps-all-paired-computers-live
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: hosted-bootstrap-requests-are-abortable-and-generation-bounded
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: relay-read-renewal-retains-original-owner
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: composer-acknowledgement-preserves-owned-raw-drafts
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: scheduled-composer-settles-original-owned-outcome
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: browser-retired-muxes-cannot-emit
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+  - id: post-receipts-commit-atomically-with-routing
+    outcome: unchanged
+    reason: Preserve the accepted behavior while correcting P6 ownership/recovery and requiring the accepted
+      teardown behavior in restart proofs.
+files:
+- packages/web-next/src/app/compatibility.tsx
+- packages/web-next/src/app/connector.ts
+- packages/web-next/src/app/computer-sessions.ts
+- packages/web-next/src/app/pending-submission.ts
+- packages/web-next/src/room/composer-memory.ts
+- packages/web-next/src/room/Composer.tsx
+- packages/web-next/src/runtime/ws.ts
+- packages/web-next/src/app/compatibility.spec.tsx
+- packages/web-next/src/app/connector.spec.ts
+- packages/web-next/src/app/computer-sessions.spec.ts
+- packages/web-next/src/app/pending-submission.spec.ts
+- packages/web-next/src/room/composer-memory.spec.tsx
+- packages/web-next/src/room/Composer.spec.tsx
+- packages/web-next/tests/harness.mjs
+- packages/web-next/tests/room47-submission-recovery.e2e.spec.ts
+- scripts/p6-installed-proof.mjs
+- docs/post-submissions.md
+- .harn/plans/relay-polish-p6-review-capability-drafts.yaml
+anchors:
+  combined-history-capability-gates-socket-fallback:
+    combined-history-compatibility-client:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    capability-gated-socket-history:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  context-reset-confirmation-is-anchored-and-member-local:
+    clear-context-result-router:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  app-liveness-recovery-is-stream-first:
+    watchdog-probe-state:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    watchdog-probe-reply:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-app-connector:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    generation-aware-computer-session:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-result:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    clear-context-ref-client-transport:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  reconnect-safe-post-dispatch-preserves-draft:
+    connector-post-dispatch-result:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    cached-connector-rejection:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    runtime-post-dispatch-result:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-lifecycle:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+    provisional-cache-write-coalescing:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  hosted-bootstrap-requests-are-abortable-and-generation-bounded:
+    bounded-managed-bootstrap-attempt:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  relay-read-renewal-retains-original-owner:
+    owned-credential-renewal:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  pending-submission-retries-only-through-ready-owner:
+    p6-pending-submission-retries-only-through-ready-owner:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  composer-memory-survives-session-connector-handover:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  composer-acknowledgement-preserves-owned-raw-drafts:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  scheduled-composer-settles-original-owned-outcome:
+    scheduled-pending-composer-send:
+      action: change
+      reason: Contained P6 review correction of capability recovery, local waiting controls and session
+        composition ownership; preserve existing protocol/history/auth invariants.
+  post-capability-recovery-is-owned-and-bounded:
+    owned-post-capability-recovery:
+      action: change
+      reason: Anchor the required review correction and its regressions.
+  unsupported-submissions-can-stop-local-wait:
+    stop-local-submission-wait:
+      action: change
+      reason: Anchor the required review correction and its regressions.
+  browser-retired-muxes-cannot-emit:
+    packed-zero-error-restarts:
+      action: change
+      reason: Anchor the required review correction and its regressions.
