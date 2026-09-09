@@ -1,0 +1,14 @@
+id: sender-receipt-correlation-is-indexed-and-private
+hash: a-6b84cdbf949b
+title: Returned records correlate only for their authenticated sender
+state: active
+statement: Live, replay and HTTP messages/schedules may carry optional
+  sender-owned submission correlation derived from durable receipts through
+  indexed destination lookups bounded by unique returned records. Publication
+  and receipt transactions stay unchanged; no extra browser request or polling
+  is introduced. Distinct authors never receive each others correlation. A
+  separate capability gates optimistic UI; canonical identity reconciles before
+  or after acknowledgement without text matching.
+depends_on:
+  - post-receipts-commit-atomically-with-routing
+created_by: message-ui-polish-combined-integration-v3

@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createConnector } from './connector.js';
+import { sendOutgoing, outgoingFor } from './outgoing.js';
+import { MessageSchema } from '@codor/protocol';
 import { createClientStore, roomSlice, useClientStore } from './store.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 
@@ -141,11 +143,12 @@ afterEach(() => {
 
 // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-unit-regression
 describe('connector resume', () => {
-  // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=post-dispatch-unit-regression
+  // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=post-dispatch-unit-regression
   it('reports a rejected post and accepts the first explicit retry after reconnect', () => {
     const connector = build();
     const first = latest();
     first.accept();
+    first.deliver({type:'sync_complete',room:'eng',seq:0});
     expect(connector.post('before reconnect')).toBe(true);
 
     first.throwOnSend = true;
@@ -157,12 +160,13 @@ describe('connector resume', () => {
     connector.reconnect();
     const replacement = latest();
     replacement.accept();
+    replacement.deliver({type:'sync_complete',room:'eng',seq:0});
     expect(connector.post('first post after reconnect')).toBe(true);
     expect(replacement.sent.map((raw) => JSON.parse(raw)).filter((frame) => frame.type === 'post'))
       .toEqual([{ type: 'post', room: 'eng', body: 'first post after reconnect' }]);
     connector.dispose();
   });
-  // harn:end reconnect-safe-post-dispatch-preserves-draft
+  // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
 
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
   it('correlates direct and scoped cancellation with exactly one schedule ref', () => {
@@ -171,6 +175,7 @@ describe('connector resume', () => {
       socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
     });
     latest().accept();
+    latest().deliver({type:'sync_complete',room:'eng',seq:0});
     connector.act({ act: 'cancel_schedule', schedule_id: 'schedule-red' });
     expect(JSON.parse(latest().sent.at(-1)!)).toMatchObject({
       type: 'act', room: 'eng', ref: 'schedule-red',
@@ -189,6 +194,9 @@ describe('connector resume', () => {
     const socket = latest();
     socket.accept();
 
+    expect(connector.actForRoom?.('other', { act: 'archive_room' }, 'before-proof')).toBe(false);
+    expect(socket.sent.map((raw) => JSON.parse(raw)).filter((item) => item.type === 'act')).toEqual([]);
+    socket.deliver({ type: 'sync_complete', room: 'source', seq: 0 });
     expect(connector.actForRoom?.('other', { act: 'archive_room' }, 'archive-other')).toBe(true);
     expect(socket.sent.map((raw) => JSON.parse(raw)).filter((item) => item.type === 'act')).toEqual([
       { type: 'act', room: 'other', act: { act: 'archive_room' }, ref: 'archive-other' },
@@ -214,6 +222,8 @@ describe('connector resume', () => {
     });
     const socketB = latest();
     socketA.accept(); socketB.accept();
+    socketA.deliver({ type: 'sync_complete', room: 'shared', seq: 0 });
+    socketB.deliver({ type: 'sync_complete', room: 'shared', seq: 0 });
     expect(connectorA.actForRoom?.('shared', { act: 'archive_room' }, 'archive-shared')).toBe(true);
     expect(connectorB.actForRoom?.('shared', { act: 'archive_room' }, 'archive-shared')).toBe(true);
     socketA.deliver({ type: 'error', ref: 'archive-shared', message: 'computer A refused' });
@@ -1200,6 +1210,139 @@ describe('connector hidden-room observation', () => {
 // harn:end worktree-conversation-status-is-live-and-independent
 
 describe('P6 submission connection ownership', () => {
+  it('waits for unknown capability and preserves old-before-new order in every origin room',async()=>{
+    vi.useFakeTimers();const source=createClientStore();const owned:FakeSocket[]=[];
+    let resolveCapability!:(value:{postAcknowledgements:boolean;postCorrelations:boolean})=>void;
+    const connector=createConnector({room:'eng',token:'token',store:source,postAcknowledgements:true,postCorrelations:true,
+      refreshPostAcknowledgements:()=>new Promise(resolve=>{resolveCapability=resolve;}),
+      socketFactory:url=>{const socket=new FakeSocket(url);owned.push(socket);return socket as unknown as WebSocket;}});
+    const first=owned[0]!;first.accept();first.deliver({type:'sync_complete',room:'eng',seq:0});
+    connector.setDesiredRooms(['eng','ops']);first.deliver({type:'sync_complete',room:'ops',seq:0});
+    sendOutgoing(connector,'eng','eng','eng old',[]);sendOutgoing(connector,'ops','ops','ops old',[]);
+    first.drop();sendOutgoing(connector,'eng','eng','eng new',[]);sendOutgoing(connector,'ops','ops','ops new',[]);
+    await vi.advanceTimersByTimeAsync(500);const next=owned[1]!;next.accept();await flush();
+    next.deliver({type:'sync_complete',room:'eng',seq:0});next.deliver({type:'sync_complete',room:'ops',seq:0});
+    expect(next.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post')).toHaveLength(0);
+    resolveCapability({postAcknowledgements:true,postCorrelations:true});await vi.advanceTimersByTimeAsync(0);
+    expect(connector.postCorrelations).toBe(true);
+    const posts=next.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post');
+    expect(posts.filter(frame=>frame.room==='eng').map(frame=>frame.body)).toEqual(['eng old','eng new']);
+    expect(posts.filter(frame=>frame.room==='ops').map(frame=>frame.body)).toEqual(['ops old','ops new']);
+    connector.dispose();
+  });
+  it.each([undefined, false, true])('cached local records await same-room readiness and verified support (%s)', (support) => {
+    const source = createClientStore();
+    source.setState({ cachedSendRooms: ['eng'] });
+    const compositionOwner = {};
+    const cached = { compositionOwner };
+    const connector = createConnector({ room: 'eng', token: 'token', store: source, compositionOwner,
+      postAcknowledgements: support, postCorrelations: support,
+      socketFactory: url => new FakeSocket(url) as unknown as WebSocket });
+    expect(source.getState()).toMatchObject({ connected: false, sessionEstablished: false });
+    expect(connector.localSendAllowed).toBe(true);
+    const id = sendOutgoing(connector, 'eng', 'eng', 'cached waiting', []);
+    expect(outgoingFor(cached).snapshot()).toMatchObject([{ id, status: 'queued' }]);
+    const socket = latest(); socket.accept();
+    socket.deliver({ type: 'sync_complete', room: 'other', seq: 0 });
+    expect(socket.sent.map(raw => JSON.parse(raw)).filter(frame => frame.type === 'post')).toEqual([]);
+    socket.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    socket.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    const posts = socket.sent.map(raw => JSON.parse(raw)).filter(frame => frame.type === 'post');
+    expect(posts.map(frame => frame.submission_id)).toEqual(support === true ? [id] : []);
+    if (support !== true) expect(outgoingFor(cached).snapshot()[0]).toMatchObject({ status: 'queued', error: expect.stringContaining('compatible') });
+    connector.dispose();
+    expect(source.getState().cachedSendRooms).toEqual([]);
+  });
+  it.each(['manual', 'auth', 'upgrade'] as const)('cached admission is withdrawn by %s before first room readiness', (kind) => {
+    const source = createClientStore(); source.setState({ cachedSendRooms: ['eng'] });
+    const connector = createConnector({ room: 'eng', token: 'token', store: source,
+      postAcknowledgements: true, postCorrelations: true, onUpgradeRequired: vi.fn(),
+      socketFactory: url => new FakeSocket(url) as unknown as WebSocket });
+    const socket = latest(); socket.accept();
+    if (kind === 'manual') connector.disconnect();
+    else if (kind === 'auth') socket.drop(4403);
+    else socket.deliver({ type: 'upgrade_required', minimum_browser_protocol: 999, current_browser_protocol: 2 });
+    expect(connector.localSendAllowed).toBe(false);
+    expect(source.getState().cachedSendRooms).toEqual([]);
+    expect(source.getState().sessionEstablished).toBe(false);
+    connector.dispose();
+  });
+  it('bounds the never-sent buffer without discarding the overflow composition',()=>{
+    const source=createClientStore();const connector=createConnector({room:'eng',token:'token',store:source,
+      postAcknowledgements:true,postCorrelations:true,socketFactory:url=>new FakeSocket(url) as unknown as WebSocket});
+    latest().accept();latest().deliver({type:'sync_complete',room:'eng',seq:0});latest().drop();
+    for(let i=0;i<33;i++)sendOutgoing(connector,'eng','eng',`queued ${i}`,[]);
+    const rows=outgoingFor(connector).snapshot();
+    expect(rows.filter(row=>row.status==='queued')).toHaveLength(32);
+    expect(rows[32]).toMatchObject({status:'failed',rawBody:'queued 32'});
+    expect(rows[32]!.error).toContain('32-message');connector.dispose();
+  });
+  it('buffers never-sent records through the existing ready edge without writing while down',async()=>{
+    vi.useFakeTimers();
+    const source=createClientStore();
+    const connector=createConnector({room:'eng',token:'token',store:source,postAcknowledgements:true,postCorrelations:true,
+      socketFactory:url=>new FakeSocket(url) as unknown as WebSocket});
+    const first=latest();
+    expect(connector.localSendAllowed).toBe(false);
+    first.accept();first.deliver({type:'sync_complete',room:'eng',seq:0});
+    first.drop();
+    expect(connector.localSendAllowed).toBe(true);expect(source.getState().connected).toBe(false);
+    const one=sendOutgoing(connector,'eng','eng','same',[]),two=sendOutgoing(connector,'eng','eng','same',[]);
+    expect(connector.post('not a local intent')).toBe(false);
+    expect(outgoingFor(connector).snapshot().map(row=>row.status)).toEqual(['queued','queued']);
+    expect(first.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(500);const second=latest();second.accept();
+    connector.act({act:'interrupt',member_id:'not-ready'});
+    expect(second.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='act')).toHaveLength(0);
+    expect(second.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post')).toHaveLength(0);
+    second.deliver({type:'sync_complete',room:'eng',seq:0});second.deliver({type:'sync_complete',room:'eng',seq:0});
+    expect(second.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post').map(frame=>frame.submission_id)).toEqual([one,two]);
+    expect(outgoingFor(connector).snapshot().map(row=>row.status)).toEqual(['sending','sending']);
+    connector.dispose();
+  });
+  it.each(['manual','auth','upgrade'] as const)('%s parks end grace and never drain queued records',async(kind)=>{
+    vi.useFakeTimers();const source=createClientStore();
+    const owned: FakeSocket[]=[];
+    const connector=createConnector({room:'eng',token:'token',store:source,postAcknowledgements:true,postCorrelations:true,
+      onUpgradeRequired:vi.fn(),socketFactory:url=>{const socket=new FakeSocket(url);owned.push(socket);return socket as unknown as WebSocket;}});
+    const first=owned[0]!;first.accept();first.deliver({type:'sync_complete',room:'eng',seq:0});
+    if(kind==='manual')connector.disconnect();
+    else if(kind==='auth')first.drop(4403);
+    else first.deliver({type:'upgrade_required',minimum_browser_protocol:999,current_browser_protocol:2});
+    expect(connector.localSendAllowed).toBe(false);expect(source.getState().connectionRecoverable).toBe(false);
+    first.drop(1006);expect(source.getState().connectionRecoverable).toBe(false);
+    window.dispatchEvent(new Event('online'));await vi.advanceTimersByTimeAsync(10000);
+    expect(owned).toEqual([first]);expect(connector.post('unsafe')).toBe(false);connector.dispose();
+  });
+  it('never drains a never-sent record through a legacy runtime',async()=>{
+    vi.useFakeTimers();const source=createClientStore();
+    const connector=createConnector({room:'eng',token:'token',store:source,postAcknowledgements:false,postCorrelations:false,
+      socketFactory:url=>new FakeSocket(url) as unknown as WebSocket});
+    latest().accept();latest().deliver({type:'sync_complete',room:'eng',seq:0});latest().drop();
+    sendOutgoing(connector,'eng','eng','waiting for support',[]);
+    await vi.advanceTimersByTimeAsync(500);latest().accept();latest().deliver({type:'sync_complete',room:'eng',seq:0});
+    expect(latest().sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post')).toHaveLength(0);
+    expect(outgoingFor(connector).snapshot()[0]).toMatchObject({status:'queued',error:expect.stringContaining('compatible')});
+    connector.dispose();
+  });
+  it('retires a local row from owned HTTP history without an acknowledgement or extra post', () => {
+    const source = createClientStore();
+    const connector = createConnector({ room: 'eng', token: 'token', store: source,
+      postAcknowledgements: true, postCorrelations: true,
+      socketFactory: url => new FakeSocket(url) as unknown as WebSocket });
+    const socket = latest(); socket.accept(); socket.deliver({ type:'sync_complete', room:'eng', seq:0 });
+    const id = sendOutgoing(connector, 'eng', 'eng', 'same', []);
+    const message = MessageSchema.parse({ id: 123, room: 'eng', author:'01ARZ3NDEKTSV4RRFFQ69G5FAV',kind:'chat',body:'same',
+      mentions:[],refs:[],ledger_refs:[],ts:'2026-09-09T00:00:00Z',seq:123,submission_id:id });
+    source.setState(state => {
+      const slice = roomSlice(state,'eng');
+      return { rooms: { ...state.rooms, eng:{...slice,transcriptHistory:{...slice.transcriptHistory,messages:{123:message}}} } };
+    });
+    expect(outgoingFor(connector).snapshot()).toEqual([]);
+    expect(connector.submissionPending).toBe(false);
+    expect(socket.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post')).toHaveLength(1);
+    connector.dispose();
+  });
   const posts = (socket: FakeSocket) => socket.sent.map((value) => JSON.parse(value))
     .filter((frame) => frame.type === 'post');
   it('retries only after the original room is ready, keeps refreshed credentials, and ignores stale acks', async () => {
@@ -1269,7 +1412,7 @@ it('rechecks a replacement daemon capability and never retries an old receipt ag
   connector.dispose();
 });
 
-// harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+// harn:assume post-capability-recovery-is-owned-and-bounded-v3 ref=owned-post-capability-recovery
 describe('review: capability verification recovers without replacing healthy sockets', () => {
   it('aborts a timed-out check, coalesces healthy traffic, and retries the retained id once after verification', async () => {
     vi.useFakeTimers();
@@ -1360,4 +1503,4 @@ describe('review: capability verification recovers without replacing healthy soc
     connector.dispose();
   });
 });
-// harn:end post-capability-recovery-is-owned-and-bounded
+// harn:end post-capability-recovery-is-owned-and-bounded-v3

@@ -21,8 +21,19 @@ async function openRoom(page: Page, room = 'eng'): Promise<void> {
 
 async function postToFable(page: Page, body: string): Promise<void> {
   const input = page.getByTestId('composer-input');
-  await expect(input).toHaveValue(/@\w+ /); // hydrated — safe to type over
+  // Initial hydration must finish before typing, but a successful send now
+  // clears the draft rather than reseeding a mention for the next call.
+  await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected', 'true');
+  await expect.poll(() => page.evaluate(() => {
+    const connection = (window as unknown as { __codor?: {
+      room(): string; roomReadiness(room: string): string;
+    } }).__codor;
+    return connection?.roomReadiness(connection.room());
+  })).toBe('connected');
+  await expect(input).toBeEditable();
   await input.fill(body);
+  await expect(page.getByTestId('composer-send')).toBeEnabled();
+  await expect(input).toHaveValue(body);
   await input.press('Enter');
 }
 

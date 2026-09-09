@@ -20,7 +20,9 @@ test.describe('offline shell', () => {
     // The shell paints from the cache; the socket can't connect, and the app
     // says so instead of white-screening.
     await expect(page.getByTestId('app')).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId('connection')).toHaveText(/Reconnecting/);
+    await expect(page.getByTestId('connection')).toHaveText('Disconnected');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected', 'false');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-reconnect-grace', 'false');
     await context.setOffline(false);
   });
 });

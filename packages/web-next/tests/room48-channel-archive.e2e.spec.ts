@@ -302,16 +302,21 @@ test.describe('channel archive context menu', () => {
   test('refuses archive while the source connection is offline', async ({ page }) => {
     await delayArchiveDispatch(page);
     await openRoom(page, 'ops');
-    await page.evaluate(() => (window as unknown as { __codor?: { disconnect(): void } }).__codor?.disconnect());
     const trigger = page.getByTestId('room-menu-trigger-ops');
     await trigger.click();
     await page.getByTestId('archive-channel-open-ops').click();
-    await page.getByTestId('archive-channel-confirm-ops').click();
+    await page.evaluate(() => (window as unknown as { __codor?: { disconnect(): void } }).__codor?.disconnect());
+    const confirm = page.getByTestId('archive-channel-confirm-ops');
+    await expect(trigger).toBeDisabled();
+    await expect(confirm).toBeDisabled();
+    // Bypass only P3's DOM guard to retain the independent action-refusal proof.
+    await confirm.evaluate((button) => { (button as HTMLButtonElement).disabled = false; (button as HTMLButtonElement).click(); });
     await expect(page.getByTestId('archive-channel-error-ops')).toContainText('disconnected');
     await expect(page.getByTestId('room-link-ops')).toBeVisible();
     expect(await page.evaluate(() => (
       (window as unknown as { __archiveActions: Array<unknown> }).__archiveActions.length
     ))).toBe(0);
+    await page.keyboard.press('Escape');
 
     // A definite local refusal must release the source-owned single-flight
     // guard so reconnecting and explicitly retrying can submit one action.

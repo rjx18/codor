@@ -6,6 +6,7 @@ export interface PostOptions {
   replyTo?: number; attachments?: string[];
   voice?: { duration_seconds: number; levels: number[] };
   submissionId?: string;
+  retrySubmission?: boolean;
   onResult?: (result: SubmissionResult) => void;
 }
 
@@ -20,6 +21,11 @@ export interface Connection {
   postStateVersion?(): number;
   stopWaitingForSubmission?(room: string, id: string): boolean;
   readonly postAcknowledgements?: boolean;
+  readonly postCorrelations?: boolean;
+  /** Local intent admission only; never represents a socket write. */
+  readonly localSendAllowed?: boolean;
+  enqueueOutgoing?(id: string): boolean;
+  forgetSubmission?(id: string): void;
   readonly submissionPending?: boolean;
   post(
     body: string,
@@ -137,7 +143,7 @@ export function connect(options: ConnectOptions): Connection {
   };
 
   const connection: Connection = {
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=runtime-post-dispatch-result
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=runtime-post-dispatch-result
     post: (body, opts) => send({
       type: 'post',
       room: options.room,
@@ -146,7 +152,7 @@ export function connect(options: ConnectOptions): Connection {
       ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
       ...(opts?.voice !== undefined && { voice: opts.voice }),
     }),
-    // harn:end reconnect-safe-post-dispatch-preserves-draft
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     // harn:assume channel-archive-ui-captures-source-and-authoritative-result ref=channel-archive-targeted-act
     actForRoom: (room, act, ref) => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);

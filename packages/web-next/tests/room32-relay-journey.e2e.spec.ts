@@ -153,37 +153,39 @@ test.describe('relay tunnel journey', () => {
     await expect(input).not.toHaveValue(rawRelayBody);
     // harn:end composer-acknowledgement-separates-raw-draft-from-canonical-echo
 
-    // A transport refusal must release local pending-send bookkeeping without
-    // inventing a client-side queue or clearing the operator's exact draft.
+    // A local admission refusal retains the submitted composition on its own row,
+    // without losing its captured data or blocking the next draft.
     // The connector unit covers a real closed/send-race socket; this browser
-    // seam drives the same boolean refusal through the mounted Composer.
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=composer-rejection-regression
+    // seam drives the local-admission refusal through the mounted Composer.
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=composer-rejection-regression
     const rejectedDraft = '@viewer keep this draft after refusal';
     await input.fill(rejectedDraft);
     await page.evaluate(() => {
       const state = window as unknown as {
-        __codor?: { post: (...args: unknown[]) => boolean; __originalPost?: (...args: unknown[]) => boolean };
+        __codor?: { enqueueOutgoing: (...args: unknown[]) => boolean; __originalEnqueue?: (...args: unknown[]) => boolean };
       };
       const connection = state.__codor;
       if (!connection) throw new Error('connector e2e hook missing');
-      connection.__originalPost = connection.post;
-      connection.post = () => false;
+      connection.__originalEnqueue = connection.enqueueOutgoing;
+      connection.enqueueOutgoing = () => false;
     });
     await page.getByTestId('composer-send').click();
-    await expect(input).toHaveValue(rejectedDraft);
-    await expect(page.getByTestId('composer-hint')).toContainText('Reconnect before sending');
+    await expect(input).toHaveValue('');
+    const rejectedRow = page.getByTestId(/^outgoing-/).filter({hasText:rejectedDraft});
+    await expect(rejectedRow).toContainText('Cannot queue');
     await page.evaluate(() => {
       const connection = (window as unknown as {
-        __codor?: { post: (...args: unknown[]) => boolean; __originalPost?: (...args: unknown[]) => boolean };
+        __codor?: { enqueueOutgoing: (...args: unknown[]) => boolean; __originalEnqueue?: (...args: unknown[]) => boolean };
       }).__codor;
-      if (!connection?.__originalPost) throw new Error('original post missing after refusal');
-      connection.post = connection.__originalPost;
-      delete connection.__originalPost;
+      if (!connection?.__originalEnqueue) throw new Error('original local admission missing after refusal');
+      connection.enqueueOutgoing = connection.__originalEnqueue;
+      delete connection.__originalEnqueue;
     });
-    // No queued retry is emitted: replace the preserved draft explicitly for
-    // the remaining relay journey.
+    await rejectedRow.getByRole('button',{name:'Resend',exact:true}).click();
+    await expect(rejectedRow).toHaveCount(0);
+    // The next composition is independent of the recovered message.
     await input.fill('@viewer attachment over the relay');
-    // harn:end reconnect-safe-post-dispatch-preserves-draft
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
 
     // Attachment upload and retrieval both cross the tunnel. The presented URL
     // is a blob and preserves the exact uploaded bytes.
@@ -238,12 +240,12 @@ test.describe('relay tunnel journey', () => {
     await expect(scheduledCard).toContainText('Cancelled', { timeout: 20_000 });
 
     // Still functional after recovery — a fresh app-WS stream on the NEW session.
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=reconnect-first-post-browser-regression
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=reconnect-first-post-browser-regression
     await input.fill('@viewer back after recovery');
     await expect(page.getByTestId('composer-send')).toBeEnabled({ timeout: 30_000 });
     await input.press('Enter');
     await expect(page.getByTestId('timeline')).toContainText('back after recovery', { timeout: 20_000 });
-    // harn:end reconnect-safe-post-dispatch-preserves-draft
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     // harn:end relay-app-socket-readiness-requires-server-evidence
     expect(await page.evaluate(() =>
       (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length))

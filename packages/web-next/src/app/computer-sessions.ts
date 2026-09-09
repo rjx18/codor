@@ -1,4 +1,6 @@
 import type { Message, Room, RoomSummary, ServerFrame } from '@codor/protocol';
+import { reconnectGraceUntil } from './connection-state.js';
+import { outgoingFor } from './outgoing.js';
 
 import {
   forgetPairedComputer,
@@ -53,6 +55,7 @@ export interface ComputerActivitySummary {
 }
 
 export interface ComputerSessionView extends ComputerActivitySummary {
+  reconnectUntil?: number;
   id: string;
   label: string;
   active: boolean;
@@ -98,6 +101,7 @@ interface SessionEntry {
   renewalAbort?: AbortController;
   connector?: RoomConnector;
   cachedConnector?: RoomConnector;
+  cachedParked?: boolean;
   /** The session's remembered PUBLIC root. The warm connector may have a
    *  hidden registered child selected as its current conversation; that
    *  selection is conversation-local and must never replace this root. */
@@ -633,6 +637,9 @@ export class ComputerSessionManager {
       const snapshot = await loadLastGoodRoom(entry.material.computer.id);
       if (entry.disposed || entry.connector !== undefined || entry.noRooms === true || snapshot === undefined) return;
       hydrateLastGoodRoom(entry.store, snapshot);
+      if (!entry.store.getState().authRefused && !entry.upgrade && !entry.cachedParked) {
+        entry.store.setState({ cachedSendRooms: Object.keys(snapshot.rooms) });
+      }
       entry.publicRoot = snapshot.publicRoom;
       entry.cachedConnector = this.makeCachedConnector(entry);
       if (entry.material.computer.id === this.activeId) this.applyActiveRuntime();
@@ -671,25 +678,51 @@ export class ComputerSessionManager {
 
   private makeCachedConnector(entry: SessionEntry): RoomConnector {
     let room = entry.publicRoot!;
+    let disposed = false;
+    const knownRooms = [...entry.store.getState().cachedSendRooms];
+    const outgoing = outgoingFor({ compositionOwner: entry.compositionOwner });
+    const allowed = (target: string) => !disposed && !entry.disposed && !entry.connector && !entry.noRooms
+      && !entry.upgrade && !entry.cachedParked && !entry.store.getState().authRefused
+      && entry.store.getState().cachedSendRooms.includes(target);
     return {
       room: () => room,
-      state: () => 'disconnected',
+      state: () => disposed ? 'disposed' : entry.cachedParked ? 'parked-manual' : 'disconnected',
       compositionOwner: entry.compositionOwner,
-      // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=cached-connector-rejection
-      // A cached offline shell is read-only and cannot accept a post. Report
-      // that refusal so the composer keeps the draft retryable.
+      get localSendAllowed() { return allowed(room); },
+      enqueueOutgoing: (id) => {
+        const row = outgoing.queuedCandidate(id);
+        return row !== undefined && allowed(row.origin);
+      },
+      // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=cached-connector-rejection
+      // Local admission is not wire admission or server acceptance.
       post: () => false,
-      // harn:end reconnect-safe-post-dispatch-preserves-draft
+      // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
       act: () => undefined,
-      disconnect: () => undefined,
-      reconnect: () => entry.tunnel.recover(),
+      disconnect: () => {
+        if (disposed || entry.connector || entry.disposed) return;
+        entry.cachedParked = true;
+        entry.store.getState().setConnected(false, false);
+      },
+      reconnect: () => {
+        if (disposed || entry.connector || entry.disposed || entry.noRooms || entry.upgrade || entry.store.getState().authRefused) return;
+        entry.cachedParked = false;
+        entry.store.setState({ cachedSendRooms: knownRooms });
+        entry.tunnel.recover();
+      },
       switchRoom: (next) => {
         room = next;
         entry.store.getState().setActiveRoom(next);
       },
       setDesiredRooms: () => undefined,
       roomReadiness: () => 'offline',
-      dispose: () => undefined,
+      dispose: () => {
+        disposed = true;
+        if (entry.connector) return;
+        // Retiring a stale cache for authoritative No Channels is not an
+        // operator park; P4 may revive this entry after channel creation.
+        if (!entry.noRooms) entry.cachedParked = true;
+        entry.store.getState().setConnected(false, false);
+      },
     };
   }
   // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
@@ -768,12 +801,14 @@ export class ComputerSessionManager {
             ? combinedTranscriptHistory : combinedTranscriptHistory.combinedTranscriptHistory,
           postAcknowledgements: typeof combinedTranscriptHistory === 'boolean'
             ? false : combinedTranscriptHistory.postAcknowledgements,
+          postCorrelations: typeof combinedTranscriptHistory === 'boolean'
+            ? false : combinedTranscriptHistory.postCorrelations,
           refreshPostAcknowledgements: async (currentToken, signal) => {
             // Use the same captured session read/renewal path as other owned
             // idempotent reads, never the subsequently selected global tunnel.
             const request = this.captureEntryRequest(entry);
             const compatibility = await this.deps.loadCompatibility(currentToken, { fetch: request.fetch }, signal);
-            return typeof compatibility === 'boolean' ? false : compatibility.postAcknowledgements;
+            return typeof compatibility === 'boolean' ? false : compatibility;
           },
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {
@@ -796,6 +831,7 @@ export class ComputerSessionManager {
           },
           expose: false,
         });
+        if (entry.cachedParked) entry.connector.disconnect();
         entry.cachedConnector = undefined;
         entry.resolveReady();
         if (entry.material.computer.id === this.activeId) this.applyActiveRuntime();
@@ -977,6 +1013,7 @@ export class ComputerSessionManager {
     entry.cacheSaveTimer = undefined;
     entry.pendingCache = undefined;
     entry.stopStore();
+    entry.store.setState({ cachedSendRooms: [] });
     entry.stopTunnel();
     entry.connector?.dispose();
     entry.tunnel.dispose();
@@ -1062,6 +1099,7 @@ export class ComputerSessionManager {
         active: entry.material.computer.id === this.activeId,
         ready: this.selectable(entry),
         authRefused: entry.store.getState().authRefused,
+        reconnectUntil: reconnectGraceUntil(entry.store.getState()),
         ...this.summary(entry),
       })),
     };

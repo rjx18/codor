@@ -108,19 +108,56 @@ async function browserRestartProof() {
       await page.addInitScript(({ hosted, relayUrl }) => {
         if (hosted) window.__CODOR_RELAY_URL = relayUrl;
         window.__p6DropAcknowledgements = true;
+        window.__p6HoldCanonical = true;
         window.__p6Acknowledgements = [];
+        window.__p6HeldCanonical = 0;
+        const stringify = JSON.stringify;
+        JSON.stringify = function (...args) {
+          const value = args[0];
+          if (value?.type === 'post' && value.body === window.__p6TargetBody
+            && typeof value.submission_id === 'string') {
+            window.__p6TargetSubmission ??= value.submission_id;
+          }
+          return stringify(...args);
+        };
+        const targetMessage = (message) => message?.submission_id === window.__p6TargetSubmission
+          && window.__p6TargetSubmission !== undefined;
+        const withholdCanonical = (value) => {
+          if (!window.__p6HoldCanonical || window.__p6TargetSubmission === undefined) return value;
+          if (value?.type === 'message' && targetMessage(value.message)) {
+            window.__p6HeldCanonical += 1;
+            return window.__p6SelfFrame;
+          }
+          // Response.json uses the native parser, not necessarily JSON.parse.
+          // Filter only this ordinary message and its page units; retain other
+          // records, routing metadata, cursors and all unrelated live traffic.
+          const messages = Array.isArray(value) ? value : value?.messages;
+          if (!Array.isArray(messages)) return value;
+          const held = messages.filter(targetMessage);
+          if (held.length === 0) return value;
+          window.__p6HeldCanonical += held.length;
+          const remaining = messages.filter(message => !targetMessage(message));
+          if (Array.isArray(value)) return remaining;
+          const ids = new Set(held.map(message => message.id));
+          return { ...value, messages: remaining,
+            ...(Array.isArray(value.units) && { units: value.units.filter(unit => !ids.has(unit.message_id)) }) };
+        };
         const parse = JSON.parse;
         JSON.parse = function (...args) {
           const value = parse(...args);
           if (value?.type === 'self') window.__p6SelfFrame = value;
-          if (value?.type === 'post_accepted') {
+          if (value?.type === 'post_accepted' && value.submission_id === window.__p6TargetSubmission) {
             window.__p6Acknowledgements.push(value);
             // Suppress acknowledgement consumption in both transports by
             // replaying an already received ordinary self frame. Keep the mux
             // callback intact: an injected exception would test parser failure.
             if (window.__p6DropAcknowledgements) return window.__p6SelfFrame;
           }
-          return value;
+          return withholdCanonical(value);
+        };
+        const json = Response.prototype.json;
+        Response.prototype.json = async function (...args) {
+          return withholdCanonical(await json.apply(this, args));
         };
       }, { hosted, relayUrl: relay.url });
       const errors = [];
@@ -140,11 +177,19 @@ async function browserRestartProof() {
       } else await page.goto(base + '/?token=' + token + '&room=proof');
       await page.waitForFunction(() => window.__codor?.postAcknowledgements === true && window.__codor?.state() === 'connected');
       const body = `@proof installed browser restart ${hosted ? 'hosted' : 'direct'}`;
+      await page.evaluate((target) => { window.__p6TargetBody = target; }, body);
       await page.getByTestId('composer-input').fill(body);
       await page.getByTestId('composer-send').click();
       await page.waitForFunction(() => window.__p6Acknowledgements.length > 0);
       assert.equal(await page.evaluate(() => window.__codor.submissionPending), true);
       const original = await page.evaluate(() => window.__p6Acknowledgements[0]);
+      assert.equal(await page.evaluate(() => window.__p6TargetSubmission), original.submission_id);
+      await page.waitForFunction(() => window.__p6HeldCanonical > 0);
+      const unrelated = `@proof unrelated restart traffic ${hosted ? 'hosted' : 'direct'}`;
+      await post({ type: 'post', room: 'proof', body: unrelated,
+        submission_id: `unrelated-${hosted ? 'hosted' : 'direct'}` });
+      await page.getByTestId('timeline').getByText(unrelated, { exact: true }).waitFor();
+      assert.equal(await page.evaluate(() => window.__codor.submissionPending), true);
       assert.equal(query('SELECT submission_id FROM post_receipts WHERE submission_id = ?', original.submission_id).length, 1);
       const edited = `@proof edited while ${hosted ? 'hosted' : 'direct'} is offline`;
       await page.getByTestId('composer-input').fill(edited);
@@ -154,6 +199,16 @@ async function browserRestartProof() {
       await page.waitForFunction(() => window.__codor?.submissionPending === false && window.__p6Acknowledgements.length >= 2, null, { timeout: 45_000 });
       const received = await page.evaluate(() => window.__p6Acknowledgements);
       assert.deepEqual(received.at(-1), original);
+      assert.equal(await page.evaluate(() => window.__p6HoldCanonical), true);
+      // Receipt recovery must win this explicit uncertain-send case. Only now
+      // release canonical replay through the existing connection lifecycle.
+      await page.evaluate(() => {
+        window.__p6HoldCanonical = false;
+        window.__codor.disconnect();
+        window.__codor.reconnect();
+      });
+      await page.getByTestId('timeline').getByText(body, { exact: true }).waitFor();
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid^="outgoing-"]').length === 0);
       assert.equal(await page.getByTestId('composer-input').inputValue(), edited);
       assert.equal(query('SELECT id FROM messages WHERE room = ? AND body = ?', 'proof', body).length, 1);
       // harn:assume browser-retired-muxes-cannot-emit ref=packed-zero-error-restarts

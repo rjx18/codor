@@ -120,14 +120,18 @@ const daemon = new Daemon({
 // P6 fault injection stays at the real daemon/WebSocket boundary. Captured
 // frames contain only fixture data; no production protocol seam is introduced.
 let p6Fault;
+const delayedSubmissionFrames = [];
 let p6CapabilityFault;
+let correlationCapability = true;
 let p6CapabilityRequests = 0;
 const p6Attempts = [];
 const p6AppSockets = new Set();
+let appOffline = false;
 const p6SocketEmit = WebSocket.prototype.emit;
 WebSocket.prototype.emit = function (event, ...args) {
   if (event === 'message' && this._socket?.localPort === API_PORT) {
     p6AppSockets.add(this);
+    if (appOffline) { this.close(1013, 'isolated app outage'); return true; }
     try {
       const frame = JSON.parse(String(args[0]));
       if (frame.type === 'post') {
@@ -143,8 +147,15 @@ WebSocket.prototype.send = function (data, ...args) {
   if (p6Fault && this._socket?.localPort === API_PORT && typeof data === 'string') {
     try {
       const frame = JSON.parse(data);
-      if (frame.type === 'message' && frame.message.body.includes(p6Fault.needle)) return;
-      if (frame.type === 'post_accepted' && p6Fault.point === 'silent'
+      const matching = frame.type === 'message' ? frame.message.body.includes(p6Fault.needle)
+        : frame.type === 'post_accepted' && p6Attempts.some(post => post.submission_id === frame.submission_id && post.body.includes(p6Fault.needle));
+      if (matching && p6Fault.point === 'delay') {
+        if (delayedSubmissionFrames.length >= 64) throw new Error('fixture delayed-frame limit');
+        delayedSubmissionFrames.push(() => { if (this.readyState === WebSocket.OPEN) p6SocketSend.call(this, data, ...args); });
+        return;
+      }
+      if (frame.type === 'message' && p6Fault.point !== 'ack-only' && frame.message.body.includes(p6Fault.needle)) return;
+      if (frame.type === 'post_accepted' && ['silent', 'ack-only'].includes(p6Fault.point)
         && p6Attempts.some((post) => post.submission_id === frame.submission_id && post.body.includes(p6Fault.needle))) return;
     } catch { /* normal transport owns other data */ }
   }
@@ -1798,6 +1809,12 @@ createServer((req, res) => {
         const roomId = String(body.room ?? 'eng');
         payload = daemon.store.roomSupport(roomId, daemon.ownerOf(roomId).id);
       }
+      if (url.pathname === '/app-offline') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        appOffline = body.offline === true;
+        if (appOffline) for (const socket of p6AppSockets) socket.close(1013, 'isolated app outage');
+        payload = {ok:true};
+      }
       if (url.pathname === '/p6-pause-group') {
         for (const handle of ['p6-alpha', 'p6-beta']) {
           const member = daemon.store.getMemberByHandle('eng', handle)
@@ -1809,6 +1826,7 @@ createServer((req, res) => {
       }
       if (url.pathname === '/p6-capability') {
         const body = raw === '' ? {} : JSON.parse(raw);
+        if (typeof body.correlations === 'boolean') correlationCapability = body.correlations;
         if (body.mode !== undefined) {
           p6CapabilityFault = body.mode === 'clear' ? undefined : { mode: body.mode, remaining: body.remaining ?? 1 };
           p6CapabilityRequests = 0;
@@ -1818,6 +1836,7 @@ createServer((req, res) => {
       if (url.pathname === '/p6-fault') {
         const body = raw === '' ? {} : JSON.parse(raw);
         p6Fault = body.point ? { point: body.point, needle: body.needle } : undefined;
+        if (!p6Fault) for (const flush of delayedSubmissionFrames.splice(0)) flush();
         payload = { ok: true };
       }
       if (url.pathname === '/p6-evidence') {
@@ -2370,6 +2389,21 @@ const p6Server = await startServer({
 // reply is released when the client's owned timeout aborts that request.
 const p6HttpEmit = p6Server.app.server.emit.bind(p6Server.app.server);
 p6Server.app.server.emit = function (event, ...args) {
+  if (event === 'request' && args[0].url?.includes('/transcript-history')
+    && (p6CapabilityFault?.mode === 'unsupported' || !correlationCapability)) {
+    // An actual old daemon has neither the advertised field nor record metadata.
+    // Keep its normal authorization/route, changing only the fixture response.
+    const response = args[1], end = response.end;
+    response.end = function (data, ...rest) {
+      try {
+        const page = JSON.parse(String(data));
+        for (const message of page.messages ?? []) delete message.submission_id;
+        data = JSON.stringify(page);
+        if (!this.headersSent) this.setHeader('content-length', Buffer.byteLength(data));
+      } catch { /* non-history error responses remain unchanged */ }
+      return end.call(this, data, ...rest);
+    };
+  }
   if (event === 'request' && args[0].url?.startsWith('/api/client-compatibility')) {
     p6CapabilityRequests++;
     const fault = p6CapabilityFault;
@@ -2384,6 +2418,11 @@ p6Server.app.server.emit = function (event, ...args) {
       response.end(JSON.stringify(fault.mode === 'unsupported'
         ? { browser_protocol: 2, combined_transcript_history: true, post_acknowledgements: false }
         : { error: 'temporary capability failure' }));
+      return true;
+    }
+    if (!correlationCapability) {
+      args[1].writeHead(200, { 'content-type': 'application/json' });
+      args[1].end(JSON.stringify({ browser_protocol: 2, combined_transcript_history: true, post_acknowledgements: true }));
       return true;
     }
   }

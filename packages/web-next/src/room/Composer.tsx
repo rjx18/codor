@@ -1,6 +1,4 @@
 import {
-  canonicalizeScheduleRequest,
-  parseBody,
   parseScheduleDirective,
   type Member,
   type Message,
@@ -14,6 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 
 import type { Connection } from '@runtime/ws.js';
 import type { SubmissionResult } from '../app/pending-submission.js';
+import { prepareOutgoing, sendOutgoing } from '../app/outgoing.js';
 import { useComposerMemory } from './composer-memory.js';
 import { fetchRoutingCatalog } from '@runtime/api.js';
 
@@ -260,7 +259,7 @@ export function hasOwnPendingSchedule(
 }
 // harn:end pending-composer-echo-is-destination-and-self-bound
 
-// harn:assume composer-acknowledgement-preserves-owned-raw-drafts ref=raw-and-canonical-pending-send
+// harn:assume composer-acknowledgement-preserves-owned-raw-drafts-v2 ref=raw-and-canonical-pending-send
 type PendingComposerSend = {
   rawBody: string;
   body: string;
@@ -294,7 +293,7 @@ export function pendingComposerResolution(
     if (pending.result.type === 'post_wait_stopped') return 'uncertain';
     return currentRawBody === pending.rawBody ? 'clear' : 'preserve';
   }
-  // harn:assume scheduled-composer-settles-original-owned-outcome ref=scheduled-pending-composer-send
+  // harn:assume scheduled-composer-settles-original-owned-outcome-v2 ref=scheduled-pending-composer-send
   if (hasOwnPendingSchedule(schedules, pending)) {
     return currentRawBody === pending.rawBody ? 'clear' : 'preserve';
   }
@@ -303,7 +302,7 @@ export function pendingComposerResolution(
   }
   return errorCount > pending.errorCount ? 'error' : undefined;
 }
-// harn:end scheduled-composer-settles-original-owned-outcome
+// harn:end scheduled-composer-settles-original-owned-outcome-v2
 
 /** The spoken-message body: mention prefix (omitted when unaddressed — never a
  *  dangling `@`), then the plain newline-joined transcript. No marker glyphs —
@@ -341,6 +340,11 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
     props.connection.postStateVersion ?? noPostVersion, noPostVersion);
   const [checkedDelivery, setCheckedDelivery] = useState(false);
   const connected = useClientStore((state) => state.connected);
+  const roomLive = useClientStore(state => state.roomLive[props.room] === true);
+  const localQueueState = useClientStore(state => !state.authRefused
+    && ((state.sessionEstablished && state.connectionRecoverable) || state.cachedSendRooms.includes(props.room)));
+  const bufferedSend = localQueueState && props.connection.localSendAllowed === true
+    && (props.connection.postCorrelations === true || !connected || !roomLive || props.connection.postAcknowledgements === undefined);
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const members = slice.members;
   const room = slice.room;
@@ -393,12 +397,12 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   const suppressClickRef = useRef(false);
   const recording = takes.some((take) => take.state === 'recording');
 
-  // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-boundary
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace-cached ref=offline-composer-http-boundary
   // Event-level disabling is presentation, not authority: paste/drop and a
   // hidden input can invoke uploads without a visible button, while a dictation
   // session opened online can reach transcription after the socket drops.
   const mediaMutationReadyRef = useRef(false);
-  mediaMutationReadyRef.current = connected && hydrated;
+  mediaMutationReadyRef.current = connected && hydrated && roomLive;
   const mediaMutationAllowed = (kind: 'attachment' | 'voice'): boolean => {
     if (mediaMutationReadyRef.current) return true;
     setHint(kind === 'attachment'
@@ -406,7 +410,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       : 'Reconnect before using voice');
     return false;
   };
-  // harn:end readable-reconnecting-room-never-admits-mutation
+  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace-cached
 
   // Programmatic inserts restore the caret synchronously with the DOM update —
   // an rAF here loses keystrokes racing in from a fast typist.
@@ -602,8 +606,8 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
     return () => cancelAnimationFrame(raf);
   }, [panelOpen, recording]);
 
-  const canSend = connected && hydrated && !uploading && pendingSend === undefined
-    && (props.connection.postStateVersion === undefined || props.connection.postAcknowledgements !== undefined) && (draft.trim().length > 0 || pending.length > 0);
+  const canSend = ((connected && roomLive) || bufferedSend) && hydrated && !uploading && pendingSend === undefined
+    && (bufferedSend || props.connection.postStateVersion === undefined || props.connection.postAcknowledgements !== undefined) && (draft.trim().length > 0 || pending.length > 0);
 
   // Attach files: enforce the caps with plain messaging, then upload each so the
   // post frame can reference server ids. Chips show what will ride the message.
@@ -761,8 +765,11 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   };
   const sendDictation = (): void => {
     const session = sessionRef.current;
-    if (!session || sending || pendingSend !== undefined || props.connection.submissionPending || !mediaMutationAllowed('voice')) return;
-    if (props.connection.postStateVersion && props.connection.postAcknowledgements === undefined) {
+    const localPrepared = bufferedSend && session !== undefined && session.snapshot().length > 0
+      && session.snapshot().every(take => take.state === 'done');
+    if (!session || sending || pendingSend !== undefined || (!bufferedSend && !props.connection.postCorrelations && props.connection.submissionPending)
+      || (!localPrepared && !mediaMutationAllowed('voice'))) return;
+    if (!localPrepared && props.connection.postStateVersion && props.connection.postAcknowledgements === undefined) {
       setHint('Checking message support. Your recording is preserved.');
       return;
     }
@@ -777,6 +784,11 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
           levels: downsampleLevels(done.flatMap((take) => take.levels)),
         };
         const body = composeVoiceBody(voiceRecipient, texts);
+        if (props.connection.postCorrelations === true || (bufferedSend && props.connection.localSendAllowed)) {
+          sendOutgoing(props.connection, props.room, props.room, body, [], undefined, voice);
+          closeDictation();
+          return;
+        }
         const submissionId = props.connection.postAcknowledgements ? crypto.randomUUID() : undefined;
         if (submissionId !== undefined) {
           // Retain the completed transcript and metadata under this source even
@@ -934,7 +946,8 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
             {sending ? (
               <span className="nx-dictation-loader" role="status" aria-label="Transcribing" data-testid="dictation-waiting" />
             ) : (
-              <button type="button" className="nx-btn is-primary nx-dictation-send" data-testid="dictation-send" onClick={sendDictation}>
+              <button type="button" className="nx-btn is-primary nx-dictation-send" data-testid="dictation-send"
+                data-local-composition={bufferedSend && takes.length > 0 && takes.every(take=>take.state==='done') ? 'true' : undefined} onClick={sendDictation}>
                 Send
               </button>
             )}
@@ -961,36 +974,23 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
     // state render under load. Read the controlled element at the action edge
     // so an overwritten seeded @mention can never be submitted from a stale
     // closure.
-    if (props.connection.postStateVersion && props.connection.postAcknowledgements === undefined) {
+    if (!bufferedSend && props.connection.postStateVersion && props.connection.postAcknowledgements === undefined) {
       setHint('Checking message support. Your draft is preserved.');
       return;
     }
     const snapshot = composerDispatchSnapshot(areaRef.current?.value ?? draft);
-    const body = canonicalizeScheduleRequest(snapshot.body);
-    if (props.connection.submissionPending && pendingSend === undefined) {
+    if (!bufferedSend && !props.connection.postCorrelations && props.connection.submissionPending && pendingSend === undefined) {
       setHint('Waiting for acknowledgement of the previous message.');
       return;
     }
-    if (pendingSend !== undefined || !connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
-    const parsed = parseBody(body, roster, {
-      qualifiedTargets: routingCatalog,
-    });
-    if ((parsed.qualified_issues?.length ?? 0) > 0) {
-      setHint(parsed.qualified_issues!.map((issue) =>
-        `${issue.token}: ${issue.reason.replaceAll('-', ' ')}`).join('; '));
+    if (pendingSend !== undefined || (!connected && !bufferedSend) || !hydrated || uploading || (snapshot.body.length === 0 && pending.length === 0)) return;
+    let prepared: ReturnType<typeof prepareOutgoing>;
+    try { prepared = prepareOutgoing(snapshot.rawBody, props.room, roster, routingCatalog, defaultRecipient?.handle); }
+    catch (error) {
+      setHint(error instanceof Error ? error.message : 'Cannot prepare message');
       return;
     }
-    const addressed = parsed.mentions.length > 0
-      || roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
-    if (!addressed && roster.some((m) => m.kind === 'agent')) {
-      setHint(
-        defaultRecipient
-          ? `Say who this is for — try @${defaultRecipient.handle}`
-          : 'Say who this is for — mention someone with @',
-      );
-      return;
-    }
-    const targetRoom = parsed.qualified?.[0]?.target?.conversation_id ?? props.room;
+    const { body, room: targetRoom } = prepared;
     const targetSlice = roomSlice(useClientStore.getState(), targetRoom);
     let cleanScheduleBody: string | undefined;
     try {
@@ -1001,6 +1001,14 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       cleanScheduleBody = undefined;
     }
     const submissionId = props.connection.postAcknowledgements ? crypto.randomUUID() : undefined;
+    if (bufferedSend || props.connection.postCorrelations === true) {
+      sendOutgoing(props.connection, props.room, targetRoom, body, pending, replyTo,
+        voiceDraft?.body === body ? voiceDraft.voice : undefined, snapshot.rawBody);
+      setDraft(''); setPending([]); setReplyTo(undefined); setVoiceDraft(undefined);
+      seededRef.current = true;
+      setHint(undefined); setMention(undefined); setQualifiedMention(undefined);
+      return;
+    }
     setPendingSend({
       submissionId, replyTo, attachmentIds: pending.map((attachment) => attachment.id),
       rawBody: snapshot.rawBody,
@@ -1015,7 +1023,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       authorId: targetSlice.selfMemberId,
       errorCount: slice.errors.length,
     });
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=composer-rejection-unlocks-draft
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=composer-rejection-unlocks-draft
     const accepted = props.connection.post(body, {
       room: props.room, submissionId,
       ...(voiceDraft?.body === body && { voice: voiceDraft.voice }),
@@ -1033,12 +1041,12 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
         ? 'Waiting for acknowledgement of the previous message.' : 'Reconnect before sending');
       return;
     }
-    // harn:end reconnect-safe-post-dispatch-preserves-draft
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     setHint(submissionId === undefined
       ? 'Sent; waiting for confirmation. If disconnected, check the conversation before sending again.'
       : 'Waiting for acknowledgement…');
   };
-  // harn:end composer-acknowledgement-preserves-owned-raw-drafts
+  // harn:end composer-acknowledgement-preserves-owned-raw-drafts-v2
 
   return (
     <footer
@@ -1060,7 +1068,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       {hint !== undefined && (
         <p className="nx-composer-hint" role="alert" data-testid="composer-hint">{hint}</p>
       )}
-      {/* harn:assume unsupported-submissions-can-stop-local-wait ref=stop-local-submission-wait */}
+      {/* harn:assume unsupported-submissions-can-stop-local-wait-v3 ref=stop-local-submission-wait */}
       {connected && props.connection.postAcknowledgements === false && pendingSend?.submissionId !== undefined && (
         <div className="nx-composer-hint" data-testid="submission-uncertain">
           <label style={{ display: 'flex', alignItems: 'center', minHeight: 44 }}>
@@ -1074,7 +1082,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
           <p>Only local waiting stops. Delivery remains uncertain; this does not cancel or resend the message.</p>
         </div>
       )}
-      {/* harn:end unsupported-submissions-can-stop-local-wait */}
+      {/* harn:end unsupported-submissions-can-stop-local-wait-v3 */}
       <input
         ref={fileRef}
         type="file"

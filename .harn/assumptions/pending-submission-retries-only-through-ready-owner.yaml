@@ -1,7 +1,7 @@
 id: pending-submission-retries-only-through-ready-owner
 hash: a-2fb06826bea3
 title: One pending submission retries through its ready owner
-state: active
+state: retired
 statement: Each computer connector retains at most one immutable pending
   submission in memory and retries its same id and complete payload at most once
   per ready socket generation only through the originating authenticated
@@ -14,3 +14,4 @@ depends_on:
   - hosted-computer-sessions-keep-state-isolated
   - post-acknowledgements-are-optional-and-correlated
 created_by: relay-polish-p6-idempotent-posts
+retired_by: message-ui-polish-combined-integration-v3

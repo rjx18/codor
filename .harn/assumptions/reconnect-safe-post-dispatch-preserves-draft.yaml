@@ -1,7 +1,7 @@
 id: reconnect-safe-post-dispatch-preserves-draft
 hash: a-7335c2a4be53
 title: Rejected post dispatch preserves an unlocked raw composer draft
-state: active
+state: retired
 statement: >
   Connection.post returns true only when the current browser WebSocket accepts
   the post frame and returns false for a closed, unavailable, or send-racing
@@ -21,3 +21,4 @@ depends_on:
   - relay-app-socket-readiness-requires-server-evidence
   - room-action-errors-are-visible
 created_by: reconnect-safe-send-p2
+retired_by: message-ui-polish-combined-integration-v3

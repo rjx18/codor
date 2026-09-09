@@ -1,0 +1,1076 @@
+id: message-ui-polish-combined-integration-v3
+title: Compose accepted optimistic sending, reconnect grace, no-skeleton UI and
+  source-owned archive
+notes: "Exact clean first parent 732a6998225701c83f68d12c0229476393b85be8; exact
+  second parent a1e20cfcf3cf4389f8152a37d098de6c2b7ec454; common base
+  864069b6134e09d3b786f85171fb8ea7a8710e17. One real no-ff merge, no
+  squash/cherry-pick/duplicate feature application. Preserve second-parent
+  historical Harn records through ancestry, not direct imports: after merge
+  restore the complete .harn tree byte-for-byte to first-parent files except
+  this locked plan, remove incoming-only generated truth and five incoming
+  historical plans, then ordinary Harn apply derives the final active contract.
+  Do not write hashes or alter shared hooks/ignore rules. Resolve only ten
+  forecast conflicts plus automatic session/store/connector/harness overlap
+  audit. No skeleton renderer/helper/styles restored. Compose P4 targeted
+  actForRoom/archive source ownership with P3 actual-readiness gating; local
+  queue admission/grace never enables management writes. Keep both Room48 files.
+  Add only bounded offline local-send/archive/no-skeleton regression. No backend
+  transaction, history, network, outbox or lifecycle redesign. Replacement
+  authorized in #3097. Resolved merge is preserved exactly in named stash
+  message-ui-integration-preserved-proof-scope-3097, commit
+  47ec945b1daf5311144292f551a3eaa0a4aa07a5, tree
+  42381c7f7fe1f92ca57bfc2bf0e768b2f977d7e6. Restore its source bytes and exact
+  accepted merge parents after this clean lock; exclude the replaced original
+  lock. Only additional edit is scripts/p6-installed-proof.mjs fault injection
+  and associated assertions: withhold target ack and target canonical
+  live/replay/HTTP evidence before crash, allow same-ID retry ack after restart
+  while canonical stays held, release evidence afterwards. Unrelated traffic
+  continues. Preserve pending, immutable identity/outcome, durable counts,
+  edited draft and zero-error assertions. No runtime changes. Final fixture
+  amendment approved in #3099. Resolved merge/proof preserved in
+  ba0590655850774aaedf96e0eb7d4716cc9c7182 (tree
+  dcf36240e8b4c6cfcecbc007dc89d21bbd7ede88). Restore its exact source and
+  parents after clean lock, excluding old v2 plan. Only new edits: Room11 helper
+  uses actual room readiness/editability/Send admission, never draft-prefix
+  contents; Room9 and Room40 require Disconnected and false transport/grace with
+  their remaining recovery assertions unchanged; only hosted Room44 gets a
+  90-second outer test budget, preserving its existing 60-second jump assertion
+  and all request/scroll bounds. No runtime, proof, global timeout or
+  configuration changes. The Room40 historical branch-status marker names an
+  already-retired assumption; no reactivation or generated-record edit is
+  performed."
+assumptions:
+  create:
+    - id: agent-handling-ticks-require-delivery-evidence
+      title: Double ticks require evidence of agent handling rather than cleanup
+      statement: >
+        Double ticks require each eligible agent delivery to be delivering or
+        consumed with a recorded run or native steering acknowledgement.
+        Consumed-before-start cleanup, queued/held work and removed recipients
+        must not imply a read. Grouped human rows retain independent accessible
+        status, with server acceptance distinguished from handling evidence.
+      depends_on:
+        - agent-delivery-lifecycle-streams-v2
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: composer-acknowledgement-preserves-owned-raw-drafts-v2
+      title: Optimistic sends transfer only their captured composition
+      statement: On a verified correlation-capable computer, a valid send transfers
+        its complete captured composition into a session-owned outgoing row and
+        immediately clears only that composition. Subsequent acceptance or
+        correlated canonical records settle that submission by identity without
+        touching a newer draft. Legacy mode retains the existing owned
+        acknowledgement/echo workflow.
+      depends_on:
+        - pending-composer-echo-is-destination-and-self-bound
+        - exact-trailing-mentions-send-before-owned-result
+        - composer-enter-uses-live-draft-state
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: composer-memory-survives-session-connector-handover-v3
+      title: Composition memory survives cached-to-live session handover (source-owned
+        grace)
+      statement: A computer session gives its cached and live connectors the same
+        nonpersistent composition owner. Body, edited-empty state, reply,
+        uploaded attachment selection, completed voice metadata and pending
+        result state stay scoped to that owner and room across connector
+        replacement. Other computer sessions, forgotten pairings and page
+        reloads cannot inherit the memory. No draft or outbox is written to
+        persistent storage.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-submission-retries-only-through-ready-owner-v3
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: edited-outgoing-intents-use-browser-preparation
+      title: Edited outgoing intents use the same browser preparation as Composer
+      statement: >
+        A new edited outgoing intent must canonicalize friendly schedule clocks
+        and validate/re-resolve its qualified destination through the same
+        preparation helper as Composer, using its captured source owner. Raw
+        editable text and media remain intact on failure; unchanged same-ID
+        Resend uses its frozen payload without recanonicalization.
+      depends_on:
+        - friendly-schedule-clocks-canonicalize-at-client-boundary
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: floating-room-loading-pill-uses-existing-priority-with-grace-cached
+      title: Room loading states use one animated floating overlay pill (source-owned
+        grace)
+      statement: The browser exposes at most one accessible loading pill over the
+        transcript, selected by the existing priority of Reconnecting, Loading
+        channel, Syncing messages, and Loading older messages. It is compact,
+        contains a progress spinner and short fade/slide entrance, does not
+        occupy the transcript's layout flow, and disables that motion under
+        prefers-reduced-motion; no additional loading state machine or request
+        is introduced and direct/hosted readiness and mutation semantics stay
+        unchanged.
+      depends_on:
+        - prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
+        - readable-reconnecting-room-never-admits-mutation-with-grace-cached
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: pending-submission-retries-only-through-ready-owner-v3
+      title: Independent submissions retry only through their ready owner
+        (source-owned grace)
+      statement: Never-dispatched outgoing records remain distinct from dispatched
+        uncertain submissions under the existing computer owner. Only the
+        existing current room-ready/capability callbacks may drain queued
+        records or retry immutable IDs. Optimistic records require verified
+        acknowledgement and correlation support at dispatch; legacy ambiguous
+        posts never replay. Actual Connection.post retains socket-admission
+        semantics. No persistent outbox or additional retry/reconnect loop is
+        introduced.
+      depends_on:
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - post-acknowledgements-are-optional-and-correlated
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: post-capability-recovery-is-owned-and-bounded-v3
+      title: Unknown post capability retries through its ready owner (source-owned
+        grace)
+      statement: Timeouts, transport errors and failed compatibility responses leave
+        post capability unknown, distinct from verified supported or
+        unsupported. One bounded abortable compatibility check per owning socket
+        generation uses that session's credential renewal, coalesces concurrent
+        intent, and retries unknown results with bounded backoff while the
+        connection is healthy. Generation retirement and
+        auth/manual/upgrade/disposal parks cancel the checks. Only verified
+        support permits replay of the original immutable pending ID;
+        verification never replaces a healthy connection or sends legacy
+        retries.
+      depends_on:
+        - pending-submission-retries-only-through-ready-owner-v3
+        - relay-read-renewal-retains-original-owner
+        - hosted-app-streams-follow-tunnel-generations
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
+      title: One room loading pill projects existing readiness in fixed priority
+        (source-owned grace)
+      statement: Outside the source-owned five-second transient grace, the existing
+        reconnect/channel/head/older priority selects at most one floating
+        loading pill. During grace, reconnect-only and reconnect-room-readiness
+        feedback is withheld while genuine requested history/older work retains
+        the existing loading presentation. Actual readiness and mutation guards
+        stay truthful; no history request or second scroll owner is introduced.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation-with-grace-cached
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - finalized-browser-history-is-combined-page-owned
+        - transcript-history-prepends-one-text-slot-page
+        - combined-head-reconciliation-is-two-page-bounded
+        - relay-app-socket-readiness-requires-server-evidence
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: readable-reconnecting-room-never-admits-mutation-with-grace-cached
+      title: Readable reconnects admit local intent without enabling server mutation
+      statement: Retained chats remain readable during reconnect. Established
+        recoverable sessions and an already-paired computer's validated cached
+        rooms may admit page-memory never-sent records under the existing
+        composition owner, without claiming a socket write. Cached startup gets
+        no healthy grace or verified capability; dispatch waits for the same
+        authenticated room-ready owner and verified acknowledgement/correlation
+        support. Unknown rooms and manual/auth/upgrade/disposal parks cannot
+        admit local sends. All server mutations require actual readiness; only
+        established transient loss gets source-owned five-second visual grace.
+        No persistent outgoing queue is added.
+      depends_on:
+        - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+        - relay-app-socket-readiness-requires-server-evidence
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: reconnect-grace-timestamp-belongs-to-source-store
+      title: Reconnect grace uses one source-owned timestamp without falsifying
+        readiness
+      statement: Each page-memory source store remembers established live readiness
+        and one outage timestamp. Transient recoverable loss permits five
+        seconds of presentation grace; repeated loss signals or view changes
+        cannot reset it. Manual/auth/upgrade/disposal parks withdraw grace
+        immediately. The actual connected and roomLive fields never become true
+        because of grace.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: reconnect-safe-post-dispatch-preserves-draft-v3-cached
+      title: Rejected dispatch preserves the submitted composition under its owner
+        (source-owned grace)
+      statement: Connection.post truthfully reports current socket admission;
+        unavailable sockets never imply server acceptance. Correlation-capable
+        composition is retained in the outgoing record on refusal, with explicit
+        recovery, while legacy mode preserves its draft. Actual readiness
+        remains required and cached shells reject. Reconnect never silently
+        replays ambiguous legacy posts.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation-with-grace-cached
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-composer-echo-is-destination-and-self-bound
+        - client-syncs-by-seq
+        - hosted-app-streams-follow-tunnel-generations
+        - relay-app-socket-readiness-requires-server-evidence
+        - room-action-errors-are-visible
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: scheduled-composer-settles-original-owned-outcome-v2
+      title: Scheduled composer acknowledgement preserves exact raw draft ownership
+      statement: Scheduled composer submissions retain the raw draft, immutable
+        canonical directive, originating room and computer. An opted-in request
+        settles on its correlated original schedule outcome, including its
+        original due instant; legacy mode continues to match a newly observed
+        schedule by destination, authenticated author and clean body. Refusals
+        keep editable text and acceptance never clears a newer draft.
+      depends_on:
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - scheduled-state-streams-through-room-seq-v2
+        - target-worktree-owns-qualified-conversation
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: sender-receipt-correlation-is-indexed-and-private
+      title: Returned records correlate only for their authenticated sender
+      statement: Live, replay and HTTP messages/schedules may carry optional
+        sender-owned submission correlation derived from durable receipts
+        through indexed destination lookups bounded by unique returned records.
+        Publication and receipt transactions stay unchanged; no extra browser
+        request or polling is introduced. Distinct authors never receive each
+        others correlation. A separate capability gates optimistic UI; canonical
+        identity reconciles before or after acknowledgement without text
+        matching.
+      depends_on:
+        - post-receipts-commit-atomically-with-routing
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: unsupported-submissions-can-stop-local-wait-v3
+      title: Unsupported submissions preserve uncertainty without automatic replay
+        (source-owned grace)
+      statement: A verified unsupported replacement never automatically replays a
+        retained submission. Legacy acknowledgement-only composition retains the
+        guarded Stop waiting control; optimistic records retain their captured
+        content and explicit uncertainty until local retry, edit or discard.
+        Discard stops local recovery without claiming server cancellation.
+        Neither a late result nor a capability change clears a newer draft or
+        transfers content to another computer.
+      depends_on:
+        - post-capability-recovery-is-owned-and-bounded-v3
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+      reason: Compose the unchanged independently accepted P1/P3 truth from the exact
+        second parent.
+    - id: loading-messages-use-one-floating-pill-without-tail-skeleton-with-grace
+      title: Room loading uses one floating pill without a bottom synchronization
+        skeleton
+      statement: >
+        The room UI exposes at most one accessible loading surface for the
+        existing prioritized readiness signals: the high-contrast floating
+        spinner pill with one “Loading messages…” label, its existing entrance
+        and reduced-motion behavior, and no bottom synchronization skeleton
+        during initialized head refresh. Initial hydration keeps its existing
+        empty-chat placeholder, older-page loads keep their floating state and
+        reader anchoring, and no new loading state machine, request, or scroll
+        owner is introduced.
+      depends_on:
+        - floating-room-loading-pill-uses-existing-priority-with-grace-cached
+        - transcript-tail-follow-has-one-prepaint-owner
+        - transcript-history-prepends-one-text-slot-page
+      reason: Preserve P2 removal and P3 priority together, without new presentation
+        or requests.
+  retire:
+    - id: composer-acknowledgement-preserves-owned-raw-drafts
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: composer-memory-survives-session-connector-handover
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: floating-room-loading-pill-uses-existing-priority
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: pending-submission-retries-only-through-ready-owner
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: post-capability-recovery-is-owned-and-bounded
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: prioritized-room-loading-pill-uses-existing-readiness
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: readable-reconnecting-room-never-admits-mutation
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: reconnect-safe-post-dispatch-preserves-draft
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: scheduled-composer-settles-original-owned-outcome
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: unsupported-submissions-can-stop-local-wait
+      reason: Adopt accepted P1/P3 successor truth through this one integration
+        transition.
+    - id: loading-messages-use-one-floating-pill-without-tail-skeleton
+      reason: Relink the accepted no-skeleton UI to the accepted grace-aware priority.
+  reviewed:
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: app-liveness-recovery-is-stream-first
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: archive-browser-fixture-controls-delayed-source-outcomes
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: archive-pending-result-is-source-owned
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: archive-terminal-results-release-source-admission
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: archived-channels-leave-default-discovery-and-preserve-state
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: channel-archive-menu-is-viewport-safe-and-accessible
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: channel-archive-ui-captures-source-and-authoritative-result
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: combined-history-capability-gates-socket-fallback
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: context-reset-confirmation-is-anchored-and-member-local
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: hosted-empty-channel-shell-preserves-session-navigation
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: post-receipts-commit-atomically-with-routing
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: post-retry-identity-is-stable-authorized-and-payload-bound
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: scheduled-state-streams-through-room-seq-v2
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: transcript-permalink-targets-are-layout-neutral
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Preserve the accepted parent behavior across integration; no scope
+        expansion.
+    - id: browser-retired-muxes-cannot-emit
+      outcome: unchanged
+      reason: The installed restart proof retains its strict zero-browser-error
+        assertion; only target confirmation fault setup changes.
+    - id: registered-worktree-navigation-is-promotion-gated
+      outcome: unchanged
+      reason: Preserve existing navigation/status behavior and historical marker
+        state; only correct the enclosing browser fixture expectation.
+files:
+  - .harn/plans/message-ui-polish-combined-integration-v3.yaml
+  - docs/post-submissions.md
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schedule.ts
+  - packages/switchboard/src/post-correlation.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/store.ts
+  - packages/web-next/src/app/compatibility.tsx
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/connection-state.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/outgoing.spec.ts
+  - packages/web-next/src/app/outgoing.ts
+  - packages/web-next/src/app/pending-submission.spec.ts
+  - packages/web-next/src/app/pending-submission.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/use-connection-state.spec.tsx
+  - packages/web-next/src/app/use-connection-state.ts
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/room/RoomPage.spec.tsx
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/composer-memory.ts
+  - packages/web-next/src/room/delivery-status.spec.tsx
+  - packages/web-next/src/runtime/ws.spec.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.tsx
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+  - packages/web-next/tests/room46-post-submissions.e2e.spec.ts
+  - packages/web-next/tests/room47-submission-recovery.e2e.spec.ts
+  - packages/web-next/tests/room48-channel-archive.e2e.spec.ts
+  - packages/web-next/tests/room48-optimistic-send.e2e.spec.ts
+  - packages/web-next/tests/room49-reconnect-grace.e2e.spec.ts
+  - scripts/optimistic-installed-proof.mjs
+  - scripts/p6-installed-proof.mjs
+  - packages/web-next/tests/room11-batch-b.e2e.spec.ts
+  - packages/web-next/tests/room40-native-worktree-group.e2e.spec.ts
+  - packages/web-next/tests/room9-pwa-perf.e2e.spec.ts
+  - packages/web-next/tests/room44-held-history.e2e.spec.ts
+anchors:
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-aware-computer-session:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    generation-gated-app-connector:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-lifecycle:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    provisional-cache-write-coalescing:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    provisional-cache-browser-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  pending-submission-retries-only-through-ready-owner-v3:
+    local-outgoing-admission:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    p6-pending-submission-retries-only-through-ready-owner-v2:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  reconnect-grace-timestamp-belongs-to-source-store:
+    source-recovery-clock:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  sender-receipt-correlation-is-indexed-and-private:
+    optimistic-outgoing-state:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    edited-dispatch-capability:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    receipt-reverse-projection:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  composer-acknowledgement-preserves-owned-raw-drafts-v2:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    raw-draft-acknowledgement-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-room-readiness-state:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    worktree-status-browser-regression:
+      action: change
+      reason: Authorized fixture correction only; no navigation/status runtime change
+        or assumption reactivation.
+  subscribed-live-run-events-survive-switch-and-history-retirement:
+    store-history-owned-retirement:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    connector-recovery-boundary:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  reconnect-safe-post-dispatch-preserves-draft-v3-cached:
+    cached-connector-rejection:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    post-dispatch-unit-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    connector-post-dispatch-result:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    runtime-post-dispatch-result:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    composer-rejection-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    reconnect-first-post-browser-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  readable-reconnecting-room-never-admits-mutation-with-grace-cached:
+    offline-composer-http-boundary:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    nonmodal-reconnecting-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    nonmodal-reconnecting-surface:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    offline-composer-http-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  loading-messages-use-one-floating-pill-without-tail-skeleton-with-grace:
+    loading-pill-tail-skeleton:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-tail-skeleton-render:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-surface-style:
+      action: change
+      reason: Keep no bottom skeleton and accepted floating priority.
+    loading-pill-tail-skeleton-style:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-unit-regression:
+      action: change
+      reason: Keep no bottom skeleton and accepted floating priority.
+    loading-pill-surface:
+      action: change
+      reason: Keep no bottom skeleton and accepted floating priority.
+    loading-pill-browser-regression:
+      action: change
+      reason: Keep no bottom skeleton and accepted floating priority.
+  floating-room-loading-pill-uses-existing-priority-with-grace-cached:
+    floating-pill-motion-style:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    floating-pill-unit-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    floating-pill-render:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    floating-pill-browser-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached:
+    loading-pill-unit-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-state-projection:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-browser-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  hosted-background-computer-activity-is-visible:
+    background-computer-summary:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  app-liveness-recovery-is-stream-first:
+    watchdog-probe-state:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    watchdog-probe-reply:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-result:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  post-capability-recovery-is-owned-and-bounded-v3:
+    owned-post-capability-recovery:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  unsupported-submissions-can-stop-local-wait-v3:
+    stop-local-submission-wait:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  readable-reconnecting-room-never-admits-mutation:
+    offline-composer-http-boundary:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    nonmodal-reconnecting-surface:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    nonmodal-reconnecting-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    offline-composer-http-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  composer-memory-survives-session-connector-handover-v3:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  prioritized-room-loading-pill-uses-existing-readiness:
+    loading-pill-state-projection:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-unit-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  floating-room-loading-pill-uses-existing-priority:
+    floating-pill-render:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    floating-pill-unit-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    floating-pill-motion-style:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    floating-pill-browser-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  agent-delivery-lifecycle-streams-v2:
+    steering-delivery-indicator:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    steering-delivery-indicator-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  context-reset-confirmation-is-anchored-and-member-local:
+    clear-context-result-router:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    correlated-browser-schedule-cancel-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  edited-outgoing-intents-use-browser-preparation:
+    shared-submission-preparation:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  agent-handling-ticks-require-delivery-evidence:
+    delivery-handling-evidence:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  post-receipts-commit-atomically-with-routing:
+    p6-post-receipts-commit-atomically-with-routing:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  post-retry-identity-is-stable-authorized-and-payload-bound:
+    p6-post-retry-identity-is-stable-authorized-and-payload-bound:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  combined-history-capability-gates-socket-fallback:
+    combined-history-compatibility-response:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    combined-history-compatibility-client:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    capability-gated-socket-history:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  scheduled-state-streams-through-room-seq-v2:
+    schedule-protocol-schema-v2:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    schedule-sync-and-fanout-v2:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-live-fanout:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    room-addressed-hydration:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  historical-transcript-pages-budget-text-slots:
+    transcript-history-text-slot-page-builder:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  transcript-permalink-targets-are-layout-neutral:
+    permalink-target-markup:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-rendering:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  composer-acknowledgement-preserves-owned-raw-drafts:
+    raw-and-canonical-pending-send:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    raw-draft-acknowledgement-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  composer-memory-survives-session-connector-handover:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  pending-submission-retries-only-through-ready-owner:
+    p6-pending-submission-retries-only-through-ready-owner:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  post-capability-recovery-is-owned-and-bounded:
+    owned-post-capability-recovery:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  reconnect-safe-post-dispatch-preserves-draft:
+    post-dispatch-unit-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    composer-rejection-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    reconnect-first-post-browser-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    composer-rejection-unlocks-draft:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    connector-post-dispatch-result:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    cached-connector-rejection:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    runtime-post-dispatch-result:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  scheduled-composer-settles-original-owned-outcome:
+    scheduled-pending-composer-send:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    scheduled-composer-acknowledgement-regression:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  scheduled-composer-settles-original-owned-outcome-v2:
+    scheduled-pending-composer-send:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    scheduled-composer-acknowledgement-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  unsupported-submissions-can-stop-local-wait:
+    stop-local-submission-wait:
+      action: remove
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  run-evidence-search-is-bounded-and-redacted:
+    run-search-rest-boundary:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  permalink-ids-stable:
+    message-history-rest:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    browser-protocol-regression:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+  channel-archive-ui-captures-source-and-authoritative-result:
+    channel-archive-targeted-act:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    channel-archive-source-menu:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    channel-archive-action-regression:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  archived-channels-leave-default-discovery-and-preserve-state:
+    channel-archive-discovery-reconciliation:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    channel-archive-discovery-regression:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  channel-archive-menu-is-viewport-safe-and-accessible:
+    channel-archive-menu:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    channel-archive-menu-style:
+      action: change
+      reason: Compose the accepted parent regions; preserve non-conflicting behavior
+        and replace only obsolete Harn markers.
+    channel-archive-menu-a11y-regression:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  loading-messages-use-one-floating-pill-without-tail-skeleton:
+    loading-pill-surface:
+      action: remove
+      reason: Replace the no-skeleton dependency with its grace-aware equivalent.
+    loading-pill-surface-style:
+      action: remove
+      reason: Replace the no-skeleton dependency with its grace-aware equivalent.
+    loading-pill-unit-regression:
+      action: remove
+      reason: Replace the no-skeleton dependency with its grace-aware equivalent.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Replace the no-skeleton dependency with its grace-aware equivalent.
+  archive-pending-result-is-source-owned:
+    archive-source-settlement:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    archive-source-settlement-regression:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  hosted-empty-channel-shell-preserves-session-navigation:
+    hosted-empty-shell:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    hosted-empty-shell-regression:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  archive-terminal-results-release-source-admission:
+    archive-terminal-source-admission:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    archive-terminal-rail-admission:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    archive-terminal-source-session-reconciliation:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+    archive-terminal-results-regression:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  archive-browser-fixture-controls-delayed-source-outcomes:
+    archive-delayed-outcome-fixture:
+      action: change
+      reason: Retain the accepted archive source lifecycle while composing readiness
+        and empty-shell overlap.
+  browser-retired-muxes-cannot-emit:
+    packed-zero-error-restarts:
+      action: keep
+      reason: Keep the exact zero-error safety assertion unchanged.
+  registered-worktree-navigation-is-promotion-gated:
+    worktree-group-browser-regression:
+      action: change
+      reason: Authorized fixture correction only; no navigation/status runtime change
+        or assumption reactivation.
+  worktree-rail-uses-branch-only-compact-status:
+    worktree-branch-status-browser-regression:
+      action: change
+      reason: Authorized fixture correction only; no navigation/status runtime change
+        or assumption reactivation.
+verification: "Frozen local dependencies and Node22.23.1; recursive build before
+  isolated browser harnesses; serialized full workspace units; focused Rooms48
+  optimistic and archive,36,49,33,34,40,42; complete isolated browser suite once
+  after focused green; packed local npm install with optimistic-installed-proof
+  and p6-installed-proof, release/license audits; working/staged Harn and
+  ordinary hook apply, final active dependency graph, exact merge parents and
+  clean tree. Report blockers without overrides. Per #3097 reuse passed
+  builds/units/audits and installed candidate; run corrected installed proof
+  then outstanding complete isolated browser suite once without rebuilding
+  unchanged runtime bytes. Ordinary hook only. Final #3099 gate: preserve
+  original full run record 410/414, four failures, zero skipped/flaky; run
+  corrected Room11 helper callers (whole six-case file allowed), Room9
+  offline-shell case, Room40 manual-disconnect case, and hosted Room44 only.
+  Reuse completed builds, units, audits and installed proofs; no
+  rebuild/repack/full-suite rerun. Ordinary hook consumes this sole replacement
+  plan."
+applied:
+  applied_at: 2026-09-09T16:38:40.302Z

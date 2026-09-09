@@ -1,0 +1,17 @@
+id: post-capability-recovery-is-owned-and-bounded-v3
+hash: a-381d50d53b4b
+title: Unknown post capability retries through its ready owner (source-owned grace)
+state: active
+statement: Timeouts, transport errors and failed compatibility responses leave
+  post capability unknown, distinct from verified supported or unsupported. One
+  bounded abortable compatibility check per owning socket generation uses that
+  session's credential renewal, coalesces concurrent intent, and retries unknown
+  results with bounded backoff while the connection is healthy. Generation
+  retirement and auth/manual/upgrade/disposal parks cancel the checks. Only
+  verified support permits replay of the original immutable pending ID;
+  verification never replaces a healthy connection or sends legacy retries.
+depends_on:
+  - pending-submission-retries-only-through-ready-owner-v3
+  - relay-read-renewal-retains-original-owner
+  - hosted-app-streams-follow-tunnel-generations
+created_by: message-ui-polish-combined-integration-v3

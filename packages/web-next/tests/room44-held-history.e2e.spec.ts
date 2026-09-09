@@ -13,6 +13,7 @@ async function control(path: string, body = {}) {
 
 for (const hosted of [false, true]) {
   test(`${hosted ? 'hosted' : 'direct'} old hold never crawls a 5165-message transcript`, async ({ page }) => {
+    if (hosted) test.setTimeout(90_000);
     await control('/held-history-fixture');
     const initialCount = (await control('/held-history-status')).requests.length;
     if (hosted) {

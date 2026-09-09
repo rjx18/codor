@@ -1,0 +1,17 @@
+id: loading-messages-use-one-floating-pill-without-tail-skeleton-with-grace
+hash: a-00537dcee43a
+title: Room loading uses one floating pill without a bottom synchronization skeleton
+state: active
+statement: >
+  The room UI exposes at most one accessible loading surface for the existing
+  prioritized readiness signals: the high-contrast floating spinner pill with
+  one “Loading messages…” label, its existing entrance and reduced-motion
+  behavior, and no bottom synchronization skeleton during initialized head
+  refresh. Initial hydration keeps its existing empty-chat placeholder,
+  older-page loads keep their floating state and reader anchoring, and no new
+  loading state machine, request, or scroll owner is introduced.
+depends_on:
+  - floating-room-loading-pill-uses-existing-priority-with-grace-cached
+  - transcript-tail-follow-has-one-prepaint-owner
+  - transcript-history-prepends-one-text-slot-page
+created_by: message-ui-polish-combined-integration-v3

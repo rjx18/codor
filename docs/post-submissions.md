@@ -56,8 +56,9 @@ no repeated fanout, notifications or usage. Receipts have no TTL or deletion
 cascade; deleting an accepted message cannot make a delayed retry recreate it.
 Existing history requires no backfill.
 
-The browser keeps one already-dispatched immutable submission per computer
-connector. Only the original room's ready authenticated socket generation may
+The browser keeps independently identified immutable submissions per computer
+on correlation-capable runtimes; acknowledgement-only runtimes retain the legacy
+single pending composition. Only the original room's ready authenticated socket generation may
 retry it, once per replacement generation. The capability is rechecked on a
 replacement connection, so a downgraded daemon cannot accidentally accept a
 retained ID as a second legacy post. Unknown results recover through one owned,
@@ -66,7 +67,7 @@ at ten seconds). Managed reads use the same session credential-renewal path as
 other idempotent reads. Retirement cancels checks; healthy app traffic stays
 connected, and only verified support permits the original-ID retry.
 
-For a verified unsupported replacement, the source composer offers **Stop
+For an acknowledgement-only send on a verified unsupported replacement, the source composer offers **Stop
 waiting** after the user confirms checking delivery in the destination
 conversation. This releases only local waiting, preserves the full draft and
 warns that delivery remains uncertain. It neither cancels nor resends anything
@@ -77,6 +78,56 @@ share one composition owner, retaining edited-empty drafts, replies and media
 state across that handover without sharing them with another computer or
 forgotten pairing. A result clears only the unchanged original draft. Rejected voice can be edited or sent again
 without transcription/upload being repeated automatically.
+
+## Sender-correlated optimistic messages
+
+`post_correlations: true` is a separate additive compatibility capability. This
+requires an updated daemon, not only a new web bundle. Its authenticated live,
+replay and HTTP message/schedule projections include optional `submission_id`
+only for the original receipt sender. Other recipients receive no correlation.
+The reverse lookup uses the existing receipt outcome and an expression index;
+it does not alter acceptance transactions, publication order or history cursors.
+An existing receipt table is indexed once without reconstructing messages/journals.
+
+On verified capable runtimes, Send immediately transfers the captured composition
+into a page-memory outgoing row and clears the input. A grey clock means
+unconfirmed, one tick means accepted, and two ticks mean eligible agent handling
+evidence—not literal model reading. Each row is independent, including consecutive
+identical text. Receipt or canonical-record identity reconciles the row; prose
+matching is never used for this path. Schedules become their ordinary schedule cards.
+
+Failures retain their content and uploaded references with an explicit same-ID
+Resend or new-ID edited send. Unknown acceptance remains uncertain across a
+downgrade; it is never replayed as a legacy post. Discarding a local copy stops
+its local recovery but does not cancel an already accepted server operation.
+Held agent delivery uses the existing delivery retry, not another message post.
+There is no persistent outbox or extra polling.
+
+## Brief reconnects and local waiting
+
+An established page session gives transient connection loss five seconds of
+visual grace. Actual `connected` and per-room readiness remain false until their
+ordinary server evidence returns. Server actions and new media HTTP work stay
+disabled; typing and local Send remain usable for retained, hydrated rooms.
+
+The same outgoing records hold up to 32 **never-dispatched** intents per computer
+in page memory. Their clock says queued locally, not accepted by the server.
+The existing room-ready/capability callbacks dispatch them in origin-room order;
+there is no new reconnect owner or retry loop. An overflow retains its composition
+in a failed row. Closing the page ends this local buffer's lifetime.
+
+Queued optimistic records wait if the recovered daemon lacks verified receipt
+correlation support; they never fall through to legacy posting. Uncertain already-
+dispatched records keep their original ID/payload and may only use the existing
+safe receipt recovery. Legacy ambiguity is not automatically replayed.
+
+The outage timestamp belongs to the source computer, so switching rooms/computers
+or receiving repeated failure signals cannot restart the grace. After five seconds,
+Disconnected and the normal recovery feedback return without losing queued text.
+Never-live startup gets no healthy grace. Only a known paired cached room gets
+the local-admission exception described below; unknown rooms, manual disconnect,
+revocation and upgrade parks cannot admit new local sends. Forget/re-pair cannot
+inherit another identity's queue.
 
 `Connection.post()` reports local socket write acceptance, not server acceptance.
 Without capability support the browser keeps the existing own-echo matching and
@@ -89,7 +140,20 @@ legacy post automatically.
 | New | Old | Legacy echo matching, no automatic resubmission |
 | New | New | Correlated results and durable same-ID retry |
 
-There is no persistent offline outbox. Closing the page ends automatic recovery;
+There is no persistent offline outbox. An already-paired computer's known cached
+channel may nevertheless accept a new
+local waiting message after reopening while that computer is offline. This uses
+the same page-memory, 32-record buffer and composition owner as a warm reconnect.
+The cached view remains visibly offline: neither actual readiness nor a healthy
+five-second grace is invented. Cached `post` still refuses wire writes. The
+original IDs/payloads survive cached-to-live handover and dispatch only after that
+computer's authenticated room readiness and verified acknowledgement/correlation
+support. Unknown/unsupported capability leaves the row visibly not sent; another
+computer, a forgotten/re-paired identity, or manual/auth/upgrade parks cannot send
+it. Uploads, transcription and management actions still require real readiness.
+Another page reload does not preserve these local outgoing records.
+
+Closing the page ends automatic recovery;
 a caller retaining the original ID can still retry later without duplication.
 This prevents duplicate accepted submissions and fanout. It does not promise
 exactly-once agent external actions or delivery through a permanent outage.

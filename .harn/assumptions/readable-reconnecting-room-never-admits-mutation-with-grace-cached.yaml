@@ -1,0 +1,17 @@
+id: readable-reconnecting-room-never-admits-mutation-with-grace-cached
+hash: a-df005637661d
+title: Readable reconnects admit local intent without enabling server mutation
+state: active
+statement: Retained chats remain readable during reconnect. Established
+  recoverable sessions and an already-paired computer's validated cached rooms
+  may admit page-memory never-sent records under the existing composition owner,
+  without claiming a socket write. Cached startup gets no healthy grace or
+  verified capability; dispatch waits for the same authenticated room-ready
+  owner and verified acknowledgement/correlation support. Unknown rooms and
+  manual/auth/upgrade/disposal parks cannot admit local sends. All server
+  mutations require actual readiness; only established transient loss gets
+  source-owned five-second visual grace. No persistent outgoing queue is added.
+depends_on:
+  - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+  - relay-app-socket-readiness-requires-server-evidence
+created_by: message-ui-polish-combined-integration-v3

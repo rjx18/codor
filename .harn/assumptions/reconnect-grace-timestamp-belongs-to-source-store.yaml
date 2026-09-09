@@ -1,0 +1,12 @@
+id: reconnect-grace-timestamp-belongs-to-source-store
+hash: a-d5c21bd3f171
+title: Reconnect grace uses one source-owned timestamp without falsifying readiness
+state: active
+statement: Each page-memory source store remembers established live readiness
+  and one outage timestamp. Transient recoverable loss permits five seconds of
+  presentation grace; repeated loss signals or view changes cannot reset it.
+  Manual/auth/upgrade/disposal parks withdraw grace immediately. The actual
+  connected and roomLive fields never become true because of grace.
+depends_on:
+  - hosted-computer-sessions-keep-state-isolated
+created_by: message-ui-polish-combined-integration-v3

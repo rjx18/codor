@@ -36,6 +36,8 @@ export type ScheduledTarget = z.infer<typeof ScheduledTargetSchema>;
 
 // harn:assume scheduled-state-streams-through-room-seq-v2 ref=schedule-protocol-schema-v2
 export const ScheduleSchema = z.object({
+  /** Response-only correlation for the authenticated receipt owner. */
+  submission_id: z.string().min(1).max(128).optional(),
   id: ScheduleIdSchema,
   room: RoomIdSchema,
   origin_room: RoomIdSchema.optional(),

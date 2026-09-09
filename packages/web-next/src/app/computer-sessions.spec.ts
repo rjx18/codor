@@ -53,6 +53,9 @@ import {
   type LastGoodRoomSnapshot,
 } from '../runtime/last-good-room.js';
 import { reconcileSelectedRoomHistory } from '../room/RoomPage.js';
+import { outgoingFor, sendOutgoing } from './outgoing.js';
+import { useClientStore } from './store.js';
+import { reconnectGraceUntil } from './connection-state.js';
 
 beforeEach(() => lastGoodCache.snapshots.clear());
 
@@ -375,6 +378,7 @@ function harness() {
       let desired: readonly string[] = [];
       desiredByComputer.set(id, desired);
       const connector: RoomConnector = {
+        compositionOwner: options.compositionOwner,
         room: () => room,
         state: () => 'connected',
         switchRoom: (next) => { room = next; options.store!.getState().setActiveRoom(next); },
@@ -863,6 +867,70 @@ describe('ComputerSessionManager', () => {
   });
   // harn:end hosted-empty-channel-shell-preserves-session-navigation
 
+  it.each(['resume', 'park', 'forget', 'revoked', 'dispose'] as const)('admits only known cached-room intent across %s', async (mode) => {
+    const h = harness();
+    let resolveRooms!: (rooms: RoomSummary[]) => void;
+    const loadRooms = h.deps.loadRooms;
+    h.deps.loadRooms = async (token, tunnel, signal) => token.endsWith('A')
+      ? new Promise<RoomSummary[]>(resolve => { resolveRooms = resolve; })
+      : loadRooms(token, tunnel, signal);
+    const room = { id: 'same-room', name: 'Cached', created_ts: '2026-08-01T00:00:00.000Z',
+      config: { turn_brake: null, spend_brake_usd: null, stall_minutes: 30, redaction_enabled: true, bridged: false } };
+    await saveLastGoodRoom({ version: 2, computerId: 'A', publicRoom: room.id,
+      summaries: [summary('A', 1)], rooms: { [room.id]: { room,
+        history: { messages: {}, journals: {}, units: [], beforeCursor: null, hasMore: false } } },
+      savedAt: '2026-08-10T00:00:00.000Z' });
+    const manager = new ComputerSessionManager(h.deps);
+    try {
+      await manager.start();
+      for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+      const cached = manager.renderableActive()!.connector;
+      expect(useClientStore.getState()).toMatchObject({ connected: false, sessionEstablished: false });
+      expect(reconnectGraceUntil(useClientStore.getState())).toBeUndefined();
+      expect(cached.localSendAllowed).toBe(true);
+      expect(cached.post('must not write')).toBe(false);
+      const id = sendOutgoing(cached, room.id, room.id, 'offline intent', []);
+      expect(outgoingFor(cached).snapshot()).toMatchObject([{ id, status: 'queued' }]);
+      expect(outgoingFor(h.connectors.get('B')!).snapshot()).toEqual([]);
+      if (mode === 'dispose') {
+        cached.dispose(); cached.reconnect();
+        expect(cached.state()).toBe('disposed');
+        expect(cached.localSendAllowed).toBe(false);
+        return;
+      }
+      if (mode === 'forget') {
+        expect(await manager.forget('A')).toBe(true);
+        expect(cached.localSendAllowed).toBe(false);
+        expect(outgoingFor(manager.active()!.connector).snapshot()).toEqual([]);
+        return;
+      }
+      if (mode === 'revoked') {
+        useClientStore.getState().setAuthRefused(true);
+        cached.reconnect();
+        expect(cached.localSendAllowed).toBe(false);
+        expect(cached.post('must not write')).toBe(false);
+        return;
+      }
+      cached.switchRoom('unknown');
+      expect(cached.localSendAllowed).toBe(false);
+      cached.switchRoom(room.id);
+      cached.disconnect();
+      expect(cached.localSendAllowed).toBe(false);
+      if (mode === 'resume') {
+        cached.reconnect();
+        expect(cached.localSendAllowed).toBe(true);
+      }
+      resolveRooms([summary('A', 1)]);
+      for (let tick = 0; tick < 64; tick++) await Promise.resolve();
+      const live = h.connectors.get('A')!;
+      expect(h.connectorOptions.get('A')!.store!.getState().connected).toBe(mode === 'resume');
+      expect(outgoingFor(live).snapshot()).toMatchObject([{ id, status: 'queued', frame: { submission_id: id } }]);
+      expect(cached.localSendAllowed).toBe(false);
+      manager.dispose();
+      expect(cached.localSendAllowed).toBe(false);
+    } finally { manager.dispose(); }
+  });
+
   it('retires a mounted stale cache before publishing authenticated empty-room truth', async () => {
     const h = harness();
     let resolveEmpty!: (rooms: RoomSummary[]) => void;
@@ -914,6 +982,13 @@ describe('ComputerSessionManager', () => {
     expect(manager.active()).toBeUndefined();
     expect(rememberedRoom('A')).toBeUndefined();
     expect(await loadLastGoodRoom('A')).toBeUndefined();
+    // Automatic stale-cache retirement is not an operator park. P4 must still
+    // revive this same computer after creating its first authorized channel.
+    h.deps.loadRooms = loadRooms;
+    await manager.refresh();
+    for (let tick = 0; tick < 64 && !h.connectorOptions.has('A'); tick++) await Promise.resolve();
+    expect(manager.active()?.room).toBe('same-room');
+    expect(h.connectorOptions.get('A')!.store!.getState().connected).toBe(true);
     manager.dispose();
   });
 
@@ -1214,7 +1289,10 @@ it('renews capability reads through the originating session while another comput
     const b = read('token-A', new AbortController().signal);
     for (let tick = 0; tick < 20; tick++) await Promise.resolve();
     await manager.activate('B'); expect(renew).toHaveBeenCalledTimes(1); finish();
-    expect(await Promise.all([a, b])).toEqual([true, true]);
+    expect(await Promise.all([a, b])).toEqual([
+      { combinedTranscriptHistory: true, postAcknowledgements: true },
+      { combinedTranscriptHistory: true, postAcknowledgements: true },
+    ]);
     expect(requests.every((request) => request.computer === 'A')).toBe(true);
     expect(requests.slice(-2).map((request) => request.token)).toEqual(['Bearer refreshed-A', 'Bearer refreshed-A']);
     expect(h.connectorOptions.get('A')!.compositionOwner).not.toBe(h.connectorOptions.get('B')!.compositionOwner);

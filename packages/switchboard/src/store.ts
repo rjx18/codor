@@ -324,6 +324,9 @@ function migratePostReceipts(db: Database.Database): void {
     outcome TEXT NOT NULL,
     PRIMARY KEY (sender, submission_id)
   )`);
+  db.exec(`CREATE INDEX IF NOT EXISTS post_receipts_destination ON post_receipts
+    (sender, json_extract(outcome, '$.kind'), json_extract(outcome, '$.room'),
+    json_extract(outcome, '$.message_id'), json_extract(outcome, '$.schedule_id'))`);
 }
 // harn:end post-receipts-commit-atomically-with-routing
 
@@ -3831,6 +3834,29 @@ export class Store {
       delivery_ids: rows.map((row) => row.id), ...(groupId != null && { group_id: groupId }),
     };
   }
+  // harn:assume sender-receipt-correlation-is-indexed-and-private ref=receipt-reverse-projection
+  /** Response-only metadata; callers must authorize the destination first. */
+  correlatePosts<T extends { room: string; id: number | string }>(sender: string, kind: 'message' | 'schedule', records: readonly T[]): T[] {
+    const query = this.db.prepare(`SELECT submission_id FROM post_receipts
+      WHERE sender = ? AND json_extract(outcome, '$.kind') = ?
+      AND json_extract(outcome, '$.room') = ?
+      AND json_extract(outcome, '$.message_id') IS ?
+      AND json_extract(outcome, '$.schedule_id') IS ? LIMIT 1`);
+    const matches = new Map<string, string | undefined>();
+    return records.map((record) => {
+      const key = JSON.stringify([record.room, record.id]);
+      if (!matches.has(key)) {
+        const found = query.get(sender, kind, record.room,
+          kind === 'message' ? record.id : null, kind === 'schedule' ? record.id : null) as { submission_id: string } | undefined;
+        matches.set(key, found?.submission_id);
+      }
+      // Never trust a stored or previously projected field as recipient authority.
+      const { submission_id: _ignored, ...plain } = record as T & { submission_id?: string };
+      const id = matches.get(key);
+      return { ...plain, ...(id !== undefined && { submission_id: id }) } as T;
+    });
+  }
+  // harn:end sender-receipt-correlation-is-indexed-and-private
   // harn:end post-retry-identity-is-stable-authorized-and-payload-bound
   // harn:end post-receipts-commit-atomically-with-routing
 

@@ -46,7 +46,7 @@ describe('held controls are independent of author headers', () => {
     } as unknown as ComponentProps<typeof TurnBlock>;
     const html = renderToStaticMarkup(<TurnBlock {...props} />);
     expect(html).toContain('data-testid="msg-2-held"');
-    expect(html.includes('data-testid="msg-2-seen"')).toBe(shape === 'human');
+    expect(html.includes('data-testid="msg-2-seen"')).toBe(shape === 'human' || shape === 'grouped-human');
     const removed = { ...props, members: { ...props.members,
       recipient: { ...props.members.recipient!, removed_ts: '2026-09-08T00:00:00Z' } } };
     expect(renderToStaticMarkup(<TurnBlock {...removed} />)).not.toContain('data-testid="msg-2-held"');

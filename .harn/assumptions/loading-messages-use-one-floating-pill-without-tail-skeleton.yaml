@@ -1,7 +1,7 @@
 id: loading-messages-use-one-floating-pill-without-tail-skeleton
 hash: a-00537dcee43a
 title: Room loading uses one floating pill without a bottom synchronization skeleton
-state: active
+state: retired
 statement: >
   The room UI exposes at most one accessible loading surface for the existing
   prioritized readiness signals: the high-contrast floating spinner pill with
@@ -15,3 +15,4 @@ depends_on:
   - transcript-tail-follow-has-one-prepaint-owner
   - transcript-history-prepends-one-text-slot-page
 created_by: remove-tail-sync-skeleton
+retired_by: message-ui-polish-combined-integration-v3

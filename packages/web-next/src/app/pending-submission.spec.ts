@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PostFrame, ServerFrame } from '@codor/protocol';
 import { PendingSubmission } from './pending-submission.js';
 
-describe('immutable single pending submission', () => {
+describe('independently correlated immutable submissions', () => {
   const ack = (id = 'one', room = 'eng'): ServerFrame => ({ type: 'post_accepted',
     submission_id: id, origin_room: room,
     outcome: { kind: 'message', room: 'actual-child', message_id: 1, seq: 9, delivery_ids: ['delivery'] } });
-  it('freezes every payload field, rejects a second send, and retries once per origin generation', () => {
+  it('freezes every payload field, admits a second send, and retries once per origin generation', () => {
     const slot = new PendingSubmission(); const sent: PostFrame[] = [];
     const send = (frame: PostFrame) => { sent.push(frame); return true; };
     const frame: PostFrame = { type: 'post', room: 'eng', submission_id: 'one', body: '[send_in=1h] original',
@@ -14,11 +14,12 @@ describe('immutable single pending submission', () => {
     const first = JSON.stringify(frame);
     expect(slot.post(frame, 1, send)).toBe(true);
     frame.body = 'edited'; frame.attachments![0] = 'new'; frame.voice!.levels[0] = 99;
-    expect(slot.post({ ...frame, submission_id: 'two' }, 1, send)).toBe(false);
+    expect(slot.post({ ...frame, submission_id: 'two' }, 1, send)).toBe(true);
+    const second = JSON.stringify(sent[1]);
     slot.ready('other', 2, send); slot.ready('eng', 1, send);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     slot.ready('eng', 2, send); slot.ready('eng', 2, send);
-    expect(sent.map((value) => JSON.stringify(value))).toEqual([first, first]);
+    expect(sent.map((value) => JSON.stringify(value))).toEqual([first, second, first, second]);
   });
   it('ignores unrelated echoes/errors/rooms and settles only its own correlated result', () => {
     const slot = new PendingSubmission(); const result = vi.fn();

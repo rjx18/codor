@@ -1,0 +1,15 @@
+id: scheduled-composer-settles-original-owned-outcome-v2
+hash: a-132679df3826
+title: Scheduled composer acknowledgement preserves exact raw draft ownership
+state: active
+statement: Scheduled composer submissions retain the raw draft, immutable
+  canonical directive, originating room and computer. An opted-in request
+  settles on its correlated original schedule outcome, including its original
+  due instant; legacy mode continues to match a newly observed schedule by
+  destination, authenticated author and clean body. Refusals keep editable text
+  and acceptance never clears a newer draft.
+depends_on:
+  - composer-acknowledgement-preserves-owned-raw-drafts-v2
+  - scheduled-state-streams-through-room-seq-v2
+  - target-worktree-owns-qualified-conversation
+created_by: message-ui-polish-combined-integration-v3

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { Connection } from '@runtime/ws.js';
 
 import { createConnector, type RoomConnector } from '../app/connector.js';
+import { useReconnectGrace } from '../app/use-connection-state.js';
 import { rememberRoom } from '../app/startup.js';
 import { refreshMutableRunJournals } from './run-journals.js';
 import {
@@ -694,6 +695,7 @@ function ChannelRail(props: {
   const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget>();
   const summaries = useRoomSummaries(props.token);
   const connected = useClientStore((state) => state.connected);
+  const inGrace = useReconnectGrace();
   const roomStates = useClientStore((state) => state.rooms);
   const active = useClientStore((state) => roomSlice(state, props.activeRoom));
   const room = active.room;
@@ -824,7 +826,7 @@ function ChannelRail(props: {
                     name={entry.name}
                     accent="indigo"
                     size={38}
-                    presence={entry.attention ? 'error' : isWorking ? 'live' : active && !connected ? 'error' : 'idle'}
+                    presence={entry.attention ? 'error' : isWorking ? 'live' : active && !connected && !inGrace ? 'error' : 'idle'}
                     surface={active ? 'raised' : 'surface'}
                   />
                   <span className="nx-row-main">
@@ -903,9 +905,10 @@ function ChannelRail(props: {
         <Chip name={self?.display_name ?? self?.handle ?? 'You'} accent="user" size={32} />
         <span className="nx-rail-id">
           <strong>{self?.display_name ?? self?.handle ?? '—'}</strong>
-          <span className={`nx-conn ${connected ? 'is-live' : 'is-error'}`} data-testid="connection" title={connected ? 'connected' : 'reconnecting'}>
+          <span className={`nx-conn ${connected || inGrace ? 'is-live' : 'is-error'}`} data-testid="connection"
+            data-transport-connected={connected} data-reconnect-grace={inGrace} title={connected || inGrace ? 'connected' : 'disconnected'}>
             <span className="nx-conn-dot" aria-hidden="true" />
-            {connected ? 'Connected' : 'Reconnecting…'}
+            {connected || inGrace ? 'Connected' : 'Disconnected'}
           </span>
         </span>
         <IconButton icon={Settings} label="Settings" variant="quiet" onClick={props.onSettings} />
@@ -1112,6 +1115,7 @@ function ChatPanel(props: {
   const room = useClientStore((state) => roomSlice(state, props.room).room);
   const meter = useClientStore((state) => roomSlice(state, props.room).meter);
   const connected = useClientStore((state) => state.connected);
+  const inGrace = useReconnectGrace();
   const memberCount = useClientStore((state) =>
     // Match the Members tab exactly: the structural system member and transient
     // extensions are routing machinery, not visible people or agents.
@@ -1133,7 +1137,7 @@ function ChatPanel(props: {
           <div className="nx-mobile-title">
             <h1>{room?.name ?? props.room}</h1>
             <span className="nx-mobile-sub">
-              {workingAgent !== undefined ? `@${workingAgent} is working…` : connected ? 'live' : 'reconnecting…'}
+              {workingAgent !== undefined ? `@${workingAgent} is working…` : connected || inGrace ? 'live' : 'Disconnected'}
             </span>
           </div>
           <IconButton icon={MoreVertical} label="Channel details" data-testid="mobile-kebab" onClick={props.mobile.onContext} />
@@ -1150,7 +1154,7 @@ function ChatPanel(props: {
         <div className="nx-chat-id">
           <div className="nx-chat-title">
             <h1>{room?.name ?? props.room}</h1>
-            <StatusPill tone={connected ? 'live' : 'error'}>{connected ? 'Live' : 'Offline'}</StatusPill>
+            <StatusPill tone={connected || inGrace ? 'live' : 'error'}>{connected || inGrace ? 'Live' : 'Disconnected'}</StatusPill>
           </div>
           {/* harn:assume estimated-cost-is-advisory-not-spend-brake-input ref=room-advisory-cost-surface */}
           <p className="nx-chat-stats" data-testid="meter">

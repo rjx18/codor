@@ -1,7 +1,7 @@
 id: composer-memory-survives-session-connector-handover
 hash: a-13ec4cc40522
 title: Composition memory survives cached-to-live session handover
-state: active
+state: retired
 statement: A computer session gives its cached and live connectors the same
   nonpersistent composition owner. Body, edited-empty state, reply, uploaded
   attachment selection, completed voice metadata and pending result state stay
@@ -13,3 +13,4 @@ depends_on:
   - composer-acknowledgement-preserves-owned-raw-drafts
   - pending-submission-retries-only-through-ready-owner
 created_by: relay-polish-p6-review-capability-drafts
+retired_by: message-ui-polish-combined-integration-v3

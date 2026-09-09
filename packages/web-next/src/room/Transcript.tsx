@@ -11,12 +11,14 @@ import type {
 } from '@codor/protocol';
 import { ArrowDown, AudioLines, Bot, Check, CheckCheck, ChevronRight, CircleAlert, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
+import { useOutgoing, outgoingFor, dispatchOutgoing, prepareOutgoing, sendOutgoing, type Outgoing } from '../app/outgoing.js';
 
-import { relayFetch } from '@runtime/relay-transport.js';
+import { captureRelayFetch, relayFetch } from '@runtime/relay-transport.js';
+import { fetchRoutingCatalog } from '@runtime/api.js';
 import {
   compactRunRow,
   diffStat,
@@ -26,7 +28,7 @@ import {
 } from '@runtime/run-presenter.js';
 
 import { useIsMobile } from '../app/session.js';
-import { roomSlice, useClientStore, type TranscriptHistoryState } from '../app/store.js';
+import { roomSlice, sourceClientStore, useClientStore, type TranscriptHistoryState } from '../app/store.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { CompactionMarker } from './CompactionMarker.js';
@@ -306,6 +308,7 @@ export function interactionInCurrentHistoryWindow(
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
+  const outgoing = useOutgoing(props.connection);
   const schedules = slice.schedules;
   const members = slice.members;
   const selfId = slice.selfMemberId;
@@ -1162,6 +1165,9 @@ export function Transcript(props: { room: string; token: () => string; connectio
             liveRenderableRuns,
           })}
           {/* harn:end finalized-browser-history-is-combined-page-owned */}
+          {outgoing.filter(row => row.room === props.room || (row.status === 'failed' && row.origin === props.room)).map(row => (
+            <OutgoingRow key={row.id} row={row} connection={props.connection} token={props.token} />
+          ))}
           {transcriptReady && detachedInteractions.length > 0 && (
             <section className="nx-action-tray" aria-label="Needs your response" data-testid="interaction-tray">
               <p className="nx-action-tray-label">Needs your response</p>
@@ -1420,6 +1426,10 @@ export function TurnBlock(props: {
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
       )}
       <div className="nx-turn-main">
+        {!props.grouped && author?.kind === 'human' && (
+          <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />
+        )}
+        {props.grouped && author?.kind === 'human' && <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />}
         {!props.grouped && (
           <div className="nx-turn-meta">
             {/* The phone trades the chip column for a small chip in the header. */}
@@ -1435,13 +1445,6 @@ export function TurnBlock(props: {
             <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
             {message.pinned === true && (
               <Pin size={12} className="nx-pin-glyph" aria-label="Pinned" data-testid={`msg-${message.id}-pinned`} />
-            )}
-            {author?.kind === 'human' && (
-              <SeenTicks
-                message={message}
-                deliveries={props.deliveries}
-                members={props.members}
-              />
             )}
             <span className="nx-turn-spacer" />
             <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
@@ -1691,20 +1694,94 @@ function DeleteButton(props: { messageId: number; connection: Connection }) {
 /** Delivery ticks per Richard #302: a message to agents is "seen" once its
  *  deliveries are consumed — queued or held ones have not reached anyone yet. */
 // harn:assume agent-delivery-lifecycle-streams-v2 ref=steering-delivery-indicator
+// harn:assume agent-handling-ticks-require-delivery-evidence ref=delivery-handling-evidence
+export function deliveryHasHandlingEvidence(delivery: Delivery): boolean {
+  return delivery.state === 'delivering' || (delivery.state === 'consumed'
+    && (delivery.run_msg_id !== undefined || delivery.steered_ts !== undefined));
+}
+// harn:end agent-handling-ticks-require-delivery-evidence
 export function deliveryIndicator(deliveries: readonly Delivery[]): {
   seen: boolean;
-  disposition: 'queued' | 'delivered' | 'steered';
+  disposition: 'queued' | 'unconfirmed' | 'delivered' | 'steered';
   title: string;
 } {
-  const seen = deliveries.every((delivery) =>
-    delivery.state === 'delivering' || delivery.state === 'consumed');
+  const seen = deliveries.length > 0 && deliveries.every(deliveryHasHandlingEvidence);
   if (!seen) {
-    return { seen: false, disposition: 'queued', title: 'Queued for the next turn' };
+    return deliveries.some(delivery => delivery.state === 'queued')
+      ? { seen: false, disposition: 'queued', title: 'Queued for the next turn' }
+      : { seen: false, disposition: 'unconfirmed', title: 'Accepted; agent handling is not confirmed' };
   }
   if (deliveries.length > 0 && deliveries.every((delivery) => delivery.steered_ts !== undefined)) {
     return { seen: true, disposition: 'steered', title: 'Steered into the active turn' };
   }
   return { seen: true, disposition: 'delivered', title: 'Delivered to its agents' };
+}
+
+function OutgoingRow({ row, connection, token }: { row: Outgoing; connection: Connection; token: () => string }) {
+  useSyncExternalStore(connection.subscribePostState ?? (() => () => {}), connection.postStateVersion ?? (() => 0), () => 0);
+  const mobile = useIsMobile();
+  const [edit, setEdit] = useState<string>();
+  const [editError, setEditError] = useState<string>();
+  const [preparing, setPreparing] = useState(false);
+  const editInFlight = useRef(false);
+  const state = outgoingFor(connection);
+  const failed = row.status === 'failed';
+  const sendEdit = async (): Promise<void> => {
+    if (edit === undefined || editInFlight.current || !state.snapshot().some(item => item.id === row.id)) return;
+    editInFlight.current = true; setPreparing(true); setEditError(undefined);
+    try {
+      const source = sourceClientStore(useClientStore);
+      const catalog = await fetchRoutingCatalog(row.origin, { token: token(), fetch: captureRelayFetch() });
+      const roster = Object.values(roomSlice(source.getState(), row.origin).members)
+        .filter(member => member.removed_ts === undefined && member.kind !== 'extension');
+      const prepared = prepareOutgoing(edit, row.origin, roster, catalog);
+      if (!state.snapshot().some(item => item.id === row.id && item.status === 'failed')) return;
+      // harn:assume sender-receipt-correlation-is-indexed-and-private ref=edited-dispatch-capability
+      if (connection.postAcknowledgements !== true || connection.postCorrelations !== true) {
+        throw new Error('Message confirmation support is unavailable. Your edit is preserved; wait for support or reconnect, then try again.');
+      }
+      // harn:end sender-receipt-correlation-is-indexed-and-private
+      sendOutgoing(connection, row.origin, prepared.room, prepared.body, row.attachments, row.frame.reply_to, row.frame.voice, edit);
+      state.remove(row.id);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Cannot prepare edited message');
+    } finally { editInFlight.current = false; setPreparing(false); }
+  };
+  const retry = (): void => {
+    const current = state.snapshot().find(item => item.id === row.id);
+    if (!current || current.status === 'sending' || current.status === 'accepted' || current.status === 'queued') return;
+    if (!connection.postCorrelations || !connection.postAcknowledgements) return;
+    state.update(row.id, { status: 'sending', error: undefined });
+    dispatchOutgoing(connection, current);
+  };
+  return <article className="nx-turn is-mine" data-testid={`outgoing-${row.id}`}>
+    {!mobile && <Chip name="You" accent="indigo" size={34} />}
+    <div className="nx-turn-main">
+      <div className="nx-turn-meta">
+        <strong className="nx-turn-author">You</strong>
+        <span role="status" tabIndex={0} className="nx-seen" aria-label={failed ? 'Send failed' : row.status === 'queued' ? 'Queued locally; not sent' : row.status === 'accepted' ? 'Accepted by the server' : 'Not yet confirmed by the server'}>
+          {failed ? <CircleAlert size={13} color="var(--danger, #d33)" /> : row.status === 'accepted' ? <Check size={13} /> : <Clock3 size={13} />}
+        </span>
+        {row.frame.reply_to !== undefined && <span>Reply to #{row.frame.reply_to}</span>}
+        {row.room !== row.origin && <span>To {row.room}</span>}
+      </div>
+      <MessageProse body={row.frame.body} />
+      {row.frame.voice && <span>Voice · {Math.round(row.frame.voice.duration_seconds)}s</span>}
+      {row.attachments.map(file => <span className="nx-attach-chip" key={file.id}>{file.name}</span>)}
+      {row.error && <p role="status">{row.error}</p>}
+      {(failed || row.status === 'uncertain' || row.status === 'queued') && <div>
+        {row.status !== 'queued' && <button type="button" onClick={retry} disabled={!connection.postCorrelations || !connection.postAcknowledgements}>Resend</button>}
+        {failed && <button type="button" disabled={preparing} onClick={() => setEdit(row.rawBody)}>Edit</button>}
+        <button type="button" data-local-composition="true" onClick={() => { connection.forgetSubmission?.(row.id); state.remove(row.id); }}>Discard local copy</button>
+        {!connection.postCorrelations && <p>{row.status === 'queued' ? 'This message has not been sent. Waiting for compatible message support.' : 'This computer cannot reconcile this send. Check delivery before sending again.'}</p>}
+      </div>}
+      {edit !== undefined && <div>
+        <textarea aria-label="Edit unsent message" disabled={preparing} value={edit} onChange={event => setEdit(event.target.value)} />
+        {editError && <p role="alert">{editError}</p>}
+        <button type="button" disabled={preparing || !edit.trim() || !connection.postCorrelations} onClick={() => void sendEdit()}>Send edited message</button>
+      </div>}
+    </div>
+  </article>;
 }
 
 function SeenTicks(props: {
@@ -1713,21 +1790,26 @@ function SeenTicks(props: {
   members: Record<string, Member>;
 }) {
   const relevant = Object.values(props.deliveries).filter(
-    (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent',
+    (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent'
+      && props.members[d.recipient]?.removed_ts === undefined,
   );
-  if (relevant.length === 0) return null;
   // delivering means the turn already carries the payload — the agent has it.
-  const indicator = deliveryIndicator(relevant);
+  const indicator = relevant.length ? deliveryIndicator(relevant) : { seen: false, disposition: 'accepted', title: 'Accepted by the server' };
+  const detail = relevant.map(delivery => `@${props.members[delivery.recipient]?.handle ?? 'agent'}: ${delivery.steered_ts !== undefined ? 'steered, ' : ''}${delivery.state}${delivery.state === 'consumed' && !deliveryHasHandlingEvidence(delivery) ? ' (no handling evidence)' : ''}`).join('; ');
+  const title = detail ? `Accepted by the server. ${detail}. Handling evidence, not a literal read receipt.` : indicator.title;
   return (
     <span className="nx-delivery-state">
       <span
         className={`nx-seen ${indicator.seen ? 'is-seen' : ''}`}
-        title={indicator.title}
+        role="img"
+        title={title}
+        aria-label={title}
+        tabIndex={0}
         data-testid={`msg-${props.message.id}-seen`}
         data-seen={indicator.seen}
         data-delivery-disposition={indicator.disposition}
       >
-        {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
+        {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
       </span>
     </span>
   );

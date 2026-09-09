@@ -287,7 +287,9 @@ test.describe('native worktree group navigation', () => {
     await page.evaluate(() => {
       (window as unknown as { __codor: { disconnect(): void } }).__codor.disconnect();
     });
-    await expect(page.getByTestId('connection')).toHaveText(/Reconnecting/, { timeout: 15_000 });
+    await expect(page.getByTestId('connection')).toHaveText('Disconnected', { timeout: 15_000 });
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected', 'false');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-reconnect-grace', 'false');
     await expect(page.getByTestId(`worktree-link-${childId}`)).toBeVisible();
     await expect(page.getByTestId(`worktree-unread-${childId}`)).toBeVisible();
     await expect(page.getByTestId(`worktree-link-${childId}`)).toHaveAttribute(
