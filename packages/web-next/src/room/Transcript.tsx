@@ -1759,6 +1759,11 @@ function OutgoingRow({ row, connection, token }: { row: Outgoing; connection: Co
         .filter(member => member.removed_ts === undefined && member.kind !== 'extension');
       const prepared = prepareOutgoing(edit, row.origin, roster, catalog);
       if (!state.snapshot().some(item => item.id === row.id && item.status === 'failed')) return;
+      // harn:assume sender-receipt-correlation-is-indexed-and-private ref=edited-dispatch-capability
+      if (connection.postAcknowledgements !== true || connection.postCorrelations !== true) {
+        throw new Error('Message confirmation support is unavailable. Your edit is preserved; wait for support or reconnect, then try again.');
+      }
+      // harn:end sender-receipt-correlation-is-indexed-and-private
       sendOutgoing(connection, row.origin, prepared.room, prepared.body, row.attachments, row.frame.reply_to, row.frame.voice, edit);
       state.remove(row.id);
     } catch (error) {

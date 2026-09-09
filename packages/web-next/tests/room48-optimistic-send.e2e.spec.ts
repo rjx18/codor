@@ -187,6 +187,56 @@ test('editing a qualified recipient moves the pending row to the newly selected 
   expect(proof.messages.filter((message:any)=>message.kind==='chat').map((message:any)=>message.room)).toEqual([plan.conversation_id]);
 });
 
+for (const capability of ['supported','unknown','unsupported','ack-only'] as const) {
+  test(`delayed edit lookup rechecks ${capability} capability before dispatch`, async ({page}) => {
+    await open(page,false);
+    const needle=`review-delayed-${capability}`;
+    await page.setInputFiles('[data-testid="composer-file"]',{name:'held-media.txt',mimeType:'text/plain',buffer:Buffer.from('preserve me')});
+    await expect(page.getByTestId('attach-tray').locator('.nx-attach-chip')).toHaveCount(1);
+    await control('/p6-fault',{point:'reject',needle});
+    await page.getByTestId('composer-input').fill(`@richard ${needle} original`);
+    await page.getByTestId('composer-input').press('Enter');
+    const row=page.getByTestId(/^outgoing-/).filter({hasText:needle});
+    const originalId=await row.getAttribute('data-testid');
+    await row.getByRole('button',{name:'Edit',exact:true}).click();
+    const edited=`@richard ${needle} edited`;
+    await row.getByLabel('Edit unsent message').fill(edited);
+    let release!:()=>void;
+    const held=new Promise<void>(resolve=>{release=resolve;});
+    let entered=false;
+    await page.route('**/api/rooms/eng/routing-targets',async route=>{entered=true;await held;await route.continue();});
+    await row.getByRole('button',{name:'Send edited message'}).click();
+    await expect.poll(()=>entered).toBe(true);
+    try {
+      if (capability!=='supported') {
+        await control('/p6-capability',{mode:capability==='unknown'?'timeout':capability==='ack-only'?'clear':'unsupported',remaining:-1,
+          correlations:capability!=='ack-only'});
+        await page.evaluate(()=>{(window as any).__codor.disconnect();(window as any).__codor.reconnect();});
+        await expect.poll(()=>page.evaluate(()=>(window as any).__codor.postAcknowledgements)).toBe(capability==='unknown'?undefined:capability==='ack-only');
+        await expect.poll(()=>page.evaluate(()=>(window as any).__codor.postCorrelations)).toBe(false);
+      }
+    } finally { release(); }
+    if (capability!=='supported') {
+      await expect(row.getByRole('alert')).toContainText('support');
+      await expect(row).toHaveAttribute('data-testid',originalId!);
+      await expect(row.getByLabel('Edit unsent message')).toHaveValue(edited);
+      await expect(row).toContainText('held-media.txt');
+      expect((await control('/p6-evidence',{needle})).attempts).toHaveLength(1);
+      expect((await control('/p6-evidence',{needle})).messages).toHaveLength(0);
+      await control('/p6-capability',{mode:'clear',correlations:true});
+      await page.evaluate(()=>{(window as any).__codor.disconnect();(window as any).__codor.reconnect();});
+      await expect.poll(()=>page.evaluate(()=>(window as any).__codor.postCorrelations)).toBe(true);
+      await row.getByRole('button',{name:'Send edited message'}).evaluate((button:HTMLButtonElement)=>{button.click();button.click();});
+    }
+    await expect(row).toHaveCount(0);
+    const proof=await control('/p6-evidence',{needle});
+    expect(proof.attempts).toHaveLength(2); expect(proof.messages).toHaveLength(1);
+    expect(proof.attempts[1].submission_id).toBeTruthy();
+    expect(proof.attempts[1].submission_id).not.toBe(proof.attempts[0].submission_id);
+    expect(proof.attempts[1].attachments).toEqual(proof.attempts[0].attachments);
+  });
+}
+
 test.describe('edited browser-local schedules', () => {
   test.use({timezoneId:'America/Los_Angeles'});
   test('a refused friendly-clock edit keeps its browser instant with a new ID', async ({page}) => {

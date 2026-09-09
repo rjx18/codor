@@ -1,0 +1,38 @@
+id: optimistic-edit-dispatch-capability-review-fix
+title: Recheck the captured connection before dispatching an asynchronously
+  prepared edit
+notes: >
+  Narrow correction at 0a70362a. After the existing routing lookup, require
+  current verified acknowledgement and correlation support before creating a new
+  optimistic record. Unknown/unsupported preserves the failed record, raw edit
+  and media with a recoverable explanation. Keep socket admission, owner
+  capture, frozen Resend and every backend contract unchanged. Prove delayed
+  lookup under supported/unknown/downgraded capability, then explicit supported
+  retry and double-click protection. Run focused/full web units, production/PWA
+  build and the direct/hosted optimistic browser suite.
+assumptions:
+  reviewed:
+    - id: edited-outgoing-intents-use-browser-preparation
+      outcome: unchanged
+      reason: Preserve the captured edit across the asynchronous preparation boundary.
+    - id: sender-receipt-correlation-is-indexed-and-private
+      outcome: unchanged
+      reason: Require its existing capability at dispatch, not merely at render time.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Existing enclosing Transcript region; no delivery-status change.
+files:
+  - .harn/plans/optimistic-edit-dispatch-capability-review-fix.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/tests/room48-optimistic-send.e2e.spec.ts
+anchors:
+  agent-delivery-lifecycle-streams-v2:
+    steering-delivery-indicator:
+      action: change
+      reason: Enclosing existing asynchronous editor.
+  sender-receipt-correlation-is-indexed-and-private:
+    edited-dispatch-capability:
+      action: change
+      reason: Enforce verified current capability after preparation completes.
+applied:
+  applied_at: 2026-09-09T14:01:26.773Z
