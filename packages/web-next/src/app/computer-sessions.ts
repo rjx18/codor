@@ -113,6 +113,7 @@ interface SessionEntry {
   cacheWrite: Promise<void>;
   cacheSaveTimer?: ReturnType<typeof setTimeout>;
   pendingCache?: { state: ClientState; publicRoot: string };
+  revivingNoRooms?: Promise<void>;
   historyAbort: AbortController;
   historyWarming: Map<string, HistoryWarmState>;
   stopStore: () => void;
@@ -281,7 +282,7 @@ export class ComputerSessionManager {
 
   active(): ActiveComputerSession | undefined {
     const entry = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
-    if (!entry?.connector) return undefined;
+    if (!entry?.connector || entry.noRooms) return undefined;
     return {
       id: entry.material.computer.id,
       // The remembered room is the session's public root — never the hidden
@@ -296,7 +297,7 @@ export class ComputerSessionManager {
     const live = this.active();
     if (live) return live;
     const entry = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
-    if (!entry?.cachedConnector || !entry.publicRoot) return undefined;
+    if (!entry?.cachedConnector || !entry.publicRoot || entry.noRooms) return undefined;
     return {
       id: entry.material.computer.id,
       room: entry.publicRoot,
@@ -335,7 +336,7 @@ export class ComputerSessionManager {
   // harn:assume hosted-computer-switching-reuses-warm-session ref=warm-computer-activation
   async activate(id: string): Promise<boolean> {
     const entry = this.entries.get(id);
-    if (!this.usable(entry)) return false;
+    if (entry === undefined || !this.selectable(entry)) return false;
     await this.deps.switchStored(id);
     this.activeId = id;
     this.applyActiveRuntime();
@@ -350,7 +351,7 @@ export class ComputerSessionManager {
     this.promoteHistory(entry, entry.store.getState().activeRoom);
     if (entry.upgrade) requireBrowserUpgrade(entry.upgrade);
     this.publish();
-    return entry.connector !== undefined;
+    return entry.connector !== undefined || entry.noRooms === true;
   }
   // harn:end hosted-computer-switching-reuses-warm-session
 
@@ -439,12 +440,55 @@ export class ComputerSessionManager {
       const existing = this.entries.get(material.computer.id);
       if (existing && this.sameTransport(existing.material, material)) {
         existing.material = material;
+        if (existing.noRooms === true) this.reviveNoRooms(existing);
       } else {
         if (existing) this.disposeEntry(material.computer.id);
         this.startEntry(material);
       }
     }
     this.activeId = loaded.activeId;
+    this.applyActiveRuntime();
+    this.publish();
+  }
+
+  /** Keep an authenticated empty hosted computer selectable without making a
+   * phantom room or discarding its pairing. The next successful room creation
+   * refreshes the same entry and restarts only its room bootstrap. */
+  markActiveEmpty(): void {
+    const entry = this.activeId === undefined ? undefined : this.entries.get(this.activeId);
+    if (!entry || entry.token === '') return;
+    const state = entry.store.getState();
+    if (state.roomSummaries.length > 0 || state.roomList.length > 0) return;
+    this.markEmptyEntry(entry);
+  }
+
+  /** Reconcile a delayed archive against its captured computer, even if that
+   * computer is no longer selected when the result arrives. */
+  reconcileArchivedStore(store: ClientStore): void {
+    const entry = [...this.entries.values()].find((candidate) => candidate.store === store);
+    if (!entry || entry.token === '') return;
+    const state = entry.store.getState();
+    if (state.roomSummaries.length > 0 || state.roomList.length > 0) return;
+    this.markEmptyEntry(entry);
+  }
+
+  private markEmptyEntry(entry: SessionEntry): void {
+    entry.noRooms = true;
+    entry.connector?.dispose();
+    entry.connector = undefined;
+    entry.cachedConnector?.dispose();
+    entry.cachedConnector = undefined;
+    entry.publicRoot = undefined;
+    forgetRoom(entry.material.computer.id);
+    if (entry.cacheSaveTimer !== undefined) clearTimeout(entry.cacheSaveTimer);
+    entry.cacheSaveTimer = undefined;
+    entry.pendingCache = undefined;
+    entry.cacheRevision = undefined;
+    const cacheWrite = entry.cacheWrite;
+    void cacheWrite.then(
+      () => deleteLastGoodRoom(entry.material.computer.id),
+      () => deleteLastGoodRoom(entry.material.computer.id),
+    );
     this.applyActiveRuntime();
     this.publish();
   }
@@ -693,6 +737,7 @@ export class ComputerSessionManager {
         }
         // The startup resolution names a public root; it is the session's
         // remembered room regardless of which conversation gets selected later.
+        entry.noRooms = false;
         entry.publicRoot = room;
         rememberRoom(room, entry.material.computer.id);
         entry.connector = this.deps.makeConnector({
@@ -902,6 +947,8 @@ export class ComputerSessionManager {
     const connector = entry.connector ?? entry.cachedConnector;
     if (connector) {
       (window as unknown as { __codor?: RoomConnector }).__codor = connector;
+    } else {
+      delete (window as unknown as { __codor?: RoomConnector }).__codor;
     }
   }
 
@@ -933,6 +980,21 @@ export class ComputerSessionManager {
 
   private usable(entry: SessionEntry | undefined): entry is SessionEntry {
     return entry !== undefined && !entry.disposed && entry.connector !== undefined && entry.token !== '';
+  }
+
+  private selectable(entry: SessionEntry | undefined): boolean {
+    if (entry === undefined || entry.disposed) return false;
+    if (entry.connector !== undefined && entry.token !== '') return true;
+    return entry.noRooms === true && entry.token !== '' && entry.tunnel.state === 'connected';
+  }
+
+  private reviveNoRooms(entry: SessionEntry): void {
+    if (!entry.noRooms || entry.revivingNoRooms !== undefined || entry.disposed) return;
+    const revival = this.completeEntry(entry);
+    entry.revivingNoRooms = revival;
+    void revival.finally(() => {
+      if (entry.revivingNoRooms === revival) entry.revivingNoRooms = undefined;
+    });
   }
 
   private async restoreAfterFailedAdd(previous: SessionEntry | undefined): Promise<false> {
@@ -985,7 +1047,7 @@ export class ComputerSessionManager {
         id: entry.material.computer.id,
         label: entry.material.computer.label,
         active: entry.material.computer.id === this.activeId,
-        ready: this.usable(entry),
+        ready: this.selectable(entry),
         authRefused: entry.store.getState().authRefused,
         ...this.summary(entry),
       })),

@@ -1,0 +1,189 @@
+id: channel-archive-menu-lifecycle-review-fix
+title: Keep archive actions source-owned through dismissal and hosted empty state
+notes: >
+  Contained review correction to the accepted archive-menu implementation at
+  a15b9eac. Preserve the existing archive_room operation, correlation/result
+  projection, soft-archive retention, transcript/draft state, and warm hosted
+  sessions. Add a synchronous client single-flight guard so one confirmation
+  produces one action, keep settlement subscribed to the captured source store
+  after the menu closes or selection changes, and reconcile success/failure
+  without acting on a later computer. Keep the hosted computer/session shell
+  visible when the selected computer has no channels, allow switching and
+  in-place first-channel creation through the existing onboarding flow, and
+  avoid empty-room subscriptions or re-pairing. Do not change backend, protocol,
+  receipts, post, history, P1/P3, relay, or release behavior.
+assumptions:
+  create:
+    - id: archive-pending-result-is-source-owned
+      title: Archive results settle through the captured source after dismissal
+      statement: >
+        Once an authorized archive action is admitted, its unique reference and
+        captured room, computer-owned connection, store, and token remain the
+        settlement owner until the authoritative result arrives, even if the
+        confirmation menu closes or the operator changes room or computer. One
+        source flight admits one action; a success reconciles only that source
+        computer and a refusal remains observable and retryable without acting
+        on a later selection.
+      reason: >
+        Menu presentation is shorter-lived than a delayed archive result, and
+        React state alone cannot suppress same-task duplicate confirmations.
+      depends_on:
+        - channel-archive-ui-captures-source-and-authoritative-result
+        - management-frames-correlate-one-result
+        - hosted-computer-sessions-keep-state-isolated
+    - id: hosted-empty-channel-shell-preserves-session-navigation
+      title: Hosted empty-channel state keeps paired-computer navigation alive
+      statement: >
+        A hosted computer with authoritative zero channels renders the existing
+        onboarding inside the paired-computer session shell immediately and
+        after reload. The shell keeps other warm computers switchable, permits
+        creating a first channel without re-pairing or a document navigation,
+        and never subscribes the connector to an invented empty room; once the
+        new room is discovered, the active session returns to the normal room
+        surface.
+      reason: >
+        A standalone empty screen hides the only computer switcher after the
+        last channel is archived and traps the operator on that computer.
+      depends_on:
+        - hosted-managed-bootstrap-reacts-to-late-readiness
+        - hosted-computer-switching-reuses-warm-session
+        - paired-empty-state-creates-first-channel
+  reviewed:
+    - id: channel-archive-ui-captures-source-and-authoritative-result
+      outcome: unchanged
+      reason: >
+        The same captured source and correlated archive_room result remain the
+        authority; this correction makes their lifetime and single-flight rule
+        explicit without changing the action contract.
+    - id: archived-channels-leave-default-discovery-and-preserve-state
+      outcome: unchanged
+      reason: >
+        Archive still removes only authoritative discovery membership and keeps
+        room state, with an existing empty state for a true last-channel case.
+    - id: channel-archive-menu-is-viewport-safe-and-accessible
+      outcome: unchanged
+      reason: >
+        Confirmation, touch/keyboard access, dismissal, focus, viewport bounds,
+        and Axe behavior remain the existing menu contract.
+    - id: channel-archive-is-durable-soft-state
+      outcome: unchanged
+      reason: |
+        No backend or durable archive semantics change.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: >
+        Existing opaque action references and source-store result projection are
+        reused.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Equal room ids and all pending state remain scoped to their computer
+        session and captured store.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: >
+        Empty-state navigation activates existing sessions in place and does not
+        replace healthy tunnels or app sockets.
+    - id: hosted-managed-bootstrap-reacts-to-late-readiness
+      outcome: unchanged
+      reason: >
+        The manager-owned bootstrap remains reactive; it now chooses the same
+        hosted shell for an authenticated empty active entry.
+    - id: paired-empty-state-creates-first-channel
+      outcome: unchanged
+      reason: >
+        Existing onboarding fields and create payload remain unchanged; only an
+        optional in-place completion callback is added for hosted empty state.
+    - id: empty-and-offline-are-shown-not-blank
+      outcome: unchanged
+      reason: >
+        Genuine unknown/offline startup states continue to use their existing
+        recovery presentation.
+anchors:
+  archive-pending-result-is-source-owned:
+    archive-source-settlement:
+      action: change
+      reason: >
+        Move archive flight ownership and result observation to ChannelRail so
+        dismissal cannot discard a delayed authoritative result.
+    archive-source-settlement-regression:
+      action: change
+      reason: >
+        Count real archive frames, exercise same-task duplicates, dismissal,
+        delayed success/refusal, and source selection changes.
+  hosted-empty-channel-shell-preserves-session-navigation:
+    hosted-empty-shell:
+      action: change
+      reason: >
+        Keep the computer rail and manager-owned session shell around hosted
+        empty onboarding, including in-place room creation/revival.
+    hosted-empty-shell-regression:
+      action: change
+      reason: >
+        Prove last-channel archive, reload, switching to another computer, and
+        creating a room without re-pairing or an empty-room subscription.
+  channel-archive-ui-captures-source-and-authoritative-result:
+    channel-archive-source-menu:
+      action: change
+      reason: >
+        Preserve the captured target while routing submission through the
+        parent-owned single-flight handler.
+    channel-archive-action-regression:
+      action: change
+      reason: >
+        Extend the action regression to count dispatched operations and confirm
+        refusal unlocks a retry.
+  archived-channels-leave-default-discovery-and-preserve-state:
+    channel-archive-discovery-reconciliation:
+      action: change
+      reason: >
+        Reconcile active last-channel success through the hosted empty shell and
+        revive its manager entry after a newly created room.
+    channel-archive-discovery-regression:
+      action: change
+      reason: |
+        Cover delayed active/inactive and hosted last-channel reload behavior.
+  channel-archive-menu-is-viewport-safe-and-accessible:
+    channel-archive-menu:
+      action: change
+      reason: >
+        Keep menu presentation state separate from a pending source-owned action
+        while retaining existing dismissal and focus behavior.
+    channel-archive-menu-a11y-regression:
+      action: change
+      reason: |
+        Preserve keyboard/touch/delayed-result coverage and recoverable errors.
+  hosted-managed-bootstrap-reacts-to-late-readiness:
+    reactive-managed-bootstrap:
+      action: change
+      reason: >
+        Render hosted empty onboarding in the reactive managed shell rather than
+        a standalone no-channel surface.
+  hosted-computer-switching-reuses-warm-session:
+    warm-computer-activation:
+      action: change
+      reason: >
+        Permit an authenticated empty session to be selected so its shell can
+        create a first room without pairing again.
+files:
+  - .harn/plans/channel-archive-menu-lifecycle-review-fix.yaml
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/RoomPage.spec.tsx
+  - packages/web-next/tests/room48-channel-archive.e2e.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/surfaces/NoChannels.tsx
+  - packages/web-next/src/main.tsx
+  - packages/web-next/src/styles/room.css
+verification: >
+  Verify exact clean base a15b9eac and run harn find for all reviewed
+  assumptions before locking. Clean-lock this plan with dirty_at_lock false. Run
+  focused archive/store/session units, the duplicate/delayed active and inactive
+  archive journeys, hosted last-channel and reload/navigation/create coverage,
+  desktop/mobile Axe, all web-next units, and the production/PWA build. Finish
+  with harn find --changed, harn check, harn apply, harn check --staged, git
+  diff --check, and a clean-tree check. Create exactly one implementation
+  commit. Do not change server, protocol, receipts, post, history, relay, P1/P3,
+  release, deployment, or host behavior.
+applied:
+  applied_at: 2026-09-09T13:40:41.886Z

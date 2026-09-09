@@ -1,6 +1,6 @@
 import { Archive, ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
 
@@ -96,6 +96,68 @@ export function RoomPage(props: {
 }) {
   // harn:assume settings-navigation-reuses-live-session ref=mounted-settings-route
   const manager = computerSessions();
+  // harn:assume archive-pending-result-is-source-owned ref=archive-source-settlement
+  // The menu is presentation only. Keep the captured operation above the
+  // computer-keyed room surface so a delayed result still settles after a
+  // dismissal, room switch, or hosted computer switch.
+  const [archiveRequest, setArchiveRequest] = useState<ArchiveRequest>();
+  const archiveFlight = useRef<ArchiveRequest>();
+  const submitArchive = useCallback((target: ArchiveTarget): void => {
+    if (archiveFlight.current !== undefined
+      || archiveRequest?.status === 'pending'
+      || archiveRequest?.status === 'success') return;
+    const refused = (message: string): void => {
+      const ref = `archive-${crypto.randomUUID()}`;
+      const request: ArchiveRequest = { target, ref, status: 'error', error: message };
+      setArchiveRequest(request);
+    };
+    if (!target.canArchive || !canArchiveChannel(target.sourceStore, target.room, target.canArchive)) {
+      refused('You do not have permission to archive this channel.');
+      return;
+    }
+    if (!archiveConnectionReady(target.connection, target.room)) {
+      refused('Archive is unavailable while this connection is disconnected.');
+      return;
+    }
+    const ref = `archive-${crypto.randomUUID()}`;
+    const request: ArchiveRequest = { target, ref, status: 'pending' };
+    archiveFlight.current = request;
+    setArchiveRequest(request);
+    const action = { act: 'archive_room' } as const;
+    const dispatched = target.connection.actForRoom?.(target.room, action, ref)
+      ?? (target.connection.room() === target.room
+        ? (target.connection.act(action, ref), true)
+        : false);
+    if (!dispatched) {
+      archiveFlight.current = undefined;
+      setArchiveRequest({ ...request, status: 'error', error: 'Archive is unavailable while this connection is disconnected.' });
+    }
+  }, [archiveRequest?.status]);
+  useEffect(() => {
+    const request = archiveRequest;
+    if (request === undefined || request.status !== 'pending') return;
+    const settle = (): void => {
+      if (archiveFlight.current?.ref !== request.ref) return;
+      const result = roomSlice(request.target.sourceStore.getState(), request.target.room).actionResults[request.ref];
+      if (result === undefined) return;
+      archiveFlight.current = undefined;
+      if (result.status === 'success') manager?.reconcileArchivedStore(request.target.sourceStore);
+      setArchiveRequest(result.status === 'success'
+        ? { ...request, status: 'success' }
+        : { ...request, status: 'error', error: result.message ?? 'The channel could not be archived.' });
+    };
+    const unsubscribe = request.target.sourceStore.subscribe(settle);
+    settle();
+    return unsubscribe;
+  }, [archiveRequest]);
+  const acknowledgeArchive = useCallback((ref: string): void => {
+    setArchiveRequest((current) => current?.ref === ref ? undefined : current);
+  }, []);
+  const archive = useMemo<ArchiveLifecycle>(() => ({
+    request: archiveRequest,
+    submit: submitArchive,
+    acknowledge: acknowledgeArchive,
+  }), [acknowledgeArchive, archiveRequest, submitArchive]);
   useSyncExternalStore(
     manager?.subscribe ?? noComputerSubscription,
     manager?.getSnapshot ?? (() => EMPTY_COMPUTER_SNAPSHOT),
@@ -108,9 +170,33 @@ export function RoomPage(props: {
       {...props}
       manager={manager}
       managed={managed}
+      archive={archive}
     />
   );
+  // harn:end archive-pending-result-is-source-owned
 }
+
+// harn:assume hosted-empty-channel-shell-preserves-session-navigation ref=hosted-empty-shell
+/** Keep the paired-computer session shell around an authenticated empty host. */
+export function HostedEmptyState(props: { token: string; manager: ComputerSessionManager }): ReactNode {
+  const mobile = useIsMobile();
+  const refreshAfterCreate = useCallback((): void => {
+    void props.manager.refresh();
+  }, [props.manager]);
+  return (
+    <div
+      className={`nx-app has-computer-rail${mobile ? ' is-mobile' : ''}`}
+      data-testid="hosted-empty-shell"
+      data-surface="channels"
+    >
+      <ComputerSwitcher mobile={mobile} />
+      <div className="nx-hosted-empty-main">
+        <NoChannels token={props.token} onCreated={refreshAfterCreate} />
+      </div>
+    </div>
+  );
+}
+// harn:end hosted-empty-channel-shell-preserves-session-navigation
 
 function MountedRoomPage(props: {
   room: string;
@@ -118,8 +204,9 @@ function MountedRoomPage(props: {
   refreshToken?: () => Promise<string>;
   manager: ComputerSessionManager | undefined;
   managed: ActiveComputerSession | undefined;
+  archive: ArchiveLifecycle;
 }) {
-  const { manager, managed } = props;
+  const { manager, managed, archive } = props;
   const showComputerRail = manager !== undefined;
   const activeToken = managed?.token ?? props.token;
   const token = useAccessToken(activeToken);
@@ -384,7 +471,11 @@ function MountedRoomPage(props: {
     );
   }
 
-  if (archivedEmpty) return <NoChannels token={activeToken} />;
+  if (archivedEmpty) {
+    return manager === undefined
+      ? <NoChannels token={activeToken} />
+      : <HostedEmptyState token={activeToken} manager={manager} />;
+  }
 
   if (isMobile) {
     return (
@@ -400,11 +491,15 @@ function MountedRoomPage(props: {
             onSettings={openSettings}
             connection={connection}
             sourceStore={sourceStore}
+            archive={archive}
             canArchive={roleAtLeast(selfRole, 'owner')}
             onArchived={(archivedRoom, replacement) => {
               if (archivedRoom !== root) return;
               if (replacement !== undefined) switchRoom(replacement);
-              else setArchivedEmpty(true);
+              else {
+                manager?.markActiveEmpty();
+                setArchivedEmpty(true);
+              }
             }}
             group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
             showComputerRail={showComputerRail}
@@ -455,11 +550,15 @@ function MountedRoomPage(props: {
         onSettings={openSettings}
         connection={connection}
         sourceStore={sourceStore}
+        archive={archive}
         canArchive={roleAtLeast(selfRole, 'owner')}
         onArchived={(archivedRoom, replacement) => {
           if (archivedRoom !== root) return;
           if (replacement !== undefined) switchRoom(replacement);
-          else setArchivedEmpty(true);
+          else {
+            manager?.markActiveEmpty();
+            setArchivedEmpty(true);
+          }
         }}
         group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
         readiness={(conversation) => connection.roomReadiness(conversation)}
@@ -544,6 +643,19 @@ export interface ArchiveTarget {
   canArchive: boolean;
 }
 
+interface ArchiveRequest {
+  target: ArchiveTarget;
+  ref: string;
+  status: 'pending' | 'success' | 'error';
+  error?: string;
+}
+
+interface ArchiveLifecycle {
+  request: ArchiveRequest | undefined;
+  submit: (target: ArchiveTarget) => void;
+  acknowledge: (ref: string) => void;
+}
+
 function ChannelRail(props: {
   activeRoom: string;
   token: () => string;
@@ -551,6 +663,7 @@ function ChannelRail(props: {
   onSettings: () => void;
   connection: RoomConnector;
   sourceStore: ClientStore;
+  archive: ArchiveLifecycle;
   canArchive: boolean;
   onArchived: (room: string, replacement: string | undefined) => void;
   group?: {
@@ -604,6 +717,26 @@ function ChannelRail(props: {
       return lastActivity(b) - lastActivity(a);
     });
   }, [summaries, room, workingByRoom]);
+
+  useEffect(() => {
+    const request = props.archive.request;
+    if (request === undefined || request.status !== 'success'
+      || request.target.sourceStore !== props.sourceStore) return;
+    const replacement = request.target.room === props.activeRoom
+      ? nextRoomAfterArchive(entries, request.target.room)
+      : undefined;
+    props.archive.acknowledge(request.ref);
+    setArchiveTarget((current) => current?.room === request.target.room ? undefined : current);
+    if (request.target.room === props.activeRoom) {
+      props.onArchived(request.target.room, replacement);
+    }
+  }, [entries, props.activeRoom, props.archive, props.onArchived, props.sourceStore]);
+
+  const archiveError = props.archive.request?.status === 'error'
+    && props.archive.request.target.sourceStore === props.sourceStore
+    ? props.archive.request
+    : undefined;
+  const archiveBusy = props.archive.request?.status === 'pending';
 
   // harn:assume empty-roster-guidance-reuses-mounted-settings ref=mounted-empty-roster-settings-route
   return (
@@ -765,6 +898,11 @@ function ChannelRail(props: {
         </span>
         <IconButton icon={Settings} label="Settings" variant="quiet" onClick={props.onSettings} />
       </footer>
+      {archiveError !== undefined && archiveTarget?.room !== archiveError.target.room && (
+        <p className="nx-channel-archive-notice" role="alert" data-testid={`archive-channel-error-${archiveError.target.room}`}>
+          {archiveError.error ?? 'The channel could not be archived.'}
+        </p>
+      )}
       {creating && (
         <CreateChannelDialog
           token={props.token}
@@ -779,11 +917,10 @@ function ChannelRail(props: {
       {archiveTarget !== undefined && (
         <ChannelArchiveMenu
           target={archiveTarget}
+          busy={archiveBusy}
+          error={archiveError?.target.room === archiveTarget.room ? archiveError.error : undefined}
           onClose={() => setArchiveTarget(undefined)}
-          onArchived={(room) => {
-            setArchiveTarget(undefined);
-            props.onArchived(room, nextRoomAfterArchive(entries, room));
-          }}
+          onConfirm={props.archive.submit}
         />
       )}
     </nav>
@@ -803,15 +940,14 @@ function summaryPreview(entry: RoomSummary): string {
 // harn:assume channel-archive-menu-is-viewport-safe-and-accessible ref=channel-archive-menu
 function ChannelArchiveMenu(props: {
   target: ArchiveTarget;
+  busy: boolean | undefined;
+  error?: string;
   onClose: () => void;
-  onArchived: (room: string) => void;
+  onConfirm: (target: ArchiveTarget) => void;
 }) {
   const { target } = props;
   const menuRef = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<'actions' | 'confirm'>('actions');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const [pendingRef, setPendingRef] = useState<string>();
   const [position, setPosition] = useState<{ top: number; left: number; maxHeight: number }>();
 
   const updatePosition = useCallback((): void => {
@@ -856,7 +992,7 @@ function ChannelArchiveMenu(props: {
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [mode, error, updatePosition]);
+  }, [mode, props.error, updatePosition]);
 
   const closeAndRestoreFocus = useCallback((): void => {
     props.onClose();
@@ -892,51 +1028,7 @@ function ChannelArchiveMenu(props: {
   useEffect(() => {
     const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
     first?.focus();
-  }, [mode, error, position]);
-
-  useEffect(() => {
-    if (pendingRef === undefined) return;
-    const settle = (): void => {
-      const result = roomSlice(target.sourceStore.getState(), target.room).actionResults[pendingRef];
-      if (result === undefined) return;
-      setPendingRef(undefined);
-      setBusy(false);
-      if (result.status === 'success') {
-        props.onArchived(target.room);
-        return;
-      }
-      setError(result.message ?? 'The channel could not be archived.');
-    };
-    const unsubscribe = target.sourceStore.subscribe(settle);
-    settle();
-    return unsubscribe;
-  }, [pendingRef, props.onArchived, target.room, target.sourceStore]);
-
-  const confirm = (): void => {
-    if (busy) return;
-    setError(undefined);
-    if (!target.canArchive || !canArchiveChannel(target.sourceStore, target.room, target.canArchive)) {
-      setError('You do not have permission to archive this channel.');
-      return;
-    }
-    if (!archiveConnectionReady(target.connection, target.room)) {
-      setError('Archive is unavailable while this connection is disconnected.');
-      return;
-    }
-    const ref = `archive-${crypto.randomUUID()}`;
-    setBusy(true);
-    setPendingRef(ref);
-    const action = { act: 'archive_room' } as const;
-    const dispatched = target.connection.actForRoom?.(target.room, action, ref)
-      ?? (target.connection.room() === target.room
-        ? (target.connection.act(action, ref), true)
-        : false);
-    if (!dispatched) {
-      setPendingRef(undefined);
-      setBusy(false);
-      setError('Archive is unavailable while this connection is disconnected.');
-    }
-  };
+  }, [mode, props.error, position]);
 
   return createPortal(
     <div
@@ -963,9 +1055,9 @@ function ChannelArchiveMenu(props: {
         <div className="nx-channel-menu-confirm" role="group" aria-label="Confirm archive">
           <strong>Archive {target.name}?</strong>
           <p>History, members, agents, and drafts will be retained.</p>
-          {error !== undefined && (
+          {props.error !== undefined && (
             <p className="nx-channel-menu-error" role="alert" data-testid={`archive-channel-error-${target.room}`}>
-              {error}
+              {props.error}
             </p>
           )}
           <div className="nx-channel-menu-actions">
@@ -974,16 +1066,15 @@ function ChannelArchiveMenu(props: {
               role="menuitem"
               className="is-danger"
               data-testid={`archive-channel-confirm-${target.room}`}
-              disabled={busy}
-              onClick={confirm}
+              disabled={props.busy}
+              onClick={() => props.onConfirm(target)}
             >
-              {busy ? 'Archiving…' : 'Archive channel'}
+              {props.busy ? 'Archiving…' : 'Archive channel'}
             </button>
             <button
               type="button"
               role="menuitem"
               data-testid={`archive-channel-cancel-${target.room}`}
-              disabled={busy}
               onClick={closeAndRestoreFocus}
             >
               Cancel

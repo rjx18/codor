@@ -821,7 +821,8 @@ describe('ComputerSessionManager', () => {
     manager.dispose();
   });
 
-  it('rejects a connectorless target before persisted or in-memory activation', async () => {
+  // harn:assume hosted-empty-channel-shell-preserves-session-navigation ref=hosted-empty-shell-regression
+  it('keeps an authenticated empty target selectable without inventing a room', async () => {
     const h = harness();
     h.deps.loadRooms = async (token) => token.endsWith('B') ? [] : [summary('A', 1)];
     const manager = new ComputerSessionManager(h.deps);
@@ -829,13 +830,38 @@ describe('ComputerSessionManager', () => {
     for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
     for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
 
-    expect(manager.getSnapshot().computers.find((computer) => computer.id === 'B')?.ready).toBe(false);
+    expect(manager.getSnapshot().computers.find((computer) => computer.id === 'B')?.ready).toBe(true);
     const before = [...h.switches];
-    expect(await manager.activate('B')).toBe(false);
-    expect(h.switches).toEqual(before);
-    expect(manager.active()?.id).toBe('A');
+    expect(await manager.activate('B')).toBe(true);
+    expect(h.switches).toEqual([...before, 'B']);
+    expect(manager.active()).toBeUndefined();
+    expect(manager.activeHasNoRooms()).toBe(true);
     manager.dispose();
   });
+
+  it('revives the same empty hosted session after its first room is created', async () => {
+    const h = harness();
+    let bHasRoom = false;
+    h.deps.loadRooms = async (token) => token.endsWith('B')
+      ? (bHasRoom ? [summary('B', 1)] : [])
+      : [summary('A', 1)];
+    const manager = new ComputerSessionManager(h.deps);
+    await manager.start();
+    for (let startupTick = 0; startupTick < 64; startupTick++) await Promise.resolve();
+    for (let tick = 0; tick < 64; tick += 1) await Promise.resolve();
+
+    expect(await manager.activate('B')).toBe(true);
+    const tunnel = h.tunnels.get('B');
+    bHasRoom = true;
+    await manager.refresh();
+    for (let tick = 0; tick < 64 && !h.connectorOptions.has('B'); tick += 1) await Promise.resolve();
+
+    expect(h.tunnels.get('B')).toBe(tunnel);
+    expect(h.connectorOptions.get('B')?.room).toBe('same-room');
+    expect(manager.active()).toMatchObject({ id: 'B', room: 'same-room', token: 'token-B' });
+    manager.dispose();
+  });
+  // harn:end hosted-empty-channel-shell-preserves-session-navigation
 
   it('retires a mounted stale cache before publishing authenticated empty-room truth', async () => {
     const h = harness();

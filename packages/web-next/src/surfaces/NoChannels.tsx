@@ -24,7 +24,7 @@ export function suggestedChannelName(path: string): string {
 }
 
 /** A confirmed empty room list is an onboarding state, not a dead end. */
-export function NoChannels(props: { token: string }) {
+export function NoChannels(props: { token: string; onCreated?: () => void }) {
   const token = useCallback(() => props.token, [props.token]);
   const adapterCatalog = useAdapterCatalog(token);
   const adapters = adapterCatalog.installed;
@@ -139,7 +139,10 @@ export function NoChannels(props: { token: string }) {
         },
       }),
     }, { token: props.token }).then(
-      (room) => { window.location.assign(`/?room=${encodeURIComponent(room.id)}`); },
+      (room) => {
+        if (props.onCreated !== undefined) props.onCreated();
+        else window.location.assign(`/?room=${encodeURIComponent(room.id)}`);
+      },
       (failure: unknown) => {
         setError(failure instanceof Error ? failure.message : String(failure));
         setBusy(false);

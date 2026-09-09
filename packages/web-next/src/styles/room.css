@@ -32,6 +32,16 @@
   box-shadow: none;
 }
 
+/* harn:assume hosted-empty-channel-shell-preserves-session-navigation ref=hosted-empty-shell-layout */
+.nx-hosted-empty-main {
+  grid-column: 2 / -1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.nx-hosted-empty-main > .nx-onboarding { min-height: 100%; box-sizing: border-box; }
+/* harn:end hosted-empty-channel-shell-preserves-session-navigation */
+
 /* ── Channel rail ────────────────────────────────────────────────────── */
 
 .nx-rail {
@@ -1879,6 +1889,11 @@
 .nx-channel-menu-error { color: var(--c-error-text) !important; font: var(--t-caption-strong) !important; }
 .nx-channel-menu-actions { display: flex; gap: var(--sp-2); }
 .nx-channel-menu-actions button { flex: 1; justify-content: center; }
+.nx-channel-archive-notice {
+  margin: var(--sp-2) var(--sp-3);
+  color: var(--c-error-text);
+  font: var(--t-caption-strong);
+}
 /* harn:end channel-archive-menu-is-viewport-safe-and-accessible */
 
 .nx-dialog-title { margin: 0 0 var(--sp-3); font: var(--t-title); }
@@ -2646,6 +2661,7 @@
   .nx-app { grid-template-columns: minmax(0, 1fr); }
   .nx-app.has-computer-rail { grid-template-columns: minmax(0, 1fr); }
   .nx-app:not(.is-mobile) > .nx-computer-rail { display: none; }
+  .nx-hosted-empty-main { grid-column: 1; }
   .nx-rail { display: none; }
 }
 
@@ -2664,6 +2680,7 @@
   }
   .nx-app.is-mobile .nx-rail { display: flex; }
   .nx-app.is-mobile .nx-context { display: flex; }
+  .nx-hosted-empty-main { grid-column: auto; overflow: auto; }
 
   /* Mobile header: round back chevron, centered title + status word, kebab. */
   .nx-mobile-head {

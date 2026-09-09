@@ -1,0 +1,16 @@
+id: hosted-empty-channel-shell-preserves-session-navigation
+hash: a-f3c5ef657df6
+title: Hosted empty-channel state keeps paired-computer navigation alive
+state: active
+statement: >
+  A hosted computer with authoritative zero channels renders the existing
+  onboarding inside the paired-computer session shell immediately and after
+  reload. The shell keeps other warm computers switchable, permits creating a
+  first channel without re-pairing or a document navigation, and never
+  subscribes the connector to an invented empty room; once the new room is
+  discovered, the active session returns to the normal room surface.
+depends_on:
+  - hosted-managed-bootstrap-reacts-to-late-readiness
+  - hosted-computer-switching-reuses-warm-session
+  - paired-empty-state-creates-first-channel
+created_by: channel-archive-menu-lifecycle-review-fix

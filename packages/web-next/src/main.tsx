@@ -20,7 +20,7 @@ import { RecoveryOverlay } from './surfaces/RecoveryOverlay.js';
 import { SettingsPage } from './surfaces/SettingsPage.js';
 import { LedgerPage } from './surfaces/LedgerPage.js';
 import { NoChannels } from './surfaces/NoChannels.js';
-import { RoomPage } from './room/RoomPage.js';
+import { HostedEmptyState, RoomPage } from './room/RoomPage.js';
 import { computerSessions } from './app/computer-sessions.js';
 import { primeRoomSummaries } from './app/summary.js';
 import { useClientStore } from './app/store.js';
@@ -88,7 +88,9 @@ function ManagedBootstrap({ path }: { path: string }) {
     primeRoomSummaries(useClientStore.getState().roomSummaries);
     return <CompatibilityGate>{surfaceFor(path, session.room, session.token)}</CompatibilityGate>;
   }
-  if (manager.activeHasNoRooms()) return <NoChannels token={manager.activeToken()} />;
+  if (manager.activeHasNoRooms()) {
+    return <HostedEmptyState token={manager.activeToken()} manager={manager} />;
+  }
   return (
     <RecoveryCard
       presentation="fullscreen"

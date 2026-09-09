@@ -1,0 +1,16 @@
+id: archive-pending-result-is-source-owned
+hash: a-a0c3ffc7f49d
+title: Archive results settle through the captured source after dismissal
+state: active
+statement: >
+  Once an authorized archive action is admitted, its unique reference and
+  captured room, computer-owned connection, store, and token remain the
+  settlement owner until the authoritative result arrives, even if the
+  confirmation menu closes or the operator changes room or computer. One source
+  flight admits one action; a success reconciles only that source computer and a
+  refusal remains observable and retryable without acting on a later selection.
+depends_on:
+  - channel-archive-ui-captures-source-and-authoritative-result
+  - management-frames-correlate-one-result
+  - hosted-computer-sessions-keep-state-isolated
+created_by: channel-archive-menu-lifecycle-review-fix
