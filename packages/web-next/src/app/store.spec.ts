@@ -245,6 +245,28 @@ describe('room-keyed client state', () => {
   // harn:end context-reset-requests-settle-by-explicit-ref
   // harn:end context-reset-confirmation-is-anchored-and-member-local
 
+  // harn:assume archived-channels-leave-default-discovery-and-preserve-state ref=channel-archive-discovery-regression
+  it('projects a correlated archive result while retaining the room slice', () => {
+    const store = createClientStore();
+    const eng = room('eng');
+    const ops = room('ops');
+    store.getState().applyFrame(frame({ type: 'rooms', rooms: [eng, ops] }));
+    store.getState().setRoomSummaries([
+      { id: 'eng', name: 'ENG', created_ts: eng.created_ts, working: false, attention: false, unread: 0 },
+      { id: 'ops', name: 'OPS', created_ts: ops.created_ts, working: false, attention: false, unread: 0 },
+    ]);
+    const archived = { ...eng, config: { ...eng.config, archived_ts: '2026-09-09T00:00:00.000Z' } };
+    store.getState().applyFrame(frame({ type: 'room', seq: 8, ref: 'archive-eng', room: archived }));
+
+    expect(roomSlice(store.getState(), 'eng').room?.config.archived_ts).toBe('2026-09-09T00:00:00.000Z');
+    expect(roomSlice(store.getState(), 'eng').actionResults['archive-eng'])
+      .toMatchObject({ ref: 'archive-eng', status: 'success' });
+    expect(store.getState().roomList.map((item) => item.id)).toEqual(['ops']);
+    expect(store.getState().roomSummaries.map((item) => item.id)).toEqual(['ops']);
+    expect(roomSlice(store.getState(), 'ops').room?.id).toBe('ops');
+  });
+  // harn:end archived-channels-leave-default-discovery-and-preserve-state
+
   // harn:assume hosted-computer-sessions-keep-state-isolated ref=clear-context-store-isolation-regression
   it('keeps identical room and ref results isolated between hosted computer stores', () => {
     const a = createClientStore();

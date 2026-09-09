@@ -1,0 +1,18 @@
+id: archived-channels-leave-default-discovery-and-preserve-state
+hash: a-5449a2ad225f
+title: Archiving reconciles discovery while preserving room state
+state: active
+statement: >
+  An authoritative archive room result removes only that room from the owning
+  computer's default summaries and room list. Its keyed room slice, history,
+  members, agents, transcript, and draft remain available. An inactive archive
+  leaves the active transcript and draft untouched; an active archive selects
+  another authorized channel, or renders the existing empty state when it was
+  the last channel, without reloading, unpairing, or subscribing to an empty
+  room. Stale cached summaries cannot resurrect an archived room.
+depends_on:
+  - channel-archive-is-durable-soft-state
+  - durable-room-summaries-stream-and-fallback
+  - settings-navigation-reuses-live-session
+  - hosted-computer-switching-reuses-warm-session
+created_by: channel-row-context-removal

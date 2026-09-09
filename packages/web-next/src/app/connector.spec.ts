@@ -179,6 +179,51 @@ describe('connector resume', () => {
     connector.dispose();
   });
 
+  // harn:assume channel-archive-ui-captures-source-and-authoritative-result ref=channel-archive-action-regression
+  it('addresses an archive act to a captured room and routes its result there', () => {
+    const isolated = createClientStore();
+    const connector = createConnector({
+      room: 'source', token: 'token', store: isolated,
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socket = latest();
+    socket.accept();
+
+    expect(connector.actForRoom?.('other', { act: 'archive_room' }, 'archive-other')).toBe(true);
+    expect(socket.sent.map((raw) => JSON.parse(raw)).filter((item) => item.type === 'act')).toEqual([
+      { type: 'act', room: 'other', act: { act: 'archive_room' }, ref: 'archive-other' },
+    ]);
+
+    socket.deliver({ type: 'error', ref: 'archive-other', message: 'archive refused' });
+    expect(roomSlice(isolated.getState(), 'source').actionResults['archive-other']).toBeUndefined();
+    expect(roomSlice(isolated.getState(), 'other').actionResults['archive-other'])
+      .toMatchObject({ ref: 'archive-other', status: 'error', message: 'archive refused' });
+    connector.dispose();
+  });
+  it('keeps equal-room archive results inside each hosted computer store', () => {
+    const storeA = createClientStore();
+    const storeB = createClientStore();
+    const connectorA = createConnector({
+      room: 'shared', token: 'token-a', store: storeA, computerId: 'A',
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socketA = latest();
+    const connectorB = createConnector({
+      room: 'shared', token: 'token-b', store: storeB, computerId: 'B',
+      socketFactory: (url) => new FakeSocket(url) as unknown as WebSocket,
+    });
+    const socketB = latest();
+    socketA.accept(); socketB.accept();
+    expect(connectorA.actForRoom?.('shared', { act: 'archive_room' }, 'archive-shared')).toBe(true);
+    expect(connectorB.actForRoom?.('shared', { act: 'archive_room' }, 'archive-shared')).toBe(true);
+    socketA.deliver({ type: 'error', ref: 'archive-shared', message: 'computer A refused' });
+    socketB.deliver({ type: 'error', ref: 'archive-shared', message: 'computer B refused' });
+    expect(roomSlice(storeA.getState(), 'shared').errorTexts['archive-shared']).toBe('computer A refused');
+    expect(roomSlice(storeB.getState(), 'shared').errorTexts['archive-shared']).toBe('computer B refused');
+    connectorA.dispose(); connectorB.dispose();
+  });
+  // harn:end channel-archive-ui-captures-source-and-authoritative-result
+
   // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
   // harn:assume merged-schedule-and-context-actions-correlate-without-cross-talk ref=combined-hosted-action-routing-regression
   it('routes scheduled and reset errors to their source room without ref cross-talk', () => {

@@ -181,6 +181,21 @@
 }
 .nx-row:hover { background: var(--c-muted); }
 .nx-row.is-active { background: var(--c-muted); }
+.nx-row-shell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+.nx-row-shell > .nx-row {
+  flex: 1;
+  min-width: 0;
+}
+.nx-channel-menu-trigger {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+}
 
 .nx-row-main {
   flex: 1;
@@ -1826,6 +1841,45 @@
 .nx-menu button:hover { background: var(--c-muted); }
 .nx-menu button.is-danger { color: var(--c-error-text); }
 .nx-menu button.is-danger:hover { background: var(--c-error-tint); }
+
+/* harn:assume channel-archive-menu-is-viewport-safe-and-accessible ref=channel-archive-menu-style */
+.nx-channel-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 16px));
+  overflow: auto;
+  padding: var(--sp-1);
+  border: 1px solid var(--c-line);
+  border-radius: var(--r-card);
+  background: var(--c-surface);
+  color: var(--c-ink);
+  box-shadow: var(--e-popover);
+  animation: nx-enter var(--m-fast) var(--m-ease);
+}
+.nx-channel-menu > button,
+.nx-channel-menu-actions button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 8px var(--sp-3);
+  border-radius: var(--r-pill);
+  text-align: left;
+  font: var(--t-ui);
+}
+.nx-channel-menu > button:hover,
+.nx-channel-menu-actions button:hover { background: var(--c-muted); }
+.nx-channel-menu button.is-danger { color: var(--c-error-text); }
+.nx-channel-menu button.is-danger:hover { background: var(--c-error-tint); }
+.nx-channel-menu-confirm { padding: var(--sp-2); }
+.nx-channel-menu-confirm strong { display: block; margin-bottom: var(--sp-2); }
+.nx-channel-menu-confirm p { margin: 0 0 var(--sp-3); color: var(--c-body); font: var(--t-caption); }
+.nx-channel-menu-error { color: var(--c-error-text) !important; font: var(--t-caption-strong) !important; }
+.nx-channel-menu-actions { display: flex; gap: var(--sp-2); }
+.nx-channel-menu-actions button { flex: 1; justify-content: center; }
+/* harn:end channel-archive-menu-is-viewport-safe-and-accessible */
 
 .nx-dialog-title { margin: 0 0 var(--sp-3); font: var(--t-title); }
 .nx-dialog-body { margin: 0 0 var(--sp-4); color: var(--c-body); }

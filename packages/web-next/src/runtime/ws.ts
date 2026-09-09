@@ -29,6 +29,8 @@ export interface Connection {
   // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-transport
   /** Send an act with its caller-owned ref, defaulting schedule cancellation to its stable schedule id. */
   act(act: Act, ref?: string): void;
+  /** Address a management act to a captured room without changing selection. */
+  actForRoom?(room: string, act: Act, ref?: string): boolean;
   // harn:end context-reset-requests-settle-by-explicit-ref
   // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
   disconnect(): void;
@@ -145,7 +147,14 @@ export function connect(options: ConnectOptions): Connection {
       ...(opts?.voice !== undefined && { voice: opts.voice }),
     }),
     // harn:end reconnect-safe-post-dispatch-preserves-draft
-    // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
+    // harn:assume channel-archive-ui-captures-source-and-authoritative-result ref=channel-archive-targeted-act
+    actForRoom: (room, act, ref) => {
+      const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
+      return send({
+        type: 'act', room, act,
+        ...(correlationRef !== undefined && { ref: correlationRef }),
+      });
+    },
     act: (act, ref) => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
       send({
@@ -153,7 +162,7 @@ export function connect(options: ConnectOptions): Connection {
         ...(correlationRef !== undefined && { ref: correlationRef }),
       });
     },
-    // harn:end context-reset-confirmation-is-anchored-and-member-local
+    // harn:end channel-archive-ui-captures-source-and-authoritative-result
     disconnect: () => {
       manuallyClosed = true;
       socket?.close();

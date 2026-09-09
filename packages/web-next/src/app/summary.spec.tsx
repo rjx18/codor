@@ -47,4 +47,29 @@ describe('managed room summaries', () => {
     expect(projection.map((summary) => summary.id)).toEqual(['workspace']);
   });
   // harn:end worktree-child-conversations-stay-nested-and-isolated
+
+  // harn:assume archived-channels-leave-default-discovery-and-preserve-state ref=channel-archive-discovery-regression
+  it('keeps archived room slices out of cold and socket-merged discovery', () => {
+    const archived = {
+      id: 'old-room',
+      name: 'Old room',
+      created_ts: '2026-08-01T00:00:00.000Z',
+      working: false,
+      attention: false,
+      unread: 0,
+    };
+    const retainedRoom = {
+      id: 'old-room',
+      name: 'Old room',
+      config: { archived_ts: '2026-08-02T00:00:00.000Z' },
+    };
+
+    expect(resolveRoomSummaries(
+      [archived],
+      true,
+      [],
+      { 'old-room': { room: retainedRoom } } as never,
+    )).toEqual([]);
+  });
+  // harn:end archived-channels-leave-default-discovery-and-preserve-state
 });

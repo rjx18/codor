@@ -271,6 +271,18 @@ function projectActionResult(current: RoomSlice, result: ActionResult): RoomSlic
   return { ...current, actionResults };
 }
 
+// harn:assume archived-channels-leave-default-discovery-and-preserve-state ref=channel-archive-discovery-reconciliation
+function withoutArchivedRoom(
+  state: Pick<ClientState, 'roomList' | 'roomSummaries'>,
+  room: string,
+): Pick<ClientState, 'roomList' | 'roomSummaries'> {
+  return {
+    roomList: state.roomList.filter((item) => item.id !== room),
+    roomSummaries: state.roomSummaries.filter((item) => item.id !== room),
+  };
+}
+// harn:end archived-channels-leave-default-discovery-and-preserve-state
+
 function retainActionTarget(
   current: RoomSlice,
   ref: string,
@@ -486,7 +498,10 @@ export function createClientStore(): ClientStore {
             ? freshRoom(room)
             : { ...rooms[room.id]!, room };
         }
-        return { roomList: frame.rooms, rooms };
+        return {
+          roomList: frame.rooms.filter((room) => room.config?.archived_ts === undefined),
+          rooms,
+        };
       });
       return;
     }
@@ -506,10 +521,24 @@ export function createClientStore(): ClientStore {
       return;
     }
     const stage = staging.get(roomId);
-    if (stage !== undefined) {
-      switch (frame.type) {
+      if (stage !== undefined) {
+        switch (frame.type) {
         case 'room':
           stage.room = frame.room;
+          if (frame.ref !== undefined) {
+            set((state) => {
+              const current = state.rooms[roomId] ?? freshRoom();
+              return {
+                rooms: {
+                  ...state.rooms,
+                  [roomId]: projectActionResult(current, {
+                    ref: frame.ref!,
+                    status: 'success',
+                  }),
+                },
+              };
+            });
+          }
           return;
         case 'member':
           stage.members[frame.member.id] = frame.member;
@@ -554,7 +583,14 @@ export function createClientStore(): ClientStore {
       let next = current;
       switch (frame.type) {
         case 'room':
-          next = { ...current, seq: bump, room: frame.room };
+          // harn:assume channel-archive-ui-captures-source-and-authoritative-result ref=channel-archive-targeted-act
+          next = frame.ref === undefined
+            ? { ...current, seq: bump, room: frame.room }
+            : projectActionResult(
+              { ...current, seq: bump, room: frame.room },
+              { ref: frame.ref, status: 'success' },
+            );
+          // harn:end channel-archive-ui-captures-source-and-authoritative-result
           break;
         case 'sync_complete': {
           const hydrated = staging.get(roomId);
@@ -775,7 +811,10 @@ export function createClientStore(): ClientStore {
         default:
           return {};
       }
-      return { rooms: { ...state.rooms, [roomId]: next } };
+      const discovery = next.room?.config?.archived_ts === undefined
+        ? {}
+        : withoutArchivedRoom(state, roomId);
+      return { rooms: { ...state.rooms, [roomId]: next }, ...discovery };
     });
   },
 
@@ -874,7 +913,18 @@ export function createClientStore(): ClientStore {
     });
   },
   setAuthRefused: (authRefused) => set({ authRefused }),
-  setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
+  setRoomSummaries: (roomSummaries) => set((state) => {
+    const archived = new Set(
+      Object.values(state.rooms)
+        .map((slice) => slice.room)
+        .filter((room): room is Room => room !== undefined && room.config.archived_ts !== undefined)
+        .map((room) => room.id),
+    );
+    return {
+      roomSummaries: roomSummaries.filter((summary) => !archived.has(summary.id)),
+      roomSummariesLoaded: true,
+    };
+  }),
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-hydration
   hydrateLastGoodRoom: (room, roomSummaries, history, provisionalRuns = {}) => set((state) => {
     const current = state.rooms[room.id] ?? freshRoom();

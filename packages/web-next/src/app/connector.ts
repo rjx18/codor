@@ -162,6 +162,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       actionRooms.delete(oldest);
     }
   };
+  const actForRoom = (room: string, act: Act, ref?: string): boolean => {
+    const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
+    if (correlationRef !== undefined) rememberActionRoom(correlationRef, room);
+    return send({
+      type: 'act', room, act,
+      ...(correlationRef !== undefined && { ref: correlationRef }),
+    });
+  };
   // harn:end context-reset-confirmation-is-anchored-and-member-local
   let subscribed = new Set<string>();
   /** Highest cold-history budget requested in this socket generation. */
@@ -785,19 +793,16 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       return sent;
     },
     // harn:end reconnect-safe-post-dispatch-preserves-draft
+    // harn:assume channel-archive-ui-captures-source-and-authoritative-result ref=channel-archive-targeted-act
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
+    actForRoom,
     act: (act: Act, ref?: string): void => {
-      const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
-      const sourceRoom = currentRoom;
-      if (correlationRef !== undefined) rememberActionRoom(correlationRef, sourceRoom);
-      send({
-        type: 'act', room: sourceRoom, act,
-        ...(correlationRef !== undefined && { ref: correlationRef }),
-      });
+      void actForRoom(currentRoom, act, ref);
     },
     // harn:end context-reset-confirmation-is-anchored-and-member-local
     // harn:end scheduled-cards-are-accessible-authoritative-and-nonduplicating
+    // harn:end channel-archive-ui-captures-source-and-authoritative-result
     disconnect: () => {
       // An operator-chosen park: lifecycle events must not undo it.
       state = 'parked-manual';

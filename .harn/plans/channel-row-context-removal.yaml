@@ -1,0 +1,187 @@
+id: channel-row-context-removal
+title: Archive channels from the channel-row context menu
+notes: >
+  Implement the approved Phase 4 client-only archive action. A channel row owns
+  an accessible, viewport-safe context menu that captures the selected room and
+  its source computer session before confirmation, sends the existing
+  archive_room action with an opaque client correlation reference, and waits for
+  the authoritative result. Archive is a durable soft-state operation: it hides
+  the room from default discovery while retaining its history, members, agents,
+  transcript, and draft. No server, protocol, relay, history, post, release, or
+  filesystem behavior changes.
+assumptions:
+  create:
+    - id: channel-archive-ui-captures-source-and-authoritative-result
+      title: Archive menus capture their source and await one authoritative result
+      statement: >
+        An authorized channel row may open an archive confirmation only while
+        its source connection is genuinely ready. The menu captures the room,
+        computer-owned connection/store/token, and a unique action reference;
+        confirmation addresses that captured room even after selection changes,
+        coalesces duplicate activation, and keeps errors visible until the
+        correlated success or error result arrives. A disconnected wire never
+        uses a grace or parked state as action readiness.
+      reason: >
+        Room ids can coexist on different computers and a delayed confirmation
+        must not archive whichever room happens to be selected later.
+      depends_on:
+        - management-frames-correlate-one-result
+        - roles-gate-human-acts-not-agents
+        - hosted-computer-sessions-keep-state-isolated
+    - id: archived-channels-leave-default-discovery-and-preserve-state
+      title: Archiving reconciles discovery while preserving room state
+      statement: >
+        An authoritative archive room result removes only that room from the
+        owning computer's default summaries and room list. Its keyed room slice,
+        history, members, agents, transcript, and draft remain available. An
+        inactive archive leaves the active transcript and draft untouched; an
+        active archive selects another authorized channel, or renders the
+        existing empty state when it was the last channel, without reloading,
+        unpairing, or subscribing to an empty room. Stale cached summaries
+        cannot resurrect an archived room.
+      reason: >
+        Archive is reversible durable state, not deletion, and list
+        reconciliation must not discard the current conversation or create a
+        phantom room.
+      depends_on:
+        - channel-archive-is-durable-soft-state
+        - durable-room-summaries-stream-and-fallback
+        - settings-navigation-reuses-live-session
+        - hosted-computer-switching-reuses-warm-session
+    - id: channel-archive-menu-is-viewport-safe-and-accessible
+      title: Archive context menus are accessible and safe in every viewport
+      statement: >
+        Every authorized channel row exposes a keyboard- and touch-operable
+        context-menu trigger without changing navigation. The portal menu has
+        confirmation, Escape and outside-pointer dismissal with focus return,
+        visible error/status text, a minimum touch target, and bounded placement
+        within desktop and phone viewports. The menu remains Axe-clean in light
+        and dark themes and does not consume the existing floating loading or
+        transcript layout behavior.
+      reason: >
+        A destructive-looking row action needs an explicit, reachable,
+        viewport-safe confirmation without introducing a second navigation or
+        modal system.
+      depends_on:
+        - room-action-errors-are-visible
+        - native-worktree-rail-is-axe-valid
+  reviewed:
+    - id: channel-archive-is-durable-soft-state
+      outcome: unchanged
+      reason: >
+        The client invokes the existing archive_room operation and does not add
+        hard delete, restore, database, or protocol behavior.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: >
+        The UI adds its own explicit confirmation while the existing CLI
+        confirmation contract remains unchanged.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: |
+        The existing opaque ref/result contract is reused for the client action.
+    - id: roles-gate-human-acts-not-agents
+      outcome: unchanged
+      reason: >
+        The row exposes the action only to authorized human-owned UI state and
+        does not alter server authorization.
+    - id: room-action-errors-are-visible
+      outcome: unchanged
+      reason: >
+        Correlated error frames remain the source of the visible recoverable
+        menu error and do not silently dismiss an in-flight action.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: >
+        Captured source stores and connections preserve equal-room isolation
+        across hosted computers.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: >
+        Archive confirmation and fallback do not reload or replace a warm
+        computer session.
+    - id: durable-room-summaries-stream-and-fallback
+      outcome: unchanged
+      reason: >
+        The existing summary projection remains the discovery source; only an
+        authoritative archived room is filtered from it.
+    - id: settings-navigation-reuses-live-session
+      outcome: unchanged
+      reason: |
+        No archive path navigates through Settings or forces a session reload.
+    - id: web-room-rail-creates-owner-room
+      outcome: unchanged
+      reason: |
+        Create-channel behavior and its existing owner flow remain untouched.
+anchors:
+  channel-archive-ui-captures-source-and-authoritative-result:
+    channel-archive-targeted-act:
+      action: change
+      reason: >
+        Add the minimal actForRoom addressing helper and correlated room-frame
+        result projection used by the captured archive menu.
+    channel-archive-source-menu:
+      action: change
+      reason: >
+        Capture source room/computer connection and gate confirmation on role
+        and actual connected readiness.
+    channel-archive-action-regression:
+      action: change
+      reason: >
+        Prove one targeted action, duplicate suppression, stale-selection
+        safety, and preserved correlated errors.
+  archived-channels-leave-default-discovery-and-preserve-state:
+    channel-archive-discovery-reconciliation:
+      action: change
+      reason: >
+        Filter authoritative archived rooms from summaries/lists while retaining
+        the keyed room slice and selecting the existing fallback state.
+    channel-archive-discovery-regression:
+      action: change
+      reason: >
+        Prove inactive, active, last-channel, reload/cache, and equal-room
+        computer isolation behavior.
+  channel-archive-menu-is-viewport-safe-and-accessible:
+    channel-archive-menu:
+      action: change
+      reason: >
+        Add the portal menu, confirmation, dismissal, focus, and viewport-safe
+        placement without reusing the transcript or loading surfaces.
+    channel-archive-menu-style:
+      action: change
+      reason: >
+        Own compact trigger/menu geometry, focus-visible treatment, and phone
+        viewport bounds.
+    channel-archive-menu-a11y-regression:
+      action: change
+      reason: >
+        Exercise right-click, keyboard, touch, focus return, cancellation, and
+        desktop/mobile Axe coverage.
+files:
+  - .harn/plans/channel-row-context-removal.yaml
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/summary.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/summary.spec.tsx
+  - packages/web-next/src/room/RoomPage.spec.tsx
+  - packages/web-next/tests/room48-channel-archive.e2e.spec.ts
+verification: >
+  Before editing, run harn find for every reviewed assumption and harn find
+  --file for every declared source file, then check and clean-lock this plan
+  from exact base b2b9533a5b81c7171ba419cfca54b5f4e1ce51b7 with dirty_at_lock
+  false. Run focused connector/store/summary/RoomPage tests, the archive browser
+  journeys for active/inactive/last/cancel/refusal/unauthorized/offline,
+  duplicate clicks, equal room ids across computers, reload/cache restoration,
+  keyboard/touch/viewport behavior, and desktop/mobile Axe. Run the complete web
+  unit suite and production/PWA build before isolated browser runs. Finish with
+  harn find --changed, harn check, harn apply, harn check --staged, git diff
+  --check, and a clean-tree check. Create exactly one implementation commit; do
+  not change server, protocol, relay, history, post, release, deployment, or
+  real-host behavior.
+applied:
+  applied_at: 2026-09-09T13:01:46.676Z

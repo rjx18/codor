@@ -1,0 +1,16 @@
+id: channel-archive-menu-is-viewport-safe-and-accessible
+hash: a-4fb8faef7390
+title: Archive context menus are accessible and safe in every viewport
+state: active
+statement: >
+  Every authorized channel row exposes a keyboard- and touch-operable
+  context-menu trigger without changing navigation. The portal menu has
+  confirmation, Escape and outside-pointer dismissal with focus return, visible
+  error/status text, a minimum touch target, and bounded placement within
+  desktop and phone viewports. The menu remains Axe-clean in light and dark
+  themes and does not consume the existing floating loading or transcript layout
+  behavior.
+depends_on:
+  - room-action-errors-are-visible
+  - native-worktree-rail-is-axe-valid
+created_by: channel-row-context-removal

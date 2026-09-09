@@ -1,4 +1,4 @@
-import type { RoomSummary } from '@codor/protocol';
+import type { Room, RoomSummary } from '@codor/protocol';
 import { useEffect, useMemo, useState } from 'react';
 
 import { fetchRooms } from '@runtime/api.js';
@@ -32,16 +32,24 @@ export function resolveRoomSummaries(
   childRoomIds: ReadonlySet<string> = new Set(),
 ): RoomSummary[] {
   // harn:assume worktree-child-conversations-stay-nested-and-isolated ref=worktree-summary-filter
+  // harn:assume archived-channels-leave-default-discovery-and-preserve-state ref=channel-archive-discovery-reconciliation
   const base = managedColdLoaded ? managedCold : cold;
+  const archivedRoomIds = new Set(
+    Object.values(rooms)
+      .map((slice) => slice.room)
+      .filter((room): room is Room => room !== undefined && room.config?.archived_ts !== undefined)
+      .map((room) => room.id),
+  );
   const byId = new Map(
-    base.filter((summary) => !childRoomIds.has(summary.id)).map((summary) => [summary.id, summary]),
+    base.filter((summary) => !childRoomIds.has(summary.id) && !archivedRoomIds.has(summary.id))
+      .map((summary) => [summary.id, summary]),
   );
   for (const slice of Object.values(rooms)) {
     if (slice.support !== undefined) {
-      if (childRoomIds.has(slice.support.room)) continue;
+      if (childRoomIds.has(slice.support.room) || archivedRoomIds.has(slice.support.room)) continue;
       byId.set(slice.support.room, slice.support.summary);
     } else if (slice.room !== undefined && !byId.has(slice.room.id)) {
-      if (childRoomIds.has(slice.room.id)) continue;
+      if (childRoomIds.has(slice.room.id) || archivedRoomIds.has(slice.room.id)) continue;
       byId.set(slice.room.id, {
         id: slice.room.id,
         name: slice.room.name,
@@ -54,6 +62,7 @@ export function resolveRoomSummaries(
     }
   }
   return [...byId.values()];
+  // harn:end archived-channels-leave-default-discovery-and-preserve-state
   // harn:end worktree-child-conversations-stay-nested-and-isolated
 }
 

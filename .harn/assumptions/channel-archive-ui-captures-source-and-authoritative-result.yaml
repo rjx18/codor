@@ -1,0 +1,17 @@
+id: channel-archive-ui-captures-source-and-authoritative-result
+hash: a-d21804836f53
+title: Archive menus capture their source and await one authoritative result
+state: active
+statement: >
+  An authorized channel row may open an archive confirmation only while its
+  source connection is genuinely ready. The menu captures the room,
+  computer-owned connection/store/token, and a unique action reference;
+  confirmation addresses that captured room even after selection changes,
+  coalesces duplicate activation, and keeps errors visible until the correlated
+  success or error result arrives. A disconnected wire never uses a grace or
+  parked state as action readiness.
+depends_on:
+  - management-frames-correlate-one-result
+  - roles-gate-human-acts-not-agents
+  - hosted-computer-sessions-keep-state-isolated
+created_by: channel-row-context-removal

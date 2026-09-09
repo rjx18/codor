@@ -1,5 +1,6 @@
-import { ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Archive, ChevronLeft, MoreVertical, Plus, Search, Settings, Share2, Users, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
 
@@ -42,6 +43,7 @@ import { InboxControl, SearchOverlay } from './panels.js';
 import { Transcript } from './Transcript.js';
 import { costProvenanceLabel } from './spend-label.js';
 import { SettingsPage } from '../surfaces/SettingsPage.js';
+import { NoChannels } from '../surfaces/NoChannels.js';
 import {
   computerSessions,
   type ActiveComputerSession,
@@ -163,7 +165,9 @@ function MountedRoomPage(props: {
   }
   const connection = managed?.connector ?? connectorRef.current;
   if (!connection) throw new Error('RoomPage requires a room connector');
+  const sourceStore = sourceClientStore(useClientStore);
   const [pageSurface, setPageSurface] = useState<'room' | 'settings'>('room');
+  const [archivedEmpty, setArchivedEmpty] = useState(false);
   const roomLive = useClientStore((state) => state.roomLive[room] === true);
 
   // A selected room is the one lifecycle owner for terminal-history recovery.
@@ -192,13 +196,19 @@ function MountedRoomPage(props: {
     : group.registered.find((worktree) => !worktree.primary && worktree.id === selectedWorktree);
 
   useEffect(() => {
+    if (archivedEmpty) {
+      // The last archived room leaves the existing empty state without keeping
+      // an empty/archived conversation in the connector's observation set.
+      connection.setDesiredRooms([]);
+      return;
+    }
     // The public root rides the desired set with its children, so a reconnect
     // while a child is selected still observes main plus every active child.
     connection.setDesiredRooms([
       root,
       ...group.registered.filter((worktree) => !worktree.primary).map((worktree) => worktree.conversation_id),
     ]);
-  }, [connection, root, group.registered]);
+  }, [archivedEmpty, connection, root, group.registered]);
 
   useEffect(() => {
     if (!group.loaded) return;
@@ -239,6 +249,7 @@ function MountedRoomPage(props: {
   // top-level channel is always a public root — the worktree selector clears
   // and the public root itself moves.
   const switchRoom = (next: string): void => {
+    setArchivedEmpty(false);
     setSelectedWorktree(undefined);
     if (next === room && next === root) return;
     connection.switchRoom(next);
@@ -373,6 +384,8 @@ function MountedRoomPage(props: {
     );
   }
 
+  if (archivedEmpty) return <NoChannels token={activeToken} />;
+
   if (isMobile) {
     return (
       <div className="nx-app is-mobile" data-testid="app" data-surface={surface}>
@@ -385,6 +398,14 @@ function MountedRoomPage(props: {
               setSurface('room');
             }}
             onSettings={openSettings}
+            connection={connection}
+            sourceStore={sourceStore}
+            canArchive={roleAtLeast(selfRole, 'owner')}
+            onArchived={(archivedRoom, replacement) => {
+              if (archivedRoom !== root) return;
+              if (replacement !== undefined) switchRoom(replacement);
+              else setArchivedEmpty(true);
+            }}
             group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
             showComputerRail={showComputerRail}
             readiness={(conversation) => connection.roomReadiness(conversation)}
@@ -432,6 +453,14 @@ function MountedRoomPage(props: {
         token={token}
         onSwitch={switchRoom}
         onSettings={openSettings}
+        connection={connection}
+        sourceStore={sourceStore}
+        canArchive={roleAtLeast(selfRole, 'owner')}
+        onArchived={(archivedRoom, replacement) => {
+          if (archivedRoom !== root) return;
+          if (replacement !== undefined) switchRoom(replacement);
+          else setArchivedEmpty(true);
+        }}
         group={{ root, view: group, selectedWorktree, canManage: canManageWorktrees }}
         readiness={(conversation) => connection.roomReadiness(conversation)}
         onSelectWorktree={selectWorktree}
@@ -478,11 +507,52 @@ function MountedRoomPage(props: {
 
 // ── Channel rail ─────────────────────────────────────────────────────────
 
+export function archiveConnectionReady(
+  connection: Pick<RoomConnector, 'state' | 'roomReadiness'>,
+  room?: string,
+): boolean {
+  if (connection.state() !== 'connected') return false;
+  if (room === undefined) return true;
+  const readiness = connection.roomReadiness(room);
+  return readiness !== 'connecting' && readiness !== 'offline';
+}
+
+export function canArchiveChannel(
+  store: ClientStore,
+  room: string,
+  fallback: boolean,
+): boolean {
+  const slice = roomSlice(store.getState(), room);
+  if (slice.selfMemberId === undefined) return fallback;
+  return roleAtLeast(slice.members[slice.selfMemberId]?.role, 'owner');
+}
+
+export function nextRoomAfterArchive(
+  entries: readonly Pick<RoomSummary, 'id'>[],
+  archivedRoom: string,
+): string | undefined {
+  return entries.find((entry) => entry.id !== archivedRoom)?.id;
+}
+
+export interface ArchiveTarget {
+  room: string;
+  name: string;
+  token: string;
+  connection: RoomConnector;
+  sourceStore: ClientStore;
+  anchor: HTMLElement;
+  canArchive: boolean;
+}
+
 function ChannelRail(props: {
   activeRoom: string;
   token: () => string;
   onSwitch: (room: string) => void;
   onSettings: () => void;
+  connection: RoomConnector;
+  sourceStore: ClientStore;
+  canArchive: boolean;
+  onArchived: (room: string, replacement: string | undefined) => void;
   group?: {
     root: string;
     view: ReturnType<typeof useWorktreeGroup>;
@@ -497,6 +567,7 @@ function ChannelRail(props: {
   showComputerRail?: boolean;
 }) {
   const [creating, setCreating] = useState(false);
+  const [archiveTarget, setArchiveTarget] = useState<ArchiveTarget>();
   const summaries = useRoomSummaries(props.token);
   const connected = useClientStore((state) => state.connected);
   const roomStates = useClientStore((state) => state.rooms);
@@ -521,7 +592,7 @@ function ChannelRail(props: {
   const entries = useMemo(() => {
     const list: RoomSummary[] = summaries.length > 0
       ? [...summaries]
-      : room !== undefined
+      : room !== undefined && room.config?.archived_ts === undefined
         ? [{ id: room.id, name: room.name, created_ts: room.created_ts, working: false, attention: false, unread: 0 }]
         : [];
     const lastActivity = (entry: RoomSummary): number =>
@@ -575,62 +646,104 @@ function ChannelRail(props: {
           const unread = entry.unread;
           const lastTs = entry.latest?.ts;
           const preview = summaryPreview(entry);
+          const mayArchive = canArchiveChannel(props.sourceStore, entry.id, props.canArchive);
+          const entryGroup = props.group;
           return (
             <li key={entry.id}>
-              <a
-                className={`nx-row ${active ? 'is-active' : ''}`}
-                href={`/?room=${encodeURIComponent(entry.id)}`}
-                aria-current={active && !childSelected ? 'page' : undefined}
-                data-testid={`room-link-${entry.id}`}
-                onClick={(event) => {
-                  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
-                  event.preventDefault();
-                  props.onSwitch(entry.id);
-                }}
-              >
-                <Chip
-                  name={entry.name}
-                  accent="indigo"
-                  size={38}
-                  presence={entry.attention ? 'error' : isWorking ? 'live' : active && !connected ? 'error' : 'idle'}
-                  surface={active ? 'raised' : 'surface'}
-                />
-                <span className="nx-row-main">
-                  <span className="nx-row-top">
-                    <span className="nx-row-name">{entry.name}</span>
-                    {lastTs !== undefined && <time className="nx-row-time">{relativeTime(lastTs)}</time>}
+              <div className="nx-row-shell">
+                <a
+                  className={`nx-row ${active ? 'is-active' : ''}`}
+                  href={`/?room=${encodeURIComponent(entry.id)}`}
+                  aria-current={active && !childSelected ? 'page' : undefined}
+                  data-testid={`room-link-${entry.id}`}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    if (!mayArchive) return;
+                    setArchiveTarget({
+                      room: entry.id,
+                      name: entry.name,
+                      token: props.token(),
+                      connection: props.connection,
+                      sourceStore: props.sourceStore,
+                      anchor: event.currentTarget,
+                      canArchive: mayArchive,
+                    });
+                  }}
+                  onClick={(event) => {
+                    if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+                    event.preventDefault();
+                    props.onSwitch(entry.id);
+                  }}
+                >
+                  <Chip
+                    name={entry.name}
+                    accent="indigo"
+                    size={38}
+                    presence={entry.attention ? 'error' : isWorking ? 'live' : active && !connected ? 'error' : 'idle'}
+                    surface={active ? 'raised' : 'surface'}
+                  />
+                  <span className="nx-row-main">
+                    <span className="nx-row-top">
+                      <span className="nx-row-name">{entry.name}</span>
+                      {lastTs !== undefined && <time className="nx-row-time">{relativeTime(lastTs)}</time>}
+                    </span>
+                    <span className="nx-row-bottom">
+                      {isWorking ? (
+                        <span className="nx-row-working" data-testid={`room-working-${entry.id}`}>
+                          <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
+                          {workingLabel}
+                        </span>
+                      ) : entry.attention ? (
+                        <span className="nx-row-preview is-error">agent needs attention</span>
+                      ) : (
+                        <span className="nx-row-preview">{preview}</span>
+                      )}
+                      {unread > 0 && (
+                        <span className="nx-unread" data-testid={`rail-unread-${entry.id}`}>
+                          {unread > 99 ? '99+' : unread}
+                        </span>
+                      )}
+                    </span>
                   </span>
-                  <span className="nx-row-bottom">
-                    {isWorking ? (
-                      <span className="nx-row-working" data-testid={`room-working-${entry.id}`}>
-                        <span className="nx-typing" aria-hidden="true"><span /><span /><span /></span>
-                        {workingLabel}
-                      </span>
-                    ) : entry.attention ? (
-                      <span className="nx-row-preview is-error">agent needs attention</span>
-                    ) : (
-                      <span className="nx-row-preview">{preview}</span>
-                    )}
-                    {unread > 0 && (
-                      <span className="nx-unread" data-testid={`rail-unread-${entry.id}`}>
-                        {unread > 99 ? '99+' : unread}
-                      </span>
-                    )}
-                  </span>
-                </span>
-              </a>
-              {props.group !== undefined
-                && props.group.root === entry.id
+                </a>
+                {mayArchive && (
+                  <IconButton
+                    icon={MoreVertical}
+                    label={`Archive ${entry.name}`}
+                    variant="quiet"
+                    className="nx-channel-menu-trigger"
+                    data-testid={`room-menu-trigger-${entry.id}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (archiveTarget?.room === entry.id) {
+                        setArchiveTarget(undefined);
+                        return;
+                      }
+                      setArchiveTarget({
+                        room: entry.id,
+                        name: entry.name,
+                        token: props.token(),
+                        connection: props.connection,
+                        sourceStore: props.sourceStore,
+                        anchor: event.currentTarget,
+                        canArchive: mayArchive,
+                      });
+                    }}
+                  />
+                )}
+              </div>
+              {entryGroup !== undefined
+                && entryGroup.root === entry.id
                 && props.onSelectWorktree !== undefined
                 && props.onOpenWorktreeDialog !== undefined
                 && props.readiness !== undefined && (
                 <WorktreeGroupSection
                   root={entry.id}
                   token={props.token}
-                  group={props.group.view}
-                  selectedWorktree={props.group.selectedWorktree}
+                  group={entryGroup.view}
+                  selectedWorktree={entryGroup.selectedWorktree}
                   readiness={props.readiness}
-                  canManage={props.group.canManage}
+                  canManage={entryGroup.canManage}
                   onSelect={props.onSelectWorktree}
                   onOpenDialog={props.onOpenWorktreeDialog}
                   onChildChanged={props.onChildChanged}
@@ -663,6 +776,16 @@ function ChannelRail(props: {
           }}
         />
       )}
+      {archiveTarget !== undefined && (
+        <ChannelArchiveMenu
+          target={archiveTarget}
+          onClose={() => setArchiveTarget(undefined)}
+          onArchived={(room) => {
+            setArchiveTarget(undefined);
+            props.onArchived(room, nextRoomAfterArchive(entries, room));
+          }}
+        />
+      )}
     </nav>
   );
   // harn:end empty-roster-guidance-reuses-mounted-settings
@@ -675,6 +798,203 @@ function summaryPreview(entry: RoomSummary): string {
     ? entry.latest.preview
     : entry.latest.kind === 'run' ? 'run in progress' : '…';
   return `${name}: ${body}`;
+}
+
+// harn:assume channel-archive-menu-is-viewport-safe-and-accessible ref=channel-archive-menu
+function ChannelArchiveMenu(props: {
+  target: ArchiveTarget;
+  onClose: () => void;
+  onArchived: (room: string) => void;
+}) {
+  const { target } = props;
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [mode, setMode] = useState<'actions' | 'confirm'>('actions');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
+  const [pendingRef, setPendingRef] = useState<string>();
+  const [position, setPosition] = useState<{ top: number; left: number; maxHeight: number }>();
+
+  const updatePosition = useCallback((): void => {
+    const menu = menuRef.current;
+    if (menu === null) return;
+    const viewportWidth = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0, 320);
+    const viewportHeight = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0, 240);
+    const gutter = 8;
+    const anchorBox = target.anchor.getBoundingClientRect();
+    const menuBox = menu.getBoundingClientRect();
+    const maxHeight = Math.max(0, viewportHeight - gutter * 2);
+    const menuHeight = Math.min(menuBox.height || 220, maxHeight);
+    const menuWidth = Math.min(menuBox.width || 240, Math.max(0, viewportWidth - gutter * 2));
+    const maxLeft = Math.max(gutter, viewportWidth - menuWidth - gutter);
+    const left = Math.min(Math.max(gutter, anchorBox.right - menuWidth), maxLeft);
+    const maxTop = Math.max(gutter, viewportHeight - menuHeight - gutter);
+    const below = anchorBox.bottom + gutter;
+    const above = anchorBox.top - menuHeight - gutter;
+    const preferredTop = below + menuHeight <= viewportHeight - gutter
+      ? below
+      : above >= gutter
+        ? above
+        : maxTop;
+    setPosition({
+      top: Math.round(Math.min(Math.max(gutter, preferredTop), maxTop)),
+      left: Math.round(left),
+      maxHeight: Math.floor(maxHeight),
+    });
+  }, [target.anchor]);
+
+  useLayoutEffect(() => {
+    updatePosition();
+    const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updatePosition);
+    if (observer !== undefined) {
+      observer.observe(menuRef.current!);
+      observer.observe(target.anchor);
+    }
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [mode, error, updatePosition]);
+
+  const closeAndRestoreFocus = useCallback((): void => {
+    props.onClose();
+    const restore = (): void => { target.anchor.focus(); };
+    requestAnimationFrame(() => {
+      restore();
+      globalThis.setTimeout(restore, 50);
+    });
+  }, [props.onClose, target.anchor]);
+
+  useEffect(() => {
+    const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    first?.focus();
+    const onPointerDown = (event: PointerEvent): void => {
+      if (menuRef.current?.contains(event.target as Node)) return;
+      event.preventDefault();
+      closeAndRestoreFocus();
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeAndRestoreFocus();
+    };
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [closeAndRestoreFocus]);
+
+  useEffect(() => {
+    const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not([disabled])');
+    first?.focus();
+  }, [mode, error, position]);
+
+  useEffect(() => {
+    if (pendingRef === undefined) return;
+    const settle = (): void => {
+      const result = roomSlice(target.sourceStore.getState(), target.room).actionResults[pendingRef];
+      if (result === undefined) return;
+      setPendingRef(undefined);
+      setBusy(false);
+      if (result.status === 'success') {
+        props.onArchived(target.room);
+        return;
+      }
+      setError(result.message ?? 'The channel could not be archived.');
+    };
+    const unsubscribe = target.sourceStore.subscribe(settle);
+    settle();
+    return unsubscribe;
+  }, [pendingRef, props.onArchived, target.room, target.sourceStore]);
+
+  const confirm = (): void => {
+    if (busy) return;
+    setError(undefined);
+    if (!target.canArchive || !canArchiveChannel(target.sourceStore, target.room, target.canArchive)) {
+      setError('You do not have permission to archive this channel.');
+      return;
+    }
+    if (!archiveConnectionReady(target.connection, target.room)) {
+      setError('Archive is unavailable while this connection is disconnected.');
+      return;
+    }
+    const ref = `archive-${crypto.randomUUID()}`;
+    setBusy(true);
+    setPendingRef(ref);
+    const action = { act: 'archive_room' } as const;
+    const dispatched = target.connection.actForRoom?.(target.room, action, ref)
+      ?? (target.connection.room() === target.room
+        ? (target.connection.act(action, ref), true)
+        : false);
+    if (!dispatched) {
+      setPendingRef(undefined);
+      setBusy(false);
+      setError('Archive is unavailable while this connection is disconnected.');
+    }
+  };
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="nx-channel-menu"
+      role="menu"
+      aria-label={`Actions for ${target.name}`}
+      data-testid={`channel-archive-menu-${target.room}`}
+      style={position === undefined
+        ? { visibility: 'hidden' }
+        : { top: position.top, left: position.left, maxHeight: position.maxHeight }}
+    >
+      {mode === 'actions' ? (
+        <button
+          type="button"
+          role="menuitem"
+          data-testid={`archive-channel-open-${target.room}`}
+          onClick={() => setMode('confirm')}
+        >
+          <Archive size={16} aria-hidden="true" />
+          Archive channel
+        </button>
+      ) : (
+        <div className="nx-channel-menu-confirm" role="group" aria-label="Confirm archive">
+          <strong>Archive {target.name}?</strong>
+          <p>History, members, agents, and drafts will be retained.</p>
+          {error !== undefined && (
+            <p className="nx-channel-menu-error" role="alert" data-testid={`archive-channel-error-${target.room}`}>
+              {error}
+            </p>
+          )}
+          <div className="nx-channel-menu-actions">
+            <button
+              type="button"
+              role="menuitem"
+              className="is-danger"
+              data-testid={`archive-channel-confirm-${target.room}`}
+              disabled={busy}
+              onClick={confirm}
+            >
+              {busy ? 'Archiving…' : 'Archive channel'}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-testid={`archive-channel-cancel-${target.room}`}
+              disabled={busy}
+              onClick={closeAndRestoreFocus}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>,
+    document.body,
+  );
+  // harn:end channel-archive-menu-is-viewport-safe-and-accessible
 }
 
 // ── Chat panel ───────────────────────────────────────────────────────────
