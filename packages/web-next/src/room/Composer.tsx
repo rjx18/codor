@@ -1,6 +1,4 @@
 import {
-  canonicalizeScheduleRequest,
-  parseBody,
   parseScheduleDirective,
   type Member,
   type Message,
@@ -14,7 +12,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalS
 
 import type { Connection } from '@runtime/ws.js';
 import type { SubmissionResult } from '../app/pending-submission.js';
-import { sendOutgoing } from '../app/outgoing.js';
+import { prepareOutgoing, sendOutgoing } from '../app/outgoing.js';
 import { useComposerMemory } from './composer-memory.js';
 import { fetchRoutingCatalog } from '@runtime/api.js';
 
@@ -972,31 +970,18 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       return;
     }
     const snapshot = composerDispatchSnapshot(areaRef.current?.value ?? draft);
-    const body = canonicalizeScheduleRequest(snapshot.body);
     if (!props.connection.postCorrelations && props.connection.submissionPending && pendingSend === undefined) {
       setHint('Waiting for acknowledgement of the previous message.');
       return;
     }
-    if (pendingSend !== undefined || !connected || !hydrated || uploading || (body.length === 0 && pending.length === 0)) return;
-    const parsed = parseBody(body, roster, {
-      qualifiedTargets: routingCatalog,
-    });
-    if ((parsed.qualified_issues?.length ?? 0) > 0) {
-      setHint(parsed.qualified_issues!.map((issue) =>
-        `${issue.token}: ${issue.reason.replaceAll('-', ' ')}`).join('; '));
+    if (pendingSend !== undefined || !connected || !hydrated || uploading || (snapshot.body.length === 0 && pending.length === 0)) return;
+    let prepared: ReturnType<typeof prepareOutgoing>;
+    try { prepared = prepareOutgoing(snapshot.rawBody, props.room, roster, routingCatalog, defaultRecipient?.handle); }
+    catch (error) {
+      setHint(error instanceof Error ? error.message : 'Cannot prepare message');
       return;
     }
-    const addressed = parsed.mentions.length > 0
-      || roster.some((m) => new RegExp(`@${m.handle}\\b`, 'i').test(body));
-    if (!addressed && roster.some((m) => m.kind === 'agent')) {
-      setHint(
-        defaultRecipient
-          ? `Say who this is for — try @${defaultRecipient.handle}`
-          : 'Say who this is for — mention someone with @',
-      );
-      return;
-    }
-    const targetRoom = parsed.qualified?.[0]?.target?.conversation_id ?? props.room;
+    const { body, room: targetRoom } = prepared;
     const targetSlice = roomSlice(useClientStore.getState(), targetRoom);
     let cleanScheduleBody: string | undefined;
     try {

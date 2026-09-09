@@ -1,0 +1,14 @@
+id: edited-outgoing-intents-use-browser-preparation
+hash: a-2e52f247c557
+title: Edited outgoing intents use the same browser preparation as Composer
+state: active
+statement: >
+  A new edited outgoing intent must canonicalize friendly schedule clocks and
+  validate/re-resolve its qualified destination through the same preparation
+  helper as Composer, using its captured source owner. Raw editable text and
+  media remain intact on failure; unchanged same-ID Resend uses its frozen
+  payload without recanonicalization.
+depends_on:
+  - friendly-schedule-clocks-canonicalize-at-client-boundary
+  - composer-acknowledgement-preserves-owned-raw-drafts-v2
+created_by: optimistic-send-edit-status-review-fix

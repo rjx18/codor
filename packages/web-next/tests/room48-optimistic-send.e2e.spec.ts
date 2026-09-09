@@ -159,6 +159,65 @@ test('hosted voice refusal retries the frozen recording without another transcri
   expect(after.messages[0].voice).toEqual(after.attempts[0].voice);
 });
 
+test('editing a qualified recipient moves the pending row to the newly selected child', async ({page}) => {
+  await open(page,false);
+  await page.getByTestId('room-link-workspace').click();
+  const {registered}=await control('/wt-registered',{room:'workspace'});
+  const review=registered.find((entry:any)=>entry.branch==='feature/review');
+  const plan=registered.find((entry:any)=>entry.branch==='feature/plan');
+  const needle='review-edited-target';
+  await control('/p6-fault',{point:'reject',needle});
+  await page.getByTestId('composer-input').fill(`~${review.alias}:@reviewer ${needle}`);
+  await page.getByTestId('composer-input').press('Enter');
+  const row=page.getByTestId(/^outgoing-/).filter({hasText:needle});
+  await row.getByRole('button',{name:'Edit',exact:true}).click();
+  await row.getByLabel('Edit unsent message').fill(`~missing:@planner ${needle}`);
+  await row.getByRole('button',{name:'Send edited message'}).click();
+  await expect(row.getByRole('alert')).toBeVisible();
+  expect((await control('/p6-evidence',{needle})).attempts).toHaveLength(1);
+  await row.getByLabel('Edit unsent message').fill(`~${plan.alias}:@planner ${needle} edited`);
+  await control('/p6-fault',{point:'delay',needle});
+  await row.getByRole('button',{name:'Send edited message'}).click();
+  await expect.poll(async()=>(await control('/p6-evidence',{needle})).attempts.length).toBe(2);
+  await page.getByTestId(`worktree-link-${plan.id}`).click();
+  await expect(page.getByTestId(/^outgoing-/).filter({hasText:needle})).toHaveCount(1);
+  await control('/p6-fault');
+  await expect(page.getByTestId(/^outgoing-/)).toHaveCount(0);
+  const proof=await control('/p6-evidence',{needle});
+  expect(proof.messages.filter((message:any)=>message.kind==='chat').map((message:any)=>message.room)).toEqual([plan.conversation_id]);
+});
+
+test.describe('edited browser-local schedules', () => {
+  test.use({timezoneId:'America/Los_Angeles'});
+  test('a refused friendly-clock edit keeps its browser instant with a new ID', async ({page}) => {
+    await open(page,false);
+    const needle = 'review-timezone-edit';
+    const accepted: any[] = [];
+    page.on('websocket',socket=>socket.on('framereceived',({payload})=>{
+      try { const frame=JSON.parse(String(payload)); if(frame.type==='post_accepted') accepted.push(frame); } catch { /* binary tunnel */ }
+    }));
+    // Capture the existing socket too through the ordinary compatibility proof:
+    // reconnect once before sending, without changing submission semantics.
+    await page.evaluate(()=>{(window as any).__codor.disconnect();(window as any).__codor.reconnect();});
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
+    await expect.poll(()=>page.evaluate(()=>(window as any).__codor.postCorrelations)).toBe(true);
+    await control('/p6-fault',{point:'reject',needle});
+    await page.getByTestId('composer-input').fill(`[send_at=11:59PM] @fable ${needle}`);
+    await page.getByTestId('composer-input').press('Enter');
+    const row=page.getByTestId(/^outgoing-/).filter({hasText:needle});
+    await row.getByRole('button',{name:'Edit',exact:true}).click();
+    await row.getByLabel('Edit unsent message').fill(`[send_at=11:59PM] @fable ${needle} edited`);
+    await row.getByRole('button',{name:'Send edited message'}).click();
+    await expect.poll(async()=>(await control('/p6-evidence',{needle})).attempts.length).toBe(2);
+    const {attempts}=await control('/p6-evidence',{needle});
+    const instant=attempts[0].body.match(/^\[send_at=([^\]]+)\]/)[1];
+    expect(instant).toMatch(/T23:59:00-0[78]:00$/); // Los Angeles, including winter CI runs
+    expect(attempts[1].body).toBe(`[send_at=${instant}] @fable ${needle} edited`);
+    expect(attempts[1].submission_id).not.toBe(attempts[0].submission_id);
+    await expect.poll(()=>accepted.find(frame=>frame.submission_id===attempts[1].submission_id)?.outcome.due_ts).toBe(new Date(instant).toISOString());
+  });
+});
+
 test('mobile outgoing status is accessible and does not move an unpinned reader', async ({ page }) => {
   await page.setViewportSize({ width:390, height:600 });
   await control('/live-chat', {room:'eng',body:'Unpinned reader fixture.\n\n'.repeat(100),route:false});

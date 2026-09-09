@@ -15,9 +15,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import type { ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
-import { useOutgoing, outgoingFor, dispatchOutgoing, sendOutgoing, type Outgoing } from '../app/outgoing.js';
+import { useOutgoing, outgoingFor, dispatchOutgoing, prepareOutgoing, sendOutgoing, type Outgoing } from '../app/outgoing.js';
 
-import { relayFetch } from '@runtime/relay-transport.js';
+import { captureRelayFetch, relayFetch } from '@runtime/relay-transport.js';
+import { fetchRoutingCatalog } from '@runtime/api.js';
 import {
   compactRunRow,
   diffStat,
@@ -27,7 +28,7 @@ import {
 } from '@runtime/run-presenter.js';
 
 import { useIsMobile } from '../app/session.js';
-import { roomSlice, useClientStore, type TranscriptHistoryState } from '../app/store.js';
+import { roomSlice, sourceClientStore, useClientStore, type TranscriptHistoryState } from '../app/store.js';
 import { Button, Chip, Modal, TypingDots } from '../primitives/primitives.js';
 import { clockTime, memberAccent } from '../primitives/identity.js';
 import { CompactionMarker } from './CompactionMarker.js';
@@ -1179,7 +1180,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
           })}
           {/* harn:end finalized-browser-history-is-combined-page-owned */}
           {outgoing.filter(row => row.room === props.room || (row.status === 'failed' && row.origin === props.room)).map(row => (
-            <OutgoingRow key={row.id} row={row} connection={props.connection} />
+            <OutgoingRow key={row.id} row={row} connection={props.connection} token={props.token} />
           ))}
           {transcriptReady && detachedInteractions.length > 0 && (
             <section className="nx-action-tray" aria-label="Needs your response" data-testid="interaction-tray">
@@ -1716,15 +1717,22 @@ function DeleteButton(props: { messageId: number; connection: Connection }) {
 /** Delivery ticks per Richard #302: a message to agents is "seen" once its
  *  deliveries are consumed — queued or held ones have not reached anyone yet. */
 // harn:assume agent-delivery-lifecycle-streams-v2 ref=steering-delivery-indicator
+// harn:assume agent-handling-ticks-require-delivery-evidence ref=delivery-handling-evidence
+export function deliveryHasHandlingEvidence(delivery: Delivery): boolean {
+  return delivery.state === 'delivering' || (delivery.state === 'consumed'
+    && (delivery.run_msg_id !== undefined || delivery.steered_ts !== undefined));
+}
+// harn:end agent-handling-ticks-require-delivery-evidence
 export function deliveryIndicator(deliveries: readonly Delivery[]): {
   seen: boolean;
-  disposition: 'queued' | 'delivered' | 'steered';
+  disposition: 'queued' | 'unconfirmed' | 'delivered' | 'steered';
   title: string;
 } {
-  const seen = deliveries.every((delivery) =>
-    delivery.state === 'delivering' || delivery.state === 'consumed');
+  const seen = deliveries.length > 0 && deliveries.every(deliveryHasHandlingEvidence);
   if (!seen) {
-    return { seen: false, disposition: 'queued', title: 'Queued for the next turn' };
+    return deliveries.some(delivery => delivery.state === 'queued')
+      ? { seen: false, disposition: 'queued', title: 'Queued for the next turn' }
+      : { seen: false, disposition: 'unconfirmed', title: 'Accepted; agent handling is not confirmed' };
   }
   if (deliveries.length > 0 && deliveries.every((delivery) => delivery.steered_ts !== undefined)) {
     return { seen: true, disposition: 'steered', title: 'Steered into the active turn' };
@@ -1732,12 +1740,31 @@ export function deliveryIndicator(deliveries: readonly Delivery[]): {
   return { seen: true, disposition: 'delivered', title: 'Delivered to its agents' };
 }
 
-function OutgoingRow({ row, connection }: { row: Outgoing; connection: Connection }) {
+function OutgoingRow({ row, connection, token }: { row: Outgoing; connection: Connection; token: () => string }) {
   useSyncExternalStore(connection.subscribePostState ?? (() => () => {}), connection.postStateVersion ?? (() => 0), () => 0);
   const mobile = useIsMobile();
   const [edit, setEdit] = useState<string>();
+  const [editError, setEditError] = useState<string>();
+  const [preparing, setPreparing] = useState(false);
+  const editInFlight = useRef(false);
   const state = outgoingFor(connection);
   const failed = row.status === 'failed';
+  const sendEdit = async (): Promise<void> => {
+    if (edit === undefined || editInFlight.current || !state.snapshot().some(item => item.id === row.id)) return;
+    editInFlight.current = true; setPreparing(true); setEditError(undefined);
+    try {
+      const source = sourceClientStore(useClientStore);
+      const catalog = await fetchRoutingCatalog(row.origin, { token: token(), fetch: captureRelayFetch() });
+      const roster = Object.values(roomSlice(source.getState(), row.origin).members)
+        .filter(member => member.removed_ts === undefined && member.kind !== 'extension');
+      const prepared = prepareOutgoing(edit, row.origin, roster, catalog);
+      if (!state.snapshot().some(item => item.id === row.id && item.status === 'failed')) return;
+      sendOutgoing(connection, row.origin, prepared.room, prepared.body, row.attachments, row.frame.reply_to, row.frame.voice, edit);
+      state.remove(row.id);
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Cannot prepare edited message');
+    } finally { editInFlight.current = false; setPreparing(false); }
+  };
   const retry = (): void => {
     const current = state.snapshot().find(item => item.id === row.id);
     if (!current || current.status === 'sending' || current.status === 'accepted') return;
@@ -1762,17 +1789,14 @@ function OutgoingRow({ row, connection }: { row: Outgoing; connection: Connectio
       {row.error && <p role="status">{row.error}</p>}
       {(failed || row.status === 'uncertain') && <div>
         <button type="button" onClick={retry} disabled={!connection.postCorrelations || !connection.postAcknowledgements}>Resend</button>
-        {failed && <button type="button" onClick={() => setEdit(row.rawBody)}>Edit</button>}
+        {failed && <button type="button" disabled={preparing} onClick={() => setEdit(row.rawBody)}>Edit</button>}
         <button type="button" onClick={() => { connection.forgetSubmission?.(row.id); state.remove(row.id); }}>Discard local copy</button>
         {!connection.postCorrelations && <p>This computer cannot reconcile this send. Check delivery before sending again.</p>}
       </div>}
       {edit !== undefined && <div>
-        <textarea aria-label="Edit unsent message" value={edit} onChange={event => setEdit(event.target.value)} />
-        <button type="button" disabled={!edit.trim() || !connection.postCorrelations} onClick={() => {
-          if (!state.snapshot().some(item => item.id === row.id)) return;
-          sendOutgoing(connection, row.origin, row.room, edit, row.attachments, row.frame.reply_to, row.frame.voice);
-          state.remove(row.id);
-        }}>Send edited message</button>
+        <textarea aria-label="Edit unsent message" disabled={preparing} value={edit} onChange={event => setEdit(event.target.value)} />
+        {editError && <p role="alert">{editError}</p>}
+        <button type="button" disabled={preparing || !edit.trim() || !connection.postCorrelations} onClick={() => void sendEdit()}>Send edited message</button>
       </div>}
     </div>
   </article>;
@@ -1789,7 +1813,7 @@ function SeenTicks(props: {
   );
   // delivering means the turn already carries the payload — the agent has it.
   const indicator = relevant.length ? deliveryIndicator(relevant) : { seen: false, disposition: 'accepted', title: 'Accepted by the server' };
-  const detail = relevant.map(delivery => `@${props.members[delivery.recipient]?.handle ?? 'agent'}: ${delivery.steered_ts !== undefined ? 'steered, ' : ''}${delivery.state}`).join('; ');
+  const detail = relevant.map(delivery => `@${props.members[delivery.recipient]?.handle ?? 'agent'}: ${delivery.steered_ts !== undefined ? 'steered, ' : ''}${delivery.state}${delivery.state === 'consumed' && !deliveryHasHandlingEvidence(delivery) ? ' (no handling evidence)' : ''}`).join('; ');
   const title = detail ? `Accepted by the server. ${detail}. Handling evidence, not a literal read receipt.` : indicator.title;
   return (
     <span className="nx-delivery-state">

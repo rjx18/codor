@@ -1,0 +1,13 @@
+id: agent-handling-ticks-require-delivery-evidence
+hash: a-4be937fb0d47
+title: Double ticks require evidence of agent handling rather than cleanup
+state: active
+statement: >
+  Double ticks require each eligible agent delivery to be delivering or consumed
+  with a recorded run or native steering acknowledgement. Consumed-before-start
+  cleanup, queued/held work and removed recipients must not imply a read.
+  Grouped human rows retain independent accessible status, with server
+  acceptance distinguished from handling evidence.
+depends_on:
+  - agent-delivery-lifecycle-streams-v2
+created_by: optimistic-send-edit-status-review-fix

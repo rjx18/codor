@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { Attachment, Message, PostFrame, Schedule } from '@codor/protocol';
+import { canonicalizeScheduleRequest, parseBody, type Attachment, type Member, type Message, type PostFrame, type Schedule, type WorktreeRoutingCatalog } from '@codor/protocol';
 import type { Connection } from '../runtime/ws.js';
 import type { SubmissionResult } from './pending-submission.js';
 
@@ -17,6 +17,22 @@ export interface Outgoing {
 }
 
 // harn:assume sender-receipt-correlation-is-indexed-and-private ref=optimistic-outgoing-state
+// harn:assume edited-outgoing-intents-use-browser-preparation ref=shared-submission-preparation
+/** Prepare a new intent only. An unchanged Resend must retain its frozen frame. */
+export function prepareOutgoing(rawBody: string, origin: string, roster: readonly Member[],
+  catalog?: WorktreeRoutingCatalog, defaultHandle?: string): { body: string; room: string } {
+  const body = canonicalizeScheduleRequest(rawBody.trim());
+  const parsed = parseBody(body, [...roster], { qualifiedTargets: catalog });
+  if (parsed.qualified_issues?.length) throw new Error(parsed.qualified_issues.map(issue =>
+    `${issue.token}: ${issue.reason.replaceAll('-', ' ')}`).join('; '));
+  const addressed = parsed.mentions.length > 0
+    || roster.some(member => new RegExp('@' + member.handle + '\\b', 'i').test(body));
+  if (!addressed && roster.some(member => member.kind === 'agent')) throw new Error(defaultHandle
+    ? `Say who this is for — try @${defaultHandle}` : 'Say who this is for — mention someone with @');
+  return { body, room: parsed.qualified?.[0]?.target?.conversation_id ?? origin };
+}
+// harn:end edited-outgoing-intents-use-browser-preparation
+
 /** One page-memory owner per authenticated computer, shared across its views. */
 export class OutgoingState {
   private rows: readonly Outgoing[] = [];

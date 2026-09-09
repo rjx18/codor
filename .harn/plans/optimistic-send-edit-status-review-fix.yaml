@@ -1,24 +1,25 @@
 id: optimistic-send-edit-status-review-fix
 title: Reuse browser preparation for edited sends and require handling evidence
 notes: >
-  Contained review correction at 5cbe2b3d. First reproduce the browser/host timezone
-  mismatch and the real Store skipped-before-start delivery in red. Share existing clock
-  conversion and qualified-target validation between Composer and the existing row editor.
-  Capture source store/transport/token across the explicit edit action, keep raw edits and
-  media, and never reprepare unchanged same-ID Resend. Consumed cleanup alone is not
-  handling. No backend, receipt/index, protocol, history, skeleton, offline/grace or
-  archive changes. Run focused/full web units, production build, optimistic, scheduling
-  and qualified browser coverage on isolated ports.
+  Contained review correction at 5cbe2b3d. First reproduce the browser/host
+  timezone mismatch and the real Store skipped-before-start delivery in red.
+  Share existing clock conversion and qualified-target validation between
+  Composer and the existing row editor. Capture source store/transport/token
+  across the explicit edit action, keep raw edits and media, and never reprepare
+  unchanged same-ID Resend. Consumed cleanup alone is not handling. No backend,
+  receipt/index, protocol, history, skeleton, offline/grace or archive changes.
+  Run focused/full web units, production build, optimistic, scheduling and
+  qualified browser coverage on isolated ports.
 assumptions:
   create:
     - id: edited-outgoing-intents-use-browser-preparation
       title: Edited outgoing intents use the same browser preparation as Composer
       statement: >
-        A new edited outgoing intent must canonicalize friendly schedule clocks and
-        validate/re-resolve its qualified destination through the same preparation helper
-        as Composer, using its captured source owner. Raw editable text and media remain
-        intact on failure; unchanged same-ID Resend uses its frozen payload without
-        recanonicalization.
+        A new edited outgoing intent must canonicalize friendly schedule clocks
+        and validate/re-resolve its qualified destination through the same
+        preparation helper as Composer, using its captured source owner. Raw
+        editable text and media remain intact on failure; unchanged same-ID
+        Resend uses its frozen payload without recanonicalization.
       reason: Prevent timezone drift and stale destinations in the existing editor.
       depends_on:
         - friendly-schedule-clocks-canonicalize-at-client-boundary
@@ -26,11 +27,11 @@ assumptions:
     - id: agent-handling-ticks-require-delivery-evidence
       title: Double ticks require evidence of agent handling rather than cleanup
       statement: >
-        Double ticks require each eligible agent delivery to be delivering or consumed
-        with a recorded run or native steering acknowledgement. Consumed-before-start
-        cleanup, queued/held work and removed recipients must not imply a read. Grouped
-        human rows retain independent accessible status, with server acceptance
-        distinguished from handling evidence.
+        Double ticks require each eligible agent delivery to be delivering or
+        consumed with a recorded run or native steering acknowledgement.
+        Consumed-before-start cleanup, queued/held work and removed recipients
+        must not imply a read. Grouped human rows retain independent accessible
+        status, with server acceptance distinguished from handling evidence.
       reason: Consumed is also used for skipped collaboration participants.
       depends_on:
         - agent-delivery-lifecycle-streams-v2
@@ -80,3 +81,5 @@ anchors:
     delivery-handling-evidence:
       action: change
       reason: Anchor the conservative evidence selector.
+applied:
+  applied_at: 2026-09-09T13:53:01.236Z
