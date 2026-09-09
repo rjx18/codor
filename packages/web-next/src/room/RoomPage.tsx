@@ -100,16 +100,21 @@ export function RoomPage(props: {
   // The menu is presentation only. Keep the captured operation above the
   // computer-keyed room surface so a delayed result still settles after a
   // dismissal, room switch, or hosted computer switch.
-  const [archiveRequest, setArchiveRequest] = useState<ArchiveRequest>();
-  const archiveFlight = useRef<ArchiveRequest>();
+  // harn:assume archive-terminal-results-release-source-admission ref=archive-terminal-source-admission
+  const [archiveRequests, setArchiveRequests] = useState<ArchiveRequest[]>([]);
+  const archiveFlights = useRef(new Map<ClientStore, ArchiveRequest>());
+  const replaceArchiveRequest = useCallback((request: ArchiveRequest): void => {
+    setArchiveRequests((current) => [
+      ...current.filter((candidate) => candidate.target.sourceStore !== request.target.sourceStore),
+      request,
+    ]);
+  }, []);
   const submitArchive = useCallback((target: ArchiveTarget): void => {
-    if (archiveFlight.current !== undefined
-      || archiveRequest?.status === 'pending'
-      || archiveRequest?.status === 'success') return;
+    if (archiveFlights.current.has(target.sourceStore)) return;
     const refused = (message: string): void => {
       const ref = `archive-${crypto.randomUUID()}`;
       const request: ArchiveRequest = { target, ref, status: 'error', error: message };
-      setArchiveRequest(request);
+      replaceArchiveRequest(request);
     };
     if (!target.canArchive || !canArchiveChannel(target.sourceStore, target.room, target.canArchive)) {
       refused('You do not have permission to archive this channel.');
@@ -121,43 +126,48 @@ export function RoomPage(props: {
     }
     const ref = `archive-${crypto.randomUUID()}`;
     const request: ArchiveRequest = { target, ref, status: 'pending' };
-    archiveFlight.current = request;
-    setArchiveRequest(request);
+    archiveFlights.current.set(target.sourceStore, request);
+    replaceArchiveRequest(request);
     const action = { act: 'archive_room' } as const;
     const dispatched = target.connection.actForRoom?.(target.room, action, ref)
       ?? (target.connection.room() === target.room
         ? (target.connection.act(action, ref), true)
         : false);
     if (!dispatched) {
-      archiveFlight.current = undefined;
-      setArchiveRequest({ ...request, status: 'error', error: 'Archive is unavailable while this connection is disconnected.' });
+      archiveFlights.current.delete(target.sourceStore);
+      replaceArchiveRequest({ ...request, status: 'error', error: 'Archive is unavailable while this connection is disconnected.' });
     }
-  }, [archiveRequest?.status]);
+  }, [replaceArchiveRequest]);
   useEffect(() => {
-    const request = archiveRequest;
-    if (request === undefined || request.status !== 'pending') return;
-    const settle = (): void => {
-      if (archiveFlight.current?.ref !== request.ref) return;
-      const result = roomSlice(request.target.sourceStore.getState(), request.target.room).actionResults[request.ref];
-      if (result === undefined) return;
-      archiveFlight.current = undefined;
-      if (result.status === 'success') manager?.reconcileArchivedStore(request.target.sourceStore);
-      setArchiveRequest(result.status === 'success'
-        ? { ...request, status: 'success' }
-        : { ...request, status: 'error', error: result.message ?? 'The channel could not be archived.' });
-    };
-    const unsubscribe = request.target.sourceStore.subscribe(settle);
-    settle();
-    return unsubscribe;
-  }, [archiveRequest]);
+    const pending = archiveRequests.filter((request) => request.status === 'pending');
+    if (pending.length === 0) return;
+    const unsubscribers = pending.map((request) => {
+      const settle = (): void => {
+        if (archiveFlights.current.get(request.target.sourceStore)?.ref !== request.ref) return;
+        const result = roomSlice(request.target.sourceStore.getState(), request.target.room).actionResults[request.ref];
+        if (result === undefined) return;
+        archiveFlights.current.delete(request.target.sourceStore);
+        if (result.status === 'success') {
+          manager?.reconcileArchivedStore(request.target.sourceStore, request.target.room);
+        }
+        replaceArchiveRequest(result.status === 'success'
+          ? { ...request, status: 'success' }
+          : { ...request, status: 'error', error: result.message ?? 'The channel could not be archived.' });
+      };
+      const unsubscribe = request.target.sourceStore.subscribe(settle);
+      settle();
+      return unsubscribe;
+    });
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [archiveRequests, manager, replaceArchiveRequest]);
   const acknowledgeArchive = useCallback((ref: string): void => {
-    setArchiveRequest((current) => current?.ref === ref ? undefined : current);
+    setArchiveRequests((current) => current.filter((request) => request.ref !== ref));
   }, []);
   const archive = useMemo<ArchiveLifecycle>(() => ({
-    request: archiveRequest,
+    requests: archiveRequests,
     submit: submitArchive,
     acknowledge: acknowledgeArchive,
-  }), [acknowledgeArchive, archiveRequest, submitArchive]);
+  }), [acknowledgeArchive, archiveRequests, submitArchive]);
   useSyncExternalStore(
     manager?.subscribe ?? noComputerSubscription,
     manager?.getSnapshot ?? (() => EMPTY_COMPUTER_SNAPSHOT),
@@ -173,6 +183,7 @@ export function RoomPage(props: {
       archive={archive}
     />
   );
+  // harn:end archive-terminal-results-release-source-admission
   // harn:end archive-pending-result-is-source-owned
 }
 
@@ -651,7 +662,7 @@ interface ArchiveRequest {
 }
 
 interface ArchiveLifecycle {
-  request: ArchiveRequest | undefined;
+  requests: readonly ArchiveRequest[];
   submit: (target: ArchiveTarget) => void;
   acknowledge: (ref: string) => void;
 }
@@ -718,8 +729,11 @@ function ChannelRail(props: {
     });
   }, [summaries, room, workingByRoom]);
 
+  // harn:assume archive-terminal-results-release-source-admission ref=archive-terminal-rail-admission
+  const sourceRequests = props.archive.requests.filter((request) => request.target.sourceStore === props.sourceStore);
+  const archiveSuccess = sourceRequests.find((request) => request.status === 'success');
   useEffect(() => {
-    const request = props.archive.request;
+    const request = archiveSuccess;
     if (request === undefined || request.status !== 'success'
       || request.target.sourceStore !== props.sourceStore) return;
     const replacement = request.target.room === props.activeRoom
@@ -730,13 +744,11 @@ function ChannelRail(props: {
     if (request.target.room === props.activeRoom) {
       props.onArchived(request.target.room, replacement);
     }
-  }, [entries, props.activeRoom, props.archive, props.onArchived, props.sourceStore]);
+  }, [archiveSuccess, entries, props.activeRoom, props.archive, props.onArchived, props.sourceStore]);
 
-  const archiveError = props.archive.request?.status === 'error'
-    && props.archive.request.target.sourceStore === props.sourceStore
-    ? props.archive.request
-    : undefined;
-  const archiveBusy = props.archive.request?.status === 'pending';
+  const archiveError = sourceRequests.find((request) => request.status === 'error');
+  const archiveBusy = sourceRequests.some((request) => request.status === 'pending');
+  // harn:end archive-terminal-results-release-source-admission
 
   // harn:assume empty-roster-guidance-reuses-mounted-settings ref=mounted-empty-roster-settings-route
   return (

@@ -135,7 +135,81 @@ async function confirmArchive(page: Page, room: string): Promise<void> {
 }
 
 // harn:assume channel-archive-menu-is-viewport-safe-and-accessible ref=channel-archive-menu-a11y-regression
+// harn:assume archive-terminal-results-release-source-admission ref=archive-terminal-results-regression
 test.describe('channel archive context menu', () => {
+  type HostedArchiveOperation = {
+    computer: string;
+    room: string;
+    ref: string;
+    phase: 'admitted' | 'dispatched';
+  };
+  type CrossComputerFixture = {
+    aTarget: string;
+    aRemaining: string;
+    bTarget: string;
+    bRemaining: string;
+  };
+
+  async function openCrossComputerFixture(page: Page, suffix: string, targetExisting = false): Promise<CrossComputerFixture> {
+    await control('/relay-up');
+    await control('/relay-up-b');
+    const fixture = await control<CrossComputerFixture>('/archive-cross-computer-fixture', { suffix, targetExisting });
+    const a = await control<{ code: string; relayUrl: string }>('/relay-pair');
+    await prepareHostedPage(page, a.relayUrl);
+    await page.goto(`${SPA_ORIGIN}/`);
+    await expect(page.getByTestId('landing-page')).toBeVisible();
+    await pasteCode(page, a.code);
+    await page.getByTestId('pairing-code-submit').click();
+    await expect(page.getByTestId('connection')).toHaveClass(/is-live/, { timeout: 30_000 });
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+
+    const b = await control<{ code: string }>('/relay-pair-b');
+    await page.getByTestId('computer-add').click();
+    await pasteCode(page, b.code);
+    await page.getByTestId('pairing-code-submit').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/, { timeout: 30_000 });
+    await expect(page.getByTestId(`room-link-${fixture.bTarget}`)).toBeVisible({ timeout: 30_000 });
+    return fixture;
+  }
+
+  async function instrumentHostedArchive(page: Page, computer: string, room: string, delayMs = 0): Promise<void> {
+    await page.evaluate(({ source, targetRoom, delay }) => {
+      const runtime = window as unknown as {
+        __codor?: {
+          actForRoom?: (room: string, act: unknown, ref?: string) => boolean;
+        };
+        __archiveOperations?: HostedArchiveOperation[];
+      };
+      const connector = runtime.__codor;
+      const actForRoom = connector?.actForRoom;
+      if (actForRoom === undefined) throw new Error('active hosted connector cannot be instrumented');
+      const native = actForRoom.bind(connector);
+      runtime.__archiveOperations ??= [];
+      connector.actForRoom = (target, act, ref) => {
+        const isArchive = typeof act === 'object' && act !== null
+          && (act as { act?: unknown }).act === 'archive_room';
+        if (target === targetRoom && isArchive) {
+          const operation: HostedArchiveOperation = {
+            computer: source,
+            room: target,
+            ref: String(ref ?? ''),
+            phase: 'admitted',
+          };
+          runtime.__archiveOperations!.push(operation);
+          if (delay > 0) {
+            window.setTimeout(() => {
+              operation.phase = 'dispatched';
+              native(target, act, ref);
+            }, delay);
+            return true;
+          }
+          operation.phase = 'dispatched';
+        }
+        return native(target, act, ref);
+      };
+    }, { source: computer, targetRoom: room, delay: delayMs });
+  }
+
   test('opens from the row without navigation and cancel returns focus', async ({ page }) => {
     await openRoom(page, 'research');
     const trigger = page.getByTestId('room-menu-trigger-research');
@@ -346,6 +420,98 @@ test.describe('channel archive context menu', () => {
     await expect(page.getByTestId('room-link-recovered-b')).toBeVisible({ timeout: 30_000 });
   });
   // harn:end hosted-empty-channel-shell-preserves-session-navigation
+
+  // These source-owned fixture rooms are intentionally created after the
+  // last-channel case: the harness daemon is shared for the file, and the
+  // last-channel proof must observe B with only its seeded eng room.
+  test('releases a settled background archive before another computer acts', async ({ page }) => {
+    test.setTimeout(240_000);
+    const fixture = await openCrossComputerFixture(page, `success-${Date.now()}`);
+    await page.getByTestId(`room-link-${fixture.bTarget}`).click();
+    await expect(page).toHaveURL(new RegExp(`room=${fixture.bTarget}`));
+    await instrumentHostedArchive(page, 'B', fixture.bTarget, 800);
+    await confirmArchive(page, fixture.bTarget);
+
+    // Change source before the delayed B operation settles. The fixture state
+    // is the authoritative boundary; no source rail revisit is used here.
+    await computerButton(page, 'codor-host-a').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __archiveOperations: HostedArchiveOperation[] }).__archiveOperations
+        .find((operation) => operation.computer === 'B')?.phase
+    ))).toBe('dispatched');
+    await expect.poll(async () => (await control<{ archived_ts: string | null }>('/archive-b-room-state', {
+      room: fixture.bTarget,
+    })).archived_ts).not.toBeNull();
+
+    // B is not revisited between operations. A's action must be admitted and
+    // settled even though B's terminal success is still source-owned.
+    await instrumentHostedArchive(page, 'A', fixture.aTarget);
+    await confirmArchive(page, fixture.aTarget);
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __archiveOperations: HostedArchiveOperation[] }).__archiveOperations
+        .filter((operation) => operation.computer === 'A' && operation.room !== undefined)
+        .filter((operation) => operation.phase === 'dispatched').length
+    ))).toBe(1);
+    await expect(page.getByTestId(`room-link-${fixture.aTarget}`)).toHaveCount(0);
+    expect(await page.evaluate(() => (
+      (window as unknown as { __archiveOperations: HostedArchiveOperation[] }).__archiveOperations
+        .map((operation) => ({ computer: operation.computer, room: operation.room, ref: operation.ref }))
+    ))).toEqual([
+      { computer: 'B', room: fixture.bTarget, ref: expect.any(String) },
+      { computer: 'A', room: fixture.aTarget, ref: expect.any(String) },
+    ]);
+
+    // The successful inactive source retained its fallback root for later
+    // activation; this also proves source reconciliation was not discarded.
+    await computerButton(page, 'codor-host-b').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
+    await expect(page).not.toHaveURL(new RegExp(`room=${fixture.bTarget}`));
+    await expect(page).not.toHaveURL(/room=undefined/);
+    await expect(page.getByTestId(`room-link-${fixture.bRemaining}`)).toBeVisible();
+    await expect(page.getByTestId(`room-link-${fixture.bTarget}`)).toHaveCount(0);
+  });
+
+  test('keeps an inactive source refusal visible while a second source archives', async ({ page }) => {
+    test.setTimeout(240_000);
+    const fixture = await openCrossComputerFixture(page, `refusal-${Date.now()}`);
+    await page.getByTestId(`room-link-${fixture.bTarget}`).click();
+    await instrumentHostedArchive(page, 'B', fixture.bTarget, 800);
+    await confirmArchive(page, fixture.bTarget);
+    await computerButton(page, 'codor-host-a').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-a/);
+
+    // The captured B target was authorized when confirmed. Demote it before
+    // the delayed send so the real correlated server refusal is deterministic.
+    await control('/archive-b-demote-owner', { room: fixture.bTarget });
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __archiveOperations: HostedArchiveOperation[] }).__archiveOperations
+        .find((operation) => operation.computer === 'B')?.phase
+    ))).toBe('dispatched');
+
+    // A remains independently actionable while B's refusal is still in flight.
+    await instrumentHostedArchive(page, 'A', fixture.aTarget);
+    await confirmArchive(page, fixture.aTarget);
+    await expect.poll(() => page.evaluate(() => (
+      (window as unknown as { __archiveOperations: HostedArchiveOperation[] }).__archiveOperations
+        .filter((operation) => operation.computer === 'A' && operation.phase === 'dispatched').length
+    ))).toBe(1);
+    await expect(page.getByTestId(`room-link-${fixture.aTarget}`)).toHaveCount(0);
+
+    // Only now revisit B; the source-owned refusal must remain observable and
+    // retryable, rather than being replaced by A's success.
+    await computerButton(page, 'codor-host-b').click();
+    await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label', /codor-host-b/);
+    await expect(page.getByTestId(`archive-channel-error-${fixture.bTarget}`)).toContainText(/forbidden|owner|archive/i, {
+      timeout: 30_000,
+    });
+    await expect(page.getByTestId(`room-link-${fixture.bTarget}`)).toBeVisible();
+    expect(await page.evaluate(() => (
+      (window as unknown as { __archiveOperations: HostedArchiveOperation[] }).__archiveOperations
+        .map((operation) => operation.computer)
+    ))).toEqual(['B', 'A']);
+  });
 });
+// harn:end archive-terminal-results-release-source-admission
 // harn:end channel-archive-ui-captures-source-and-authoritative-result
 // harn:end channel-archive-menu-is-viewport-safe-and-accessible

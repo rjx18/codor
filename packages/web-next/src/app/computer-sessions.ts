@@ -464,13 +464,26 @@ export class ComputerSessionManager {
 
   /** Reconcile a delayed archive against its captured computer, even if that
    * computer is no longer selected when the result arrives. */
-  reconcileArchivedStore(store: ClientStore): void {
+  // harn:assume archive-terminal-results-release-source-admission ref=archive-terminal-source-session-reconciliation
+  reconcileArchivedStore(store: ClientStore, archivedRoom?: string): void {
     const entry = [...this.entries.values()].find((candidate) => candidate.store === store);
     if (!entry || entry.token === '') return;
     const state = entry.store.getState();
+    if (archivedRoom !== undefined && entry.publicRoot === archivedRoom) {
+      const replacement = state.roomSummaries.find((summary) => summary.id !== archivedRoom)?.id
+        ?? state.roomList.find((room) => room.id !== archivedRoom && room.config.archived_ts === undefined)?.id;
+      if (replacement !== undefined) {
+        entry.noRooms = false;
+        entry.publicRoot = replacement;
+        rememberRoom(replacement, entry.material.computer.id);
+        this.publish();
+        return;
+      }
+    }
     if (state.roomSummaries.length > 0 || state.roomList.length > 0) return;
     this.markEmptyEntry(entry);
   }
+  // harn:end archive-terminal-results-release-source-admission
 
   private markEmptyEntry(entry: SessionEntry): void {
     entry.noRooms = true;

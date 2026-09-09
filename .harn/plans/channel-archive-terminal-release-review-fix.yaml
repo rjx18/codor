@@ -1,0 +1,131 @@
+id: channel-archive-terminal-release-review-fix
+title: Release archive admission independently after source settlement
+notes: >
+  Contained review correction to 5ee1e299. Keep each archive operation owned by
+  its captured computer, store, room, token, and correlated result, but release
+  admission for that source as soon as its authoritative result settles. A
+  success remains available for source reconciliation and a refusal remains
+  observable until that source is acknowledged; a terminal result from an
+  inactive computer must not block a different source. Preserve the existing
+  archive_room backend action, menu dismissal, empty hosted shell, draft and
+  history behavior. Add only deterministic test-fixture controls needed to delay
+  or refuse the already-existing action, with no production API or protocol
+  change.
+assumptions:
+  retire: []
+  create:
+    - id: archive-terminal-results-release-source-admission
+      title: Terminal archive results release only their captured source
+      statement: >
+        Each captured computer/store admits at most one archive action at a
+        time. Its correlated authoritative terminal result releases that
+        source's admission independently of other computers while retaining
+        source-owned success reconciliation or refusal error until the source
+        rail acknowledges it. An inactive successful source updates its
+        remembered root to an authorized remaining channel, or to the existing
+        empty shell only when no channel remains; an inactive refusal remains
+        observable and retryable.
+      reason: >
+        A page-wide terminal latch leaves another selected computer unable to
+        archive, while dropping the source result loses navigation or error
+        handling when its rail is unmounted.
+      depends_on:
+        - archive-pending-result-is-source-owned
+        - channel-archive-ui-captures-source-and-authoritative-result
+        - hosted-computer-sessions-keep-state-isolated
+        - hosted-computer-switching-reuses-warm-session
+    - id: archive-browser-fixture-controls-delayed-source-outcomes
+      title: Archive browser fixtures control only targeted source outcomes
+      statement: >
+        Archive browser regressions may delay one captured source action, read
+        its authoritative room record, or demote that source owner before the
+        delayed action is sent in order to prove success and refusal ordering.
+        These controls remain test-only, target one known room, and do not alter
+        production archive behavior, protocol messages, or client retry/queue
+        semantics.
+      reason: >
+        Cross-computer terminal settlement must be observed deterministically
+        rather than inferred from a timeout or from a later source revisit.
+      depends_on:
+        - archive-terminal-results-release-source-admission
+        - management-frames-correlate-one-result
+  reviewed:
+    - id: archived-channels-leave-default-discovery-and-preserve-state
+      outcome: unchanged
+      reason: >
+        Archive remains a durable soft archive; only source-root reconciliation
+        after an already-authoritative result is refined.
+    - id: channel-archive-menu-is-viewport-safe-and-accessible
+      outcome: unchanged
+      reason: >
+        Menu confirmation, dismissal, focus, touch, viewport, and Axe behavior
+        remain unchanged.
+    - id: channel-archive-is-durable-soft-state
+      outcome: unchanged
+      reason: |
+        No server archive semantics or persisted room retention changes.
+    - id: management-frames-correlate-one-result
+      outcome: unchanged
+      reason: >
+        Existing opaque refs and source-store action result projection remain
+        the only settlement mechanism.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: |
+        Archive requests and remembered roots remain isolated per computer.
+    - id: hosted-computer-switching-reuses-warm-session
+      outcome: unchanged
+      reason: >
+        Switching still reuses existing paired sessions and does not reconnect
+        merely to observe an archive result.
+    - id: hosted-empty-channel-shell-preserves-session-navigation
+      outcome: unchanged
+      reason: |
+        The accepted hosted empty shell and last-channel behavior remain intact.
+anchors:
+  archive-terminal-results-release-source-admission:
+    archive-terminal-source-admission:
+      action: change
+      reason: >
+        Track archive flights and terminal results per captured source so a
+        settled inactive source cannot block another source.
+    archive-terminal-rail-admission:
+      action: change
+      reason: >
+        Render busy, success reconciliation, and refusal only for the mounted
+        source while retaining terminal records for later source mounting.
+    archive-terminal-source-session-reconciliation:
+      action: change
+      reason: >
+        Move an inactive source's remembered root to a remaining authorized room
+        before it is selected, while retaining the existing empty path.
+    archive-terminal-results-regression:
+      action: change
+      reason: >
+        Prove background success and refusal settlement, source isolation, and
+        continued operation on a second computer without revisiting the source.
+  archive-browser-fixture-controls-delayed-source-outcomes:
+    archive-delayed-outcome-fixture:
+      action: change
+      reason: >
+        Provide deterministic room-state and owner-demotion controls for the
+        browser's delayed source settlement regressions.
+files:
+  - .harn/plans/channel-archive-terminal-release-review-fix.yaml
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/tests/room48-channel-archive.e2e.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/tests/harness.mjs
+verification: >
+  Verify exact clean base 5ee1e299 and inspect the follow-up review before
+  locking with dirty_at_lock false. Run focused archive/store/session units, the
+  existing archive regressions, deterministic hosted B-to-A terminal success
+  without revisiting B, delayed inactive-source refusal followed by a
+  second-source action, hosted last-channel/reload behavior, full web units, the
+  production/PWA build, and diff/tree checks. Finish with harn find, harn check,
+  harn apply, harn check --staged, and a clean-tree check. Create exactly one
+  implementation commit. Do not change server, protocol, receipts, post,
+  history, relay, P1/P3, release, deployment, or host behavior.
+applied:
+  applied_at: 2026-09-09T14:10:40.587Z

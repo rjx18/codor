@@ -1865,6 +1865,44 @@ createServer((req, res) => {
         const offer = await host.pair(`http://127.0.0.1:${API_PORT_B}`);
         payload = { ...offer, code: offer.pairing_code, relayUrl: mockRelay.url };
       }
+      // harn:assume archive-browser-fixture-controls-delayed-source-outcomes ref=archive-delayed-outcome-fixture
+      if (url.pathname === '/archive-cross-computer-fixture') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const suffix = String(body.suffix ?? 'case').replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+        const ids = {
+          aTarget: `archive-a-target-${suffix}`,
+          aRemaining: `archive-a-remaining-${suffix}`,
+          bTarget: body.targetExisting === true ? 'eng' : `archive-b-target-${suffix}`,
+          bRemaining: `archive-b-remaining-${suffix}`,
+        };
+        const create = (selected, vault, id, name) => {
+          if (!selected.store.getRoom(id)) {
+            selected.createRoom({ id, name, owner: { handle: 'richard', display_name: 'Richard' } });
+            vault.roomKeys.ensureRoom(id);
+          }
+        };
+        create(daemon, crypto, ids.aTarget, `A target ${suffix}`);
+        create(daemon, crypto, ids.aRemaining, `A remaining ${suffix}`);
+        create(daemonB, cryptoB, ids.bTarget, `B target ${suffix}`);
+        create(daemonB, cryptoB, ids.bRemaining, `B remaining ${suffix}`);
+        payload = ids;
+      }
+      if (url.pathname === '/archive-b-room-state') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const room = String(body.room ?? '');
+        const record = daemonB.store.getRoom(room);
+        if (!record) throw new Error(`no such computer B room: ${room}`);
+        payload = { room, archived_ts: record.config.archived_ts ?? null };
+      }
+      if (url.pathname === '/archive-b-demote-owner') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        const room = String(body.room ?? '');
+        const owner = daemonB.ownerOf(room);
+        const updated = daemonB.store.updateMember(room, owner.id, { role: 'admin' });
+        daemonB.emitMember(room, updated);
+        payload = { room, member_id: updated.id, role: updated.role };
+      }
+      // harn:end archive-browser-fixture-controls-delayed-source-outcomes
       if (url.pathname === '/computer-b-activity') {
         const running = daemonB.store.updateMember('eng', computerBAgent.id, { state: 'running' });
         daemonB.emitMember('eng', running);

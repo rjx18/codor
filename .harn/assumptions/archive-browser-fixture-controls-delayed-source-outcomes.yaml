@@ -1,0 +1,14 @@
+id: archive-browser-fixture-controls-delayed-source-outcomes
+hash: a-a21a83048526
+title: Archive browser fixtures control only targeted source outcomes
+state: active
+statement: >
+  Archive browser regressions may delay one captured source action, read its
+  authoritative room record, or demote that source owner before the delayed
+  action is sent in order to prove success and refusal ordering. These controls
+  remain test-only, target one known room, and do not alter production archive
+  behavior, protocol messages, or client retry/queue semantics.
+depends_on:
+  - archive-terminal-results-release-source-admission
+  - management-frames-correlate-one-result
+created_by: channel-archive-terminal-release-review-fix

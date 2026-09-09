@@ -1,0 +1,18 @@
+id: archive-terminal-results-release-source-admission
+hash: a-33f7daf57989
+title: Terminal archive results release only their captured source
+state: active
+statement: >
+  Each captured computer/store admits at most one archive action at a time. Its
+  correlated authoritative terminal result releases that source's admission
+  independently of other computers while retaining source-owned success
+  reconciliation or refusal error until the source rail acknowledges it. An
+  inactive successful source updates its remembered root to an authorized
+  remaining channel, or to the existing empty shell only when no channel
+  remains; an inactive refusal remains observable and retryable.
+depends_on:
+  - archive-pending-result-is-source-owned
+  - channel-archive-ui-captures-source-and-authoritative-result
+  - hosted-computer-sessions-keep-state-isolated
+  - hosted-computer-switching-reuses-warm-session
+created_by: channel-archive-terminal-release-review-fix
