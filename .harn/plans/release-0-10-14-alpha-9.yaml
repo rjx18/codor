@@ -1,0 +1,150 @@
+id: release-0-10-14-alpha-9
+title: Prepare accepted message UI and reconnect improvements as alpha 0.10.14-alpha.9
+notes: >
+  Release-only preparation from exact accepted main
+  f4bb10842676e7ddeba2548ec6176c388aeefe36. Preserve curated alpha history by a
+  real merge of exact origin/alpha 0b0eec43fb903eb797fb8f3e384e7073ae7840fe as
+  the second parent, followed within this same locked merge by the
+  0.10.14-alpha.9 identity update. Preserve existing alpha-only Room38/Room42
+  theme-settling test corrections. The eight historical alpha plan records newly
+  imported by that merge stay reachable through its exact second parent; omit
+  them from this resulting tree so this plan is the sole Harn transition.
+  Existing main assumption truth remains untouched. Change only versioned
+  manifests, matching ACP clientInfo, CLI fixture identities and exact-version
+  release audit. No product, workflow, credential or real-host change. npm
+  latest stays 0.10.11. Main CI owns Pages deployment; its checked decision
+  skips the unchanged relay Worker. Alpha CI and the signed tag's existing OIDC
+  release gate remain mandatory publishers. Reuse the passed combined source
+  gates; do not repeat the full local browser suite for version substitutions.
+  Inspect/build the distributable and run relevant version fixtures and audits;
+  CI performs its unchanged full gates.
+assumptions:
+  retire: []
+  create: []
+  reviewed:
+    - id: installed-or-published-release-artifacts-are-version-immutable
+      outcome: unchanged
+      reason: Published alpha.8 bytes remain immutable, so this release uses the
+        unused 0.10.14-alpha.9 identity.
+    - id: release-candidate-requires-publishable-install-tarball
+      outcome: unchanged
+      reason: Existing exact-candidate and packed-install proofs remain mandatory.
+    - id: github-tags-publish-numbered-semver-alpha-or-stable-release
+      outcome: unchanged
+      reason: The existing alpha-contained signed-tag workflow remains the only
+        publisher and retains npm OIDC provenance.
+    - id: public-package-bundles-complete-codor-runtime
+      outcome: unchanged
+      reason: Only the common version advances; bundled runtime composition is
+        unchanged.
+    - id: public-npx-install-is-primary-install
+      outcome: unchanged
+      reason: Operators can install this candidate through the public npm alpha tag.
+    - id: vscode-copilot-bridge-is-manual-local-and-credential-private
+      outcome: unchanged
+      reason: The companion VSIX remains manual and credential-private; only its
+        release identity advances.
+    - id: acp-v1-events-and-capabilities-are-negotiated
+      outcome: unchanged
+      reason: ACP behavior is unchanged; clientInfo reports the common 0.10.14-alpha.9
+        identity.
+    - id: workspace-gates-cover-all-buildable-projects
+      outcome: unchanged
+      reason: Recursive build, serialized tests, browser tests, audits, and install
+        proofs remain mandatory.
+    - id: setup-dry-run-reports-without-mutation-or-secret
+      outcome: unchanged
+      reason: The dry-run snapshot changes only its expected common release identity.
+    - id: platform-services-propagate-destination-pnpm-node-path
+      outcome: unchanged
+      reason: Linux and macOS service fixtures change only their selected release
+        identity.
+    - id: setup-preserves-private-platform-service
+      outcome: unchanged
+      reason: Private service rendering and lifecycle behavior are unchanged.
+    - id: setup-verifies-codor-before-creating-pairing-code
+      outcome: unchanged
+      reason: Readiness fixtures report 0.10.14-alpha.9; verification behavior is
+        unchanged.
+    - id: channel-archive-requires-explicit-confirmation
+      outcome: unchanged
+      reason: The monolithic CLI regression crosses this boundary, but archive
+        behavior and expectations are unchanged.
+anchors:
+  installed-or-published-release-artifacts-are-version-immutable:
+    replaceable-preinstall-release-audit:
+      action: change
+      reason: Advance the exact immutable release candidate to 0.10.14-alpha.9.
+  acp-v1-events-and-capabilities-are-negotiated:
+    acp-adapter-runtime:
+      action: change
+      reason: Advance only ACP initialize clientInfo to 0.10.14-alpha.9.
+  setup-dry-run-reports-without-mutation-or-secret:
+    setup-dry-run-regression:
+      action: change
+      reason: Advance only the expected release identity in the dry-run snapshot.
+  platform-services-propagate-destination-pnpm-node-path:
+    node-path-systemd-regression:
+      action: change
+      reason: Advance only the Linux selected-runtime fixture identity.
+    node-path-launchd-regression:
+      action: change
+      reason: Advance only the macOS selected-runtime fixture identity.
+  setup-preserves-private-platform-service:
+    setup-platform-service-regression:
+      action: change
+      reason: Permit the nested platform fixture identity update without changing
+        behavior.
+  setup-verifies-codor-before-creating-pairing-code:
+    setup-readiness-and-pairing-regression:
+      action: change
+      reason: Permit the nested readiness fixture identity update without changing
+        behavior.
+  channel-archive-requires-explicit-confirmation:
+    channel-archive-confirmation-regression:
+      action: change
+      reason: Permit the enclosing CLI fixture update without changing archive
+        behavior.
+files:
+  - packages/web-next/tests/room38-agent-preset-settings.e2e.spec.ts
+  - packages/web-next/tests/room42-scheduled-messages.e2e.spec.ts
+  - .harn/plans/release-0-10-14-alpha-9.yaml
+  - package.json
+  - packages/adapters/acp/package.json
+  - packages/adapters/acp/src/adapter.ts
+  - packages/adapters/antigravity/package.json
+  - packages/adapters/claude-code/package.json
+  - packages/adapters/codex/package.json
+  - packages/adapters/copilot/package.json
+  - packages/adapters/copilot/vscode-extension/package.json
+  - packages/adapters/cursor/package.json
+  - packages/adapters/gemini/package.json
+  - packages/adapters/opencode/package.json
+  - packages/bridges/core/package.json
+  - packages/bridges/slack/package.json
+  - packages/bridges/telegram/package.json
+  - packages/cli/package.json
+  - packages/cli/src/index.spec.ts
+  - packages/protocol/package.json
+  - packages/switchboard/package.json
+  - packages/web-next/package.json
+  - relay/package.json
+  - scripts/release-audit.mjs
+  - website/package.json
+verification: >
+  Verify all non-legacy tracked manifests equal 0.10.14-alpha.9, preserve the
+  three legacy exceptions and validate version-only source substitutions. Verify
+  exact merge parents f4bb10842676e7ddeba2548ec6176c388aeefe36 and
+  0b0eec43fb903eb797fb8f3e384e7073ae7840fe. Harn working/staged/apply and
+  ordinary pre-commit hook must pass with no shared hook/configuration changes.
+  Run frozen install, necessary artifact/dependency build, relevant CLI/ACP
+  version fixtures, release/license audits and artifact inspection. Reuse the
+  previously passed full combined-source tests and installed proofs; no
+  redundant local full-suite rerun. Push alpha by fast-forward only. Require its
+  CI green before pushing signed v0.10.14-alpha.9. Then require Release workflow
+  green and verify npm alpha, unchanged latest, exact GitHub assets/checksums
+  and production Pages deployment. Check long CI jobs only at roughly ten-minute
+  intervals, not with a watcher. Do not update a real host or add unrelated
+  work.
+applied:
+  applied_at: 2026-09-09T16:52:13.841Z
