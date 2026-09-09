@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createConnector } from './connector.js';
+import { sendOutgoing, outgoingFor } from './outgoing.js';
+import { MessageSchema } from '@codor/protocol';
 import { createClientStore, roomSlice, useClientStore } from './store.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 
@@ -141,7 +143,7 @@ afterEach(() => {
 
 // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-unit-regression
 describe('connector resume', () => {
-  // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=post-dispatch-unit-regression
+  // harn:assume reconnect-safe-post-dispatch-preserves-draft-v2 ref=post-dispatch-unit-regression
   it('reports a rejected post and accepts the first explicit retry after reconnect', () => {
     const connector = build();
     const first = latest();
@@ -162,7 +164,7 @@ describe('connector resume', () => {
       .toEqual([{ type: 'post', room: 'eng', body: 'first post after reconnect' }]);
     connector.dispose();
   });
-  // harn:end reconnect-safe-post-dispatch-preserves-draft
+  // harn:end reconnect-safe-post-dispatch-preserves-draft-v2
 
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
   it('correlates direct and scoped cancellation with exactly one schedule ref', () => {
@@ -1155,6 +1157,24 @@ describe('connector hidden-room observation', () => {
 // harn:end worktree-conversation-status-is-live-and-independent
 
 describe('P6 submission connection ownership', () => {
+  it('retires a local row from owned HTTP history without an acknowledgement or extra post', () => {
+    const source = createClientStore();
+    const connector = createConnector({ room: 'eng', token: 'token', store: source,
+      postAcknowledgements: true, postCorrelations: true,
+      socketFactory: url => new FakeSocket(url) as unknown as WebSocket });
+    const socket = latest(); socket.accept(); socket.deliver({ type:'sync_complete', room:'eng', seq:0 });
+    const id = sendOutgoing(connector, 'eng', 'eng', 'same', []);
+    const message = MessageSchema.parse({ id: 123, room: 'eng', author:'01ARZ3NDEKTSV4RRFFQ69G5FAV',kind:'chat',body:'same',
+      mentions:[],refs:[],ledger_refs:[],ts:'2026-09-09T00:00:00Z',seq:123,submission_id:id });
+    source.setState(state => {
+      const slice = roomSlice(state,'eng');
+      return { rooms: { ...state.rooms, eng:{...slice,transcriptHistory:{...slice.transcriptHistory,messages:{123:message}}} } };
+    });
+    expect(outgoingFor(connector).snapshot()).toEqual([]);
+    expect(connector.submissionPending).toBe(false);
+    expect(socket.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post')).toHaveLength(1);
+    connector.dispose();
+  });
   const posts = (socket: FakeSocket) => socket.sent.map((value) => JSON.parse(value))
     .filter((frame) => frame.type === 'post');
   it('retries only after the original room is ready, keeps refreshed credentials, and ignores stale acks', async () => {
@@ -1224,7 +1244,7 @@ it('rechecks a replacement daemon capability and never retries an old receipt ag
   connector.dispose();
 });
 
-// harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+// harn:assume post-capability-recovery-is-owned-and-bounded-v2 ref=owned-post-capability-recovery
 describe('review: capability verification recovers without replacing healthy sockets', () => {
   it('aborts a timed-out check, coalesces healthy traffic, and retries the retained id once after verification', async () => {
     vi.useFakeTimers();
@@ -1315,4 +1335,4 @@ describe('review: capability verification recovers without replacing healthy soc
     connector.dispose();
   });
 });
-// harn:end post-capability-recovery-is-owned-and-bounded
+// harn:end post-capability-recovery-is-owned-and-bounded-v2

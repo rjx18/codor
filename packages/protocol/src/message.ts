@@ -123,6 +123,8 @@ export type VoiceNote = z.infer<typeof VoiceNoteSchema>;
 // harn:end voice-message-metadata-is-bounded-and-additive
 
 export const MessageSchema = z.object({
+  /** Response-only correlation, projected only for the authenticated receipt owner. */
+  submission_id: z.string().min(1).max(128).optional(),
   id: MessageIdSchema,
   room: RoomIdSchema,
   author: MemberIdSchema,

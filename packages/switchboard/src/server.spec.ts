@@ -4509,6 +4509,7 @@ describe('browser protocol epoch', () => {
       compatible: true,
       combined_transcript_history: true,
       post_acknowledgements: true,
+      post_correlations: true,
     });
     device.close();
   });

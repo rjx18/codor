@@ -11,10 +11,11 @@ import type {
 } from '@codor/protocol';
 import { ArrowDown, AudioLines, Bot, Check, CheckCheck, ChevronRight, CircleAlert, Clock3, Copy, Globe, LoaderCircle, Paperclip, Pencil, Pin, PinOff, Quote, RotateCcw, Search, Square, TerminalSquare, Trash2, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
 
 import type { Connection } from '@runtime/ws.js';
+import { useOutgoing, outgoingFor, dispatchOutgoing, sendOutgoing, type Outgoing } from '../app/outgoing.js';
 
 import { relayFetch } from '@runtime/relay-transport.js';
 import {
@@ -318,6 +319,7 @@ export function shouldShowNewMessageSkeleton(
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
   const messages = slice.messages;
+  const outgoing = useOutgoing(props.connection);
   const schedules = slice.schedules;
   const members = slice.members;
   const selfId = slice.selfMemberId;
@@ -1176,6 +1178,9 @@ export function Transcript(props: { room: string; token: () => string; connectio
             liveRenderableRuns,
           })}
           {/* harn:end finalized-browser-history-is-combined-page-owned */}
+          {outgoing.filter(row => row.room === props.room || (row.status === 'failed' && row.origin === props.room)).map(row => (
+            <OutgoingRow key={row.id} row={row} connection={props.connection} />
+          ))}
           {transcriptReady && detachedInteractions.length > 0 && (
             <section className="nx-action-tray" aria-label="Needs your response" data-testid="interaction-tray">
               <p className="nx-action-tray-label">Needs your response</p>
@@ -1443,6 +1448,10 @@ export function TurnBlock(props: {
         <Chip name={handle} accent={author ? memberAccent(author) : 'indigo'} size={34} />
       )}
       <div className="nx-turn-main">
+        {!props.grouped && author?.kind === 'human' && (
+          <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />
+        )}
+        {props.grouped && author?.kind === 'human' && <SeenTicks message={message} deliveries={props.deliveries} members={props.members} />}
         {!props.grouped && (
           <div className="nx-turn-meta">
             {/* The phone trades the chip column for a small chip in the header. */}
@@ -1458,13 +1467,6 @@ export function TurnBlock(props: {
             <time className="nx-turn-time" dateTime={message.ts}>{clockTime(message.ts)}</time>
             {message.pinned === true && (
               <Pin size={12} className="nx-pin-glyph" aria-label="Pinned" data-testid={`msg-${message.id}-pinned`} />
-            )}
-            {author?.kind === 'human' && (
-              <SeenTicks
-                message={message}
-                deliveries={props.deliveries}
-                members={props.members}
-              />
             )}
             <span className="nx-turn-spacer" />
             <a className="nx-permalink" href={`#${message.id}`}>#{message.id}</a>
@@ -1730,27 +1732,78 @@ export function deliveryIndicator(deliveries: readonly Delivery[]): {
   return { seen: true, disposition: 'delivered', title: 'Delivered to its agents' };
 }
 
+function OutgoingRow({ row, connection }: { row: Outgoing; connection: Connection }) {
+  useSyncExternalStore(connection.subscribePostState ?? (() => () => {}), connection.postStateVersion ?? (() => 0), () => 0);
+  const mobile = useIsMobile();
+  const [edit, setEdit] = useState<string>();
+  const state = outgoingFor(connection);
+  const failed = row.status === 'failed';
+  const retry = (): void => {
+    const current = state.snapshot().find(item => item.id === row.id);
+    if (!current || current.status === 'sending' || current.status === 'accepted') return;
+    if (!connection.postCorrelations || !connection.postAcknowledgements) return;
+    state.update(row.id, { status: 'sending', error: undefined });
+    dispatchOutgoing(connection, current);
+  };
+  return <article className="nx-turn is-mine" data-testid={`outgoing-${row.id}`}>
+    {!mobile && <Chip name="You" accent="indigo" size={34} />}
+    <div className="nx-turn-main">
+      <div className="nx-turn-meta">
+        <strong className="nx-turn-author">You</strong>
+        <span role="status" tabIndex={0} className="nx-seen" aria-label={failed ? 'Send failed' : row.status === 'accepted' ? 'Accepted by the server' : 'Not yet confirmed by the server'}>
+          {failed ? <CircleAlert size={13} color="var(--danger, #d33)" /> : row.status === 'accepted' ? <Check size={13} /> : <Clock3 size={13} />}
+        </span>
+        {row.frame.reply_to !== undefined && <span>Reply to #{row.frame.reply_to}</span>}
+        {row.room !== row.origin && <span>To {row.room}</span>}
+      </div>
+      <MessageProse body={row.frame.body} />
+      {row.frame.voice && <span>Voice · {Math.round(row.frame.voice.duration_seconds)}s</span>}
+      {row.attachments.map(file => <span className="nx-attach-chip" key={file.id}>{file.name}</span>)}
+      {row.error && <p role="status">{row.error}</p>}
+      {(failed || row.status === 'uncertain') && <div>
+        <button type="button" onClick={retry} disabled={!connection.postCorrelations || !connection.postAcknowledgements}>Resend</button>
+        {failed && <button type="button" onClick={() => setEdit(row.rawBody)}>Edit</button>}
+        <button type="button" onClick={() => { connection.forgetSubmission?.(row.id); state.remove(row.id); }}>Discard local copy</button>
+        {!connection.postCorrelations && <p>This computer cannot reconcile this send. Check delivery before sending again.</p>}
+      </div>}
+      {edit !== undefined && <div>
+        <textarea aria-label="Edit unsent message" value={edit} onChange={event => setEdit(event.target.value)} />
+        <button type="button" disabled={!edit.trim() || !connection.postCorrelations} onClick={() => {
+          if (!state.snapshot().some(item => item.id === row.id)) return;
+          sendOutgoing(connection, row.origin, row.room, edit, row.attachments, row.frame.reply_to, row.frame.voice);
+          state.remove(row.id);
+        }}>Send edited message</button>
+      </div>}
+    </div>
+  </article>;
+}
+
 function SeenTicks(props: {
   message: Message;
   deliveries: Record<string, Delivery>;
   members: Record<string, Member>;
 }) {
   const relevant = Object.values(props.deliveries).filter(
-    (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent',
+    (d) => d.message_id === props.message.id && props.members[d.recipient]?.kind === 'agent'
+      && props.members[d.recipient]?.removed_ts === undefined,
   );
-  if (relevant.length === 0) return null;
   // delivering means the turn already carries the payload — the agent has it.
-  const indicator = deliveryIndicator(relevant);
+  const indicator = relevant.length ? deliveryIndicator(relevant) : { seen: false, disposition: 'accepted', title: 'Accepted by the server' };
+  const detail = relevant.map(delivery => `@${props.members[delivery.recipient]?.handle ?? 'agent'}: ${delivery.steered_ts !== undefined ? 'steered, ' : ''}${delivery.state}`).join('; ');
+  const title = detail ? `Accepted by the server. ${detail}. Handling evidence, not a literal read receipt.` : indicator.title;
   return (
     <span className="nx-delivery-state">
       <span
         className={`nx-seen ${indicator.seen ? 'is-seen' : ''}`}
-        title={indicator.title}
+        role="img"
+        title={title}
+        aria-label={title}
+        tabIndex={0}
         data-testid={`msg-${props.message.id}-seen`}
         data-seen={indicator.seen}
         data-delivery-disposition={indicator.disposition}
       >
-        {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Clock3 size={12} aria-hidden="true" />}
+        {indicator.seen ? <CheckCheck size={13} aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
       </span>
     </span>
   );

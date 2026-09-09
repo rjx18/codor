@@ -1,0 +1,19 @@
+id: reconnect-safe-post-dispatch-preserves-draft-v2
+hash: a-4ae92f450d62
+title: Rejected dispatch preserves the submitted composition under its owner
+state: active
+statement: Connection.post truthfully reports current socket admission;
+  unavailable sockets never imply server acceptance. Correlation-capable
+  composition is retained in the outgoing record on refusal, with explicit
+  recovery, while legacy mode preserves its draft. Actual readiness remains
+  required and cached shells reject. Reconnect never silently replays ambiguous
+  legacy posts.
+depends_on:
+  - readable-reconnecting-room-never-admits-mutation
+  - composer-acknowledgement-preserves-owned-raw-drafts-v2
+  - pending-composer-echo-is-destination-and-self-bound
+  - client-syncs-by-seq
+  - hosted-app-streams-follow-tunnel-generations
+  - relay-app-socket-readiness-requires-server-evidence
+  - room-action-errors-are-visible
+created_by: optimistic-send-message-owned-status

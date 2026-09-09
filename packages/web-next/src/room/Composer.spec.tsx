@@ -237,7 +237,7 @@ describe('pending composer echo ownership', () => {
 });
 // harn:end pending-composer-echo-is-destination-and-self-bound
 
-// harn:assume composer-acknowledgement-preserves-owned-raw-drafts ref=raw-draft-acknowledgement-regression
+// harn:assume composer-acknowledgement-preserves-owned-raw-drafts-v2 ref=raw-draft-acknowledgement-regression
 describe('raw composer acknowledgement ownership', () => {
   const message = (id: number, author: string, body: string) => ({
     id,
@@ -261,7 +261,7 @@ describe('raw composer acknowledgement ownership', () => {
     errorCount: 0,
   });
 
-  // harn:assume scheduled-composer-settles-original-owned-outcome ref=scheduled-composer-acknowledgement-regression
+  // harn:assume scheduled-composer-settles-original-owned-outcome-v2 ref=scheduled-composer-acknowledgement-regression
   const scheduledRow = (id: string, author = 'owner-eng', room = 'eng') => ({
     id,
     room,
@@ -300,7 +300,7 @@ describe('raw composer acknowledgement ownership', () => {
     expect(selectPendingDestinationSchedules(state, 'other')).toEqual({});
     expect(selectPendingDestinationSchedules(state, undefined)).toBeUndefined();
   });
-  // harn:end scheduled-composer-settles-original-owned-outcome
+  // harn:end scheduled-composer-settles-original-owned-outcome-v2
 
   it.each([
     'please investigate @sol ',
@@ -351,7 +351,7 @@ describe('raw composer acknowledgement ownership', () => {
     expect(pendingComposerResolution(undefined, send, send.rawBody, 0)).toBeUndefined();
   });
 });
-// harn:end composer-acknowledgement-preserves-owned-raw-drafts
+// harn:end composer-acknowledgement-preserves-owned-raw-drafts-v2
 
 describe('composeVoiceBody', () => {
   it('prefixes the recipient mention before the plain transcript — no marker glyphs', () => {

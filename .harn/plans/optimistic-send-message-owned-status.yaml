@@ -1,0 +1,497 @@
+id: optimistic-send-message-owned-status
+title: Sender-correlated optimistic messages with independent owned submissions
+notes: "P1 at 864069b6 with approved amendment #2728/#2743. No publication-order
+  or receipt-write change. Indexed returned-record-only projection; no extra
+  requests/polling. Measure live/head/acceptance latency and bytes, one-time
+  index and incremental cost; prove plans. Immediate rows, independent sends,
+  clock/ticks, failure/resend/edit; preserve owner, media, schedule and
+  legacy/downgrade safety. Full protocol/switchboard/web tests/builds,
+  direct/hosted identity races, packed installed restart proof. P2 skeleton and
+  P3 offline/grace excluded."
+assumptions:
+  retire:
+    - id: composer-acknowledgement-preserves-owned-raw-drafts
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+    - id: composer-memory-survives-session-connector-handover
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+    - id: pending-submission-retries-only-through-ready-owner
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+    - id: post-capability-recovery-is-owned-and-bounded
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+    - id: reconnect-safe-post-dispatch-preserves-draft
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+    - id: scheduled-composer-settles-original-owned-outcome
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+    - id: unsupported-submissions-can-stop-local-wait
+      reason: Replace acknowledgement-gated singleton semantics and align dependent
+        ownership truth.
+  create:
+    - id: composer-acknowledgement-preserves-owned-raw-drafts-v2
+      title: Optimistic sends transfer only their captured composition
+      statement: On a verified correlation-capable computer, a valid send transfers
+        its complete captured composition into a session-owned outgoing row and
+        immediately clears only that composition. Subsequent acceptance or
+        correlated canonical records settle that submission by identity without
+        touching a newer draft. Legacy mode retains the existing owned
+        acknowledgement/echo workflow.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - pending-composer-echo-is-destination-and-self-bound
+        - exact-trailing-mentions-send-before-owned-result
+        - composer-enter-uses-live-draft-state
+    - id: composer-memory-survives-session-connector-handover-v2
+      title: Composition memory survives cached-to-live session handover
+      statement: A computer session gives its cached and live connectors the same
+        nonpersistent composition owner. Body, edited-empty state, reply,
+        uploaded attachment selection, completed voice metadata and pending
+        result state stay scoped to that owner and room across connector
+        replacement. Other computer sessions, forgotten pairings and page
+        reloads cannot inherit the memory. No draft or outbox is written to
+        persistent storage.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-submission-retries-only-through-ready-owner-v2
+    - id: pending-submission-retries-only-through-ready-owner-v2
+      title: Independent submissions retry only through their ready owner
+      statement: Each computer retains independently identified immutable dispatched
+        submissions in page memory. Automatic recovery retries each original ID
+        and payload at most once per ready socket generation on its own
+        authenticated room, only with verified acknowledgement support. Explicit
+        same-ID Resend admits only one in-flight attempt per row. Correlated
+        results never settle another submission. No offline admission, timers,
+        persistent outbox or reconnect loop is added.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - post-acknowledgements-are-optional-and-correlated
+    - id: post-capability-recovery-is-owned-and-bounded-v2
+      title: Unknown post capability retries through its ready owner
+      statement: Timeouts, transport errors and failed compatibility responses leave
+        post capability unknown, distinct from verified supported or
+        unsupported. One bounded abortable compatibility check per owning socket
+        generation uses that session's credential renewal, coalesces concurrent
+        intent, and retries unknown results with bounded backoff while the
+        connection is healthy. Generation retirement and
+        auth/manual/upgrade/disposal parks cancel the checks. Only verified
+        support permits replay of the original immutable pending ID;
+        verification never replaces a healthy connection or sends legacy
+        retries.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - pending-submission-retries-only-through-ready-owner-v2
+        - relay-read-renewal-retains-original-owner
+        - hosted-app-streams-follow-tunnel-generations
+    - id: reconnect-safe-post-dispatch-preserves-draft-v2
+      title: Rejected dispatch preserves the submitted composition under its owner
+      statement: Connection.post truthfully reports current socket admission;
+        unavailable sockets never imply server acceptance. Correlation-capable
+        composition is retained in the outgoing record on refusal, with explicit
+        recovery, while legacy mode preserves its draft. Actual readiness
+        remains required and cached shells reject. Reconnect never silently
+        replays ambiguous legacy posts.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-composer-echo-is-destination-and-self-bound
+        - client-syncs-by-seq
+        - hosted-app-streams-follow-tunnel-generations
+        - relay-app-socket-readiness-requires-server-evidence
+        - room-action-errors-are-visible
+    - id: scheduled-composer-settles-original-owned-outcome-v2
+      title: Scheduled composer acknowledgement preserves exact raw draft ownership
+      statement: Scheduled composer submissions retain the raw draft, immutable
+        canonical directive, originating room and computer. An opted-in request
+        settles on its correlated original schedule outcome, including its
+        original due instant; legacy mode continues to match a newly observed
+        schedule by destination, authenticated author and clean body. Refusals
+        keep editable text and acceptance never clears a newer draft.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - scheduled-state-streams-through-room-seq-v2
+        - target-worktree-owns-qualified-conversation
+    - id: unsupported-submissions-can-stop-local-wait-v2
+      title: Unsupported submissions preserve uncertainty without automatic replay
+      statement: A verified unsupported replacement never automatically replays a
+        retained submission. Legacy acknowledgement-only composition retains the
+        guarded Stop waiting control; optimistic records retain their captured
+        content and explicit uncertainty until local retry, edit or discard.
+        Discard stops local recovery without claiming server cancellation.
+        Neither a late result nor a capability change clears a newer draft or
+        transfers content to another computer.
+      reason: Align with independent message-owned submissions; preserve unchanged
+        ownership boundaries.
+      depends_on:
+        - post-capability-recovery-is-owned-and-bounded-v2
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+    - id: sender-receipt-correlation-is-indexed-and-private
+      title: Returned records correlate only for their authenticated sender
+      statement: Live, replay and HTTP messages/schedules may carry optional
+        sender-owned submission correlation derived from durable receipts
+        through indexed destination lookups bounded by unique returned records.
+        Publication and receipt transactions stay unchanged; no extra browser
+        request or polling is introduced. Distinct authors never receive each
+        others correlation. A separate capability gates optimistic UI; canonical
+        identity reconciles before or after acknowledgement without text
+        matching.
+      reason: Cover independent transports and lost acknowledgement safely.
+      depends_on:
+        - post-receipts-commit-atomically-with-routing
+  reviewed:
+    - id: post-receipts-commit-atomically-with-routing
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: post-retry-identity-is-stable-authorized-and-payload-bound
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: post-acknowledgements-are-optional-and-correlated
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: combined-history-capability-gates-socket-fallback
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: scheduled-state-streams-through-room-seq-v2
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: multiplexed-subscriptions-identify-their-room
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: unix-socket-same-protocol
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: historical-transcript-pages-budget-text-slots
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: room-support-is-bounded-recipient-scoped-state
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: transcript-permalink-targets-are-layout-neutral
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: finalized-browser-history-is-combined-page-owned
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: app-liveness-recovery-is-stream-first
+      outcome: unchanged
+      reason: Preserve existing protocol, ownership, authorization and history
+        behavior around the scoped projection.
+    - id: run-evidence-search-is-bounded-and-redacted
+      outcome: unchanged
+      reason: Preserve redacted results and permanent IDs while adding sender-only
+        response metadata.
+    - id: permalink-ids-stable
+      outcome: unchanged
+      reason: Preserve redacted results and permanent IDs while adding sender-only
+        response metadata.
+    - id: browser-protocol-epoch-blocks-only-stale-browser-ui
+      outcome: unchanged
+      reason: Add only the optional correlation capability to the existing
+        compatibility expectation.
+files:
+  - .harn/plans/optimistic-send-message-owned-status.yaml
+  - packages/protocol/src/message.ts
+  - packages/protocol/src/schedule.ts
+  - packages/protocol/src/ws.spec.ts
+  - packages/switchboard/src/store.ts
+  - packages/switchboard/src/server.ts
+  - packages/switchboard/src/post-submission.spec.ts
+  - packages/switchboard/src/post-correlation.spec.ts
+  - packages/web-next/src/app/compatibility.tsx
+  - packages/web-next/src/app/compatibility.spec.tsx
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/pending-submission.ts
+  - packages/web-next/src/app/pending-submission.spec.ts
+  - packages/web-next/src/app/outgoing.ts
+  - packages/web-next/src/app/outgoing.spec.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/room/composer-memory.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/Transcript.spec.tsx
+  - packages/web-next/src/room/room.css
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room47-submission-recovery.e2e.spec.ts
+  - packages/web-next/tests/room48-optimistic-send.e2e.spec.ts
+  - scripts/optimistic-installed-proof.mjs
+  - docs/post-submissions.md
+  - packages/web-next/src/runtime/ws.spec.ts
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/switchboard/src/server.spec.ts
+  - packages/web-next/tests/room2-interactions.e2e.spec.ts
+  - packages/web-next/tests/room46-post-submissions.e2e.spec.ts
+anchors:
+  post-receipts-commit-atomically-with-routing:
+    p6-post-receipts-commit-atomically-with-routing:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  post-retry-identity-is-stable-authorized-and-payload-bound:
+    p6-post-retry-identity-is-stable-authorized-and-payload-bound:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  combined-history-capability-gates-socket-fallback:
+    combined-history-compatibility-response:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+    combined-history-compatibility-client:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+    capability-gated-socket-history:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  scheduled-state-streams-through-room-seq-v2:
+    schedule-protocol-schema-v2:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+    schedule-sync-and-fanout-v2:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  multiplexed-subscriptions-identify-their-room:
+    room-addressed-live-fanout:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+    room-addressed-hydration:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  unix-socket-same-protocol:
+    unix-websocket-listener:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  historical-transcript-pages-budget-text-slots:
+    transcript-history-text-slot-page-builder:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-app-connector:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+    generation-aware-computer-session:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-result:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  agent-delivery-lifecycle-streams-v2:
+    steering-delivery-indicator:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  transcript-permalink-targets-are-layout-neutral:
+    permalink-target-markup:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  finalized-browser-history-is-combined-page-owned:
+    combined-history-rendering:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  app-liveness-recovery-is-stream-first:
+    watchdog-probe-reply:
+      action: change
+      reason: Implement the scoped optimistic projection and preserve the surrounding
+        contract.
+  composer-acknowledgement-preserves-owned-raw-drafts:
+    raw-and-canonical-pending-send:
+      action: remove
+      reason: Move to P1 successor.
+    raw-draft-acknowledgement-regression:
+      action: remove
+      reason: Move to P1 successor.
+  composer-acknowledgement-preserves-owned-raw-drafts-v2:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    raw-draft-acknowledgement-regression:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  composer-memory-survives-session-connector-handover:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: remove
+      reason: Move to P1 successor.
+  composer-memory-survives-session-connector-handover-v2:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  pending-submission-retries-only-through-ready-owner:
+    p6-pending-submission-retries-only-through-ready-owner:
+      action: remove
+      reason: Move to P1 successor.
+  pending-submission-retries-only-through-ready-owner-v2:
+    p6-pending-submission-retries-only-through-ready-owner:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  post-capability-recovery-is-owned-and-bounded:
+    owned-post-capability-recovery:
+      action: remove
+      reason: Move to P1 successor.
+  post-capability-recovery-is-owned-and-bounded-v2:
+    owned-post-capability-recovery:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  reconnect-safe-post-dispatch-preserves-draft:
+    post-dispatch-unit-regression:
+      action: remove
+      reason: Move to P1 successor.
+    composer-rejection-regression:
+      action: remove
+      reason: Move to P1 successor.
+    reconnect-first-post-browser-regression:
+      action: remove
+      reason: Move to P1 successor.
+    composer-rejection-unlocks-draft:
+      action: remove
+      reason: Move to P1 successor.
+    connector-post-dispatch-result:
+      action: remove
+      reason: Move to P1 successor.
+    cached-connector-rejection:
+      action: remove
+      reason: Move to P1 successor.
+    runtime-post-dispatch-result:
+      action: remove
+      reason: Move to P1 successor.
+  reconnect-safe-post-dispatch-preserves-draft-v2:
+    post-dispatch-unit-regression:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    composer-rejection-regression:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    reconnect-first-post-browser-regression:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    connector-post-dispatch-result:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    cached-connector-rejection:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    runtime-post-dispatch-result:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  scheduled-composer-settles-original-owned-outcome:
+    scheduled-pending-composer-send:
+      action: remove
+      reason: Move to P1 successor.
+    scheduled-composer-acknowledgement-regression:
+      action: remove
+      reason: Move to P1 successor.
+  scheduled-composer-settles-original-owned-outcome-v2:
+    scheduled-pending-composer-send:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+    scheduled-composer-acknowledgement-regression:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  unsupported-submissions-can-stop-local-wait:
+    stop-local-submission-wait:
+      action: remove
+      reason: Move to P1 successor.
+  unsupported-submissions-can-stop-local-wait-v2:
+    stop-local-submission-wait:
+      action: change
+      reason: P1 successor preserving legacy behavior.
+  sender-receipt-correlation-is-indexed-and-private:
+    receipt-reverse-projection:
+      action: change
+      reason: Bounded private projection.
+    optimistic-outgoing-state:
+      action: change
+      reason: Owned local state.
+  run-evidence-search-is-bounded-and-redacted:
+    run-search-rest-boundary:
+      action: change
+      reason: Enclosing authorized REST projection boundary.
+  permalink-ids-stable:
+    message-history-rest:
+      action: change
+      reason: Enclosing authorized REST projection boundary.
+  browser-protocol-epoch-blocks-only-stale-browser-ui:
+    browser-protocol-regression:
+      action: change
+      reason: Expect the new additive capability; retain epoch admission behavior.
+applied:
+  applied_at: 2026-09-09T13:26:57.508Z

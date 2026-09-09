@@ -56,8 +56,9 @@ no repeated fanout, notifications or usage. Receipts have no TTL or deletion
 cascade; deleting an accepted message cannot make a delayed retry recreate it.
 Existing history requires no backfill.
 
-The browser keeps one already-dispatched immutable submission per computer
-connector. Only the original room's ready authenticated socket generation may
+The browser keeps independently identified immutable submissions per computer
+on correlation-capable runtimes; acknowledgement-only runtimes retain the legacy
+single pending composition. Only the original room's ready authenticated socket generation may
 retry it, once per replacement generation. The capability is rechecked on a
 replacement connection, so a downgraded daemon cannot accidentally accept a
 retained ID as a second legacy post. Unknown results recover through one owned,
@@ -66,7 +67,7 @@ at ten seconds). Managed reads use the same session credential-renewal path as
 other idempotent reads. Retirement cancels checks; healthy app traffic stays
 connected, and only verified support permits the original-ID retry.
 
-For a verified unsupported replacement, the source composer offers **Stop
+For an acknowledgement-only send on a verified unsupported replacement, the source composer offers **Stop
 waiting** after the user confirms checking delivery in the destination
 conversation. This releases only local waiting, preserves the full draft and
 warns that delivery remains uncertain. It neither cancels nor resends anything
@@ -77,6 +78,30 @@ share one composition owner, retaining edited-empty drafts, replies and media
 state across that handover without sharing them with another computer or
 forgotten pairing. A result clears only the unchanged original draft. Rejected voice can be edited or sent again
 without transcription/upload being repeated automatically.
+
+## Sender-correlated optimistic messages
+
+`post_correlations: true` is a separate additive compatibility capability. This
+requires an updated daemon, not only a new web bundle. Its authenticated live,
+replay and HTTP message/schedule projections include optional `submission_id`
+only for the original receipt sender. Other recipients receive no correlation.
+The reverse lookup uses the existing receipt outcome and an expression index;
+it does not alter acceptance transactions, publication order or history cursors.
+An existing receipt table is indexed once without reconstructing messages/journals.
+
+On verified capable runtimes, Send immediately transfers the captured composition
+into a page-memory outgoing row and clears the input. A grey clock means
+unconfirmed, one tick means accepted, and two ticks mean eligible agent handling
+evidence—not literal model reading. Each row is independent, including consecutive
+identical text. Receipt or canonical-record identity reconciles the row; prose
+matching is never used for this path. Schedules become their ordinary schedule cards.
+
+Failures retain their content and uploaded references with an explicit same-ID
+Resend or new-ID edited send. Unknown acceptance remains uncertain across a
+downgrade; it is never replayed as a legacy post. Discarding a local copy stops
+its local recovery but does not cancel an already accepted server operation.
+Held agent delivery uses the existing delivery retry, not another message post.
+There is no persistent outbox, extra polling or offline send admission in this phase.
 
 `Connection.post()` reports local socket write acceptance, not server acceptance.
 Without capability support the browser keeps the existing own-echo matching and

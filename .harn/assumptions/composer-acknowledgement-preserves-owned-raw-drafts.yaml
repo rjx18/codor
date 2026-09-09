@@ -1,7 +1,7 @@
 id: composer-acknowledgement-preserves-owned-raw-drafts
 hash: a-2889ca74ce6a
 title: Composer acknowledgement separates raw draft ownership from canonical echo
-state: active
+state: retired
 statement: Each composer dispatch captures its exact raw draft and canonical
   submitted payload. An opted-in send settles only on its correlated
   authoritative acceptance or refusal; a legacy send observes only its own new
@@ -13,3 +13,4 @@ depends_on:
   - exact-trailing-mentions-send-before-owned-result
   - composer-enter-uses-live-draft-state
 created_by: relay-polish-p6-idempotent-posts
+retired_by: optimistic-send-message-owned-status

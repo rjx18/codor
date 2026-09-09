@@ -6,7 +6,8 @@ async function control(path: string, body: unknown = {}): Promise<any> {
   if (!response.ok) throw new Error(await response.text()); return response.json();
 }
 async function open(page: Page, hosted: boolean) {
-  await control('/p6-capability', { mode: 'clear' }); await control('/p6-fault');
+  // This suite retains the acknowledgement-only (pre-correlation) daemon journey.
+  await control('/p6-capability', { mode: 'clear', correlations: false }); await control('/p6-fault');
   if (hosted) {
     await control('/relay-up'); const pairing = await control('/relay-pair');
     await page.addInitScript((url) => { (window as any).__CODOR_RELAY_URL = url; }, pairing.relayUrl);

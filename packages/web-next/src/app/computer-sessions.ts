@@ -618,11 +618,11 @@ export class ComputerSessionManager {
       room: () => room,
       state: () => 'disconnected',
       compositionOwner: entry.compositionOwner,
-      // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=cached-connector-rejection
+      // harn:assume reconnect-safe-post-dispatch-preserves-draft-v2 ref=cached-connector-rejection
       // A cached offline shell is read-only and cannot accept a post. Report
       // that refusal so the composer keeps the draft retryable.
       post: () => false,
-      // harn:end reconnect-safe-post-dispatch-preserves-draft
+      // harn:end reconnect-safe-post-dispatch-preserves-draft-v2
       act: () => undefined,
       disconnect: () => undefined,
       reconnect: () => entry.tunnel.recover(),
@@ -710,12 +710,14 @@ export class ComputerSessionManager {
             ? combinedTranscriptHistory : combinedTranscriptHistory.combinedTranscriptHistory,
           postAcknowledgements: typeof combinedTranscriptHistory === 'boolean'
             ? false : combinedTranscriptHistory.postAcknowledgements,
+          postCorrelations: typeof combinedTranscriptHistory === 'boolean'
+            ? false : combinedTranscriptHistory.postCorrelations,
           refreshPostAcknowledgements: async (currentToken, signal) => {
             // Use the same captured session read/renewal path as other owned
             // idempotent reads, never the subsequently selected global tunnel.
             const request = this.captureEntryRequest(entry);
             const compatibility = await this.deps.loadCompatibility(currentToken, { fetch: request.fetch }, signal);
-            return typeof compatibility === 'boolean' ? false : compatibility.postAcknowledgements;
+            return typeof compatibility === 'boolean' ? false : compatibility;
           },
           onResume: (room) => {
             if (entry.material.computer.id === this.activeId) {

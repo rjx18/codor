@@ -1,0 +1,14 @@
+id: composer-acknowledgement-preserves-owned-raw-drafts-v2
+hash: a-b519e5b1e053
+title: Optimistic sends transfer only their captured composition
+state: active
+statement: On a verified correlation-capable computer, a valid send transfers
+  its complete captured composition into a session-owned outgoing row and
+  immediately clears only that composition. Subsequent acceptance or correlated
+  canonical records settle that submission by identity without touching a newer
+  draft. Legacy mode retains the existing owned acknowledgement/echo workflow.
+depends_on:
+  - pending-composer-echo-is-destination-and-self-bound
+  - exact-trailing-mentions-send-before-owned-result
+  - composer-enter-uses-live-draft-state
+created_by: optimistic-send-message-owned-status

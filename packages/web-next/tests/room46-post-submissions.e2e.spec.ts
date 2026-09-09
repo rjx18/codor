@@ -16,6 +16,9 @@ async function paste(page: Page, code: string) {
   await page.getByTestId('pairing-code-submit').click();
 }
 async function open(page: Page, hosted: boolean) {
+  // Exercise the still-supported acknowledgement-only daemon behavior here.
+  // Correlated optimistic records have their own Room 48 journey.
+  await control('/p6-capability', { mode:'clear', correlations:false });
   if (hosted) {
     await control('/relay-up');
     const pairing = await control('/relay-pair');

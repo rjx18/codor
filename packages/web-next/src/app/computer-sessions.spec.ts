@@ -1188,7 +1188,10 @@ it('renews capability reads through the originating session while another comput
     const b = read('token-A', new AbortController().signal);
     for (let tick = 0; tick < 20; tick++) await Promise.resolve();
     await manager.activate('B'); expect(renew).toHaveBeenCalledTimes(1); finish();
-    expect(await Promise.all([a, b])).toEqual([true, true]);
+    expect(await Promise.all([a, b])).toEqual([
+      { combinedTranscriptHistory: true, postAcknowledgements: true },
+      { combinedTranscriptHistory: true, postAcknowledgements: true },
+    ]);
     expect(requests.every((request) => request.computer === 'A')).toBe(true);
     expect(requests.slice(-2).map((request) => request.token)).toEqual(['Bearer refreshed-A', 'Bearer refreshed-A']);
     expect(h.connectorOptions.get('A')!.compositionOwner).not.toBe(h.connectorOptions.get('B')!.compositionOwner);

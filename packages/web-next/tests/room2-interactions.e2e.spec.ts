@@ -101,7 +101,7 @@ test.describe('composer addressing', () => {
     await expect(input).toHaveValue(/@\w+ /);
     await input.fill('@fable quick status line please');
     await input.press('Enter');
-    await expect(input).toHaveValue('@fable '); // cleared, then re-seeded to the default recipient
+    await expect(input).toHaveValue(''); // submitted composition transferred to its own row
     const sent = page.locator('article', { hasText: 'quick status line please' }).first();
     await expect(sent).toBeVisible();
     await expect(sent.locator('[data-testid$="-seen"]')).toHaveAttribute('data-seen', 'true');

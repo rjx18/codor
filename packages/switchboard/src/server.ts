@@ -146,6 +146,11 @@ type AuthPrincipal =
       invocation?: { originRoom: string; targetRoom: string; target: ScopedMemberTarget };
     };
 
+function receiptSender(principal: AuthPrincipal): string {
+  return principal.kind === 'owner' ? 'owner' : principal.kind === 'browser'
+    ? `browser:${principal.deviceId}` : `${principal.kind}:${principal.memberId}`;
+}
+
 // harn:assume structured-preset-and-roster-cli-is-safe-and-ordered ref=agent-preset-safe-schema
 /** Project only the selector/configuration fields safe for CLI automation. */
 function projectAgentPreset(preset: AgentPreset): AgentPresetPublic {
@@ -557,6 +562,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     // harn:assume combined-history-capability-gates-socket-fallback ref=combined-history-compatibility-response
     combined_transcript_history: true,
     post_acknowledgements: true,
+    post_correlations: true,
     // harn:end combined-history-capability-gates-socket-fallback
   });
 
@@ -1159,7 +1165,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       // Pins are few; the strip hydrates the whole set at once, ignoring paging.
       if (query.pinned === '1') {
         const pinned = daemon.store.listPinnedMessages(room);
-        return reply.send({ messages: daemon.project(room, pinned), has_more: false });
+        return reply.send({ messages: daemon.store.correlatePosts(receiptSender(principal), 'message', daemon.project(room, pinned)), has_more: false });
       }
       const limit = positiveInteger(query.limit, 50, 100, 'limit');
       const before = positiveInteger(
@@ -1171,7 +1177,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const page = daemon.store.listMessages(room, { before, limit: limit + 1 });
       const hasMore = page.length > limit;
       const messages = hasMore ? page.slice(-limit) : page;
-      return reply.send({ messages: daemon.project(room, messages), has_more: hasMore });
+      return reply.send({ messages: daemon.store.correlatePosts(receiptSender(principal), 'message', daemon.project(room, messages)), has_more: hasMore });
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
@@ -1200,7 +1206,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       const messages = daemon.store.searchMessages(room, needle, { limit });
       // harn:assume run-evidence-search-is-bounded-and-redacted ref=run-search-rest-boundary
       return reply.send({
-        messages: daemon.project(room, messages),
+        messages: daemon.store.correlatePosts(receiptSender(principal), 'message', daemon.project(room, messages)),
         ...(includeRuns && { runs: daemon.searchRunEvidence(room, needle, limit) }),
       });
       // harn:end run-evidence-search-is-bounded-and-redacted
@@ -1219,7 +1225,8 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
     if (!daemon.store.getRoom(room)) return reply.code(404).send({ error: `no such room ${room}` });
     try {
       const { cursor } = req.query as { cursor?: string };
-      return reply.send(daemon.transcriptHistoryPage(room, cursor).page);
+      const page = daemon.transcriptHistoryPage(room, cursor).page;
+      return reply.send({ ...page, messages: daemon.store.correlatePosts(receiptSender(principal), 'message', page.messages) });
     } catch (error) {
       return reply.code(400).send({ error: String(error) });
     }
@@ -1842,12 +1849,18 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
   // harn:assume multiplexed-subscriptions-identify-their-room ref=room-addressed-live-fanout
   // harn:assume room-support-is-bounded-recipient-scoped-state ref=room-support-fanout
   type RoomSubscription = {
+    sender: string;
     roomAddressed: boolean;
     memberId?: string;
     lastSupport?: string;
     /** Active cross-origin agent sessions receive only their target runtime frames. */
     forwardedMemberId?: string;
     forwardedTo?: string;
+  };
+  const correlateFrame = (sender: string, frame: ServerFrame): ServerFrame => {
+    if (frame.type === 'message') return { ...frame, message: daemon.store.correlatePosts(sender, 'message', [frame.message])[0]! };
+    if (frame.type === 'schedule') return { ...frame, schedule: daemon.store.correlatePosts(sender, 'schedule', [frame.schedule])[0]! };
+    return frame;
   };
   const subscriptions = new Map<WebSocket, Map<string, RoomSubscription>>();
   const projectLiveFrame = (
@@ -1862,6 +1875,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
         return undefined;
       }
     }
+    if (frame.type === 'message' || frame.type === 'schedule') return correlateFrame(subscription.sender, frame);
     if (!subscription.roomAddressed || frame.type !== 'member') return frame;
     return { ...frame, room: subscription.forwardedTo ?? room };
   };
@@ -1953,7 +1967,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
       });
 
       const send = (frame: ServerFrame): void => {
-        socket.send(JSON.stringify(frame));
+        socket.send(JSON.stringify(correlateFrame(receiptSender(principal), frame)));
       };
 
       // harn:assume agent-management-correlates-safe-member-results ref=agent-management-correlation-server
@@ -2184,6 +2198,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               ? actor.id
               : undefined;
             const subscription: RoomSubscription = {
+              sender: receiptSender(principal),
               roomAddressed,
               ...(supportMemberId !== undefined && { memberId: supportMemberId }),
             };
@@ -2195,6 +2210,7 @@ export async function startServer(options: ServerOptions): Promise<RunningServer
               && principal.invocation.targetRoom !== room
             ) {
               socketRooms.set(principal.invocation.targetRoom, {
+                sender: receiptSender(principal),
                 roomAddressed,
                 forwardedMemberId: actor.id,
                 forwardedTo: room,

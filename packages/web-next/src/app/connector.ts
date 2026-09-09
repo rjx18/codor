@@ -12,6 +12,7 @@ import { setActiveBrowserAccessToken } from '@runtime/crypto.js';
 import type { TunnelState, TunnelStateListener } from '@runtime/relay.js';
 import type { Connection, PostOptions } from '@runtime/ws.js';
 import { PendingSubmission } from './pending-submission.js';
+import { outgoingFor } from './outgoing.js';
 
 import {
   HISTORY_PAGE_SIZE,
@@ -22,6 +23,7 @@ import {
 import {
   directCombinedTranscriptHistorySupported,
   directPostAcknowledgementsSupported,
+  directPostCorrelationsSupported,
   fetchBrowserCompatibility,
   requireBrowserUpgrade,
 } from './compatibility.js';
@@ -81,8 +83,9 @@ export interface ConnectorOptions {
    * Omitted only by legacy/direct callers, which retain socket history. */
   combinedTranscriptHistory?: boolean;
   postAcknowledgements?: boolean;
+  postCorrelations?: boolean;
   /** Revalidate this exact daemon after a socket replacement before retrying. */
-  refreshPostAcknowledgements?: (token: string, signal: AbortSignal) => Promise<boolean | undefined>;
+  refreshPostAcknowledgements?: (token: string, signal: AbortSignal) => Promise<boolean | { postAcknowledgements?: boolean; postCorrelations?: boolean } | undefined>;
   /** Hosted-only tunnel generation gate. Direct/self-hosted callers omit it. */
   tunnel?: {
     readonly state: TunnelState;
@@ -123,6 +126,23 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const setToken = options.setToken ?? setActiveBrowserAccessToken;
   let currentRoom = options.room;
   const pendingSubmission = new PendingSubmission();
+  const compositionOwner = options.compositionOwner ?? {};
+  const outgoing = outgoingFor({ compositionOwner });
+  const reconcileOutgoing = (previous?: ReturnType<typeof clientStore.getState>): void => {
+    const state = clientStore.getState();
+    for (const room of new Set(outgoing.snapshot().map(row => row.room))) {
+      const slice = roomSlice(state, room);
+      if (previous) {
+        const prior = roomSlice(previous,room);
+        if (prior.messages === slice.messages && prior.transcriptHistory.messages === slice.transcriptHistory.messages
+          && prior.schedules === slice.schedules) continue;
+      }
+      for (const messages of [slice.messages, slice.transcriptHistory.messages]) {
+        for (const id of outgoing.reconcile(room, messages, slice.schedules)) pendingSubmission.settleCanonical(id);
+      }
+    }
+  };
+  const stopOutgoing = clientStore.subscribe((_state, previous) => reconcileOutgoing(previous));
   const postStateListeners = new Set<() => void>();
   let postStateVersion = 0;
   const publishPostState = (): void => {
@@ -144,7 +164,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         if (signal.aborted) throw signal.reason;
         return request(refreshed);
       })
-    ).postAcknowledgements : undefined);
+    ) : undefined);
+  let postCorrelations = options.postCorrelations ?? (options.store === undefined ? directPostCorrelationsSupported() : undefined);
   let postAcknowledgements = options.postAcknowledgements
     ?? (options.store === undefined ? directPostAcknowledgementsSupported() : undefined);
   // Explicit test/legacy transports without a reader keep their legacy mode.
@@ -260,11 +281,12 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     }
   };
 
-  // harn:assume post-capability-recovery-is-owned-and-bounded ref=owned-post-capability-recovery
+  // harn:assume post-capability-recovery-is-owned-and-bounded-v2 ref=owned-post-capability-recovery
   let capabilityCheck: AbortController | undefined;
   let capabilityRetry: ReturnType<typeof setTimeout> | undefined;
   let capabilityBackoff = 500;
   const setPostCapability = (supported: boolean | undefined): void => {
+    if (supported === undefined) postCorrelations = undefined;
     if (postAcknowledgements === supported) return;
     postAcknowledgements = supported;
     publishPostState();
@@ -288,12 +310,13 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     });
     void Promise.race([Promise.resolve().then(() => refreshPostAcknowledgements(token, controller.signal)), cancelled])
       .catch(() => undefined)
-      .then((supported) => {
+      .then((result) => {
         if (mine !== generation || state !== 'connected' || capabilityCheck !== controller) return;
+        const supported = typeof result === 'object' ? result.postAcknowledgements : result;
+        postCorrelations = typeof result === 'object' ? result.postCorrelations === true : false;
         setPostCapability(supported);
         if (supported === true) {
-          const room = pendingSubmission.room;
-          if (room !== undefined && liveRooms.has(room)) pendingSubmission.ready(room, mine, send);
+          for (const room of pendingSubmission.rooms) if (liveRooms.has(room)) pendingSubmission.ready(room, mine, send);
         }
       })
       .finally(() => {
@@ -317,7 +340,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         capabilityBackoff = Math.min(capabilityBackoff * 2, 10_000);
       });
   };
-  // harn:end post-capability-recovery-is-owned-and-bounded
+  // harn:end post-capability-recovery-is-owned-and-bounded-v2
 
   // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-socket-history
   const subscribe = (room: string, hydrateLimit: number): void => {
@@ -400,6 +423,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
 
   /** Detach a socket from this connector before replacing or closing it. */
   const retire = (victim: WebSocket | undefined): void => {
+    outgoing.uncertain();
     if (victim === undefined) return;
     victim.onopen = null;
     victim.onmessage = null;
@@ -536,7 +560,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom, socketHistoryLimit);
-      if (pendingSubmission.room !== undefined) subscribe(pendingSubmission.room, socketHistoryLimit);
+      for (const room of pendingSubmission.rooms) subscribe(room, socketHistoryLimit);
       for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
       startProbes(mine);
       if (streamRepairs > 0) probeNow(mine);
@@ -566,6 +590,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       clientStore.getState().setConnected(true);
       // harn:assume context-reset-requests-settle-by-explicit-ref ref=clear-context-ref-client-result
       const submissionRoom = pendingSubmission.receive(frame);
+      reconcileOutgoing();
       if (submissionRoom !== undefined) publishPostState();
       // Receipts settle composer ownership only. Their original seq is not a
       // new replay cursor and presentation remains ordinary live/history data.
@@ -752,7 +777,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   const connector: RoomConnector = {
     room: () => currentRoom,
     state: () => state,
-    compositionOwner: options.compositionOwner ?? {},
+    compositionOwner,
     subscribePostState: (listener) => {
       postStateListeners.add(listener);
       return () => { postStateListeners.delete(listener); };
@@ -764,8 +789,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (stopped) publishPostState();
       return stopped;
     },
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft ref=connector-post-dispatch-result
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v2 ref=connector-post-dispatch-result
     get postAcknowledgements() { return postAcknowledgements; },
+    get postCorrelations() { return postAcknowledgements === true && postCorrelations === true; },
+    forgetSubmission: (id) => { pendingSubmission.settleCanonical(id); publishPostState(); },
     get submissionPending() { return pendingSubmission.active; },
     post: (body: string, opts?: PostOptions) => {
       const frame: PostFrame = {
@@ -774,17 +801,18 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       };
-      if (postAcknowledgements === undefined || pendingSubmission.active) return false;
+      if (postAcknowledgements === undefined || (!postCorrelations && pendingSubmission.active)) return false;
       if (!postAcknowledgements) return send(frame);
       if (state !== 'connected' || !liveRooms.has(frame.room)
         || (options.tunnel !== undefined && (options.tunnel.state !== 'connected'
           || options.tunnel.generation !== openedTunnelGeneration))) return false;
       frame.submission_id = opts?.submissionId ?? crypto.randomUUID();
+      if (opts?.retrySubmission && postCorrelations) pendingSubmission.settleCanonical(frame.submission_id);
       const sent = pendingSubmission.post(frame, generation, send, opts?.onResult);
       if (sent) publishPostState();
       return sent;
     },
-    // harn:end reconnect-safe-post-dispatch-preserves-draft
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v2
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act: Act, ref?: string): void => {
@@ -850,6 +878,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       stopTunnel();
       actionRooms.clear();
       pendingSubmission.dispose();
+      stopOutgoing();
       retire(socket);
       socket = undefined;
     },
