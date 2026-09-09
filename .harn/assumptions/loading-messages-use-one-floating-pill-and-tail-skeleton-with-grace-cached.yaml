@@ -1,8 +1,8 @@
-id: loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
+id: loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached
 hash: a-5c58a642248a
 title: Loading messages use one floating pill and a synchronization tail
   skeleton (source-owned grace)
-state: retired
+state: active
 statement: >
   The room UI must expose at most one accessible loading surface for the
   existing prioritized readiness signals: a high-contrast floating spinner pill
@@ -13,8 +13,7 @@ statement: >
   anchor owner; no new loading state machine, request, or scroll owner is
   introduced.
 depends_on:
-  - floating-room-loading-pill-uses-existing-priority-with-grace
+  - floating-room-loading-pill-uses-existing-priority-with-grace-cached
   - transcript-tail-follow-has-one-prepaint-owner
   - transcript-history-prepends-one-text-slot-page
-created_by: five-second-reconnect-grace
-retired_by: cached-offline-local-send-admission
+created_by: cached-offline-local-send-admission

@@ -54,8 +54,8 @@ function hydrateCachedUnit(): void {
   );
 }
 
-// harn:assume floating-room-loading-pill-uses-existing-priority-with-grace ref=floating-pill-unit-regression
-// harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace ref=loading-pill-unit-regression
+// harn:assume floating-room-loading-pill-uses-existing-priority-with-grace-cached ref=floating-pill-unit-regression
+// harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached ref=loading-pill-unit-regression
 describe('prioritized room loading pill', () => {
   const base: LoadingPillInputs = {
     connectionState: 'online',
@@ -96,13 +96,13 @@ describe('prioritized room loading pill', () => {
     expect(LOADING_PILL_LABEL).toBe('Loading messages…');
   });
 
-  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-unit-regression
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached ref=loading-pill-unit-regression
   it('reserves the bottom skeleton for initialized head synchronization', () => {
     expect(shouldShowNewMessageSkeleton({ initialized: false, loadingHead: true })).toBe(false);
     expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: false })).toBe(false);
     expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: true })).toBe(true);
   });
-  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached
 
   it('renders the existing history-head signal as one syncing pill', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -125,10 +125,10 @@ describe('prioritized room loading pill', () => {
     delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
 });
-// harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace
-// harn:end floating-room-loading-pill-uses-existing-priority-with-grace
+// harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
+// harn:end floating-room-loading-pill-uses-existing-priority-with-grace-cached
 
-// harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=nonmodal-reconnecting-regression
+// harn:assume readable-reconnecting-room-never-admits-mutation-with-grace-cached ref=nonmodal-reconnecting-regression
 describe('RecoveryOverlay readable reconnect', () => {
   it('keeps retained content nonmodal, preserves read controls, and disables mutations', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -212,4 +212,4 @@ describe('RecoveryOverlay readable reconnect', () => {
   });
   // harn:end computer-appearance-is-purged-on-forget
 });
-// harn:end readable-reconnecting-room-never-admits-mutation-with-grace
+// harn:end readable-reconnecting-room-never-admits-mutation-with-grace-cached

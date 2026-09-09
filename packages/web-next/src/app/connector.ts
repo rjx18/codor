@@ -282,9 +282,10 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
   };
 
   // harn:assume pending-submission-retries-only-through-ready-owner-v3 ref=local-outgoing-admission
-  const localSendAllowed = (): boolean => {
+  const localSendAllowed = (room = currentRoom): boolean => {
     const source = clientStore.getState();
-    return source.sessionEstablished && source.connectionRecoverable && !source.authRefused && RESUMABLE.has(state);
+    return ((source.sessionEstablished && source.connectionRecoverable) || source.cachedSendRooms.includes(room))
+      && !source.authRefused && RESUMABLE.has(state);
   };
   const roomWritable = (room: string): boolean => {
     const source = clientStore.getState();
@@ -825,14 +826,14 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (stopped) publishPostState();
       return stopped;
     },
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=connector-post-dispatch-result
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=connector-post-dispatch-result
     get postAcknowledgements() { return postAcknowledgements; },
     get postCorrelations() { return postAcknowledgements === true && postCorrelations === true; },
     get localSendAllowed() { return localSendAllowed(); },
     enqueueOutgoing: (id) => {
-      if (!localSendAllowed() || outgoing.snapshot().filter(row=>row.status==='queued').length > 32
-        || !outgoing.snapshot().some(row=>row.id===id && row.status==='queued')) return false;
-      flushOutgoing(outgoing.snapshot().find(row=>row.id===id)!.origin);
+      const row = outgoing.queuedCandidate(id);
+      if (!row || !localSendAllowed(row.origin)) return false;
+      flushOutgoing(row.origin);
       return true;
     },
     forgetSubmission: (id) => { pendingSubmission.settleCanonical(id); publishPostState(); },
@@ -853,7 +854,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (sent) publishPostState();
       return sent;
     },
-    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act: Act, ref?: string): void => {

@@ -1,0 +1,450 @@
+id: cached-offline-local-send-admission
+title: Known cached rooms admit local intent without inventing readiness
+notes: Correction only from 033535e3. Existing stable composition owner and
+  32-record never-sent buffer; source store eligibility is page-memory only, not
+  cached authorization/readiness. Terminal parks withdraw eligibility. Cached
+  post still refuses; live drain still requires exact room readiness and both
+  capabilities. No backend, persistent outbox, retry loop, cache schema, P2
+  skeleton behavior or shared hook changes. Reproduce cached reload red, then
+  waiting row/input/zero-wire/readiness/grace, handover same ID, B isolation,
+  unknown/capability/terminal exclusions. Full web units and build before
+  isolated Rooms 36/49/34/33. Ordinary Harn hook; stop on blocker.
+assumptions:
+  retire:
+    - id: readable-reconnecting-room-never-admits-mutation-with-grace
+      reason: Replace the cold-local-admission exclusion and relink active dependency
+        closure.
+    - id: floating-room-loading-pill-uses-existing-priority-with-grace
+      reason: Replace the cold-local-admission exclusion and relink active dependency
+        closure.
+    - id: prioritized-room-loading-pill-uses-existing-readiness-with-grace
+      reason: Replace the cold-local-admission exclusion and relink active dependency
+        closure.
+    - id: loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
+      reason: Replace the cold-local-admission exclusion and relink active dependency
+        closure.
+    - id: reconnect-safe-post-dispatch-preserves-draft-v3
+      reason: Replace the cold-local-admission exclusion and relink active dependency
+        closure.
+  create:
+    - id: readable-reconnecting-room-never-admits-mutation-with-grace-cached
+      title: Readable reconnects admit local intent without enabling server mutation
+      statement: Retained chats remain readable during reconnect. Established
+        recoverable sessions and an already-paired computer's validated cached
+        rooms may admit page-memory never-sent records under the existing
+        composition owner, without claiming a socket write. Cached startup gets
+        no healthy grace or verified capability; dispatch waits for the same
+        authenticated room-ready owner and verified acknowledgement/correlation
+        support. Unknown rooms and manual/auth/upgrade/disposal parks cannot
+        admit local sends. All server mutations require actual readiness; only
+        established transient loss gets source-owned five-second visual grace.
+        No persistent outgoing queue is added.
+      depends_on:
+        - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+        - relay-app-socket-readiness-requires-server-evidence
+      reason: Allow only known cached-room page-memory admission; keep independent
+        dependent behavior unchanged.
+    - id: floating-room-loading-pill-uses-existing-priority-with-grace-cached
+      title: Room loading states use one animated floating overlay pill (source-owned
+        grace)
+      statement: The browser exposes at most one accessible loading pill over the
+        transcript, selected by the existing priority of Reconnecting, Loading
+        channel, Syncing messages, and Loading older messages. It is compact,
+        contains a progress spinner and short fade/slide entrance, does not
+        occupy the transcript's layout flow, and disables that motion under
+        prefers-reduced-motion; no additional loading state machine or request
+        is introduced and direct/hosted readiness and mutation semantics stay
+        unchanged.
+      depends_on:
+        - prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
+        - readable-reconnecting-room-never-admits-mutation-with-grace-cached
+      reason: Allow only known cached-room page-memory admission; keep independent
+        dependent behavior unchanged.
+    - id: prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
+      title: One room loading pill projects existing readiness in fixed priority
+        (source-owned grace)
+      statement: Outside the source-owned five-second transient grace, the existing
+        reconnect/channel/head/older priority selects at most one floating
+        loading pill. During grace, reconnect-only and reconnect-room-readiness
+        feedback is withheld while genuine requested history/older work retains
+        the existing loading presentation. Actual readiness and mutation guards
+        stay truthful; no history request or second scroll owner is introduced.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation-with-grace-cached
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - finalized-browser-history-is-combined-page-owned
+        - transcript-history-prepends-one-text-slot-page
+        - combined-head-reconciliation-is-two-page-bounded
+        - relay-app-socket-readiness-requires-server-evidence
+      reason: Allow only known cached-room page-memory admission; keep independent
+        dependent behavior unchanged.
+    - id: loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached
+      title: Loading messages use one floating pill and a synchronization tail
+        skeleton (source-owned grace)
+      statement: >
+        The room UI must expose at most one accessible loading surface for the
+        existing prioritized readiness signals: a high-contrast floating spinner
+        pill with one “Loading messages…” label, a brief entrance animation that
+        is disabled for reduced-motion users, and a compact pulsing skeleton at
+        the bottom only when an initialized room is synchronizing new messages.
+        Initial hydration and older-page loads keep their existing transcript
+        geometry and anchor owner; no new loading state machine, request, or
+        scroll owner is introduced.
+      depends_on:
+        - floating-room-loading-pill-uses-existing-priority-with-grace-cached
+        - transcript-tail-follow-has-one-prepaint-owner
+        - transcript-history-prepends-one-text-slot-page
+      reason: Allow only known cached-room page-memory admission; keep independent
+        dependent behavior unchanged.
+    - id: reconnect-safe-post-dispatch-preserves-draft-v3-cached
+      title: Rejected dispatch preserves the submitted composition under its owner
+        (source-owned grace)
+      statement: Connection.post truthfully reports current socket admission;
+        unavailable sockets never imply server acceptance. Correlation-capable
+        composition is retained in the outgoing record on refusal, with explicit
+        recovery, while legacy mode preserves its draft. Actual readiness
+        remains required and cached shells reject. Reconnect never silently
+        replays ambiguous legacy posts.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation-with-grace-cached
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-composer-echo-is-destination-and-self-bound
+        - client-syncs-by-seq
+        - hosted-app-streams-follow-tunnel-generations
+        - relay-app-socket-readiness-requires-server-evidence
+        - room-action-errors-are-visible
+      reason: Allow only known cached-room page-memory admission; keep independent
+        dependent behavior unchanged.
+  reviewed:
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: pending-submission-retries-only-through-ready-owner-v3
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: reconnect-grace-timestamp-belongs-to-source-store
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: sender-receipt-correlation-is-indexed-and-private
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: composer-acknowledgement-preserves-owned-raw-drafts-v2
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: Keep existing source ownership, real readiness, cache bounds, receipt
+        safety and grace timing unchanged.
+files:
+  - .harn/plans/cached-offline-local-send-admission.yaml
+  - docs/post-submissions.md
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/outgoing.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/runtime/ws.spec.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.tsx
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+  - packages/web-next/tests/room49-reconnect-grace.e2e.spec.ts
+anchors:
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  hosted-app-streams-follow-tunnel-generations:
+    generation-aware-computer-session:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  hosted-computer-sessions-keep-state-isolated:
+    per-computer-session-state:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  hosted-last-good-history-cache-is-per-room-bounded-and-provisional:
+    provisional-cache-lifecycle:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+    provisional-cache-write-coalescing:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+    provisional-cache-browser-regression:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  pending-submission-retries-only-through-ready-owner-v3:
+    local-outgoing-admission:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  reconnect-grace-timestamp-belongs-to-source-store:
+    source-recovery-clock:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  sender-receipt-correlation-is-indexed-and-private:
+    optimistic-outgoing-state:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  composer-acknowledgement-preserves-owned-raw-drafts-v2:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-room-readiness-state:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  subscribed-live-run-events-survive-switch-and-history-retirement:
+    store-history-owned-retirement:
+      action: change
+      reason: Known cached-room local admission and its owning lifecycle only;
+        preserve the established invariant.
+  reconnect-safe-post-dispatch-preserves-draft-v3:
+    cached-connector-rejection:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    post-dispatch-unit-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    connector-post-dispatch-result:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    composer-rejection-unlocks-draft:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    runtime-post-dispatch-result:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    composer-rejection-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    reconnect-first-post-browser-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+  reconnect-safe-post-dispatch-preserves-draft-v3-cached:
+    cached-connector-rejection:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    post-dispatch-unit-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    connector-post-dispatch-result:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    runtime-post-dispatch-result:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    composer-rejection-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    reconnect-first-post-browser-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+  readable-reconnecting-room-never-admits-mutation-with-grace:
+    offline-composer-http-boundary:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    nonmodal-reconnecting-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    nonmodal-reconnecting-surface:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    offline-composer-http-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+  readable-reconnecting-room-never-admits-mutation-with-grace-cached:
+    offline-composer-http-boundary:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    nonmodal-reconnecting-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    nonmodal-reconnecting-surface:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    offline-composer-http-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+  loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace:
+    loading-pill-tail-skeleton:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-tail-skeleton-render:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-surface-style:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-tail-skeleton-style:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-unit-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-surface:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+  loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached:
+    loading-pill-tail-skeleton:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-tail-skeleton-render:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-surface-style:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-tail-skeleton-style:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-unit-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-surface:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-browser-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+  floating-room-loading-pill-uses-existing-priority-with-grace:
+    floating-pill-motion-style:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    floating-pill-unit-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    floating-pill-render:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    floating-pill-browser-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+  floating-room-loading-pill-uses-existing-priority-with-grace-cached:
+    floating-pill-motion-style:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    floating-pill-unit-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    floating-pill-render:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    floating-pill-browser-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+  prioritized-room-loading-pill-uses-existing-readiness-with-grace:
+    loading-pill-unit-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-state-projection:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Relink to cached-admission successor, without altering independent
+        presentation.
+  prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached:
+    loading-pill-unit-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-state-projection:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+    loading-pill-browser-regression:
+      action: change
+      reason: Preserve independent presentation while replacing its admission
+        dependency.
+applied:
+  applied_at: 2026-09-09T15:53:03.983Z

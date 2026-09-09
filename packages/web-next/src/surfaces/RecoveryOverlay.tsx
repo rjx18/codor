@@ -25,7 +25,7 @@ export interface LoadingPillInputs {
   loadingCursor: string | undefined;
 }
 
-// harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace ref=loading-pill-state-projection
+// harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached ref=loading-pill-state-projection
 /** Select one status from the existing connection/readiness/history signals.
  * Lower-priority work must never replace a more urgent state or introduce a
  * second loading owner. */
@@ -44,7 +44,7 @@ export function loadingPillState(inputs: LoadingPillInputs): LoadingPillState | 
   return undefined;
 }
 
-// harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace
+// harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
 
 export const LOADING_PILL_LABEL = 'Loading messages…';
 
@@ -93,7 +93,8 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
   const { state, downMs, inGrace } = useConnectionState();
   const connected = useClientStore((store) => store.connected);
   const established = useClientStore(store => store.sessionEstablished);
-  const localAdmission = useClientStore(store => store.sessionEstablished && store.connectionRecoverable && !store.authRefused);
+  const localAdmission = useClientStore(store => !store.authRefused
+    && ((store.sessionEstablished && store.connectionRecoverable) || store.cachedSendRooms.includes(store.activeRoom)));
   const activeRoom = useClientStore((store) => store.activeRoom);
   const activeRoomState = useClientStore((store) => store.rooms[activeRoom]);
   const roomReady = useClientStore((store) => activeRoom !== '' && store.roomLive[activeRoom] === true);
@@ -101,8 +102,8 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
     const slice = roomSlice(store, store.activeRoom);
     return Object.keys(slice.messages).length > 0 || slice.transcriptHistory.units.length > 0;
   });
-  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=nonmodal-reconnecting-surface
-  const readableReconnect = (established || (computerSessions() !== undefined && renderable))
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace-cached ref=nonmodal-reconnecting-surface
+  const readableReconnect = (established || localAdmission || (computerSessions() !== undefined && renderable))
     && (!connected || !roomReady)
     && state !== 'pairing-dead';
   const show = !inGrace && !readableReconnect
@@ -164,8 +165,8 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
         >
           {children}
         </div>
-        {/* harn:assume floating-room-loading-pill-uses-existing-priority-with-grace ref=floating-pill-render */}
-        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-surface */}
+        {/* harn:assume floating-room-loading-pill-uses-existing-priority-with-grace-cached ref=floating-pill-render */}
+        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached ref=loading-pill-surface */}
         {loadingState !== undefined ? (
           <div
             className="nx-loading-pill"
@@ -178,11 +179,11 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
             <span>{LOADING_PILL_LABEL}</span>
           </div>
         ) : null}
-        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace */}
-        {/* harn:end floating-room-loading-pill-uses-existing-priority-with-grace */}
+        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached */}
+        {/* harn:end floating-room-loading-pill-uses-existing-priority-with-grace-cached */}
       </div>
       {show ? <RecoveryCard state={state as RecoveryState} presentation="overlay" /> : null}
     </>
   );
 }
-// harn:end readable-reconnecting-room-never-admits-mutation-with-grace
+// harn:end readable-reconnecting-room-never-admits-mutation-with-grace-cached

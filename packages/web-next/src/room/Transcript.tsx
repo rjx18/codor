@@ -305,7 +305,7 @@ export function interactionInCurrentHistoryWindow(
   return byTime > 0 || (byTime === 0 && interaction.id >= oldest.id);
 }
 
-// harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-tail-skeleton
+// harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached ref=loading-pill-tail-skeleton
 /** The tail skeleton belongs only to a hydrated room's head synchronization.
  * Initial hydration keeps its existing three-row skeleton and cursor paging is
  * represented by the prioritized floating pill, so neither changes transcript
@@ -315,7 +315,7 @@ export function shouldShowNewMessageSkeleton(
 ): boolean {
   return history.initialized && history.loadingHead;
 }
-// harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
+// harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached
 
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
@@ -1225,7 +1225,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
               ))}
             </div>
           )}
-          {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-tail-skeleton-render */}
+          {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached ref=loading-pill-tail-skeleton-render */}
           {showNewMessageSkeleton && (
             <div
               className="nx-new-message-skeleton"
@@ -1233,7 +1233,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
               aria-hidden="true"
             />
           )}
-          {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace */}
+          {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached */}
         </div>
       </div>
       {showJump && (

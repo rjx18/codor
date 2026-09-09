@@ -341,7 +341,8 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   const [checkedDelivery, setCheckedDelivery] = useState(false);
   const connected = useClientStore((state) => state.connected);
   const roomLive = useClientStore(state => state.roomLive[props.room] === true);
-  const localQueueState = useClientStore(state => state.sessionEstablished && state.connectionRecoverable && !state.authRefused);
+  const localQueueState = useClientStore(state => !state.authRefused
+    && ((state.sessionEstablished && state.connectionRecoverable) || state.cachedSendRooms.includes(props.room)));
   const bufferedSend = localQueueState && props.connection.localSendAllowed === true
     && (props.connection.postCorrelations === true || !connected || !roomLive || props.connection.postAcknowledgements === undefined);
   const slice = useClientStore((state) => roomSlice(state, props.room));
@@ -396,7 +397,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
   const suppressClickRef = useRef(false);
   const recording = takes.some((take) => take.state === 'recording');
 
-  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=offline-composer-http-boundary
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace-cached ref=offline-composer-http-boundary
   // Event-level disabling is presentation, not authority: paste/drop and a
   // hidden input can invoke uploads without a visible button, while a dictation
   // session opened online can reach transcription after the socket drops.
@@ -409,7 +410,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       : 'Reconnect before using voice');
     return false;
   };
-  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace
+  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace-cached
 
   // Programmatic inserts restore the caret synchronously with the DOM update —
   // an rAF here loses keystrokes racing in from a fast typist.
@@ -1022,7 +1023,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
       authorId: targetSlice.selfMemberId,
       errorCount: slice.errors.length,
     });
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=composer-rejection-unlocks-draft
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=composer-rejection-unlocks-draft
     const accepted = props.connection.post(body, {
       room: props.room, submissionId,
       ...(voiceDraft?.body === body && { voice: voiceDraft.voice }),
@@ -1040,7 +1041,7 @@ function OwnedComposer(props: { room: string; token: () => string; connection: C
         ? 'Waiting for acknowledgement of the previous message.' : 'Reconnect before sending');
       return;
     }
-    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     setHint(submissionId === undefined
       ? 'Sent; waiting for confirmation. If disconnected, check the conversation before sending again.'
       : 'Waiting for acknowledgement…');

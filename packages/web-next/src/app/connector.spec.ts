@@ -143,7 +143,7 @@ afterEach(() => {
 
 // harn:assume relay-app-socket-readiness-requires-server-evidence ref=relay-app-socket-readiness-unit-regression
 describe('connector resume', () => {
-  // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=post-dispatch-unit-regression
+  // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=post-dispatch-unit-regression
   it('reports a rejected post and accepts the first explicit retry after reconnect', () => {
     const connector = build();
     const first = latest();
@@ -166,7 +166,7 @@ describe('connector resume', () => {
       .toEqual([{ type: 'post', room: 'eng', body: 'first post after reconnect' }]);
     connector.dispose();
   });
-  // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
+  // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
 
   // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
   it('correlates direct and scoped cancellation with exactly one schedule ref', () => {
@@ -1178,6 +1178,43 @@ describe('P6 submission connection ownership', () => {
     const posts=next.sent.map(raw=>JSON.parse(raw)).filter(frame=>frame.type==='post');
     expect(posts.filter(frame=>frame.room==='eng').map(frame=>frame.body)).toEqual(['eng old','eng new']);
     expect(posts.filter(frame=>frame.room==='ops').map(frame=>frame.body)).toEqual(['ops old','ops new']);
+    connector.dispose();
+  });
+  it.each([undefined, false, true])('cached local records await same-room readiness and verified support (%s)', (support) => {
+    const source = createClientStore();
+    source.setState({ cachedSendRooms: ['eng'] });
+    const compositionOwner = {};
+    const cached = { compositionOwner };
+    const connector = createConnector({ room: 'eng', token: 'token', store: source, compositionOwner,
+      postAcknowledgements: support, postCorrelations: support,
+      socketFactory: url => new FakeSocket(url) as unknown as WebSocket });
+    expect(source.getState()).toMatchObject({ connected: false, sessionEstablished: false });
+    expect(connector.localSendAllowed).toBe(true);
+    const id = sendOutgoing(connector, 'eng', 'eng', 'cached waiting', []);
+    expect(outgoingFor(cached).snapshot()).toMatchObject([{ id, status: 'queued' }]);
+    const socket = latest(); socket.accept();
+    socket.deliver({ type: 'sync_complete', room: 'other', seq: 0 });
+    expect(socket.sent.map(raw => JSON.parse(raw)).filter(frame => frame.type === 'post')).toEqual([]);
+    socket.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    socket.deliver({ type: 'sync_complete', room: 'eng', seq: 0 });
+    const posts = socket.sent.map(raw => JSON.parse(raw)).filter(frame => frame.type === 'post');
+    expect(posts.map(frame => frame.submission_id)).toEqual(support === true ? [id] : []);
+    if (support !== true) expect(outgoingFor(cached).snapshot()[0]).toMatchObject({ status: 'queued', error: expect.stringContaining('compatible') });
+    connector.dispose();
+    expect(source.getState().cachedSendRooms).toEqual([]);
+  });
+  it.each(['manual', 'auth', 'upgrade'] as const)('cached admission is withdrawn by %s before first room readiness', (kind) => {
+    const source = createClientStore(); source.setState({ cachedSendRooms: ['eng'] });
+    const connector = createConnector({ room: 'eng', token: 'token', store: source,
+      postAcknowledgements: true, postCorrelations: true, onUpgradeRequired: vi.fn(),
+      socketFactory: url => new FakeSocket(url) as unknown as WebSocket });
+    const socket = latest(); socket.accept();
+    if (kind === 'manual') connector.disconnect();
+    else if (kind === 'auth') socket.drop(4403);
+    else socket.deliver({ type: 'upgrade_required', minimum_browser_protocol: 999, current_browser_protocol: 2 });
+    expect(connector.localSendAllowed).toBe(false);
+    expect(source.getState().cachedSendRooms).toEqual([]);
+    expect(source.getState().sessionEstablished).toBe(false);
     connector.dispose();
   });
   it('bounds the never-sent buffer without discarding the overflow composition',()=>{

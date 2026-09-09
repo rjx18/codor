@@ -124,8 +124,10 @@ safe receipt recovery. Legacy ambiguity is not automatically replayed.
 The outage timestamp belongs to the source computer, so switching rooms/computers
 or receiving repeated failure signals cannot restart the grace. After five seconds,
 Disconnected and the normal recovery feedback return without losing queued text.
-Never-live startup, manual disconnect, revocation and upgrade parks get no grace
-or new local-send admission. Forget/re-pair cannot inherit another identity's queue.
+Never-live startup gets no healthy grace. Only a known paired cached room gets
+the local-admission exception described below; unknown rooms, manual disconnect,
+revocation and upgrade parks cannot admit new local sends. Forget/re-pair cannot
+inherit another identity's queue.
 
 `Connection.post()` reports local socket write acceptance, not server acceptance.
 Without capability support the browser keeps the existing own-echo matching and
@@ -138,7 +140,20 @@ legacy post automatically.
 | New | Old | Legacy echo matching, no automatic resubmission |
 | New | New | Correlated results and durable same-ID retry |
 
-There is no persistent offline outbox. Closing the page ends automatic recovery;
+There is no persistent offline outbox. An already-paired computer's known cached
+channel may nevertheless accept a new
+local waiting message after reopening while that computer is offline. This uses
+the same page-memory, 32-record buffer and composition owner as a warm reconnect.
+The cached view remains visibly offline: neither actual readiness nor a healthy
+five-second grace is invented. Cached `post` still refuses wire writes. The
+original IDs/payloads survive cached-to-live handover and dispatch only after that
+computer's authenticated room readiness and verified acknowledgement/correlation
+support. Unknown/unsupported capability leaves the row visibly not sent; another
+computer, a forgotten/re-paired identity, or manual/auth/upgrade parks cannot send
+it. Uploads, transcription and management actions still require real readiness.
+Another page reload does not preserve these local outgoing records.
+
+Closing the page ends automatic recovery;
 a caller retaining the original ID can still retry later without duplication.
 This prevents duplicate accepted submissions and fanout. It does not promise
 exactly-once agent external actions or delivery through a permanent outage.

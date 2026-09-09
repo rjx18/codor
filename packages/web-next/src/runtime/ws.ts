@@ -141,7 +141,7 @@ export function connect(options: ConnectOptions): Connection {
   };
 
   const connection: Connection = {
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=runtime-post-dispatch-result
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=runtime-post-dispatch-result
     post: (body, opts) => send({
       type: 'post',
       room: options.room,
@@ -150,7 +150,7 @@ export function connect(options: ConnectOptions): Connection {
       ...(opts?.attachments?.length ? { attachments: opts.attachments } : {}),
       ...(opts?.voice !== undefined && { voice: opts.voice }),
     }),
-    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act, ref) => {
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);

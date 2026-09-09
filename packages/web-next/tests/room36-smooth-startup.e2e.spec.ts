@@ -103,9 +103,9 @@ test.describe('hosted smooth startup budgets', () => {
     }));
   });
 
-  // harn:assume floating-room-loading-pill-uses-existing-priority-with-grace ref=floating-pill-browser-regression
-  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-browser-regression
-  // harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace ref=loading-pill-browser-regression
+  // harn:assume floating-room-loading-pill-uses-existing-priority-with-grace-cached ref=floating-pill-browser-regression
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached ref=loading-pill-browser-regression
+  // harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached ref=loading-pill-browser-regression
   test('shows one prioritized loading pill for direct history work', async ({ page }) => {
     test.setTimeout(120_000);
     let releaseHead = (): void => undefined;
@@ -165,13 +165,13 @@ test.describe('hosted smooth startup budgets', () => {
     releaseCursor();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
   });
-  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
-  // harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace
-  // harn:end floating-room-loading-pill-uses-existing-priority-with-grace
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace-cached
+  // harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
+  // harn:end floating-room-loading-pill-uses-existing-priority-with-grace-cached
 
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-browser-regression
-  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=nonmodal-reconnecting-regression
-  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=offline-composer-http-regression
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace-cached ref=nonmodal-reconnecting-regression
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace-cached ref=offline-composer-http-regression
   test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
     test.setTimeout(120_000);
     const mediaMutations: string[] = [];
@@ -234,7 +234,7 @@ test.describe('hosted smooth startup budgets', () => {
     await page.evaluate(() => { (window as unknown as { __cachedDocument?: boolean }).__cachedDocument = true; });
 
     const input = page.getByTestId('composer-input');
-    const draft = '@viewer keep this offline draft';
+    const draft = '@richard cached-offline-waiting-review';
     await input.fill(draft);
     await page.evaluate(() => {
       const input = document.querySelector<HTMLTextAreaElement>('[data-testid="composer-input"]')!;
@@ -254,10 +254,30 @@ test.describe('hosted smooth startup budgets', () => {
     await expect(input).toHaveValue(draft);
     await expect(page.getByTestId('attach-tray')).toHaveCount(0);
 
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected', 'false');
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-reconnect-grace', 'false');
+    await expect(page.getByTestId('composer-send')).toBeEnabled();
+    await page.getByTestId('composer-send').click();
+    await expect(input).toHaveValue('');
+    const waiting = page.getByTestId(/^outgoing-/);
+    await expect(waiting).toHaveCount(1);
+    await expect(waiting.getByRole('status', { name: 'Queued locally; not sent' })).toBeVisible();
+    await expect(waiting).toContainText(draft);
+    const submissionId = (await waiting.getAttribute('data-testid'))!.slice('outgoing-'.length);
+    expect((await control<any>('/p6-evidence', { needle: draft })).attempts).toHaveLength(0);
+    const newerDraft = '@richard keep my newer draft';
+    await input.fill(newerDraft);
+
     await control('/relay-up');
     await expect(page.getByTestId('reconnecting-pill')).toHaveCount(0, { timeout: 30_000 });
     await expect(page.getByTestId('connection')).toHaveClass(/is-live/);
     expect(await page.evaluate(() => (window as unknown as { __cachedDocument?: boolean }).__cachedDocument)).toBe(true);
+    await expect(waiting).toHaveCount(0, { timeout: 30_000 });
+    await expect(input).toHaveValue(newerDraft);
+    const proof = await control<any>('/p6-evidence', { needle: draft });
+    expect(proof.messages).toHaveLength(1);
+    expect(proof.attempts).toHaveLength(1);
+    expect(proof.attempts[0].submission_id).toBe(submissionId);
     await input.fill('@viewer current evidence restored');
     await expect(page.getByTestId('composer-send')).toBeEnabled();
     console.info('[hosted-cached-render-metrics]', JSON.stringify({ cachedRenderMs }));
@@ -446,8 +466,8 @@ test.describe('hosted smooth startup budgets', () => {
   });
   // harn:end transcript-tail-follow-has-one-prepaint-owner
   // harn:end combined-history-opening-sync-stays-cold
-  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace
-  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace
+  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace-cached
+  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace-cached
   // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
 
   test('a cacheless active host that returns late enters the same document automatically', async ({ page }) => {

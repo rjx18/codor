@@ -66,13 +66,27 @@ for(const hosted of [false,true])for(const long of [false,true]){
   });
 }
 
-test('queued A never writes through warm B and B draft survives A recovery',async({page})=>{
+test('cached-offline A never writes through warm B and B draft survives A recovery',async({page})=>{
   test.setTimeout(90000);await open(page,true);
   const pairing=await control('/relay-pair-b');await page.getByTestId('computer-add').click();await paste(page,pairing.code);
   await expect(page.getByTestId('computer-current')).toHaveAttribute('aria-label',/codor-host-b/);
   await page.getByRole('button',{name:/codor-host-a/}).first().click();
   await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected','true');
+  await expect.poll(() => page.evaluate(async () => {
+    const request = indexedDB.open('codor-last-good-room-v1');
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
+    });
+    const count = await new Promise<number>(resolve => {
+      const count = database.transaction('rooms').objectStore('rooms').count();
+      count.onsuccess = () => resolve(count.result);
+    }); database.close(); return count;
+  })).toBe(2);
   await control('/relay-down-a-only');await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected','false');
+  await page.reload();
+  await expect(page.getByTestId('composer-input')).toBeVisible();
+  await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected','false');
+  await expect(page.getByTestId('connection')).toHaveAttribute('data-reconnect-grace','false');
   const needle='owned-A-queue';await send(page,`@richard ${needle}`);
   await page.getByRole('button',{name:/codor-host-b/}).first().click();
   await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected','true');

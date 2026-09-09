@@ -157,7 +157,7 @@ test.describe('relay tunnel journey', () => {
     // without losing its captured data or blocking the next draft.
     // The connector unit covers a real closed/send-race socket; this browser
     // seam drives the local-admission refusal through the mounted Composer.
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=composer-rejection-regression
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=composer-rejection-regression
     const rejectedDraft = '@viewer keep this draft after refusal';
     await input.fill(rejectedDraft);
     await page.evaluate(() => {
@@ -185,7 +185,7 @@ test.describe('relay tunnel journey', () => {
     await expect(rejectedRow).toHaveCount(0);
     // The next composition is independent of the recovered message.
     await input.fill('@viewer attachment over the relay');
-    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
 
     // Attachment upload and retrieval both cross the tunnel. The presented URL
     // is a blob and preserves the exact uploaded bytes.
@@ -240,12 +240,12 @@ test.describe('relay tunnel journey', () => {
     await expect(scheduledCard).toContainText('Cancelled', { timeout: 20_000 });
 
     // Still functional after recovery — a fresh app-WS stream on the NEW session.
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=reconnect-first-post-browser-regression
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3-cached ref=reconnect-first-post-browser-regression
     await input.fill('@viewer back after recovery');
     await expect(page.getByTestId('composer-send')).toBeEnabled({ timeout: 30_000 });
     await input.press('Enter');
     await expect(page.getByTestId('timeline')).toContainText('back after recovery', { timeout: 20_000 });
-    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3-cached
     // harn:end relay-app-socket-readiness-requires-server-evidence
     expect(await page.evaluate(() =>
       (window as unknown as { __codorRelayAppOpens: unknown[] }).__codorRelayAppOpens.length))

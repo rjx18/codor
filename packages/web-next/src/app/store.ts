@@ -148,6 +148,8 @@ export interface ClientState {
   sessionEstablished: boolean;
   disconnectedSince: number | undefined;
   connectionRecoverable: boolean;
+  /** Page-local admission only, seeded by the owning paired cache loader. */
+  cachedSendRooms: readonly string[];
   /** The connector parked on a device-auth refusal (app-WS 4403): positive
    *  pairing-dead evidence for the recovery surface. Cleared on (re)connect. */
   authRefused: boolean;
@@ -473,6 +475,7 @@ export function createClientStore(): ClientStore {
   const store = create<ClientState>((set, get) => ({
   connected: false,
   sessionEstablished: false,
+  cachedSendRooms: [],
   disconnectedSince: Date.now(),
   connectionRecoverable: false,
   authRefused: false,
@@ -874,8 +877,10 @@ export function createClientStore(): ClientStore {
   setConnected: (connected, recoverable) => {
     const state = get();
     const connectionRecoverable = connected ? true : recoverable ?? state.connectionRecoverable;
-    if (state.connected === connected && state.connectionRecoverable === connectionRecoverable && (!connected || !state.authRefused)) return;
+    if (state.connected === connected && state.connectionRecoverable === connectionRecoverable && (!connected || !state.authRefused)
+      && !(recoverable === false && state.cachedSendRooms.length > 0)) return;
     set(connected ? { connected, authRefused: false, connectionRecoverable } : { connected, connectionRecoverable,
+      ...(recoverable === false && { cachedSendRooms: [] }),
       disconnectedSince: state.disconnectedSince ?? Date.now(),
       rooms: Object.fromEntries(Object.entries(state.rooms).map(([room, slice]) => [room,
         slice.transcriptHistory.initialized && !slice.transcriptHistory.headNeedsRevalidation
@@ -976,7 +981,7 @@ export function createClientStore(): ClientStore {
   // harn:end worktree-conversation-status-is-live-and-independent
   reset: () => {
     staging.clear();
-    set({ connected: false, authRefused: false, sessionEstablished: false, disconnectedSince: Date.now(), connectionRecoverable: false,
+    set({ connected: false, authRefused: false, sessionEstablished: false, cachedSendRooms: [], disconnectedSince: Date.now(), connectionRecoverable: false,
       activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
   },
   }));

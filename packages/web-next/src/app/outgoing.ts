@@ -38,6 +38,11 @@ export class OutgoingState {
   private rows: readonly Outgoing[] = [];
   private listeners = new Set<() => void>();
   snapshot = (): readonly Outgoing[] => this.rows;
+  /** Candidate is already recorded; both cached and live owners share this cap. */
+  queuedCandidate(id: string): Outgoing | undefined {
+    return this.rows.filter(row => row.status === 'queued').length <= 32
+      ? this.rows.find(row => row.id === id && row.status === 'queued') : undefined;
+  }
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener); return () => { this.listeners.delete(listener); };
   };
@@ -100,7 +105,7 @@ export function sendOutgoing(connection: Connection, origin: string, room: strin
   const local = connection.enqueueOutgoing !== undefined;
   state.add({ id, origin, room, rawBody, frame: frozen, attachments: structuredClone(attachments), status: local ? 'queued' : 'sending' });
   if (local) {
-    if (!connection.enqueueOutgoing!(id)) state.update(id, {status:'failed',error:'Cannot queue this message. The connection is parked, has never been live, or its 32-message waiting buffer is full.'});
+    if (!connection.enqueueOutgoing!(id)) state.update(id, {status:'failed',error:'Cannot queue this message. The room is not known, the connection is parked, or its 32-message waiting buffer is full.'});
   } else dispatchOutgoing(connection, state.snapshot().find(row => row.id === id)!);
   return id;
 }

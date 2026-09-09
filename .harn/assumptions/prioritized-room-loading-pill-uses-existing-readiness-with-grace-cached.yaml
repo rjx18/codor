@@ -1,8 +1,8 @@
-id: prioritized-room-loading-pill-uses-existing-readiness-with-grace
+id: prioritized-room-loading-pill-uses-existing-readiness-with-grace-cached
 hash: a-c7f27e74d003
 title: One room loading pill projects existing readiness in fixed priority
   (source-owned grace)
-state: retired
+state: active
 statement: Outside the source-owned five-second transient grace, the existing
   reconnect/channel/head/older priority selects at most one floating loading
   pill. During grace, reconnect-only and reconnect-room-readiness feedback is
@@ -10,12 +10,11 @@ statement: Outside the source-owned five-second transient grace, the existing
   loading presentation. Actual readiness and mutation guards stay truthful; no
   history request or second scroll owner is introduced.
 depends_on:
-  - readable-reconnecting-room-never-admits-mutation-with-grace
+  - readable-reconnecting-room-never-admits-mutation-with-grace-cached
   - hosted-app-streams-follow-tunnel-generations
   - hosted-computer-sessions-keep-state-isolated
   - finalized-browser-history-is-combined-page-owned
   - transcript-history-prepends-one-text-slot-page
   - combined-head-reconciliation-is-two-page-bounded
   - relay-app-socket-readiness-requires-server-evidence
-created_by: five-second-reconnect-grace
-retired_by: cached-offline-local-send-admission
+created_by: cached-offline-local-send-admission
