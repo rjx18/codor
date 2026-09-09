@@ -1,0 +1,132 @@
+id: remove-tail-sync-skeleton
+title: Remove the bottom synchronization skeleton while retaining the floating pill
+notes: >
+  Implement only Phase 2 of the approved relay-polish plan from exact clean base
+  864069b6134e09d3b786f85171fb8ea7a8710e17. The existing prioritized floating
+  loading pill remains the sole loading surface for synchronization. Remove the
+  initialized-head bottom skeleton and its now-unused helper, styles, and
+  assertions without changing history requests, transcript anchoring, initial
+  hydration, or older-page loading.
+assumptions:
+  retire:
+    - id: loading-messages-use-one-floating-pill-and-tail-skeleton
+      reason: >
+        The active truth requires a bottom synchronization skeleton that this
+        approved Phase 2 explicitly removes; its remaining pill and geometry
+        contracts are re-anchored to the replacement assumption.
+  create:
+    - id: loading-messages-use-one-floating-pill-without-tail-skeleton
+      title: Room loading uses one floating pill without a bottom synchronization
+        skeleton
+      statement: >
+        The room UI exposes at most one accessible loading surface for the
+        existing prioritized readiness signals: the high-contrast floating
+        spinner pill with one “Loading messages…” label, its existing entrance
+        and reduced-motion behavior, and no bottom synchronization skeleton
+        during initialized head refresh. Initial hydration keeps its existing
+        empty-chat placeholder, older-page loads keep their floating state and
+        reader anchoring, and no new loading state machine, request, or scroll
+        owner is introduced.
+      reason: >
+        The bottom skeleton duplicates the existing floating synchronization
+        signal and can alter transcript geometry; the pill-only surface keeps
+        loading visible without shifting the transcript or changing request
+        behavior.
+      depends_on:
+        - floating-room-loading-pill-uses-existing-priority
+        - transcript-tail-follow-has-one-prepaint-owner
+        - transcript-history-prepends-one-text-slot-page
+  reviewed:
+    - id: floating-room-loading-pill-uses-existing-priority
+      outcome: unchanged
+      reason: >
+        The existing selector, priority, accessible label, spinner, motion, and
+        direct/hosted readiness semantics remain unchanged; only its source
+        anchors move to the replacement presentation truth.
+    - id: prioritized-room-loading-pill-uses-existing-readiness
+      outcome: unchanged
+      reason: >
+        Reconnecting, channel, syncing, and older-page projection remains the
+        sole existing loading-state selector and is not given new state.
+    - id: transcript-tail-follow-has-one-prepaint-owner
+      outcome: unchanged
+      reason: >
+        Transcript remains the only scroll and tail-follow owner; removing the
+        tail skeleton does not add compensation or alter its geometry paths.
+    - id: transcript-history-prepends-one-text-slot-page
+      outcome: unchanged
+      reason: >
+        Combined-history bounds, cursor requests, and deliberate older-page
+        anchoring remain unchanged.
+    - id: readable-reconnecting-room-never-admits-mutation
+      outcome: unchanged
+      reason: >
+        Reconnect presentation and mutation admission remain unchanged; only the
+        redundant bottom decoration is removed.
+    - id: web-theme-accessible-modes
+      outcome: unchanged
+      reason: >
+        Existing theme tokens continue to provide the pill's contrast-safe
+        colors and no theme behavior changes.
+anchors:
+  loading-messages-use-one-floating-pill-and-tail-skeleton:
+    loading-pill-surface:
+      action: remove
+      reason: Re-anchor the retained pill surface to the pill-only replacement
+        assumption.
+    loading-pill-tail-skeleton:
+      action: remove
+      reason: Remove the obsolete initialized-head skeleton helper and render branch.
+    loading-pill-tail-skeleton-render:
+      action: remove
+      reason: Remove the obsolete bottom skeleton from the transcript layout.
+    loading-pill-surface-style:
+      action: remove
+      reason: Re-anchor retained pill styles to the pill-only replacement assumption.
+    loading-pill-tail-skeleton-style:
+      action: remove
+      reason: Remove the obsolete skeleton rules and pulse keyframes.
+    loading-pill-unit-regression:
+      action: remove
+      reason: Remove the helper-specific unit regression and re-anchor the retained
+        pill assertion.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Remove browser assertions for the obsolete bottom skeleton.
+  loading-messages-use-one-floating-pill-without-tail-skeleton:
+    loading-pill-surface:
+      action: change
+      reason: Keep the existing accessible floating pill under the replacement truth.
+    loading-pill-surface-style:
+      action: change
+      reason: Keep the existing pill motion, contrast, and reduced-motion styles under
+        the replacement truth.
+    loading-pill-unit-regression:
+      action: change
+      reason: Retain the unified label assertion as pill-only loading coverage.
+    loading-pill-browser-regression:
+      action: change
+      reason: Retain pill priority, geometry, accessibility, and reduced-motion
+        coverage without the tail skeleton.
+files:
+  - .harn/plans/remove-tail-sync-skeleton.yaml
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.tsx
+  - packages/web-next/src/styles/room.css
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+verification: >
+  Verify the exact clean base and clean-lock this plan with dirty_at_lock false
+  before editing. Remove only shouldShowNewMessageSkeleton, its Transcript
+  render branch, the RecoveryOverlay helper regression, the bottom skeleton CSS
+  and keyframes, and the browser assertions that require it. Preserve the
+  floating pill, its one visible label and spinner, initial empty-chat
+  placeholder, history request behavior, and scroll anchoring. Run focused
+  RecoveryOverlay and Transcript tests, all web-next units, the production/PWA
+  build, and Room 36 direct/hosted desktop/mobile loading and accessibility
+  journeys. Run harn find --changed, harn check, harn apply, harn check
+  --staged, and git diff --check, then create exactly one implementation commit
+  with applied truth. Do not change history, transport, protocol, server, relay,
+  deployment, release, or P1 outgoing-message behavior.
+applied:
+  applied_at: 2026-09-09T12:24:38.119Z

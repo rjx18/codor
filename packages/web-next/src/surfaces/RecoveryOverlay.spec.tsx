@@ -19,7 +19,6 @@ vi.mock('../runtime/crypto.js', () => ({ forgetRelayPairing: vi.fn() }));
 
 import { resetClientStoreForTest, useClientStore } from '../app/store.js';
 import { writeComputerAppearances } from '../room/ComputerChoice.js';
-import { shouldShowNewMessageSkeleton } from '../room/Transcript.js';
 import { RecoveryCard } from './RecoveryCard.js';
 import {
   LOADING_PILL_LABEL,
@@ -84,17 +83,11 @@ describe('prioritized room loading pill', () => {
     })).toBeUndefined();
   });
 
+  // harn:assume loading-messages-use-one-floating-pill-without-tail-skeleton ref=loading-pill-unit-regression
   it('uses one accessible loading label for every prioritized state', () => {
     expect(LOADING_PILL_LABEL).toBe('Loading messages…');
   });
-
-  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-unit-regression
-  it('reserves the bottom skeleton for initialized head synchronization', () => {
-    expect(shouldShowNewMessageSkeleton({ initialized: false, loadingHead: true })).toBe(false);
-    expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: false })).toBe(false);
-    expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: true })).toBe(true);
-  });
-  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
+  // harn:end loading-messages-use-one-floating-pill-without-tail-skeleton
 
   it('renders the existing history-head signal as one syncing pill', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

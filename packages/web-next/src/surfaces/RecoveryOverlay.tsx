@@ -156,7 +156,7 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
           {children}
         </div>
         {/* harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-render */}
-        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-surface */}
+        {/* harn:assume loading-messages-use-one-floating-pill-without-tail-skeleton ref=loading-pill-surface */}
         {loadingState !== undefined ? (
           <div
             className="nx-loading-pill"
@@ -169,7 +169,7 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
             <span>{LOADING_PILL_LABEL}</span>
           </div>
         ) : null}
-        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton */}
+        {/* harn:end loading-messages-use-one-floating-pill-without-tail-skeleton */}
         {/* harn:end floating-room-loading-pill-uses-existing-priority */}
       </div>
       {show ? <RecoveryCard state={state as RecoveryState} presentation="overlay" /> : null}
