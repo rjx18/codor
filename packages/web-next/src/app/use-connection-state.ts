@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import {
   EXTENDED_THRESHOLD_MS,
   classifySession,
+  reconnectGraceUntil,
   type SessionConnectionState,
 } from './connection-state.js';
 import { useClientStore } from './store.js';
@@ -25,25 +26,37 @@ declare global {
  * been down. Ticks once a second while down so the threshold escalation and the
  * retry countdown stay current. `downMs` is exposed for the countdown UI.
  */
-export function useConnectionState(): { state: SessionConnectionState; downMs: number } {
+/** A deadline observer, not a connection/retry owner. Remounts never extend it. */
+export function useGraceDeadline(deadline: number | undefined): boolean {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (deadline === undefined || deadline <= Date.now()) return;
+    const timer = setTimeout(() => tick(value => value + 1), deadline - Date.now());
+    return () => clearTimeout(timer);
+  }, [deadline]);
+  return deadline !== undefined && Date.now() < deadline;
+}
+
+export function useReconnectGrace(): boolean {
+  return useGraceDeadline(useClientStore(reconnectGraceUntil));
+}
+
+export function useConnectionState(): { state: SessionConnectionState; downMs: number; inGrace: boolean } {
   const connected = useClientStore((s) => s.connected);
   const authRefused = useClientStore((s) => s.authRefused);
   const online = useNavigatorOnLine();
-  const downSince = useRef<number | undefined>(undefined);
+  const downSince = useClientStore(state => state.disconnectedSince);
+  const inGrace = useReconnectGrace();
   const [nowMs, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (connected) {
-      downSince.current = undefined;
-      return;
-    }
-    if (downSince.current === undefined) downSince.current = Date.now();
+    if (connected) return;
     setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(id);
-  }, [connected]);
+  }, [connected, downSince]);
 
-  const downMs = connected || downSince.current === undefined ? 0 : Math.max(0, nowMs - downSince.current);
+  const downMs = connected || downSince === undefined ? 0 : Math.max(0, Math.max(nowMs, Date.now()) - downSince);
   const extendedThresholdMs =
     (typeof window !== 'undefined' && window.__CODOR_RECOVERY_EXTENDED_MS) || EXTENDED_THRESHOLD_MS;
   const state = classifySession({
@@ -53,5 +66,5 @@ export function useConnectionState(): { state: SessionConnectionState; downMs: n
     downMs,
     extendedThresholdMs,
   });
-  return { state, downMs };
+  return { state, downMs, inGrace };
 }

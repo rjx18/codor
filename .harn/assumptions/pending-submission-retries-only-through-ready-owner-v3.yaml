@@ -1,0 +1,17 @@
+id: pending-submission-retries-only-through-ready-owner-v3
+hash: a-5515403a58f9
+title: Independent submissions retry only through their ready owner
+  (source-owned grace)
+state: active
+statement: Never-dispatched outgoing records remain distinct from dispatched
+  uncertain submissions under the existing computer owner. Only the existing
+  current room-ready/capability callbacks may drain queued records or retry
+  immutable IDs. Optimistic records require verified acknowledgement and
+  correlation support at dispatch; legacy ambiguous posts never replay. Actual
+  Connection.post retains socket-admission semantics. No persistent outbox or
+  additional retry/reconnect loop is introduced.
+depends_on:
+  - hosted-app-streams-follow-tunnel-generations
+  - hosted-computer-sessions-keep-state-isolated
+  - post-acknowledgements-are-optional-and-correlated
+created_by: five-second-reconnect-grace

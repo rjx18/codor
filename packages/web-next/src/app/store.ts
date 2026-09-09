@@ -144,6 +144,10 @@ export interface WorktreeGroupSlice {
 
 export interface ClientState {
   connected: boolean;
+  /** Page-memory presentation/admission facts; never persisted as readiness. */
+  sessionEstablished: boolean;
+  disconnectedSince: number | undefined;
+  connectionRecoverable: boolean;
   /** The connector parked on a device-auth refusal (app-WS 4403): positive
    *  pairing-dead evidence for the recovery surface. Cleared on (re)connect. */
   authRefused: boolean;
@@ -174,7 +178,7 @@ export interface ClientState {
   consumeActionResult(room: string, ref: string): ActionResult | undefined;
   // harn:end context-reset-confirmation-is-anchored-and-member-local
   setActiveRoom(room: string): void;
-  setConnected(connected: boolean): void;
+  setConnected(connected: boolean, recoverable?: boolean): void;
   setAuthRefused(authRefused: boolean): void;
   setRoomSummaries(summaries: RoomSummary[]): void;
   hydrateLastGoodRoom(
@@ -468,6 +472,9 @@ export function createClientStore(): ClientStore {
   const staging = new Map<string, HydrationStaging>();
   const store = create<ClientState>((set, get) => ({
   connected: false,
+  sessionEstablished: false,
+  disconnectedSince: Date.now(),
+  connectionRecoverable: false,
   authRefused: false,
   activeRoom: '',
   rooms: {},
@@ -863,16 +870,20 @@ export function createClientStore(): ClientStore {
     });
   },
 
-  setConnected: (connected) => {
+  // harn:assume reconnect-grace-timestamp-belongs-to-source-store ref=source-recovery-clock
+  setConnected: (connected, recoverable) => {
     const state = get();
-    if (state.connected === connected && (!connected || !state.authRefused)) return;
-    set(connected ? { connected, authRefused: false } : { connected,
+    const connectionRecoverable = connected ? true : recoverable ?? state.connectionRecoverable;
+    if (state.connected === connected && state.connectionRecoverable === connectionRecoverable && (!connected || !state.authRefused)) return;
+    set(connected ? { connected, authRefused: false, connectionRecoverable } : { connected, connectionRecoverable,
+      disconnectedSince: state.disconnectedSince ?? Date.now(),
       rooms: Object.fromEntries(Object.entries(state.rooms).map(([room, slice]) => [room,
         slice.transcriptHistory.initialized && !slice.transcriptHistory.headNeedsRevalidation
           ? { ...slice, transcriptHistory: { ...slice.transcriptHistory, headNeedsRevalidation: true } } : slice,
       ])),
     });
   },
+  // harn:end reconnect-grace-timestamp-belongs-to-source-store
   setAuthRefused: (authRefused) => set({ authRefused }),
   setRoomSummaries: (roomSummaries) => set({ roomSummaries, roomSummariesLoaded: true }),
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-hydration
@@ -959,13 +970,14 @@ export function createClientStore(): ClientStore {
     for (const room of rooms) delete roomLive[room];
     return { roomLive };
   }),
-  markRoomLive: (room) => set((state) => state.roomLive[room] === true
+  markRoomLive: (room) => set((state) => state.roomLive[room] === true && state.sessionEstablished && state.disconnectedSince === undefined
     ? {}
-    : { roomLive: { ...state.roomLive, [room]: true } }),
+    : { roomLive: { ...state.roomLive, [room]: true }, sessionEstablished: true, disconnectedSince: undefined, connectionRecoverable: true }),
   // harn:end worktree-conversation-status-is-live-and-independent
   reset: () => {
     staging.clear();
-    set({ connected: false, authRefused: false, activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
+    set({ connected: false, authRefused: false, sessionEstablished: false, disconnectedSince: Date.now(), connectionRecoverable: false,
+      activeRoom: '', rooms: {}, roomList: [], roomSummaries: [], roomSummariesLoaded: false, worktreeGroups: {}, roomLive: {} });
   },
   }));
   clientStoreByHistoryAction.set(store.getState().updateTranscriptHistory, store);

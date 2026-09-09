@@ -22,6 +22,7 @@ import {
 import type { CSSProperties, KeyboardEventHandler, MouseEventHandler, PointerEventHandler, ReactNode } from 'react';
 
 import type { ComputerSessionView } from '../app/computer-sessions.js';
+import { useGraceDeadline } from '../app/use-connection-state.js';
 
 export type ComputerStatusTone = 'connected' | 'reconnecting' | 'repair';
 
@@ -168,9 +169,9 @@ function normalizedGlyph(value: string | undefined, id: string): ComputerGlyph {
 }
 
 /** The only status mapping used by the switcher and recovery escape hatch. */
-export function computerStatus(computer: ComputerSessionView): ComputerStatus {
+export function computerStatus(computer: ComputerSessionView, inGrace = false): ComputerStatus {
   if (computer.authRefused) return { label: 'Repair required', tone: 'repair' };
-  if (computer.connected) return { label: 'Connected', tone: 'connected' };
+  if (computer.connected || inGrace) return { label: 'Connected', tone: 'connected' };
   return { label: 'Reconnecting', tone: 'reconnecting' };
 }
 
@@ -267,7 +268,7 @@ export function ComputerChoice({
   onPointerCancel,
   onPointerLeave,
 }: ComputerChoiceProps): ReactNode {
-  const status = computerStatus(computer);
+  const status = computerStatus(computer, useGraceDeadline(computer.reconnectUntil));
   const details = activity(computer);
   const accessibleName = statusName(computer, status, details);
   const attention = attentionCount(computer);

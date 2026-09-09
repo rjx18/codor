@@ -13,7 +13,9 @@ const sessions = vi.hoisted(() => ({
     active: vi.fn(() => true),
   },
 }));
-vi.mock('../app/use-connection-state.js', () => ({ useConnectionState: () => connection }));
+vi.mock('../app/use-connection-state.js', async (original) => ({
+  ...await original<typeof import('../app/use-connection-state.js')>(), useConnectionState: () => connection,
+}));
 vi.mock('../app/computer-sessions.js', () => ({ computerSessions: () => sessions.managed ? sessions.manager : undefined }));
 vi.mock('../runtime/crypto.js', () => ({ forgetRelayPairing: vi.fn() }));
 
@@ -52,8 +54,8 @@ function hydrateCachedUnit(): void {
   );
 }
 
-// harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-unit-regression
-// harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-unit-regression
+// harn:assume floating-room-loading-pill-uses-existing-priority-with-grace ref=floating-pill-unit-regression
+// harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace ref=loading-pill-unit-regression
 describe('prioritized room loading pill', () => {
   const base: LoadingPillInputs = {
     connectionState: 'online',
@@ -75,6 +77,12 @@ describe('prioritized room loading pill', () => {
     expect(loadingPillState({ ...base, roomReady: false, loadingHead: true, loadingCursor: 'older-1' })).toBe('channel');
     expect(loadingPillState(base)).toBeUndefined();
   });
+  it('hides only reconnect/readiness feedback during grace, not requested history',()=>{
+    const grace={...base,connected:false,connectionState:'agent-offline' as const,readableReconnect:true,roomReady:false,inGrace:true};
+    expect(loadingPillState(grace)).toBeUndefined();
+    expect(loadingPillState({...grace,loadingHead:true})).toBe('syncing');
+    expect(loadingPillState({...grace,loadingCursor:'older'})).toBe('older');
+  });
 
   it('does not show the reconnect pill for a non-readable direct failure', () => {
     expect(loadingPillState({
@@ -88,13 +96,13 @@ describe('prioritized room loading pill', () => {
     expect(LOADING_PILL_LABEL).toBe('Loading messages…');
   });
 
-  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-unit-regression
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-unit-regression
   it('reserves the bottom skeleton for initialized head synchronization', () => {
     expect(shouldShowNewMessageSkeleton({ initialized: false, loadingHead: true })).toBe(false);
     expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: false })).toBe(false);
     expect(shouldShowNewMessageSkeleton({ initialized: true, loadingHead: true })).toBe(true);
   });
-  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
 
   it('renders the existing history-head signal as one syncing pill', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -117,10 +125,10 @@ describe('prioritized room loading pill', () => {
     delete (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT;
   });
 });
-// harn:end prioritized-room-loading-pill-uses-existing-readiness
-// harn:end floating-room-loading-pill-uses-existing-priority
+// harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace
+// harn:end floating-room-loading-pill-uses-existing-priority-with-grace
 
-// harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
+// harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=nonmodal-reconnecting-regression
 describe('RecoveryOverlay readable reconnect', () => {
   it('keeps retained content nonmodal, preserves read controls, and disables mutations', async () => {
     (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -204,4 +212,4 @@ describe('RecoveryOverlay readable reconnect', () => {
   });
   // harn:end computer-appearance-is-purged-on-forget
 });
-// harn:end readable-reconnecting-room-never-admits-mutation
+// harn:end readable-reconnecting-room-never-admits-mutation-with-grace

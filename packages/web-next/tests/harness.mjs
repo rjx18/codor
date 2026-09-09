@@ -126,10 +126,12 @@ let correlationCapability = true;
 let p6CapabilityRequests = 0;
 const p6Attempts = [];
 const p6AppSockets = new Set();
+let appOffline = false;
 const p6SocketEmit = WebSocket.prototype.emit;
 WebSocket.prototype.emit = function (event, ...args) {
   if (event === 'message' && this._socket?.localPort === API_PORT) {
     p6AppSockets.add(this);
+    if (appOffline) { this.close(1013, 'isolated app outage'); return true; }
     try {
       const frame = JSON.parse(String(args[0]));
       if (frame.type === 'post') {
@@ -1806,6 +1808,12 @@ createServer((req, res) => {
         const body = raw === '' ? {} : JSON.parse(raw);
         const roomId = String(body.room ?? 'eng');
         payload = daemon.store.roomSupport(roomId, daemon.ownerOf(roomId).id);
+      }
+      if (url.pathname === '/app-offline') {
+        const body = raw === '' ? {} : JSON.parse(raw);
+        appOffline = body.offline === true;
+        if (appOffline) for (const socket of p6AppSockets) socket.close(1013, 'isolated app outage');
+        payload = {ok:true};
       }
       if (url.pathname === '/p6-pause-group') {
         for (const handle of ['p6-alpha', 'p6-beta']) {

@@ -103,9 +103,9 @@ test.describe('hosted smooth startup budgets', () => {
     }));
   });
 
-  // harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-browser-regression
-  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-browser-regression
-  // harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-browser-regression
+  // harn:assume floating-room-loading-pill-uses-existing-priority-with-grace ref=floating-pill-browser-regression
+  // harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-browser-regression
+  // harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace ref=loading-pill-browser-regression
   test('shows one prioritized loading pill for direct history work', async ({ page }) => {
     test.setTimeout(120_000);
     let releaseHead = (): void => undefined;
@@ -165,13 +165,13 @@ test.describe('hosted smooth startup budgets', () => {
     releaseCursor();
     await expect(pill).toHaveCount(0, { timeout: 30_000 });
   });
-  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
-  // harn:end prioritized-room-loading-pill-uses-existing-readiness
-  // harn:end floating-room-loading-pill-uses-existing-priority
+  // harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
+  // harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace
+  // harn:end floating-room-loading-pill-uses-existing-priority-with-grace
 
   // harn:assume hosted-last-good-history-cache-is-per-room-bounded-and-provisional ref=provisional-cache-browser-regression
-  // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-regression
-  // harn:assume readable-reconnecting-room-never-admits-mutation ref=offline-composer-http-regression
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=nonmodal-reconnecting-regression
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=offline-composer-http-regression
   test('a cold cached reload is readable within one second and live truth replaces it in place', async ({ page }) => {
     test.setTimeout(120_000);
     const mediaMutations: string[] = [];
@@ -446,8 +446,8 @@ test.describe('hosted smooth startup budgets', () => {
   });
   // harn:end transcript-tail-follow-has-one-prepaint-owner
   // harn:end combined-history-opening-sync-stays-cold
-  // harn:end readable-reconnecting-room-never-admits-mutation
-  // harn:end readable-reconnecting-room-never-admits-mutation
+  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace
+  // harn:end readable-reconnecting-room-never-admits-mutation-with-grace
   // harn:end hosted-last-good-history-cache-is-per-room-bounded-and-provisional
 
   test('a cacheless active host that returns late enters the same document automatically', async ({ page }) => {

@@ -1,7 +1,7 @@
 id: prioritized-room-loading-pill-uses-existing-readiness
 hash: a-b8f779035222
 title: One room loading pill projects existing readiness in fixed priority
-state: active
+state: retired
 statement: >
   The web client exposes at most one top floating room-status pill whose visible
   state is derived without new local loading state or requests: Reconnecting has
@@ -22,3 +22,4 @@ depends_on:
   - selected-room-activation-reconciles-destination-history
   - relay-app-socket-readiness-requires-server-evidence
 created_by: unified-loading-pill-p3
+retired_by: five-second-reconnect-grace

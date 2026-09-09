@@ -1,4 +1,5 @@
 import type { Message, Room, RoomSummary, ServerFrame } from '@codor/protocol';
+import { reconnectGraceUntil } from './connection-state.js';
 
 import {
   forgetPairedComputer,
@@ -53,6 +54,7 @@ export interface ComputerActivitySummary {
 }
 
 export interface ComputerSessionView extends ComputerActivitySummary {
+  reconnectUntil?: number;
   id: string;
   label: string;
   active: boolean;
@@ -618,11 +620,11 @@ export class ComputerSessionManager {
       room: () => room,
       state: () => 'disconnected',
       compositionOwner: entry.compositionOwner,
-      // harn:assume reconnect-safe-post-dispatch-preserves-draft-v2 ref=cached-connector-rejection
+      // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=cached-connector-rejection
       // A cached offline shell is read-only and cannot accept a post. Report
       // that refusal so the composer keeps the draft retryable.
       post: () => false,
-      // harn:end reconnect-safe-post-dispatch-preserves-draft-v2
+      // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
       act: () => undefined,
       disconnect: () => undefined,
       reconnect: () => entry.tunnel.recover(),
@@ -989,6 +991,7 @@ export class ComputerSessionManager {
         active: entry.material.computer.id === this.activeId,
         ready: this.usable(entry),
         authRefused: entry.store.getState().authRefused,
+        reconnectUntil: reconnectGraceUntil(entry.store.getState()),
         ...this.summary(entry),
       })),
     };

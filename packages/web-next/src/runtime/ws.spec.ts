@@ -45,7 +45,7 @@ it('uses capable zero-history hydration and keeps direct action refs distinct', 
     type: 'subscribe', room: 'eng', hydrate_limit: 0,
   });
 
-  // harn:assume reconnect-safe-post-dispatch-preserves-draft-v2 ref=post-dispatch-unit-regression
+  // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=post-dispatch-unit-regression
   expect(connection.post('accepted before close')).toBe(true);
   socket.readyState = 3;
   expect(connection.post('rejected while closed')).toBe(false);
@@ -53,7 +53,7 @@ it('uses capable zero-history hydration and keeps direct action refs distinct', 
   socket.throwOnSend = true;
   expect(connection.post('rejected during send')).toBe(false);
   socket.throwOnSend = false;
-  // harn:end reconnect-safe-post-dispatch-preserves-draft-v2
+  // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
 
   connection.act({ act: 'cancel_schedule', schedule_id: 'schedule-1' });
   connection.act({

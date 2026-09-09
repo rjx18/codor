@@ -1,7 +1,7 @@
 id: pending-submission-retries-only-through-ready-owner-v2
 hash: a-9008612430d1
 title: Independent submissions retry only through their ready owner
-state: active
+state: retired
 statement: Each computer retains independently identified immutable dispatched
   submissions in page memory. Automatic recovery retries each original ID and
   payload at most once per ready socket generation on its own authenticated
@@ -14,3 +14,4 @@ depends_on:
   - hosted-computer-sessions-keep-state-isolated
   - post-acknowledgements-are-optional-and-correlated
 created_by: optimistic-send-message-owned-status
+retired_by: five-second-reconnect-grace

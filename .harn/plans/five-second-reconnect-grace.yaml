@@ -1,0 +1,553 @@
+id: five-second-reconnect-grace
+title: Source-owned five-second visual grace and in-memory never-sent records
+notes: "P3 only at 780b1d6a. Store one outage timestamp per computer, starting
+  after established live readiness; repeat signals/view switches cannot extend
+  it. Actual connected/roomLive remain unchanged in meaning. Reuse the recovery
+  UI timing hook and existing reconnect owner. Existing outgoing records buffer
+  at most 32 never-dispatched intents per source; on unavailable capability they
+  remain not-sent with an explanation, never falling through to legacy posting.
+  Existing ready/capability callbacks drain only compatible records in origin
+  order; no extra request/polling/retry loop. Media upload/transcription and all
+  server acts remain readiness-gated. Manual/auth/upgrade/disposed and
+  never-live sessions cannot enqueue or receive grace. Skeleton behavior stays
+  intact: only dependent Harn marker names are updated for the new priority
+  graph; P2 removal remains separate. Fake-timer boundaries, short/long real
+  direct/hosted outages, source/view switching, parks, downgrade and
+  frozen-identity gates; full web units and production build before browsers.
+  Authorized named-plan hook if generic ignored-web guard fails."
+assumptions:
+  retire:
+    - id: composer-memory-survives-session-connector-handover-v2
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: floating-room-loading-pill-uses-existing-priority
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: loading-messages-use-one-floating-pill-and-tail-skeleton
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: pending-submission-retries-only-through-ready-owner-v2
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: post-capability-recovery-is-owned-and-bounded-v2
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: prioritized-room-loading-pill-uses-existing-readiness
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: readable-reconnecting-room-never-admits-mutation
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: reconnect-safe-post-dispatch-preserves-draft-v2
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+    - id: unsupported-submissions-can-stop-local-wait-v2
+      reason: Replace immediate/no-local-buffer presentation and align active
+        dependents with P3.
+  create:
+    - id: composer-memory-survives-session-connector-handover-v3
+      title: Composition memory survives cached-to-live session handover (source-owned
+        grace)
+      statement: A computer session gives its cached and live connectors the same
+        nonpersistent composition owner. Body, edited-empty state, reply,
+        uploaded attachment selection, completed voice metadata and pending
+        result state stay scoped to that owner and room across connector
+        replacement. Other computer sessions, forgotten pairings and page
+        reloads cannot inherit the memory. No draft or outbox is written to
+        persistent storage.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-submission-retries-only-through-ready-owner-v3
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: floating-room-loading-pill-uses-existing-priority-with-grace
+      title: Room loading states use one animated floating overlay pill (source-owned
+        grace)
+      statement: The browser exposes at most one accessible loading pill over the
+        transcript, selected by the existing priority of Reconnecting, Loading
+        channel, Syncing messages, and Loading older messages. It is compact,
+        contains a progress spinner and short fade/slide entrance, does not
+        occupy the transcript's layout flow, and disables that motion under
+        prefers-reduced-motion; no additional loading state machine or request
+        is introduced and direct/hosted readiness and mutation semantics stay
+        unchanged.
+      depends_on:
+        - prioritized-room-loading-pill-uses-existing-readiness-with-grace
+        - readable-reconnecting-room-never-admits-mutation-with-grace
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
+      title: Loading messages use one floating pill and a synchronization tail
+        skeleton (source-owned grace)
+      statement: >
+        The room UI must expose at most one accessible loading surface for the
+        existing prioritized readiness signals: a high-contrast floating spinner
+        pill with one “Loading messages…” label, a brief entrance animation that
+        is disabled for reduced-motion users, and a compact pulsing skeleton at
+        the bottom only when an initialized room is synchronizing new messages.
+        Initial hydration and older-page loads keep their existing transcript
+        geometry and anchor owner; no new loading state machine, request, or
+        scroll owner is introduced.
+      depends_on:
+        - floating-room-loading-pill-uses-existing-priority-with-grace
+        - transcript-tail-follow-has-one-prepaint-owner
+        - transcript-history-prepends-one-text-slot-page
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: pending-submission-retries-only-through-ready-owner-v3
+      title: Independent submissions retry only through their ready owner
+        (source-owned grace)
+      statement: Never-dispatched outgoing records remain distinct from dispatched
+        uncertain submissions under the existing computer owner. Only the
+        existing current room-ready/capability callbacks may drain queued
+        records or retry immutable IDs. Optimistic records require verified
+        acknowledgement and correlation support at dispatch; legacy ambiguous
+        posts never replay. Actual Connection.post retains socket-admission
+        semantics. No persistent outbox or additional retry/reconnect loop is
+        introduced.
+      depends_on:
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - post-acknowledgements-are-optional-and-correlated
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: post-capability-recovery-is-owned-and-bounded-v3
+      title: Unknown post capability retries through its ready owner (source-owned
+        grace)
+      statement: Timeouts, transport errors and failed compatibility responses leave
+        post capability unknown, distinct from verified supported or
+        unsupported. One bounded abortable compatibility check per owning socket
+        generation uses that session's credential renewal, coalesces concurrent
+        intent, and retries unknown results with bounded backoff while the
+        connection is healthy. Generation retirement and
+        auth/manual/upgrade/disposal parks cancel the checks. Only verified
+        support permits replay of the original immutable pending ID;
+        verification never replaces a healthy connection or sends legacy
+        retries.
+      depends_on:
+        - pending-submission-retries-only-through-ready-owner-v3
+        - relay-read-renewal-retains-original-owner
+        - hosted-app-streams-follow-tunnel-generations
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: prioritized-room-loading-pill-uses-existing-readiness-with-grace
+      title: One room loading pill projects existing readiness in fixed priority
+        (source-owned grace)
+      statement: Outside the source-owned five-second transient grace, the existing
+        reconnect/channel/head/older priority selects at most one floating
+        loading pill. During grace, reconnect-only and reconnect-room-readiness
+        feedback is withheld while genuine requested history/older work retains
+        the existing loading presentation. Actual readiness and mutation guards
+        stay truthful; no history request or second scroll owner is introduced.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation-with-grace
+        - hosted-app-streams-follow-tunnel-generations
+        - hosted-computer-sessions-keep-state-isolated
+        - finalized-browser-history-is-combined-page-owned
+        - transcript-history-prepends-one-text-slot-page
+        - combined-head-reconciliation-is-two-page-bounded
+        - relay-app-socket-readiness-requires-server-evidence
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: readable-reconnecting-room-never-admits-mutation-with-grace
+      title: Readable reconnects admit local intent without enabling server mutation
+      statement: Retained chats remain readable during reconnect. An established
+        session may accept local composition and never-dispatched outgoing
+        records without claiming a socket write; all server-mutating actions
+        remain gated by actual readiness. A transient loss gets five seconds of
+        visual grace under its source-owned timestamp. Cold startup and
+        manual/auth/upgrade/disposal parks get no grace or local-send admission.
+        Cache and draft ownership remain unchanged.
+      depends_on:
+        - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+        - relay-app-socket-readiness-requires-server-evidence
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: reconnect-safe-post-dispatch-preserves-draft-v3
+      title: Rejected dispatch preserves the submitted composition under its owner
+        (source-owned grace)
+      statement: Connection.post truthfully reports current socket admission;
+        unavailable sockets never imply server acceptance. Correlation-capable
+        composition is retained in the outgoing record on refusal, with explicit
+        recovery, while legacy mode preserves its draft. Actual readiness
+        remains required and cached shells reject. Reconnect never silently
+        replays ambiguous legacy posts.
+      depends_on:
+        - readable-reconnecting-room-never-admits-mutation-with-grace
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+        - pending-composer-echo-is-destination-and-self-bound
+        - client-syncs-by-seq
+        - hosted-app-streams-follow-tunnel-generations
+        - relay-app-socket-readiness-requires-server-evidence
+        - room-action-errors-are-visible
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: unsupported-submissions-can-stop-local-wait-v3
+      title: Unsupported submissions preserve uncertainty without automatic replay
+        (source-owned grace)
+      statement: A verified unsupported replacement never automatically replays a
+        retained submission. Legacy acknowledgement-only composition retains the
+        guarded Stop waiting control; optimistic records retain their captured
+        content and explicit uncertainty until local retry, edit or discard.
+        Discard stops local recovery without claiming server cancellation.
+        Neither a late result nor a capability change clears a newer draft or
+        transfers content to another computer.
+      depends_on:
+        - post-capability-recovery-is-owned-and-bounded-v3
+        - composer-acknowledgement-preserves-owned-raw-drafts-v2
+      reason: P3 grace and local waiting preserve the remaining established contract.
+    - id: reconnect-grace-timestamp-belongs-to-source-store
+      title: Reconnect grace uses one source-owned timestamp without falsifying
+        readiness
+      statement: Each page-memory source store remembers established live readiness
+        and one outage timestamp. Transient recoverable loss permits five
+        seconds of presentation grace; repeated loss signals or view changes
+        cannot reset it. Manual/auth/upgrade/disposal parks withdraw grace
+        immediately. The actual connected and roomLive fields never become true
+        because of grace.
+      depends_on:
+        - hosted-computer-sessions-keep-state-isolated
+      reason: Separate visual recovery from transport authority.
+  reviewed:
+    - id: hosted-app-streams-follow-tunnel-generations
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: relay-app-socket-readiness-requires-server-evidence
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: hosted-computer-sessions-keep-state-isolated
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: hosted-app-keeps-all-paired-computers-live
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: hosted-background-computer-activity-is-visible
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: worktree-conversation-status-is-live-and-independent
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: sender-receipt-correlation-is-indexed-and-private
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: composer-acknowledgement-preserves-owned-raw-drafts-v2
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: app-liveness-recovery-is-stream-first
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: context-reset-requests-settle-by-explicit-ref
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: subscribed-live-run-events-survive-switch-and-history-retirement
+      outcome: unchanged
+      reason: Preserve transport, identity, server readiness and frozen receipt
+        behavior around local presentation/admission.
+    - id: agent-delivery-lifecycle-streams-v2
+      outcome: unchanged
+      reason: Enclosing outgoing-row presentation; server delivery evidence and ticks
+        remain unchanged.
+    - id: context-reset-confirmation-is-anchored-and-member-local
+      outcome: unchanged
+      reason: Preserve existing action correlation while enforcing actual app
+        readiness during visual grace.
+    - id: scheduled-cards-are-accessible-authoritative-and-nonduplicating
+      outcome: unchanged
+      reason: Preserve existing action correlation while enforcing actual app
+        readiness during visual grace.
+files:
+  - packages/web-next/src/app/store.ts
+  - packages/web-next/src/app/store.spec.ts
+  - packages/web-next/src/app/connector.ts
+  - packages/web-next/src/app/connector.spec.ts
+  - packages/web-next/src/app/pending-submission.ts
+  - packages/web-next/src/app/pending-submission.spec.ts
+  - packages/web-next/src/app/outgoing.ts
+  - packages/web-next/src/app/outgoing.spec.ts
+  - packages/web-next/src/app/connection-state.ts
+  - packages/web-next/src/app/connection-state.spec.ts
+  - packages/web-next/src/app/use-connection-state.ts
+  - packages/web-next/src/app/use-connection-state.spec.tsx
+  - packages/web-next/src/app/computer-sessions.ts
+  - packages/web-next/src/app/computer-sessions.spec.ts
+  - packages/web-next/src/runtime/ws.ts
+  - packages/web-next/src/runtime/ws.spec.ts
+  - packages/web-next/src/room/Composer.tsx
+  - packages/web-next/src/room/Composer.spec.tsx
+  - packages/web-next/src/room/Transcript.tsx
+  - packages/web-next/src/room/composer-memory.ts
+  - packages/web-next/src/room/RoomPage.tsx
+  - packages/web-next/src/room/ComputerChoice.tsx
+  - packages/web-next/src/room/ComputerChoice.spec.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.tsx
+  - packages/web-next/src/surfaces/RecoveryOverlay.spec.tsx
+  - packages/web-next/src/styles/room.css
+  - .harn/plans/five-second-reconnect-grace.yaml
+  - packages/web-next/tests/harness.mjs
+  - packages/web-next/tests/room32-relay-journey.e2e.spec.ts
+  - packages/web-next/tests/room33-recovery.e2e.spec.ts
+  - packages/web-next/tests/room36-smooth-startup.e2e.spec.ts
+  - packages/web-next/tests/room49-reconnect-grace.e2e.spec.ts
+  - docs/post-submissions.md
+  - packages/web-next/tests/room48-optimistic-send.e2e.spec.ts
+anchors:
+  hosted-app-streams-follow-tunnel-generations:
+    generation-gated-app-connector:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  relay-app-socket-readiness-requires-server-evidence:
+    relay-app-socket-readiness:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  hosted-app-keeps-all-paired-computers-live:
+    computer-session-lifecycle:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  hosted-background-computer-activity-is-visible:
+    background-computer-summary:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  worktree-conversation-status-is-live-and-independent:
+    worktree-room-readiness-state:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  sender-receipt-correlation-is-indexed-and-private:
+    optimistic-outgoing-state:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  composer-acknowledgement-preserves-owned-raw-drafts-v2:
+    raw-and-canonical-pending-send:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  app-liveness-recovery-is-stream-first:
+    watchdog-probe-state:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+    watchdog-probe-reply:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  context-reset-requests-settle-by-explicit-ref:
+    clear-context-ref-client-result:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  subscribed-live-run-events-survive-switch-and-history-retirement:
+    connector-recovery-boundary:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  reconnect-grace-timestamp-belongs-to-source-store:
+    source-recovery-clock:
+      action: change
+      reason: Implement only the scoped source-owned grace and admission seam.
+  post-capability-recovery-is-owned-and-bounded-v2:
+    owned-post-capability-recovery:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  post-capability-recovery-is-owned-and-bounded-v3:
+    owned-post-capability-recovery:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  reconnect-safe-post-dispatch-preserves-draft-v2:
+    connector-post-dispatch-result:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    post-dispatch-unit-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    cached-connector-rejection:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    runtime-post-dispatch-result:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    composer-rejection-unlocks-draft:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    composer-rejection-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    reconnect-first-post-browser-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  reconnect-safe-post-dispatch-preserves-draft-v3:
+    connector-post-dispatch-result:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    post-dispatch-unit-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    cached-connector-rejection:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    runtime-post-dispatch-result:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    composer-rejection-unlocks-draft:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    composer-rejection-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    reconnect-first-post-browser-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  pending-submission-retries-only-through-ready-owner-v2:
+    p6-pending-submission-retries-only-through-ready-owner-v2:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  pending-submission-retries-only-through-ready-owner-v3:
+    p6-pending-submission-retries-only-through-ready-owner-v2:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    local-outgoing-admission:
+      action: change
+      reason: Anchor owned local admission and ready-callback draining.
+  unsupported-submissions-can-stop-local-wait-v2:
+    stop-local-submission-wait:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  unsupported-submissions-can-stop-local-wait-v3:
+    stop-local-submission-wait:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  readable-reconnecting-room-never-admits-mutation:
+    offline-composer-http-boundary:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    nonmodal-reconnecting-surface:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    nonmodal-reconnecting-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    offline-composer-http-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  readable-reconnecting-room-never-admits-mutation-with-grace:
+    offline-composer-http-boundary:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    nonmodal-reconnecting-surface:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    nonmodal-reconnecting-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    offline-composer-http-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  loading-messages-use-one-floating-pill-and-tail-skeleton:
+    loading-pill-tail-skeleton:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-tail-skeleton-render:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-surface:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-unit-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-surface-style:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-tail-skeleton-style:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace:
+    loading-pill-tail-skeleton:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-tail-skeleton-render:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-surface:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-unit-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-surface-style:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-tail-skeleton-style:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-browser-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  composer-memory-survives-session-connector-handover-v2:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  composer-memory-survives-session-connector-handover-v3:
+    p6-composer-drafts-stay-in-memory-with-source-owner:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  prioritized-room-loading-pill-uses-existing-readiness:
+    loading-pill-state-projection:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-unit-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    loading-pill-browser-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  prioritized-room-loading-pill-uses-existing-readiness-with-grace:
+    loading-pill-state-projection:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-unit-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    loading-pill-browser-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  floating-room-loading-pill-uses-existing-priority:
+    floating-pill-render:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    floating-pill-unit-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    floating-pill-motion-style:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+    floating-pill-browser-regression:
+      action: remove
+      reason: Move unchanged source region or scoped behavior to grace-aware successor.
+  floating-room-loading-pill-uses-existing-priority-with-grace:
+    floating-pill-render:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    floating-pill-unit-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    floating-pill-motion-style:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+    floating-pill-browser-regression:
+      action: change
+      reason: Relink the active P3 contract, preserving P2 skeleton behavior.
+  agent-delivery-lifecycle-streams-v2:
+    steering-delivery-indicator:
+      action: change
+      reason: Expose never-sent local status and local discard without altering
+        handling evidence.
+  context-reset-confirmation-is-anchored-and-member-local:
+    clear-context-result-router:
+      action: change
+      reason: Actual readiness gate around existing server action dispatch.
+  scheduled-cards-are-accessible-authoritative-and-nonduplicating:
+    correlated-browser-schedule-cancel-regression:
+      action: change
+      reason: Actual readiness gate around existing server action dispatch.
+applied:
+  applied_at: 2026-09-09T15:32:10.437Z

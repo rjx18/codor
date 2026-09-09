@@ -305,7 +305,7 @@ export function interactionInCurrentHistoryWindow(
   return byTime > 0 || (byTime === 0 && interaction.id >= oldest.id);
 }
 
-// harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-tail-skeleton
+// harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-tail-skeleton
 /** The tail skeleton belongs only to a hydrated room's head synchronization.
  * Initial hydration keeps its existing three-row skeleton and cursor paging is
  * represented by the prioritized floating pill, so neither changes transcript
@@ -315,7 +315,7 @@ export function shouldShowNewMessageSkeleton(
 ): boolean {
   return history.initialized && history.loadingHead;
 }
-// harn:end loading-messages-use-one-floating-pill-and-tail-skeleton
+// harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace
 
 export function Transcript(props: { room: string; token: () => string; connection: Connection }) {
   const slice = useClientStore((state) => roomSlice(state, props.room));
@@ -1225,7 +1225,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
               ))}
             </div>
           )}
-          {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-tail-skeleton-render */}
+          {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-tail-skeleton-render */}
           {showNewMessageSkeleton && (
             <div
               className="nx-new-message-skeleton"
@@ -1233,7 +1233,7 @@ export function Transcript(props: { room: string; token: () => string; connectio
               aria-hidden="true"
             />
           )}
-          {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton */}
+          {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace */}
         </div>
       </div>
       {showJump && (
@@ -1772,7 +1772,7 @@ function OutgoingRow({ row, connection, token }: { row: Outgoing; connection: Co
   };
   const retry = (): void => {
     const current = state.snapshot().find(item => item.id === row.id);
-    if (!current || current.status === 'sending' || current.status === 'accepted') return;
+    if (!current || current.status === 'sending' || current.status === 'accepted' || current.status === 'queued') return;
     if (!connection.postCorrelations || !connection.postAcknowledgements) return;
     state.update(row.id, { status: 'sending', error: undefined });
     dispatchOutgoing(connection, current);
@@ -1782,7 +1782,7 @@ function OutgoingRow({ row, connection, token }: { row: Outgoing; connection: Co
     <div className="nx-turn-main">
       <div className="nx-turn-meta">
         <strong className="nx-turn-author">You</strong>
-        <span role="status" tabIndex={0} className="nx-seen" aria-label={failed ? 'Send failed' : row.status === 'accepted' ? 'Accepted by the server' : 'Not yet confirmed by the server'}>
+        <span role="status" tabIndex={0} className="nx-seen" aria-label={failed ? 'Send failed' : row.status === 'queued' ? 'Queued locally; not sent' : row.status === 'accepted' ? 'Accepted by the server' : 'Not yet confirmed by the server'}>
           {failed ? <CircleAlert size={13} color="var(--danger, #d33)" /> : row.status === 'accepted' ? <Check size={13} /> : <Clock3 size={13} />}
         </span>
         {row.frame.reply_to !== undefined && <span>Reply to #{row.frame.reply_to}</span>}
@@ -1792,11 +1792,11 @@ function OutgoingRow({ row, connection, token }: { row: Outgoing; connection: Co
       {row.frame.voice && <span>Voice · {Math.round(row.frame.voice.duration_seconds)}s</span>}
       {row.attachments.map(file => <span className="nx-attach-chip" key={file.id}>{file.name}</span>)}
       {row.error && <p role="status">{row.error}</p>}
-      {(failed || row.status === 'uncertain') && <div>
-        <button type="button" onClick={retry} disabled={!connection.postCorrelations || !connection.postAcknowledgements}>Resend</button>
+      {(failed || row.status === 'uncertain' || row.status === 'queued') && <div>
+        {row.status !== 'queued' && <button type="button" onClick={retry} disabled={!connection.postCorrelations || !connection.postAcknowledgements}>Resend</button>}
         {failed && <button type="button" disabled={preparing} onClick={() => setEdit(row.rawBody)}>Edit</button>}
-        <button type="button" onClick={() => { connection.forgetSubmission?.(row.id); state.remove(row.id); }}>Discard local copy</button>
-        {!connection.postCorrelations && <p>This computer cannot reconcile this send. Check delivery before sending again.</p>}
+        <button type="button" data-local-composition="true" onClick={() => { connection.forgetSubmission?.(row.id); state.remove(row.id); }}>Discard local copy</button>
+        {!connection.postCorrelations && <p>{row.status === 'queued' ? 'This message has not been sent. Waiting for compatible message support.' : 'This computer cannot reconcile this send. Check delivery before sending again.'}</p>}
       </div>}
       {edit !== undefined && <div>
         <textarea aria-label="Edit unsent message" disabled={preparing} value={edit} onChange={event => setEdit(event.target.value)} />

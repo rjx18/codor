@@ -1,7 +1,7 @@
-id: floating-room-loading-pill-uses-existing-priority
-hash: a-d32f324dbb1b
-title: Room loading states use one animated floating overlay pill
-state: retired
+id: floating-room-loading-pill-uses-existing-priority-with-grace
+hash: a-147a673a08d8
+title: Room loading states use one animated floating overlay pill (source-owned grace)
+state: active
 statement: The browser exposes at most one accessible loading pill over the
   transcript, selected by the existing priority of Reconnecting, Loading
   channel, Syncing messages, and Loading older messages. It is compact, contains
@@ -10,7 +10,6 @@ statement: The browser exposes at most one accessible loading pill over the
   prefers-reduced-motion; no additional loading state machine or request is
   introduced and direct/hosted readiness and mutation semantics stay unchanged.
 depends_on:
-  - prioritized-room-loading-pill-uses-existing-readiness
-  - readable-reconnecting-room-never-admits-mutation
-created_by: background-history-warming-floating-pill
-retired_by: five-second-reconnect-grace
+  - prioritized-room-loading-pill-uses-existing-readiness-with-grace
+  - readable-reconnecting-room-never-admits-mutation-with-grace
+created_by: five-second-reconnect-grace

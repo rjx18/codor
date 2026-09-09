@@ -176,11 +176,16 @@ test('editing a qualified recipient moves the pending row to the newly selected 
   await expect(row.getByRole('alert')).toBeVisible();
   expect((await control('/p6-evidence',{needle})).attempts).toHaveLength(1);
   await row.getByLabel('Edit unsent message').fill(`~${plan.alias}:@planner ${needle} edited`);
+  let releaseHistory!:()=>void;
+  const heldHistory=new Promise<void>(resolve=>{releaseHistory=resolve;});
+  await page.route(`**/api/rooms/${plan.conversation_id}/transcript-history*`,async route=>{await heldHistory;await route.continue();});
   await control('/p6-fault',{point:'delay',needle});
-  await row.getByRole('button',{name:'Send edited message'}).click();
-  await expect.poll(async()=>(await control('/p6-evidence',{needle})).attempts.length).toBe(2);
-  await page.getByTestId(`worktree-link-${plan.id}`).click();
-  await expect(page.getByTestId(/^outgoing-/).filter({hasText:needle})).toHaveCount(1);
+  try {
+    await row.getByRole('button',{name:'Send edited message'}).click();
+    await expect.poll(async()=>(await control('/p6-evidence',{needle})).attempts.length).toBe(2);
+    await page.getByTestId(`worktree-link-${plan.id}`).click();
+    await expect(page.getByTestId(/^outgoing-/).filter({hasText:needle})).toHaveCount(1);
+  } finally { releaseHistory(); }
   await control('/p6-fault');
   await expect(page.getByTestId(/^outgoing-/)).toHaveCount(0);
   const proof=await control('/p6-evidence',{needle});

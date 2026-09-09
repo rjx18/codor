@@ -10,7 +10,7 @@ export interface Outgoing {
   frame: PostFrame;
   rawBody: string;
   attachments: Attachment[];
-  status: 'sending' | 'accepted' | 'failed' | 'uncertain';
+  status: 'queued' | 'sending' | 'accepted' | 'failed' | 'uncertain';
   error?: string;
   messageId?: number;
   scheduleId?: string;
@@ -97,8 +97,11 @@ export function sendOutgoing(connection: Connection, origin: string, room: strin
   if (frozen.attachments) Object.freeze(frozen.attachments);
   if (frozen.voice) { Object.freeze(frozen.voice.levels); Object.freeze(frozen.voice); }
   Object.freeze(frozen);
-  state.add({ id, origin, room, rawBody, frame: frozen, attachments: structuredClone(attachments), status: 'sending' });
-  dispatchOutgoing(connection, state.snapshot().find(row => row.id === id)!);
+  const local = connection.enqueueOutgoing !== undefined;
+  state.add({ id, origin, room, rawBody, frame: frozen, attachments: structuredClone(attachments), status: local ? 'queued' : 'sending' });
+  if (local) {
+    if (!connection.enqueueOutgoing!(id)) state.update(id, {status:'failed',error:'Cannot queue this message. The connection is parked, has never been live, or its 32-message waiting buffer is full.'});
+  } else dispatchOutgoing(connection, state.snapshot().find(row => row.id === id)!);
   return id;
 }
 export function dispatchOutgoing(connection: Connection, row: Outgoing): void {

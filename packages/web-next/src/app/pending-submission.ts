@@ -5,7 +5,7 @@ export type SubmissionResult =
   | Extract<ServerFrame, { type: 'error' }>
   | { type: 'post_wait_stopped'; origin_room: string; submission_id: string };
 
-// harn:assume pending-submission-retries-only-through-ready-owner-v2 ref=p6-pending-submission-retries-only-through-ready-owner-v2
+// harn:assume pending-submission-retries-only-through-ready-owner-v3 ref=p6-pending-submission-retries-only-through-ready-owner-v2
 /** Independent already-dispatched operations, never an offline queue. The
  * connector supplies readiness/generation; this registry owns no timers. */
 export class PendingSubmission {
@@ -35,9 +35,10 @@ export class PendingSubmission {
   }
 
   /** Called only on the origin room's current authenticated sync_complete. */
-  ready(room: string, generation: number, send: (frame: PostFrame) => boolean): void {
+  ready(room: string, generation: number, send: (frame: PostFrame) => boolean,
+    mayRetry: (id: string) => boolean = () => true): void {
     for (const pending of this.pending.values()) {
-      if (pending.frame.room !== room || pending.generation === generation) continue;
+      if (pending.frame.room !== room || pending.generation === generation || !mayRetry(pending.frame.submission_id!)) continue;
       pending.generation = generation;
       send(pending.frame);
     }
@@ -53,7 +54,7 @@ export class PendingSubmission {
     return pending.frame.room;
   }
 
-  // harn:assume unsupported-submissions-can-stop-local-wait-v2 ref=stop-local-submission-wait
+  // harn:assume unsupported-submissions-can-stop-local-wait-v3 ref=stop-local-submission-wait
   stopWaiting(room: string, id: string): boolean {
     const pending = this.pending.get(id);
     if (!pending || pending.frame.room !== room || pending.frame.submission_id !== id) return false;
@@ -61,8 +62,8 @@ export class PendingSubmission {
     pending.result?.({ type: 'post_wait_stopped', origin_room: room, submission_id: id });
     return true;
   }
-  // harn:end unsupported-submissions-can-stop-local-wait-v2
+  // harn:end unsupported-submissions-can-stop-local-wait-v3
 
   dispose(): void { this.pending.clear(); }
 }
-// harn:end pending-submission-retries-only-through-ready-owner-v2
+// harn:end pending-submission-retries-only-through-ready-owner-v3

@@ -1,0 +1,15 @@
+id: readable-reconnecting-room-never-admits-mutation-with-grace
+hash: a-9b4ad9122592
+title: Readable reconnects admit local intent without enabling server mutation
+state: active
+statement: Retained chats remain readable during reconnect. An established
+  session may accept local composition and never-dispatched outgoing records
+  without claiming a socket write; all server-mutating actions remain gated by
+  actual readiness. A transient loss gets five seconds of visual grace under its
+  source-owned timestamp. Cold startup and manual/auth/upgrade/disposal parks
+  get no grace or local-send admission. Cache and draft ownership remain
+  unchanged.
+depends_on:
+  - hosted-last-good-history-cache-is-per-room-bounded-and-provisional
+  - relay-app-socket-readiness-requires-server-evidence
+created_by: five-second-reconnect-grace

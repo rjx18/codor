@@ -1,7 +1,8 @@
-id: composer-memory-survives-session-connector-handover-v2
-hash: a-13ec4cc40522
-title: Composition memory survives cached-to-live session handover
-state: retired
+id: composer-memory-survives-session-connector-handover-v3
+hash: a-c98022d07fb1
+title: Composition memory survives cached-to-live session handover (source-owned
+  grace)
+state: active
 statement: A computer session gives its cached and live connectors the same
   nonpersistent composition owner. Body, edited-empty state, reply, uploaded
   attachment selection, completed voice metadata and pending result state stay
@@ -11,6 +12,5 @@ statement: A computer session gives its cached and live connectors the same
 depends_on:
   - hosted-computer-sessions-keep-state-isolated
   - composer-acknowledgement-preserves-owned-raw-drafts-v2
-  - pending-submission-retries-only-through-ready-owner-v2
-created_by: optimistic-send-message-owned-status
-retired_by: five-second-reconnect-grace
+  - pending-submission-retries-only-through-ready-owner-v3
+created_by: five-second-reconnect-grace

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react';
 
 import type { SessionConnectionState } from '../app/connection-state.js';
 import { useConnectionState } from '../app/use-connection-state.js';
@@ -6,15 +6,16 @@ import { RecoveryCard, type RecoveryState } from './RecoveryCard.js';
 import { roomSlice, useClientStore } from '../app/store.js';
 import { computerSessions } from '../app/computer-sessions.js';
 
-// Brief drops keep the in-room "Reconnecting…" pill; the full recovery screen only
-// takes over after the session has been down long enough to be worth explaining.
-// Overridable via window for e2e (same pattern as __CODOR_RELAY_URL).
+// Cold/unestablished shells retain their existing recovery-card delay. Established
+// sessions use the source-owned five-second visual grace from useConnectionState.
+// The existing window override remains available to the browser fixtures.
 const graceMs = (): number =>
   (typeof window !== 'undefined' && window.__CODOR_RECOVERY_GRACE_MS) || 6_000;
 
 export type LoadingPillState = 'reconnecting' | 'channel' | 'syncing' | 'older';
 
 export interface LoadingPillInputs {
+  inGrace?: boolean;
   connectionState: SessionConnectionState;
   connected: boolean;
   readableReconnect: boolean;
@@ -24,11 +25,16 @@ export interface LoadingPillInputs {
   loadingCursor: string | undefined;
 }
 
-// harn:assume prioritized-room-loading-pill-uses-existing-readiness ref=loading-pill-state-projection
+// harn:assume prioritized-room-loading-pill-uses-existing-readiness-with-grace ref=loading-pill-state-projection
 /** Select one status from the existing connection/readiness/history signals.
  * Lower-priority work must never replace a more urgent state or introduce a
  * second loading owner. */
 export function loadingPillState(inputs: LoadingPillInputs): LoadingPillState | undefined {
+  if (inputs.inGrace) {
+    if (inputs.loadingHead) return 'syncing';
+    if (inputs.loadingCursor !== undefined) return 'older';
+    return undefined;
+  }
   if (inputs.connectionState !== 'online' || !inputs.connected) {
     return inputs.readableReconnect ? 'reconnecting' : undefined;
   }
@@ -38,13 +44,12 @@ export function loadingPillState(inputs: LoadingPillInputs): LoadingPillState | 
   return undefined;
 }
 
-// harn:end prioritized-room-loading-pill-uses-existing-readiness
+// harn:end prioritized-room-loading-pill-uses-existing-readiness-with-grace
 
 export const LOADING_PILL_LABEL = 'Loading messages…';
 
-/** Read-only controls that do not alter room/server state while the app socket
- * is reconnecting. Everything else button-shaped is disabled until a current
- * server frame restores readiness. */
+/** Server-mutating controls stay disabled while reconnecting. The local
+ * composition exceptions below never authorize a wire write. */
 const READ_ONLY_CONTROL = [
   '[data-testid="toggle-message-search"]',
   '[data-testid^="search-hit-"]',
@@ -68,6 +73,7 @@ const READ_ONLY_CONTROL = [
   '[data-testid="git-history-more"]',
   '[data-testid="worktree-find-retry"]',
   '[data-testid="worktree-preview-retry"]',
+  '[data-local-composition="true"]',
   '[aria-label^="Close "]',
   '[aria-label="Settings"]',
   '.nx-jump',
@@ -84,8 +90,10 @@ const READ_ONLY_CONTROL = [
  * flows are visually unchanged unless they too go genuinely unreachable.
  */
 export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNode {
-  const { state, downMs } = useConnectionState();
+  const { state, downMs, inGrace } = useConnectionState();
   const connected = useClientStore((store) => store.connected);
+  const established = useClientStore(store => store.sessionEstablished);
+  const localAdmission = useClientStore(store => store.sessionEstablished && store.connectionRecoverable && !store.authRefused);
   const activeRoom = useClientStore((store) => store.activeRoom);
   const activeRoomState = useClientStore((store) => store.rooms[activeRoom]);
   const roomReady = useClientStore((store) => activeRoom !== '' && store.roomLive[activeRoom] === true);
@@ -93,15 +101,15 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
     const slice = roomSlice(store, store.activeRoom);
     return Object.keys(slice.messages).length > 0 || slice.transcriptHistory.units.length > 0;
   });
-  // harn:assume readable-reconnecting-room-never-admits-mutation ref=nonmodal-reconnecting-surface
-  const readableReconnect = computerSessions() !== undefined
-    && renderable
-    && state !== 'online'
+  // harn:assume readable-reconnecting-room-never-admits-mutation-with-grace ref=nonmodal-reconnecting-surface
+  const readableReconnect = (established || (computerSessions() !== undefined && renderable))
+    && (!connected || !roomReady)
     && state !== 'pairing-dead';
-  const show = !readableReconnect
+  const show = !inGrace && !readableReconnect
     && state !== 'online'
     && !(state === 'agent-offline' && downMs < graceMs());
   const loadingState = loadingPillState({
+    inGrace,
     connectionState: state,
     connected,
     readableReconnect,
@@ -119,7 +127,7 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
     if (show) el.setAttribute('inert', '');
     else el.removeAttribute('inert');
   }, [show]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!readableReconnect) return undefined;
     const root = document.body;
     const disableMutations = (): void => {
@@ -127,6 +135,7 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
         'button, input[type="button"], input[type="submit"]',
       )) {
         if (control.matches(READ_ONLY_CONTROL) || control.disabled) continue;
+        if (localAdmission && control.matches('[data-testid="composer-send"], [data-local-composition="true"], [aria-label="Cancel reply"], [data-testid^="pending-"][data-testid$="-remove"]')) continue;
         control.disabled = true;
         control.dataset.reconnectDisabled = 'true';
       }
@@ -143,7 +152,7 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
         delete control.dataset.reconnectDisabled;
       }
     };
-  }, [readableReconnect]);
+  }, [readableReconnect, localAdmission]);
   return (
     <>
       <div className="nx-recovery-shell">
@@ -155,8 +164,8 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
         >
           {children}
         </div>
-        {/* harn:assume floating-room-loading-pill-uses-existing-priority ref=floating-pill-render */}
-        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton ref=loading-pill-surface */}
+        {/* harn:assume floating-room-loading-pill-uses-existing-priority-with-grace ref=floating-pill-render */}
+        {/* harn:assume loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace ref=loading-pill-surface */}
         {loadingState !== undefined ? (
           <div
             className="nx-loading-pill"
@@ -169,11 +178,11 @@ export function RecoveryOverlay({ children }: { children: ReactNode }): ReactNod
             <span>{LOADING_PILL_LABEL}</span>
           </div>
         ) : null}
-        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton */}
-        {/* harn:end floating-room-loading-pill-uses-existing-priority */}
+        {/* harn:end loading-messages-use-one-floating-pill-and-tail-skeleton-with-grace */}
+        {/* harn:end floating-room-loading-pill-uses-existing-priority-with-grace */}
       </div>
       {show ? <RecoveryCard state={state as RecoveryState} presentation="overlay" /> : null}
     </>
   );
 }
-// harn:end readable-reconnecting-room-never-admits-mutation
+// harn:end readable-reconnecting-room-never-admits-mutation-with-grace

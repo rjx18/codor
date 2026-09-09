@@ -101,7 +101,31 @@ Resend or new-ID edited send. Unknown acceptance remains uncertain across a
 downgrade; it is never replayed as a legacy post. Discarding a local copy stops
 its local recovery but does not cancel an already accepted server operation.
 Held agent delivery uses the existing delivery retry, not another message post.
-There is no persistent outbox, extra polling or offline send admission in this phase.
+There is no persistent outbox or extra polling.
+
+## Brief reconnects and local waiting
+
+An established page session gives transient connection loss five seconds of
+visual grace. Actual `connected` and per-room readiness remain false until their
+ordinary server evidence returns. Server actions and new media HTTP work stay
+disabled; typing and local Send remain usable for retained, hydrated rooms.
+
+The same outgoing records hold up to 32 **never-dispatched** intents per computer
+in page memory. Their clock says queued locally, not accepted by the server.
+The existing room-ready/capability callbacks dispatch them in origin-room order;
+there is no new reconnect owner or retry loop. An overflow retains its composition
+in a failed row. Closing the page ends this local buffer's lifetime.
+
+Queued optimistic records wait if the recovered daemon lacks verified receipt
+correlation support; they never fall through to legacy posting. Uncertain already-
+dispatched records keep their original ID/payload and may only use the existing
+safe receipt recovery. Legacy ambiguity is not automatically replayed.
+
+The outage timestamp belongs to the source computer, so switching rooms/computers
+or receiving repeated failure signals cannot restart the grace. After five seconds,
+Disconnected and the normal recovery feedback return without losing queued text.
+Never-live startup, manual disconnect, revocation and upgrade parks get no grace
+or new local-send admission. Forget/re-pair cannot inherit another identity's queue.
 
 `Connection.post()` reports local socket write acceptance, not server acceptance.
 Without capability support the browser keeps the existing own-echo matching and

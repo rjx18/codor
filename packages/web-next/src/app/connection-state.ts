@@ -34,6 +34,16 @@ export interface SessionSignals {
 /** Default: ~45s of host-absence before offering re-pair as a secondary choice. */
 export const EXTENDED_THRESHOLD_MS = 45_000;
 
+export const RECONNECT_GRACE_MS = 5_000;
+export function reconnectGraceUntil(signals: {
+  sessionEstablished: boolean; connectionRecoverable: boolean;
+  authRefused: boolean; disconnectedSince: number | undefined;
+}): number | undefined {
+  if (!signals.sessionEstablished || !signals.connectionRecoverable || signals.authRefused || signals.disconnectedSince === undefined) return;
+  const duration = (typeof window !== 'undefined' && window.__CODOR_RECOVERY_GRACE_MS) || RECONNECT_GRACE_MS;
+  return signals.disconnectedSince + duration;
+}
+
 /**
  * Classify the post-pairing session surface. Priority order:
  *  1. a live session is `online`;

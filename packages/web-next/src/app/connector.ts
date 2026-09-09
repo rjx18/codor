@@ -281,7 +281,41 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
     }
   };
 
-  // harn:assume post-capability-recovery-is-owned-and-bounded-v2 ref=owned-post-capability-recovery
+  // harn:assume pending-submission-retries-only-through-ready-owner-v3 ref=local-outgoing-admission
+  const localSendAllowed = (): boolean => {
+    const source = clientStore.getState();
+    return source.sessionEstablished && source.connectionRecoverable && !source.authRefused && RESUMABLE.has(state);
+  };
+  const roomWritable = (room: string): boolean => {
+    const source = clientStore.getState();
+    return state === 'connected' && source.connected && !source.authRefused && liveRooms.has(room)
+      && (options.tunnel === undefined || (options.tunnel.state === 'connected' && options.tunnel.generation === openedTunnelGeneration));
+  };
+  const flushOutgoing = (room?: string): void => {
+    for (const row of outgoing.snapshot()) {
+      if (row.status !== 'queued' || (room !== undefined && row.origin !== room)) continue;
+      const ready = roomWritable(row.origin);
+      if (!ready || postAcknowledgements !== true || postCorrelations !== true) {
+        const error = !RESUMABLE.has(state) ? 'Not sent: this connection is parked.'
+          : !ready ? 'Not sent yet; waiting for the original connection.'
+          : 'Not sent: waiting for compatible message confirmation support.';
+        if (row.error !== error) outgoing.update(row.id, {error});
+        continue;
+      }
+      if (!pendingSubmission.post(row.frame, generation, send, result => outgoing.result(row.id, result))) break;
+      outgoing.update(row.id, {status:'sending',error:undefined});
+      publishPostState();
+    }
+  };
+  const retryOwned = (room: string, mine: number): void => {
+    if (!roomWritable(room)) return;
+    pendingSubmission.ready(room, mine, send, id =>
+      postCorrelations === true || !outgoing.snapshot().some(row => row.id === id));
+    flushOutgoing(room);
+  };
+  // harn:end pending-submission-retries-only-through-ready-owner-v3
+
+  // harn:assume post-capability-recovery-is-owned-and-bounded-v3 ref=owned-post-capability-recovery
   let capabilityCheck: AbortController | undefined;
   let capabilityRetry: ReturnType<typeof setTimeout> | undefined;
   let capabilityBackoff = 500;
@@ -316,8 +350,9 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         postCorrelations = typeof result === 'object' ? result.postCorrelations === true : false;
         setPostCapability(supported);
         if (supported === true) {
-          for (const room of pendingSubmission.rooms) if (liveRooms.has(room)) pendingSubmission.ready(room, mine, send);
+          for (const room of pendingSubmission.rooms) if (liveRooms.has(room)) retryOwned(room, mine);
         }
+        flushOutgoing();
       })
       .finally(() => {
         clearTimeout(deadline);
@@ -327,7 +362,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         if (mine !== generation || state !== 'connected' || postAcknowledgements !== undefined) return;
         if (clientStore.getState().authRefused) {
           state = 'parked-auth';
-          clientStore.getState().setConnected(false);
+          clientStore.getState().setConnected(false, false);
           setToken('');
           clearRetry(); clearProbes();
           retire(socket); socket = undefined;
@@ -340,7 +375,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         capabilityBackoff = Math.min(capabilityBackoff * 2, 10_000);
       });
   };
-  // harn:end post-capability-recovery-is-owned-and-bounded-v2
+  // harn:end post-capability-recovery-is-owned-and-bounded-v3
 
   // harn:assume combined-history-capability-gates-socket-fallback ref=capability-gated-socket-history
   const subscribe = (room: string, hydrateLimit: number): void => {
@@ -560,7 +595,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       // The selected room hydrates first; the rooms listing then fans the same
       // socket out to every other authorized room, each from its own cursor.
       subscribe(currentRoom, socketHistoryLimit);
-      for (const room of pendingSubmission.rooms) subscribe(room, socketHistoryLimit);
+      for (const room of new Set([...pendingSubmission.rooms, ...outgoing.snapshot().filter(row=>row.status==='queued').map(row=>row.origin)])) subscribe(room, socketHistoryLimit);
       for (const desired of desiredRooms) subscribe(desired, socketHistoryLimit);
       startProbes(mine);
       if (streamRepairs > 0) probeNow(mine);
@@ -574,7 +609,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         state = 'parked-upgrade';
         cancelCapabilityCheck();
         clearProbes();
-        clientStore.getState().setConnected(false);
+        clientStore.getState().setConnected(false, false);
         if (options.onUpgradeRequired) options.onUpgradeRequired(frame);
         else requireBrowserUpgrade(frame);
         retire(socket);
@@ -615,7 +650,8 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         }
         liveRooms.add(completed);
         clientStore.getState().markRoomLive(completed);
-        if (postAcknowledgements === true) pendingSubmission.ready(completed, mine, send);
+        if (postAcknowledgements === true) retryOwned(completed, mine);
+        else flushOutgoing();
       }
       // harn:assume app-liveness-recovery-is-stream-first ref=watchdog-probe-reply
       if (frame.type === 'rooms') {
@@ -643,7 +679,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       cancelCapabilityCheck();
       clearProbes();
       if (state === 'connected' || state === 'disconnected') state = 'disconnected';
-      clientStore.getState().setConnected(false);
+      clientStore.getState().setConnected(false, event.code !== 4403 && state === 'disconnected');
       if (state !== 'disconnected') return; // parked or disposed: stay put
       if (event.code === 4403) {
         // The credential was revoked. Reopening with it would hammer the server
@@ -674,7 +710,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
             reconnect();
           },
           () => {
-            if (clientStore.getState().authRefused) { state = 'parked-auth'; setToken(''); }
+            if (clientStore.getState().authRefused) { state = 'parked-auth'; clientStore.getState().setConnected(false, false); setToken(''); }
             else reconnect();
           },
         );
@@ -789,9 +825,16 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       if (stopped) publishPostState();
       return stopped;
     },
-    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v2 ref=connector-post-dispatch-result
+    // harn:assume reconnect-safe-post-dispatch-preserves-draft-v3 ref=connector-post-dispatch-result
     get postAcknowledgements() { return postAcknowledgements; },
     get postCorrelations() { return postAcknowledgements === true && postCorrelations === true; },
+    get localSendAllowed() { return localSendAllowed(); },
+    enqueueOutgoing: (id) => {
+      if (!localSendAllowed() || outgoing.snapshot().filter(row=>row.status==='queued').length > 32
+        || !outgoing.snapshot().some(row=>row.id===id && row.status==='queued')) return false;
+      flushOutgoing(outgoing.snapshot().find(row=>row.id===id)!.origin);
+      return true;
+    },
     forgetSubmission: (id) => { pendingSubmission.settleCanonical(id); publishPostState(); },
     get submissionPending() { return pendingSubmission.active; },
     post: (body: string, opts?: PostOptions) => {
@@ -802,20 +845,19 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
         ...(opts?.voice !== undefined && { voice: opts.voice }),
       };
       if (postAcknowledgements === undefined || (!postCorrelations && pendingSubmission.active)) return false;
+      if (!roomWritable(frame.room)) return false;
       if (!postAcknowledgements) return send(frame);
-      if (state !== 'connected' || !liveRooms.has(frame.room)
-        || (options.tunnel !== undefined && (options.tunnel.state !== 'connected'
-          || options.tunnel.generation !== openedTunnelGeneration))) return false;
       frame.submission_id = opts?.submissionId ?? crypto.randomUUID();
       if (opts?.retrySubmission && postCorrelations) pendingSubmission.settleCanonical(frame.submission_id);
       const sent = pendingSubmission.post(frame, generation, send, opts?.onResult);
       if (sent) publishPostState();
       return sent;
     },
-    // harn:end reconnect-safe-post-dispatch-preserves-draft-v2
+    // harn:end reconnect-safe-post-dispatch-preserves-draft-v3
     // harn:assume scheduled-cards-are-accessible-authoritative-and-nonduplicating ref=correlated-browser-schedule-cancel-regression
     // harn:assume context-reset-confirmation-is-anchored-and-member-local ref=clear-context-result-router
     act: (act: Act, ref?: string): void => {
+      if (state !== 'connected' || !clientStore.getState().connected || clientStore.getState().authRefused) return;
       const correlationRef = ref ?? (act.act === 'cancel_schedule' ? act.schedule_id : undefined);
       const sourceRoom = currentRoom;
       if (correlationRef !== undefined) rememberActionRoom(correlationRef, sourceRoom);
@@ -835,7 +877,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       generation += 1;
       retire(socket);
       socket = undefined;
-      clientStore.getState().setConnected(false);
+      clientStore.getState().setConnected(false, false);
     },
     reconnect: () => {
       // Only the OPERATOR's own park is reconnectable. An upgrade park needs a
@@ -870,7 +912,7 @@ export function createConnector(options: ConnectorOptions): RoomConnector {
       clearRetry();
       clearProbes();
       // The page is going away: nothing should still read as connected.
-      clientStore.getState().setConnected(false);
+      clientStore.getState().setConnected(false, false);
       generation += 1; // any in-flight callback is now superseded
       window.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pageshow', onPageShow as EventListener);

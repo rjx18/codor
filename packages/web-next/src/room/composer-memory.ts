@@ -1,7 +1,7 @@
 import { useSyncExternalStore, type Dispatch, type SetStateAction } from 'react';
 import type { Connection } from '@runtime/ws.js';
 
-// harn:assume composer-memory-survives-session-connector-handover-v2 ref=p6-composer-drafts-stay-in-memory-with-source-owner
+// harn:assume composer-memory-survives-session-connector-handover-v3 ref=p6-composer-drafts-stay-in-memory-with-source-owner
 interface Cell<T> {
   value: T;
   listeners: Set<() => void>;
@@ -40,4 +40,4 @@ export function useComposerMemory<T>(
   }
   return [useSyncExternalStore(cell.subscribe, cell.snapshot, cell.snapshot), cell.set];
 }
-// harn:end composer-memory-survives-session-connector-handover-v2
+// harn:end composer-memory-survives-session-connector-handover-v3

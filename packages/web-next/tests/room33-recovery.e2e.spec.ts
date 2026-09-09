@@ -203,7 +203,8 @@ test.describe('recovery journey', () => {
     await control('/relay-down');
     await expect(page.getByTestId('reconnecting-pill')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId('recovery')).toHaveCount(0);
-    await expect(page.getByTestId('composer-send')).toBeDisabled();
+    await expect(page.getByTestId('composer-send')).toBeEnabled();
+    await expect(page.getByTestId('connection')).toHaveAttribute('data-transport-connected','false');
     await expect(page.getByTestId('toggle-message-search')).toBeEnabled();
 
     // Host comes back: the still-mounted connector's own backoff reconnects — the

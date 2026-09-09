@@ -1,7 +1,8 @@
-id: unsupported-submissions-can-stop-local-wait-v2
-hash: a-cc30cd4b5a35
+id: unsupported-submissions-can-stop-local-wait-v3
+hash: a-9e091e10687f
 title: Unsupported submissions preserve uncertainty without automatic replay
-state: retired
+  (source-owned grace)
+state: active
 statement: A verified unsupported replacement never automatically replays a
   retained submission. Legacy acknowledgement-only composition retains the
   guarded Stop waiting control; optimistic records retain their captured content
@@ -10,7 +11,6 @@ statement: A verified unsupported replacement never automatically replays a
   a capability change clears a newer draft or transfers content to another
   computer.
 depends_on:
-  - post-capability-recovery-is-owned-and-bounded-v2
+  - post-capability-recovery-is-owned-and-bounded-v3
   - composer-acknowledgement-preserves-owned-raw-drafts-v2
-created_by: optimistic-send-message-owned-status
-retired_by: five-second-reconnect-grace
+created_by: five-second-reconnect-grace
