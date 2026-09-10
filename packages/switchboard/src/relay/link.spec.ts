@@ -1,11 +1,14 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { WebSocketServer } from 'ws';
 
 import { SessionInitiator, StreamKind, StreamMux, generateTunnelKeypair } from '@codor/tunnel';
 
-import { RelayLink, type RelaySocket } from './link.js';
+import { RelayLink, dialWs, type RelaySocket } from './link.js';
 import { DEFAULT_RELAY_ALIAS, RelayStore } from './store.js';
 
 let dir: string;
@@ -49,6 +52,108 @@ function enabledStore() {
   store.enable('ws://relay.test');
   return store;
 }
+
+// harn:assume relay-host-opening-attempt-is-bounded ref=relay-host-opening-timeout-regression
+describe('relay host opening deadline', () => {
+  it('surfaces a stalled opening handshake through the ordinary error and close path', async () => {
+    const server = createNetServer((peer) => {
+      peer.on('data', () => {
+        // Accept the TCP connection and WebSocket request but never answer it.
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing test listener address');
+
+    const socket = dialWs(`ws://127.0.0.1:${address.port}`, 250);
+    const events: string[] = [];
+    socket.onOpen(() => events.push('open'));
+    socket.onError((error) => events.push(`error:${String(error)}`));
+    const closed = new Promise<void>((resolve) => socket.onClose(() => {
+      events.push('close');
+      resolve();
+    }));
+    try {
+      await closed;
+      expect(events[0]).toContain('Opening handshake has timed out');
+      expect(events).toEqual([expect.stringContaining('error:'), 'close']);
+      expect(events).not.toContain('open');
+    } finally {
+      socket.terminate?.();
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('does not terminate a healthy opened socket after the opening deadline', async () => {
+    const server = createHttpServer();
+    const wss = new WebSocketServer({ server });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('missing test listener address');
+
+    const socket = dialWs(`ws://127.0.0.1:${address.port}`, 250);
+    let closed = false;
+    socket.onClose(() => { closed = true; });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.onOpen(resolve);
+        socket.onError(reject);
+      });
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      expect(closed).toBe(false);
+    } finally {
+      socket.close(1000, 'test complete');
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it('routes a pre-open timeout through one retry/fallback and stop cancels recovery', () => {
+    const store = new RelayStore(dir);
+    store.enable();
+    const dialed: string[] = [];
+    const openingTimeouts: Array<number | undefined> = [];
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const retries: Array<() => void> = [];
+    const cleared: unknown[] = [];
+    const link = new RelayLink({
+      store,
+      loopbackPort: 1,
+      isDeviceActive: () => true,
+      jitter: () => 0,
+      dialSession: (url, openingTimeoutMs) => {
+        dialed.push(url);
+        openingTimeouts.push(openingTimeoutMs);
+        const socket = fakeSocket();
+        sockets.push(socket);
+        return socket.socket;
+      },
+      setTimeoutFn: (callback) => {
+        retries.push(callback);
+        return retries.length as unknown as ReturnType<typeof setTimeout>;
+      },
+      clearTimeoutFn: (handle) => { cleared.push(handle); },
+    });
+
+    link.start();
+    sockets[0]!.socket.close();
+    expect(retries).toHaveLength(1);
+    retries[0]!();
+    expect(dialed[0]).toContain('relay.codor.app');
+    expect(dialed[1]).toContain('workers.dev');
+    expect(openingTimeouts).toEqual([10_000, 10_000]);
+    sockets[1]!.open();
+    expect(store.dialUrl).toContain('workers.dev');
+
+    sockets[1]!.socket.close();
+    expect(retries).toHaveLength(2);
+    link.stop();
+    expect(cleared).toContain(2);
+    retries[1]!();
+    expect(dialed).toHaveLength(2);
+  });
+});
+// harn:end relay-host-opening-attempt-is-bounded
 
 function controlledLoopback() {
   const handlers: {

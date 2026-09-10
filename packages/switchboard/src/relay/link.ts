@@ -73,8 +73,13 @@ export interface RelaySocket {
   onError(cb: (error: unknown) => void): void;
 }
 
-export function dialWs(url: string): RelaySocket {
-  const ws = new WebSocketImpl(url);
+// harn:assume relay-host-opening-attempt-is-bounded ref=relay-host-opening-timeout
+const RELAY_HOST_OPENING_TIMEOUT_MS = 10_000;
+
+export function dialWs(url: string, openingTimeoutMs?: number): RelaySocket {
+  const ws = openingTimeoutMs === undefined
+    ? new WebSocketImpl(url)
+    : new WebSocketImpl(url, { handshakeTimeout: openingTimeoutMs });
   ws.binaryType = 'nodebuffer';
   return {
     send: (data) => ws.send(data),
@@ -87,13 +92,15 @@ export function dialWs(url: string): RelaySocket {
   };
 }
 
+// harn:end relay-host-opening-attempt-is-bounded
+
 export interface RelayLinkDeps {
   store: RelayStore;
   /** loopback daemon HTTP/WS port (127.0.0.1:<port>). */
   loopbackPort: number;
   /** true while the device id is still an active (non-revoked) peer. */
   isDeviceActive: (deviceId: string) => boolean;
-  dialSession?: (url: string) => RelaySocket;
+  dialSession?: (url: string, openingTimeoutMs?: number) => RelaySocket;
   dialLoopback?: (url: string) => RelaySocket;
   fetchLoopback?: (input: string, init?: RequestInit) => Promise<Response>;
   now?: () => number;
@@ -213,7 +220,7 @@ export class RelayLink {
     this.sessionHealthy = false;
     let socket: RelaySocket;
     try {
-      socket = this.deps.dialSession(this.sessionUrl(base));
+      socket = this.deps.dialSession(this.sessionUrl(base), RELAY_HOST_OPENING_TIMEOUT_MS);
     } catch (error) {
       this.failoverNext = store.dialFallback !== undefined ? !this.failoverNext : false;
       this.scheduleReconnect();

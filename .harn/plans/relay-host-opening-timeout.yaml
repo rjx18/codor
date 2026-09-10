@@ -1,0 +1,71 @@
+id: relay-host-opening-timeout
+title: Bound outbound relay host opening handshakes
+notes: >
+  One contained correction from exact base
+  f4bb10842676e7ddeba2548ec6176c388aeefe36. The host session dial alone receives
+  a fixed finite WebSocket opening-handshake timeout through ws's existing
+  option. A stalled pre-open attempt then enters RelayLink's existing close,
+  backoff, and canonical/alias fallback lifecycle. Shared loopback and pairing
+  dialers retain their current behavior, and no new watchdog, recovery loop,
+  configuration, keepalive change, live reset, or pairing mutation is
+  introduced.
+assumptions:
+  create:
+    - id: relay-host-opening-attempt-is-bounded
+      title: Relay host opening attempts have a finite deadline
+      statement: >
+        RelayLink's outbound role=host WebSocket must apply a fixed finite
+        opening-handshake timeout before the socket opens. A stalled opening
+        attempt must surface through the socket's ordinary error/close events
+        and therefore use RelayLink's existing idempotent teardown, exponential
+        backoff, and canonical/alias fallback path. Once open, the opening
+        deadline no longer applies and the existing keepalive owns liveness.
+        Stopping RelayLink cancels scheduled recovery. The shared dialer exposes
+        this as an optional call-site choice so loopback, pairing, custom-relay,
+        session identity, enrollment, and healthy socket behavior remain
+        unchanged.
+      reason: >
+        A TCP/TLS peer can accept bytes indefinitely without completing the
+        WebSocket handshake, preventing every existing open-state recovery
+        mechanism from running.
+      depends_on:
+        - relay-link-lifecycle
+        - relay-link-dials-with-alias-fallback
+  reviewed:
+    - id: relay-link-lifecycle
+      outcome: unchanged
+      reason: >
+        Preserve its single socket, teardown, backoff, session, bridge, and
+        revocation ownership while bounding only the pre-open host attempt.
+    - id: relay-link-dials-with-alias-fallback
+      outcome: unchanged
+      reason: >
+        A timed-out pre-open attempt remains connect-class and uses the existing
+        default canonical/alias alternation; custom relay URLs still have no
+        alias fallback.
+    - id: relay-bridge-callbacks-retire-before-mux-streams
+      outcome: unchanged
+      reason: |
+        Loopback bridge retirement remains unchanged and outside this fix.
+files:
+  - packages/switchboard/src/relay/link.ts
+  - packages/switchboard/src/relay/link.spec.ts
+  - .harn/plans/relay-host-opening-timeout.yaml
+anchors:
+  relay-link-lifecycle:
+    relay-link:
+      action: change
+      reason: >
+        Configure only the default outbound host session dial with the finite
+        opening timeout while retaining the existing lifecycle.
+  relay-host-opening-attempt-is-bounded:
+    relay-host-opening-timeout:
+      action: change
+      reason: Anchor the bounded host-dial behavior at its implementation.
+    relay-host-opening-timeout-regression:
+      action: change
+      reason: >
+        Prove a real stalled opening times out, RelayLink retries/falls back
+        once, healthy opened sockets survive, and stop cancels recovery.
+applied:
+  applied_at: 2026-09-10T01:21:10.250Z

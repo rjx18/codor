@@ -1,0 +1,18 @@
+id: relay-host-opening-attempt-is-bounded
+hash: a-9f0377649417
+title: Relay host opening attempts have a finite deadline
+state: active
+statement: >
+  RelayLink's outbound role=host WebSocket must apply a fixed finite
+  opening-handshake timeout before the socket opens. A stalled opening attempt
+  must surface through the socket's ordinary error/close events and therefore
+  use RelayLink's existing idempotent teardown, exponential backoff, and
+  canonical/alias fallback path. Once open, the opening deadline no longer
+  applies and the existing keepalive owns liveness. Stopping RelayLink cancels
+  scheduled recovery. The shared dialer exposes this as an optional call-site
+  choice so loopback, pairing, custom-relay, session identity, enrollment, and
+  healthy socket behavior remain unchanged.
+depends_on:
+  - relay-link-lifecycle
+  - relay-link-dials-with-alias-fallback
+created_by: relay-host-opening-timeout
