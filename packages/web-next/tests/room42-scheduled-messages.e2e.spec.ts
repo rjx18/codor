@@ -145,6 +145,19 @@ test.describe('scheduled-message browser journey', () => {
     await expect(page.locator('[data-testid^="schedule-card-"]').filter({ hasText: marker })).toBeVisible({ timeout: 20_000 });
     for (const theme of ['light', 'dark'] as const) {
       await page.evaluate((choice) => { document.documentElement.dataset.theme = choice; }, theme);
+      await page.evaluate(async () => {
+        const finiteAnimations = document.getAnimations().filter((animation) => {
+          const endTime = animation.effect?.getComputedTiming().endTime;
+          return typeof endTime === 'number' && Number.isFinite(endTime);
+        });
+        await Promise.all(finiteAnimations.map(async (animation) => {
+          try {
+            await animation.finished;
+          } catch {
+            // A superseded transition is already settled for this measurement.
+          }
+        }));
+      });
       const report = await new AxeBuilder({ page }).include('[data-testid="timeline"]').analyze();
       expect(report.violations, `${theme} theme`).toEqual([]);
     }
