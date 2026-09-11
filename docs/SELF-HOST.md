@@ -20,11 +20,13 @@ current package managers block dependency scripts by default. On pnpm 10.1–10.
 `onlyBuiltDependencies: [better-sqlite3]` in `pnpm-workspace.yaml` or the `package.json` `pnpm`
 field. On pnpm 10.26 and newer (including pnpm 11), that setting is `allowBuilds: { better-sqlite3:
 true }` in `pnpm-workspace.yaml`—`pnpm approve-builds` writes it interactively. On npm 12, `npx`
-applies the same boundary: pass
-`--allow-scripts=better-sqlite3,sodium-native,udx-native` on the install command, or persist it with
+applies the same boundary: run
+`npx --allow-scripts=better-sqlite3,sodium-native,udx-native @richhardry/codor install`, keeping
+the option before the package because `npx` forwards trailing options to Codor instead of npm. Or
+persist the approval with
 `npm config set allow-scripts=better-sqlite3,sodium-native,udx-native --location=user`. Without
-approval, `pnpm install` reports `Ignored build scripts: better-sqlite3` and npm skips the scripts
-with only a warning; either way the service fails to start with no native binding. See
+approval, `pnpm install` reports `Ignored build scripts: better-sqlite3` and npm's `npx` skips the
+scripts silently; either way the service fails to start with no native binding. See
 [pnpm's settings reference](https://pnpm.io/settings) for the current option names.
 <!-- harn:end pnpm-install-docs-disclose-build-approval-boundaries -->
 
