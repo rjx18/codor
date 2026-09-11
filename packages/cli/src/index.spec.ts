@@ -839,6 +839,29 @@ describe('@codor/cli', () => {
       timeout.mockRestore();
     }
   });
+
+  // harn:assume setup-readiness-wait-is-wall-clock-bounded ref=readiness-log-path-regression
+  it('names the service log path in the readiness timeout when one is available', async () => {
+    const logPath = join(dir, '.codor', 'logs', 'codor.err.log');
+    let elapsedMs = 0;
+    const failure = await waitForCodor(
+      'http://127.0.0.1:65535',
+      async () => {
+        elapsedMs += 500;
+        return false;
+      },
+      async () => undefined,
+      () => elapsedMs,
+      1_000,
+      logPath,
+    ).then(
+      () => undefined,
+      (error: unknown) => error instanceof Error ? error.message : String(error),
+    );
+    if (failure === undefined) throw new Error('expected readiness to time out');
+    expect(failure).toContain(`service log at ${logPath}`);
+    expect(failure).not.toContain('user-service logs');
+  });
   // harn:end setup-readiness-wait-is-wall-clock-bounded
 
   // harn:assume platform-services-propagate-destination-pnpm-node-path ref=node-path-systemd-regression

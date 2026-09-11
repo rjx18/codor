@@ -34,6 +34,15 @@ function missing(): InstallIo {
   };
 }
 
+/** Real filesystem IO with the native probe stubbed for synthetic fixture trees. */
+const stubbedInstallIo: InstallIo = {
+  ...defaultInstallIo,
+  // The update-journey fixtures build synthetic runtime trees and name a
+  // placeholder service node, so the real better-sqlite3 probe cannot succeed.
+  // runtime-install.spec.ts covers the real probe.
+  probeNative: () => ({ ok: true }),
+};
+
 const ok = (stdout = ''): UpdateCommandResult => ({ status: 0, stdout, stderr: '' });
 
 // harn:assume official-codor-update-is-cooperatively-bounded-and-platform-truthful ref=stable-update-regression
@@ -55,7 +64,7 @@ describe('runOfficialUpdate', () => {
     expect(out).toHaveBeenCalledWith('Codor 0.10.11 is already current');
   });
 
-  it('acquires one exact release without a shell and invokes only its candidate updater', async () => {
+  it('acquires one exact release, builds the skipped native binding, and invokes only its candidate updater', async () => {
     const prefix = '/tmp/codor-candidate';
     const candidate = join(prefix, 'node_modules/@richhardry/codor/bin/codor.mjs');
     const calls: Array<[string, string[]]> = [];
@@ -66,6 +75,7 @@ describe('runOfficialUpdate', () => {
       return ok();
     });
     const removeTemp = vi.fn();
+    const writeFile = vi.fn();
     const out = vi.fn();
     await runOfficialUpdate({
       dataDir: DATA, env: { PATH: '/usr/bin' }, out,
@@ -74,8 +84,10 @@ describe('runOfficialUpdate', () => {
         installIo: installed(),
         makeTemp: () => prefix,
         removeTemp,
+        writeFile,
         exists: (path) => path === candidate,
         nodePath: '/usr/bin/node',
+        platform: 'linux',
         run,
       },
     });
@@ -83,11 +95,14 @@ describe('runOfficialUpdate', () => {
     expect(calls).toEqual([
       ['npm', ['view', '@richhardry/codor@latest', 'version', '--json', '--registry', 'https://registry.npmjs.org/', '--@richhardry:registry=https://registry.npmjs.org/']],
       ['npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--no-save', '--registry', 'https://registry.npmjs.org/', '--@richhardry:registry=https://registry.npmjs.org/', '@richhardry/codor@0.10.12']],
+      ['npm', ['rebuild', '--prefix', prefix, 'better-sqlite3']],
       ['/usr/bin/node', [candidate, '--data-dir', DATA, '__apply-update', '--expected-version', '0.10.12', '--timeout-ms', '300000']],
     ]);
     expect(removeTemp).toHaveBeenCalledWith(prefix);
+    expect(writeFile).toHaveBeenCalledWith(join(prefix, '.npmrc'), 'allow-scripts=better-sqlite3\n');
     expect(out).toHaveBeenCalledWith('candidate applied');
-    expect(run.mock.calls[2]?.[2]).not.toHaveProperty('timeoutMs');
+    expect(run.mock.calls[2]?.[2]).toMatchObject({ cwd: prefix });
+    expect(run.mock.calls[3]?.[2]).not.toHaveProperty('timeoutMs');
   });
 
   it('allows a source-linked launcher to update an existing durable installation', async () => {
@@ -137,11 +152,12 @@ describe('runOfficialUpdate', () => {
   it.each([
     { phase: 'lookup', timeout: '11', timeouts: { lookupMs: 11 } },
     { phase: 'acquisition', timeout: '22', timeouts: { acquisitionMs: 22 } },
+    { phase: 'native rebuild', timeout: '33', timeouts: { nativeMs: 33 } },
   ])('bounds $phase execution with an actionable timeout', async ({ phase, timeout, timeouts }) => {
     const prefix = '/tmp/codor-timeout-candidate';
     const candidate = join(prefix, 'node_modules/@richhardry/codor/bin/codor.mjs');
     const run = vi.fn((command: string, args: string[]) => {
-      const current = args[0] === 'view' ? 'lookup' : 'acquisition';
+      const current = args[0] === 'view' ? 'lookup' : args[0] === 'rebuild' ? 'native rebuild' : 'acquisition';
       if (current === phase) return { status: 1, stdout: '', stderr: '', timedOut: true };
       return args[0] === 'view' ? ok('"0.10.12"') : ok();
     });
@@ -149,8 +165,8 @@ describe('runOfficialUpdate', () => {
       dataDir: DATA, env: {}, out: vi.fn(),
       overrides: {
         runtime: RUNTIME, installIo: installed(), makeTemp: () => prefix,
-        removeTemp: vi.fn(), exists: (path) => path === candidate,
-        nodePath: '/usr/bin/node', run, timeouts,
+        removeTemp: vi.fn(), writeFile: vi.fn(), exists: (path) => path === candidate,
+        nodePath: '/usr/bin/node', platform: 'linux', run, timeouts,
       },
     })).rejects.toThrow(new RegExp(`timed out after ${timeout} ms`));
   });
@@ -279,6 +295,7 @@ it('updates a previous durable runtime, preserves state, and proves one replacem
         exec: (command, args) => { fixture.commands.push([command, ...args].join(' ')); return command === 'loginctl' ? 'yes' : ''; },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.12', generation: 'candidate-generation' }),
         sleep: async () => undefined,
       } },
@@ -314,6 +331,7 @@ it('rolls back a candidate whose live service identity does not match', async ()
         exec: (command, args) => { fixture.commands.push([command, ...args].join(' ')); return command === 'loginctl' ? 'yes' : ''; },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async (_endpoint, _token) => fixture.commands.filter((command) => command === 'systemctl --user restart codor.service').length === 1
           ? { version: '0.10.11', generation: 'stale-generation' }
           : { version: '0.10.11', generation: 'rollback-generation' },
@@ -361,6 +379,7 @@ it('rolls back and reconverges the previous runtime when the candidate restart f
         },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.11', generation: 'rollback-generation' }),
         sleep: async () => undefined,
       } },
@@ -405,6 +424,7 @@ it('cooperatively times out after service mutation and completes rollback before
           },
           which: () => undefined,
           probe: async () => true,
+          installIo: stubbedInstallIo,
           runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
           sleep: async () => undefined,
         },
@@ -438,6 +458,7 @@ it('reports a restored legacy daemon as healthy but identity-unverified', async 
         exec: (command, args) => { fixture.commands.push([command, ...args].join(' ')); return command === 'loginctl' ? 'yes' : ''; },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => undefined,
         sleep: async () => undefined,
       } },
@@ -484,6 +505,7 @@ it.each([
         exists: () => true,
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
         sleep: async () => undefined,
       } },
@@ -505,7 +527,7 @@ it('stops Windows tasks before every runtime move and restores the exact registe
   const priorTaskXml = '<Task><RegistrationInfo><Description>exact prior task</Description></RegistrationInfo></Task>';
   let taskRunning = true;
   const installIo: InstallIo = {
-    ...defaultInstallIo,
+    ...stubbedInstallIo,
     move: (from, to) => {
       if (taskRunning) throw new Error('native runtime is locked by the running task');
       defaultInstallIo.move(from, to);
@@ -555,7 +577,7 @@ it('restarts the untouched Windows task when staging fails before the runtime sw
   const fixture = updateFixture();
   let taskRunning = true;
   const installIo: InstallIo = {
-    ...defaultInstallIo,
+    ...stubbedInstallIo,
     copyTree: () => { throw new Error('candidate staging failed'); },
   };
   try {
@@ -623,6 +645,7 @@ it('leaves a previously absent registered Windows task absent after rollback', a
         },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
         sleep: async () => undefined,
       } },
@@ -672,7 +695,7 @@ it.each([
           home: fixture.home,
           nodePath: 'C:\\Program Files\\nodejs\\node.exe',
           platform: 'win32',
-          installIo: { ...defaultInstallIo, copyTree, move },
+          installIo: { ...stubbedInstallIo, copyTree, move },
           exec: (command, args, options) => {
             commands.push({ command, args, timeoutMs: options?.timeoutMs });
             if (command === 'schtasks' && args[0] === '/Query') return query();

@@ -122,6 +122,30 @@ case "${1:-}" in
     esac
     exec "$REAL_NPM" install --prefix "$prefix" --ignore-scripts --no-fund --no-package-lock --no-save "$PROOF_UPDATE_TARBALL"
     ;;
+  rebuild)
+    prefix=''
+    previous=''
+    for argument in "$@"; do
+      if [ "$previous" = '--prefix' ]; then prefix="$argument"; fi
+      previous="$argument"
+    done
+    test -n "$prefix"
+    # npm 12 blocks dependency install scripts unless the target project opts
+    # in. Assert the updater wrote the allow entry into the staging prefix
+    # before the rebuild; the container's npm does not enforce that policy, so
+    # this assertion is the only observable proof in the proof harness.
+    if ! grep -Fq 'allow-scripts=better-sqlite3' "$prefix/.npmrc" 2>/dev/null; then
+      printf 'the updater did not opt the staging prefix into install scripts\n' >&2
+      exit 2
+    fi
+    case "$*" in
+      *"better-sqlite3"*) ;;
+      *) printf 'unexpected official native rebuild argv: %s\n' "$*" >&2; exit 2 ;;
+    esac
+    # The acquisition above skips install scripts. Rebuild the one dependency
+    # whose binding that skip removes, exactly as the updater does.
+    exec "$REAL_NPM" rebuild --prefix "$prefix" better-sqlite3
+    ;;
   *) printf 'unexpected npm command: %s\n' "$*" >&2; exit 2 ;;
 esac
 UPDATE_NPM
@@ -173,6 +197,7 @@ UPDATE_SERVER
     test ! -e "$UPDATE_DATA/runtime.backup"
     grep -Fq "view @richhardry/codor@latest version --json" "$UPDATE_NPM_LOG"
     grep -Fq "install --prefix" "$UPDATE_NPM_LOG"
+    grep -Fq "rebuild --prefix" "$UPDATE_NPM_LOG"
     kill "$(cat "$UPDATE_DATA/service.pid")"
     wait "$(cat "$UPDATE_DATA/service.pid")" 2>/dev/null || true
     else

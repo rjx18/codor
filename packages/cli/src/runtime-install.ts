@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
@@ -26,6 +27,13 @@ export interface DurableInstallResult {
   transaction?: { backup: string; previousVersion?: string };
 }
 
+/** Outcome of proving a runtime can open a SQLite database under a Node binary. */
+export interface NativeProbeResult {
+  ok: boolean;
+  /** Trimmed child output and error message when `ok` is false. */
+  detail?: string;
+}
+
 /** Injectable filesystem surface so the copy logic is unit-testable. */
 export interface InstallIo {
   exists(path: string): boolean;
@@ -33,6 +41,54 @@ export interface InstallIo {
   move(from: string, to: string): void;
   remove(path: string): void;
   readVersion(packageJsonPath: string): string | undefined;
+  /** Prove the CLI root can open a `better-sqlite3` database under `nodePath`.
+   *  Optional so callers that inject a partial filesystem skip the check; the
+   *  default IO always supplies it. */
+  probeNative?(cliRoot: string, nodePath: string): NativeProbeResult;
+}
+
+/** Opening a database (not an import) is what resolves the native binding;
+ *  `better-sqlite3` defers that to the first `Database` construction. Resolve
+ *  from `@codor/switchboard`, the package that declares the dependency, so an
+ *  isolated pnpm layout works; a CLI-root cwd only finds a hoisted npm layout. */
+const NATIVE_PROBE_SCRIPT = [
+  "import { createRequire } from 'node:module';",
+  'try {',
+  '  const cliRequire = createRequire(process.argv[1]);',
+  "  const switchboard = cliRequire.resolve('@codor/switchboard');",
+  "  const Database = createRequire(switchboard)('better-sqlite3');",
+  "  new Database(':memory:').close();",
+  '} catch (error) {',
+  '  const message = error && error.message ? error.message : String(error);',
+  '  console.error(`better-sqlite3 could not open a database under Node ABI ${process.versions.modules} (${process.platform}-${process.arch}): ${message}`);',
+  '  process.exit(1);',
+  '}',
+].join('\n');
+
+function nativeProbeDetail(error: unknown): string {
+  const details = error as { message?: string; stdout?: unknown; stderr?: unknown };
+  const render = (value: unknown): string => Buffer.isBuffer(value)
+    ? value.toString('utf8')
+    : typeof value === 'string' ? value : '';
+  // Prefer the child's own output. `message` repeats the full command, including
+  // the multi-line probe script, and buries the useful diagnostic.
+  const streams = [render(details.stderr), render(details.stdout)]
+    .map((part) => part.trim())
+    .filter((part) => part !== '');
+  if (streams.length > 0) return streams.join('\n');
+  return details.message?.trim() ?? '';
+}
+
+/** A child environment without NODE_PATH. `createRequire` honors NODE_PATH as a
+ *  CommonJS global path, so an inherited hoist directory (set by pnpm, and
+ *  written into the service environment) could satisfy the probe from the wrong
+ *  tree. */
+function probeEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.toUpperCase() !== 'NODE_PATH') env[key] = value;
+  }
+  return env;
 }
 
 export const defaultInstallIo: InstallIo = {
@@ -48,7 +104,36 @@ export const defaultInstallIo: InstallIo = {
       return undefined;
     }
   },
+  probeNative: (cliRoot, nodePath) => {
+    try {
+      execFileSync(nodePath, [
+        '--input-type=module',
+        '-e',
+        NATIVE_PROBE_SCRIPT,
+        join(cliRoot, 'dist', 'index.js'),
+      ], {
+        cwd: cliRoot,
+        encoding: 'utf8',
+        env: probeEnvironment(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, detail: nativeProbeDetail(error) };
+    }
+  },
 };
+
+/** Run the injected native probe, or return undefined when no probe applies
+ *  (a partial IO or a caller that did not name a service Node binary). */
+function probeRuntimeNatives(
+  io: InstallIo,
+  cliRoot: string,
+  nodePath: string | undefined,
+): NativeProbeResult | undefined {
+  if (io.probeNative === undefined || nodePath === undefined) return undefined;
+  return io.probeNative(cliRoot, nodePath);
+}
 
 /** ~/.codor/runtime — the durable per-user runtime location under the data dir. */
 export function durableRuntimeLocation(dataDir: string): string {
@@ -116,7 +201,10 @@ export function detectInstalledRuntime(dataDir: string, io: InstallIo = defaultI
  * re-copies, and `ensure` installs when missing and reuses a matching version. An
  * install or update stages the copy in a sibling directory, validates it, then
  * swaps it in with a backup and rollback, so an interrupted copy never destroys a
- * working install.
+ * working install. A staged copy must also open a SQLite database under the
+ * supplied service Node binary; a tree whose native binding is absent is
+ * discarded before the swap, and a matching installed runtime that fails the
+ * check is not reused.
  */
 export function installDurableRuntime(options: {
   runtime: RuntimePaths;
@@ -124,6 +212,13 @@ export function installDurableRuntime(options: {
   version: string;
   intent?: InstallIntent;
   io?: InstallIo;
+  /** Node binary the service will run. Named so the staged tree can prove its
+   *  native modules load under that exact ABI before the atomic swap. */
+  nodePath?: string;
+  /** Called immediately before the swap moves any existing runtime. A Windows
+   *  service must be quiesced here, because a swap may follow a native-probe
+   *  rejection rather than only an explicit update. */
+  beforeSwap?: () => void;
   retainBackup?: boolean;
 }): DurableInstallResult {
   const io = options.io ?? defaultInstallIo;
@@ -141,9 +236,13 @@ export function installDurableRuntime(options: {
   if (intent === 'keep' && existing !== undefined) {
     return { runtime: installed, location, action: 'reused', version: existing };
   }
-  // Reuse a matching install unless an explicit update was requested.
+  // Reuse a matching install unless an explicit update was requested or the
+  // installed runtime no longer loads its native modules under the service Node.
   if (intent !== 'update' && existing === options.version) {
-    return { runtime: installed, location, action: 'reused', version: options.version };
+    const installedProbe = probeRuntimeNatives(io, installedCliRoot(location), options.nodePath);
+    if (installedProbe === undefined || installedProbe.ok) {
+      return { runtime: installed, location, action: 'reused', version: options.version };
+    }
   }
 
   // Stage the copy in a sibling, validate it, then swap atomically. A failure at
@@ -156,6 +255,19 @@ export function installDurableRuntime(options: {
   if (!io.exists(join(stagedCli, 'dist', 'index.js')) || !io.exists(join(stagedCli, 'runtime', 'web'))) {
     io.remove(staging);
     throw new Error(`the staged Codor runtime at ${staging} is missing its CLI entrypoint or web assets`);
+  }
+  const stagedProbe = probeRuntimeNatives(io, stagedCli, options.nodePath);
+  if (stagedProbe !== undefined && !stagedProbe.ok) {
+    io.remove(staging);
+    throw new Error(
+      `the staged Codor runtime at ${staging} cannot load its better-sqlite3 native binding under ${options.nodePath}: ${stagedProbe.detail ?? 'the database probe failed'}`,
+    );
+  }
+  try {
+    options.beforeSwap?.();
+  } catch (error) {
+    io.remove(staging);
+    throw error;
   }
   if (io.exists(backup)) io.remove(backup);
   if (io.exists(location)) io.move(location, backup);
