@@ -36,10 +36,17 @@ expiry. It never sends channel data through a Codor-hosted service.
 
 <!-- harn:assume pnpm-install-docs-disclose-build-approval-boundaries ref=readme-pnpm-install-disclosure -->
 > [!NOTE]
-> On pnpm, install into a project rather than running `pnpm dlx @richhardry/codor install`. A tested
-> `pnpm dlx` install did not pick up the workspace `packageExtensions` and native build-approval
-> settings this install needs—see [Self-host: Prerequisites](docs/SELF-HOST.md#prerequisites) for
-> the settings.
+> Codor's native `better-sqlite3` binding needs its dependency install script to run, and current
+> package managers block dependency scripts by default. On pnpm, install into a project rather than
+> running `pnpm dlx @richhardry/codor install`: a tested `pnpm dlx` install did not pick up the
+> workspace `packageExtensions` and native build-approval settings this install needs. On npm 12,
+> `npx` applies the same boundary—run
+> `npx --allow-scripts=better-sqlite3,sodium-native,udx-native @richhardry/codor install`, keeping
+> the option before the package because `npx` forwards trailing options to Codor instead of npm.
+> Persist the approval instead with
+> `npm config set allow-scripts=better-sqlite3,sodium-native,udx-native --location=user`. See
+> [Self-host: Prerequisites](docs/SELF-HOST.md#prerequisites) for the settings and for recovery if a
+> previous install already skipped the scripts.
 <!-- harn:end pnpm-install-docs-disclose-build-approval-boundaries -->
 
 Preview without changing the host:
