@@ -867,6 +867,7 @@ export async function waitForCodor(
   sleep: (milliseconds: number) => Promise<void>,
   monotonicNow: () => number = defaultMonotonicNow,
   budgetMs: number = READINESS_BUDGET_MS,
+  logPath?: string,
 ): Promise<void> {
   const startedAt = monotonicNow();
   let delayMs = READINESS_INITIAL_DELAY_MS;
@@ -886,8 +887,11 @@ export async function waitForCodor(
   const budgetLabel = budgetMs === READINESS_BUDGET_MS
     ? '60-second'
     : `${String(budgetMs)} ms`;
+  const guidance = logPath === undefined
+    ? 'run `codor channels` and inspect the user-service logs'
+    : `run \`codor channels\` and inspect the service log at ${logPath}`;
   throw new Error(
-    `Codor did not answer its pairing-status check within the ${budgetLabel} readiness budget at ${endpoint}; run \`codor channels\` and inspect the user-service logs`,
+    `Codor did not answer its pairing-status check within the ${budgetLabel} readiness budget at ${endpoint}; ${guidance}`,
   );
   // harn:end setup-readiness-wait-is-wall-clock-bounded
 }
@@ -954,6 +958,9 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   const launchAgentDir = join(home, 'Library', 'LaunchAgents');
   const launchAgentPath = join(launchAgentDir, `${LAUNCH_AGENT_LABEL}.plist`);
   const logDir = join(dataDir, 'logs');
+  // Linux records service output in the journal; the file-backed platforms write
+  // a codor.err.log the readiness diagnostic can name.
+  const serviceLogPath = platform === 'linux' ? undefined : join(logDir, 'codor.err.log');
   // The service must reference a durable runtime. An ephemeral (npx/temp)
   // invoking runtime is copied to ~/.codor/runtime by the Install step; the
   // service is rendered against that stable copy, while the service template is
@@ -1209,15 +1216,18 @@ export async function runSetup(options: SetupOptions): Promise<void> {
   // Install Codor: make the invoking runtime durable (so the service never
   // references an npx cache), then create the private config, data, and token.
   const installStep = (log: (message: string) => void, intent: InstallIntent = 'ensure'): string => {
-    const existing = detectInstalledRuntime(dataDir, installIo);
-    const swapsRuntime = platform === 'win32'
-      && !installSource.durable
-      && !(intent === 'keep' && existing !== undefined)
-      && !(intent !== 'update' && existing?.version === version);
-    const priorTask = swapsRuntime ? quiesceWindowsTask(exec) : undefined;
+    // Quiesce the Windows task only when the runtime is actually about to swap.
+    // A pure reuse leaves the running service alone; a same-version runtime that
+    // fails the native probe now re-stages and swaps instead of being reused.
+    let priorTask: WindowsTaskSnapshot | undefined;
+    const quiesceBeforeSwap = (): void => {
+      if (platform === 'win32' && priorTask === undefined) priorTask = quiesceWindowsTask(exec);
+    };
     let result;
     try {
-      result = installDurableRuntime({ runtime, dataDir, version, intent, io: installIo });
+      result = installDurableRuntime({
+        runtime, dataDir, version, intent, nodePath, io: installIo, beforeSwap: quiesceBeforeSwap,
+      });
     } catch (error) {
       if (priorTask !== undefined) restartWindowsTask(exec, priorTask);
       throw error;
@@ -1358,7 +1368,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     const readinessBudget = options.updateOnly === undefined
       ? READINESS_BUDGET_MS
       : Math.min(READINESS_BUDGET_MS, remainingUpdateMs('candidate readiness'));
-    await waitForCodor(localEndpoint, probe, sleep, updateNow, readinessBudget);
+    await waitForCodor(localEndpoint, probe, sleep, updateNow, readinessBudget, serviceLogPath);
     log('Codor answered its pairing status check');
     if (options.updateOnly !== undefined) remainingUpdateMs('candidate identity verification');
     const selected = await runtimeStatus(localEndpoint, readFileSync(tokenPath, 'utf8').trim());
@@ -1438,6 +1448,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
         dataDir,
         version,
         intent: 'update',
+        nodePath,
         retainBackup: true,
         io: installIo,
       });
@@ -1491,7 +1502,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
           if (result === undefined) restartWindowsTask(recoveryExec, priorTask!);
           else restoreWindowsTask(recoveryExec, priorTask!, windowsTaskRestorePath);
         }
-        await waitForCodor(localEndpoint, probe, sleep);
+        await waitForCodor(localEndpoint, probe, sleep, undefined, undefined, serviceLogPath);
         const token = readFileSync(tokenPath, 'utf8').trim();
         const restored = await runtimeStatus(localEndpoint, token);
         if (restored === undefined) {

@@ -5,12 +5,14 @@ import { join, resolve, sep } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  defaultInstallIo,
   detectInstalledRuntime,
   finalizeDurableRuntimeInstall,
   installDurableRuntime,
   isEphemeralRuntime,
   rollbackDurableRuntimeInstall,
   type InstallIo,
+  type NativeProbeResult,
 } from './runtime-install.js';
 import { type RuntimePaths } from './runtime-paths.js';
 
@@ -73,7 +75,12 @@ const WRAPPER_PKG = (loc: string): string => join(loc, 'node_modules', '@richhar
 const STAGED_CLI = (loc: string): string => join(loc, 'node_modules', '@richhardry', 'codor', 'node_modules', '@codor', 'cli');
 
 /** A tiny virtual filesystem so the staged copy + atomic swap is testable. */
-function fakeIo(options: { existing?: string; failCopy?: boolean; incompleteCopy?: boolean } = {}): {
+function fakeIo(options: {
+  existing?: string;
+  failCopy?: boolean;
+  incompleteCopy?: boolean;
+  nativeProbe?: (cliRoot: string, nodePath: string) => NativeProbeResult;
+} = {}): {
   io: InstallIo; present: Set<string>; copies: Array<[string, string]>; moves: Array<[string, string]>; removed: string[];
 } {
   const copies: Array<[string, string]> = [];
@@ -115,6 +122,7 @@ function fakeIo(options: { existing?: string; failCopy?: boolean; incompleteCopy
       for (const existing of [...present]) if (existing === path || existing.startsWith(`${path}/`)) present.delete(existing);
     },
     readVersion: (path) => versions.get(path),
+    ...(options.nativeProbe === undefined ? {} : { probeNative: options.nativeProbe }),
   };
   return { io, present, copies, moves, removed };
 }
@@ -262,6 +270,171 @@ describe('installDurableRuntime', () => {
     expect(removed).toContain(`${LOCATION}.staging`);
     expect(present.has(LOCATION)).toBe(true);
     expect(moves).toEqual([]);
+  });
+});
+
+// harn:assume setup-installs-durable-per-user-runtime-atomically ref=durable-runtime-native-probe-regression
+describe('installDurableRuntime native-module staging validation', () => {
+  it('discards a staged runtime whose SQLite binding cannot load, naming the module and Node ABI', () => {
+    const probes: Array<{ cliRoot: string; nodePath: string }> = [];
+    const { io, present, removed, moves } = fakeIo({
+      existing: '0.9.0',
+      nativeProbe: (cliRoot, nodePath) => {
+        probes.push({ cliRoot, nodePath });
+        return { ok: false, detail: 'better-sqlite3 could not open a database under Node ABI 137 (win32-x64): Could not locate the bindings file' };
+      },
+    });
+    let failure: Error | undefined;
+    try {
+      installDurableRuntime({
+        runtime: ephemeral,
+        dataDir: DATA,
+        version: '0.10.0',
+        intent: 'update',
+        nodePath: '/service/node',
+        io,
+      });
+    } catch (error) {
+      failure = error as Error;
+    }
+    if (failure === undefined) throw new Error('expected the staged native check to fail');
+    expect(failure.message).toContain('better-sqlite3');
+    expect(failure.message).toContain('Node ABI 137');
+    expect(probes).toEqual([{ cliRoot: STAGED_CLI(`${LOCATION}.staging`), nodePath: '/service/node' }]);
+    // The incomplete staging is discarded; the existing install is untouched.
+    expect(removed).toContain(`${LOCATION}.staging`);
+    expect(present.has(LOCATION)).toBe(true);
+    expect(moves).toEqual([]);
+  });
+
+  it('swaps a staged runtime after its native probe passes', () => {
+    const probes: Array<{ cliRoot: string; nodePath: string }> = [];
+    const { io, moves } = fakeIo({
+      nativeProbe: (cliRoot, nodePath) => {
+        probes.push({ cliRoot, nodePath });
+        return { ok: true };
+      },
+    });
+    const result = installDurableRuntime({
+      runtime: ephemeral,
+      dataDir: DATA,
+      version: '0.10.0',
+      nodePath: '/service/node',
+      io,
+    });
+    expect(result.action).toBe('installed');
+    expect(probes).toEqual([{ cliRoot: STAGED_CLI(`${LOCATION}.staging`), nodePath: '/service/node' }]);
+    expect(moves).toContainEqual([`${LOCATION}.staging`, LOCATION]);
+  });
+
+  it('does not reuse a same-version runtime whose native modules cannot load', () => {
+    const { io, copies } = fakeIo({
+      existing: '0.10.0',
+      nativeProbe: (cliRoot) => (cliRoot.includes('.staging')
+        ? { ok: true }
+        : { ok: false, detail: 'better-sqlite3 could not open a database' }),
+    });
+    const result = installDurableRuntime({
+      runtime: ephemeral,
+      dataDir: DATA,
+      version: '0.10.0',
+      nodePath: '/service/node',
+      io,
+    });
+    expect(result.action).toBe('updated');
+    expect(copies).toHaveLength(1);
+  });
+
+  it('reuses a same-version runtime that passes its native probe', () => {
+    const { io, copies } = fakeIo({ existing: '0.10.0', nativeProbe: () => ({ ok: true }) });
+    const result = installDurableRuntime({
+      runtime: ephemeral,
+      dataDir: DATA,
+      version: '0.10.0',
+      nodePath: '/service/node',
+      io,
+    });
+    expect(result.action).toBe('reused');
+    expect(copies).toEqual([]);
+  });
+});
+// harn:end setup-installs-durable-per-user-runtime-atomically
+
+describe('default native probe', () => {
+  it('names better-sqlite3 and the Node ABI when the staged tree lacks the binding', () => {
+    const cliRoot = mkdtempSync(join(tmpdir(), 'codor-native-probe-'));
+    try {
+      const outcome = defaultInstallIo.probeNative!(cliRoot, process.execPath);
+      expect(outcome.ok).toBe(false);
+      expect(outcome.detail).toContain('better-sqlite3');
+      expect(outcome.detail).toContain(`Node ABI ${process.versions.modules ?? ''}`);
+    } finally {
+      rmSync(cliRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('ignores an inherited NODE_PATH that could resolve the dependency', () => {
+    const root = mkdtempSync(join(tmpdir(), 'codor-native-probe-nodepath-'));
+    try {
+      // A hoist directory, as pnpm exposes through NODE_PATH and the service
+      // writes into its own environment, that could satisfy both lookups.
+      const hoist = join(root, 'hoist');
+      mkdirSync(join(hoist, '@codor', 'switchboard', 'dist'), { recursive: true });
+      writeFileSync(join(hoist, '@codor', 'switchboard', 'package.json'), JSON.stringify({
+        name: '@codor/switchboard', type: 'module', exports: { '.': './dist/index.js' },
+      }));
+      writeFileSync(join(hoist, '@codor', 'switchboard', 'dist', 'index.js'), '');
+      const database = join(hoist, 'better-sqlite3');
+      mkdirSync(database, { recursive: true });
+      writeFileSync(join(database, 'package.json'), JSON.stringify({ name: 'better-sqlite3', main: 'index.js' }));
+      writeFileSync(join(database, 'index.js'), 'module.exports = function Database() { return { close() {} }; };\n');
+      // The staged tree is empty; only the inherited NODE_PATH could resolve the
+      // dependency, and the probe must not consult it.
+      const cliRoot = join(root, 'staged', 'node_modules', '@codor', 'cli');
+      mkdirSync(join(cliRoot, 'dist'), { recursive: true });
+      writeFileSync(join(cliRoot, 'dist', 'index.js'), '');
+
+      const previous = process.env.NODE_PATH;
+      process.env.NODE_PATH = hoist;
+      try {
+        expect(defaultInstallIo.probeNative!(cliRoot, process.execPath).ok).toBe(false);
+      } finally {
+        if (previous === undefined) delete process.env.NODE_PATH;
+        else process.env.NODE_PATH = previous;
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // harn:assume setup-installs-durable-per-user-runtime-atomically ref=durable-runtime-native-probe-resolution
+  it('resolves better-sqlite3 from the switchboard package, not the CLI root', () => {
+    const root = mkdtempSync(join(tmpdir(), 'codor-native-probe-pnpm-'));
+    try {
+      const cliRoot = join(root, 'node_modules', '@codor', 'cli');
+      const switchboardRoot = join(root, 'node_modules', '@codor', 'switchboard');
+      mkdirSync(join(cliRoot, 'dist'), { recursive: true });
+      writeFileSync(join(cliRoot, 'dist', 'index.js'), '');
+      writeFileSync(join(cliRoot, 'package.json'), JSON.stringify({
+        name: '@codor/cli', type: 'module', exports: { '.': './dist/index.js' },
+      }));
+      mkdirSync(join(switchboardRoot, 'dist'), { recursive: true });
+      writeFileSync(join(switchboardRoot, 'dist', 'index.js'), '');
+      writeFileSync(join(switchboardRoot, 'package.json'), JSON.stringify({
+        name: '@codor/switchboard', type: 'module', exports: { '.': './dist/index.js' },
+      }));
+      // better-sqlite3 is nested under switchboard only, so a resolution walk
+      // from the CLI root cannot see it: the probe must resolve from the package
+      // that declares the dependency, as an isolated pnpm layout requires.
+      const database = join(switchboardRoot, 'node_modules', 'better-sqlite3');
+      mkdirSync(database, { recursive: true });
+      writeFileSync(join(database, 'package.json'), JSON.stringify({ name: 'better-sqlite3', main: 'index.js' }));
+      writeFileSync(join(database, 'index.js'), 'module.exports = function Database() { return { close() {} }; };\n');
+
+      expect(defaultInstallIo.probeNative!(cliRoot, process.execPath)).toEqual({ ok: true });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

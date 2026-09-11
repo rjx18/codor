@@ -151,6 +151,9 @@ describe('codor setup on Windows', () => {
       writeFileSync(join(cli, 'packaging', 'systemd', 'codor.service'), 'ExecStart=/old\n');
       const installIo: InstallIo = {
         ...defaultInstallIo,
+        // The fabricated runtime has no real native binding; this test exercises
+        // task quiescence, not the native probe.
+        probeNative: () => ({ ok: true }),
         move: (from, to) => {
           if (taskRunning) throw new Error('runtime move attempted while task was running');
           events.push(`move ${from} ${to}`);
@@ -190,6 +193,83 @@ describe('codor setup on Windows', () => {
       expect(firstMove).toBeGreaterThan(1);
       expect(events.slice(0, firstMove).filter((event) => event === 'schtasks /End /TN Codor Switchboard')).toHaveLength(1);
       expect(taskRunning).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // harn:assume windows-runtime-swap-requires-task-quiescence ref=windows-runtime-quiescence-native-probe
+  it('quiesces the task before swapping a same-version runtime that fails the native probe', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'codor-win32-native-quiesce-'));
+    const commands: string[] = [];
+    const output: string[] = [];
+    const events: string[] = [];
+    let taskRunning = true;
+    try {
+      const overrides = winOptions(root, commands, output);
+      const home = overrides.home;
+      const wrapper = join(root, '_npx', 'candidate', 'node_modules', '@richhardry', 'codor');
+      const cli = join(wrapper, 'node_modules', '@codor', 'cli');
+      mkdirSync(join(cli, 'dist'), { recursive: true });
+      mkdirSync(join(cli, 'runtime', 'web'), { recursive: true });
+      mkdirSync(join(cli, 'packaging', 'systemd'), { recursive: true });
+      writeFileSync(join(wrapper, 'package.json'), JSON.stringify({ version: 'test-version' }));
+      writeFileSync(join(cli, 'package.json'), JSON.stringify({ version: 'test-version' }));
+      writeFileSync(join(cli, 'dist', 'index.js'), '');
+      writeFileSync(join(cli, 'runtime', 'web', 'index.html'), '');
+      writeFileSync(join(cli, 'packaging', 'systemd', 'codor.service'), 'ExecStart=/old\n');
+      // A same-version durable install exists, but its native probe fails. The
+      // reuse is rejected, so the runtime swaps and the task must be quiesced.
+      const installedWrapper = join(home, '.codor', 'runtime', 'node_modules', '@richhardry', 'codor');
+      mkdirSync(installedWrapper, { recursive: true });
+      writeFileSync(join(installedWrapper, 'package.json'), JSON.stringify({ name: '@richhardry/codor', version: 'test-version' }));
+      const installIo: InstallIo = {
+        ...defaultInstallIo,
+        probeNative: (candidateCli) => (candidateCli.includes('.staging')
+          ? { ok: true }
+          : { ok: false, detail: 'Could not locate the bindings file' }),
+        move: (from, to) => {
+          if (taskRunning) throw new Error('runtime move attempted while task was running');
+          events.push(`move ${from} ${to}`);
+          defaultInstallIo.move(from, to);
+        },
+      };
+      overrides.runtime = {
+        layout: 'installed-package',
+        root: cli,
+        cliEntrypoint: join(cli, 'dist', 'index.js'),
+        staticRoot: join(cli, 'runtime', 'web'),
+        serviceTemplate: join(cli, 'packaging', 'systemd', 'codor.service'),
+      };
+      overrides.installIo = installIo;
+      overrides.exec = (command, args) => {
+        const rendered = [command, ...args].join(' ');
+        commands.push(rendered);
+        events.push(rendered);
+        if (command === 'schtasks' && args[0] === '/Query') return '<Task />';
+        if (command === 'schtasks' && args[0] === '/End') taskRunning = false;
+        if (command === 'schtasks' && args[0] === '/Run') taskRunning = true;
+        return '';
+      };
+
+      await runSetup({
+        access: 'localhost',
+        dryRun: false,
+        env: { USERNAME: 'test-user', PATH: 'C:\\Windows\\System32' },
+        out: (line) => output.push(line),
+        overrides,
+        yes: true,
+      });
+
+      expect(commands[0]).toBe('schtasks /Query /TN Codor Switchboard /XML');
+      expect(commands[1]).toBe('schtasks /End /TN Codor Switchboard');
+      const firstMove = events.findIndex((event) => event.startsWith('move '));
+      expect(firstMove).toBeGreaterThan(1);
+      expect(events.slice(0, firstMove).filter((event) => event === 'schtasks /End /TN Codor Switchboard')).toHaveLength(1);
+      expect(taskRunning).toBe(true);
+      // The staged candidate replaced the broken runtime.
+      expect(existsSync(join(home, '.codor', 'runtime', 'node_modules', '@richhardry', 'codor',
+        'node_modules', '@codor', 'cli', 'dist', 'index.js'))).toBe(true);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

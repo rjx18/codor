@@ -34,6 +34,15 @@ function missing(): InstallIo {
   };
 }
 
+/** Real filesystem IO with the native probe stubbed for synthetic fixture trees. */
+const stubbedInstallIo: InstallIo = {
+  ...defaultInstallIo,
+  // The update-journey fixtures build synthetic runtime trees and name a
+  // placeholder service node, so the real better-sqlite3 probe cannot succeed.
+  // runtime-install.spec.ts covers the real probe.
+  probeNative: () => ({ ok: true }),
+};
+
 const ok = (stdout = ''): UpdateCommandResult => ({ status: 0, stdout, stderr: '' });
 
 // harn:assume official-codor-update-is-cooperatively-bounded-and-platform-truthful ref=stable-update-regression
@@ -279,6 +288,7 @@ it('updates a previous durable runtime, preserves state, and proves one replacem
         exec: (command, args) => { fixture.commands.push([command, ...args].join(' ')); return command === 'loginctl' ? 'yes' : ''; },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.12', generation: 'candidate-generation' }),
         sleep: async () => undefined,
       } },
@@ -314,6 +324,7 @@ it('rolls back a candidate whose live service identity does not match', async ()
         exec: (command, args) => { fixture.commands.push([command, ...args].join(' ')); return command === 'loginctl' ? 'yes' : ''; },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async (_endpoint, _token) => fixture.commands.filter((command) => command === 'systemctl --user restart codor.service').length === 1
           ? { version: '0.10.11', generation: 'stale-generation' }
           : { version: '0.10.11', generation: 'rollback-generation' },
@@ -361,6 +372,7 @@ it('rolls back and reconverges the previous runtime when the candidate restart f
         },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.11', generation: 'rollback-generation' }),
         sleep: async () => undefined,
       } },
@@ -405,6 +417,7 @@ it('cooperatively times out after service mutation and completes rollback before
           },
           which: () => undefined,
           probe: async () => true,
+          installIo: stubbedInstallIo,
           runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
           sleep: async () => undefined,
         },
@@ -438,6 +451,7 @@ it('reports a restored legacy daemon as healthy but identity-unverified', async 
         exec: (command, args) => { fixture.commands.push([command, ...args].join(' ')); return command === 'loginctl' ? 'yes' : ''; },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => undefined,
         sleep: async () => undefined,
       } },
@@ -484,6 +498,7 @@ it.each([
         exists: () => true,
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
         sleep: async () => undefined,
       } },
@@ -505,7 +520,7 @@ it('stops Windows tasks before every runtime move and restores the exact registe
   const priorTaskXml = '<Task><RegistrationInfo><Description>exact prior task</Description></RegistrationInfo></Task>';
   let taskRunning = true;
   const installIo: InstallIo = {
-    ...defaultInstallIo,
+    ...stubbedInstallIo,
     move: (from, to) => {
       if (taskRunning) throw new Error('native runtime is locked by the running task');
       defaultInstallIo.move(from, to);
@@ -555,7 +570,7 @@ it('restarts the untouched Windows task when staging fails before the runtime sw
   const fixture = updateFixture();
   let taskRunning = true;
   const installIo: InstallIo = {
-    ...defaultInstallIo,
+    ...stubbedInstallIo,
     copyTree: () => { throw new Error('candidate staging failed'); },
   };
   try {
@@ -623,6 +638,7 @@ it('leaves a previously absent registered Windows task absent after rollback', a
         },
         which: () => undefined,
         probe: async () => true,
+        installIo: stubbedInstallIo,
         runtimeStatus: async () => ({ version: '0.10.11', generation: 'prior-generation' }),
         sleep: async () => undefined,
       } },
@@ -672,7 +688,7 @@ it.each([
           home: fixture.home,
           nodePath: 'C:\\Program Files\\nodejs\\node.exe',
           platform: 'win32',
-          installIo: { ...defaultInstallIo, copyTree, move },
+          installIo: { ...stubbedInstallIo, copyTree, move },
           exec: (command, args, options) => {
             commands.push({ command, args, timeoutMs: options?.timeoutMs });
             if (command === 'schtasks' && args[0] === '/Query') return query();
