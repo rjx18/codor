@@ -64,7 +64,7 @@ describe('runOfficialUpdate', () => {
     expect(out).toHaveBeenCalledWith('Codor 0.10.11 is already current');
   });
 
-  it('acquires one exact release without a shell and invokes only its candidate updater', async () => {
+  it('acquires one exact release, builds the skipped native binding, and invokes only its candidate updater', async () => {
     const prefix = '/tmp/codor-candidate';
     const candidate = join(prefix, 'node_modules/@richhardry/codor/bin/codor.mjs');
     const calls: Array<[string, string[]]> = [];
@@ -75,6 +75,7 @@ describe('runOfficialUpdate', () => {
       return ok();
     });
     const removeTemp = vi.fn();
+    const writeFile = vi.fn();
     const out = vi.fn();
     await runOfficialUpdate({
       dataDir: DATA, env: { PATH: '/usr/bin' }, out,
@@ -83,8 +84,10 @@ describe('runOfficialUpdate', () => {
         installIo: installed(),
         makeTemp: () => prefix,
         removeTemp,
+        writeFile,
         exists: (path) => path === candidate,
         nodePath: '/usr/bin/node',
+        platform: 'linux',
         run,
       },
     });
@@ -92,11 +95,14 @@ describe('runOfficialUpdate', () => {
     expect(calls).toEqual([
       ['npm', ['view', '@richhardry/codor@latest', 'version', '--json', '--registry', 'https://registry.npmjs.org/', '--@richhardry:registry=https://registry.npmjs.org/']],
       ['npm', ['install', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', '--no-package-lock', '--no-save', '--registry', 'https://registry.npmjs.org/', '--@richhardry:registry=https://registry.npmjs.org/', '@richhardry/codor@0.10.12']],
+      ['npm', ['rebuild', '--prefix', prefix, 'better-sqlite3']],
       ['/usr/bin/node', [candidate, '--data-dir', DATA, '__apply-update', '--expected-version', '0.10.12', '--timeout-ms', '300000']],
     ]);
     expect(removeTemp).toHaveBeenCalledWith(prefix);
+    expect(writeFile).toHaveBeenCalledWith(join(prefix, '.npmrc'), 'allow-scripts=better-sqlite3\n');
     expect(out).toHaveBeenCalledWith('candidate applied');
-    expect(run.mock.calls[2]?.[2]).not.toHaveProperty('timeoutMs');
+    expect(run.mock.calls[2]?.[2]).toMatchObject({ cwd: prefix });
+    expect(run.mock.calls[3]?.[2]).not.toHaveProperty('timeoutMs');
   });
 
   it('allows a source-linked launcher to update an existing durable installation', async () => {
@@ -146,11 +152,12 @@ describe('runOfficialUpdate', () => {
   it.each([
     { phase: 'lookup', timeout: '11', timeouts: { lookupMs: 11 } },
     { phase: 'acquisition', timeout: '22', timeouts: { acquisitionMs: 22 } },
+    { phase: 'native rebuild', timeout: '33', timeouts: { nativeMs: 33 } },
   ])('bounds $phase execution with an actionable timeout', async ({ phase, timeout, timeouts }) => {
     const prefix = '/tmp/codor-timeout-candidate';
     const candidate = join(prefix, 'node_modules/@richhardry/codor/bin/codor.mjs');
     const run = vi.fn((command: string, args: string[]) => {
-      const current = args[0] === 'view' ? 'lookup' : 'acquisition';
+      const current = args[0] === 'view' ? 'lookup' : args[0] === 'rebuild' ? 'native rebuild' : 'acquisition';
       if (current === phase) return { status: 1, stdout: '', stderr: '', timedOut: true };
       return args[0] === 'view' ? ok('"0.10.12"') : ok();
     });
@@ -158,8 +165,8 @@ describe('runOfficialUpdate', () => {
       dataDir: DATA, env: {}, out: vi.fn(),
       overrides: {
         runtime: RUNTIME, installIo: installed(), makeTemp: () => prefix,
-        removeTemp: vi.fn(), exists: (path) => path === candidate,
-        nodePath: '/usr/bin/node', run, timeouts,
+        removeTemp: vi.fn(), writeFile: vi.fn(), exists: (path) => path === candidate,
+        nodePath: '/usr/bin/node', platform: 'linux', run, timeouts,
       },
     })).rejects.toThrow(new RegExp(`timed out after ${timeout} ms`));
   });

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -13,6 +13,8 @@ const EXACT_STABLE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 const DEFAULT_TIMEOUTS = {
   lookupMs: 15_000,
   acquisitionMs: 120_000,
+  /** A native rebuild downloads a prebuilt or compiles from source. */
+  nativeMs: 300_000,
   candidateMs: 300_000,
 } as const;
 
@@ -35,7 +37,8 @@ export interface UpdateOverrides {
   exists?(path: string): boolean;
   makeTemp?(): string;
   removeTemp?(path: string): void;
-  run?(command: string, args: string[], options?: { env?: NodeJS.ProcessEnv; timeoutMs?: number }): UpdateCommandResult;
+  writeFile?(path: string, data: string): void;
+  run?(command: string, args: string[], options?: { env?: NodeJS.ProcessEnv; timeoutMs?: number; cwd?: string }): UpdateCommandResult;
   setup?: SetupOverrides;
   applyCandidate?(options: {
     dataDir: string;
@@ -57,13 +60,14 @@ export interface UpdateOptions {
 const defaultRun = (
   command: string,
   args: string[],
-  options: { env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+  options: { env?: NodeJS.ProcessEnv; timeoutMs?: number; cwd?: string } = {},
 ): UpdateCommandResult => {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     env: options.env,
     shell: false,
     stdio: ['ignore', 'pipe', 'pipe'],
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     ...(options.timeoutMs === undefined ? {} : { timeout: options.timeoutMs }),
   });
   if (result.error) {
@@ -138,10 +142,11 @@ function boundedRun(
   args: string[],
   timeoutMs: number,
   env: NodeJS.ProcessEnv,
+  cwd?: string,
 ): UpdateCommandResult {
   let result: UpdateCommandResult;
   try {
-    result = run(command, args, { env, timeoutMs });
+    result = run(command, args, { env, timeoutMs, ...(cwd === undefined ? {} : { cwd }) });
   } catch (error) {
     throw new Error(`${label}: ${String(error)}`);
   }
@@ -163,6 +168,7 @@ export async function runOfficialUpdate(options: UpdateOptions): Promise<void> {
 
   const run = overrides.run ?? defaultRun;
   const exists = overrides.exists ?? existsSync;
+  const writeFile = overrides.writeFile ?? ((path: string, data: string): void => writeFileSync(path, data, 'utf8'));
   const nodePath = overrides.nodePath ?? process.execPath;
   const timeouts = { ...DEFAULT_TIMEOUTS, ...overrides.timeouts };
   const npm = npmInvocation({
@@ -209,6 +215,21 @@ export async function runOfficialUpdate(options: UpdateOptions): Promise<void> {
       `--@richhardry:registry=${OFFICIAL_REGISTRY}`,
       `${PUBLIC_PACKAGE}@${version}`,
     ], timeouts.acquisitionMs, options.env);
+
+    // `--ignore-scripts` above leaves `better-sqlite3` without the binding its
+    // install script obtains, and the candidate rejects a binding-less tree
+    // before the swap. Rebuild that one dependency so the acquired tree can open
+    // a database under the service Node. Run it from the staging prefix so the
+    // invoker's own project policy cannot block codor's internal dependency.
+    // npm 12 blocks dependency install scripts unless the target project opts in;
+    // the prefix is discarded after the swap, so the allow entry leaks nowhere.
+    // The other native dependencies ship in-package prebuilds and need no script.
+    writeFile(join(prefix, '.npmrc'), 'allow-scripts=better-sqlite3\n');
+    boundedRun(run, `could not build the ${PUBLIC_PACKAGE}@${version} native dependency`, npm.command, [...npm.prefix,
+      'rebuild',
+      '--prefix', prefix,
+      'better-sqlite3',
+    ], timeouts.nativeMs, options.env, prefix);
 
     const candidate = join(prefix, 'node_modules', '@richhardry', 'codor', 'bin', 'codor.mjs');
     if (!exists(candidate)) {
