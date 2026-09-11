@@ -15,14 +15,25 @@ machine. No hosted Codor component is required.
 - Optional: Tailscale for private HTTPS access from phones and other machines.
 
 <!-- harn:assume pnpm-install-docs-disclose-build-approval-boundaries ref=selfhost-pnpm-build-approval-disclosure -->
-On pnpm 10.1–10.25, `better-sqlite3`'s native build script needs approval via
+Codor's `better-sqlite3` native module has no binding until its dependency install script runs, and
+current package managers block dependency scripts by default. On pnpm 10.1–10.25, approve it via
 `onlyBuiltDependencies: [better-sqlite3]` in `pnpm-workspace.yaml` or the `package.json` `pnpm`
 field. On pnpm 10.26 and newer (including pnpm 11), that setting is `allowBuilds: { better-sqlite3:
-true }` in `pnpm-workspace.yaml`—`pnpm approve-builds` writes it interactively. Without approval,
-`pnpm install` reports `Ignored build scripts: better-sqlite3` and the service fails to start with
-no native binding. See [pnpm's settings reference](https://pnpm.io/settings) for the current option
-names.
+true }` in `pnpm-workspace.yaml`—`pnpm approve-builds` writes it interactively. On npm 12, `npx`
+applies the same boundary: pass
+`--allow-scripts=better-sqlite3,sodium-native,udx-native` on the install command, or persist it with
+`npm config set allow-scripts=better-sqlite3,sodium-native,udx-native --location=user`. Without
+approval, `pnpm install` reports `Ignored build scripts: better-sqlite3` and npm skips the scripts
+with only a warning; either way the service fails to start with no native binding. See
+[pnpm's settings reference](https://pnpm.io/settings) for the current option names.
 <!-- harn:end pnpm-install-docs-disclose-build-approval-boundaries -->
+
+If a Codor install already skipped those scripts and step 4 later failed with a readiness timeout,
+the durable runtime still holds the broken copy: a rerun at the same version reuses
+`<data-dir>/runtime` (default `~/.codor/runtime`), so the missing binding persists. Rebuild the
+package manager's transient cache entry with scripts allowed—remove the stale npx `_npx/` or pnpm
+`dlx/` cache entry so the next install does not reuse it—then either choose **Reinstall** during
+`codor install` or remove `<data-dir>/runtime` before rerunning.
 
 Never expose port 8137 directly to the public internet. The browser token is a bearer credential;
 use loopback plus Tailscale Serve, another authenticated private tunnel, or a hardened reverse
