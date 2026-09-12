@@ -344,8 +344,8 @@ function countDiffLines(diff: string): { additions: number; deletions: number } 
 const MODEL_ID = /^\w[\w.:-]*(?:\/[\w.:-]+)*$/;
 const MAX_MODELS = 200;
 /** Client-facing discovery outcome: a controlled category, never raw CLI text.
- *  A credential, path, or other diagnostic inside the raw message stays in the
- *  server log via onBackgroundError and never crosses the API boundary. */
+ *  The probes discard harness stderr at the OS boundary, so the raw output is
+ *  unrecoverable by design; only command and exit evidence reach even the log. */
 function classifyDiscoveryError(message: string): string {
   if (/timed out/i.test(message)) return 'timed out';
   if (/ENOENT/i.test(message)) return 'harness not installed';
@@ -1458,7 +1458,7 @@ export class Daemon {
     capabilities: HarnessAdapter['capabilities'];
     models?: string[];
     models_source?: ModelCatalog['source'];
-    /** Latest discovery failure as a controlled category; full detail stays server-side. */
+    /** Latest discovery failure as a controlled category; only command and exit evidence is logged. */
     models_error?: string;
   }[] {
     // Every entry carries its runtime harness id. The generic configurable ACP transport
