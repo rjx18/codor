@@ -4118,6 +4118,36 @@ describe('adapter model discovery', () => {
     expect(adapter!.id).toBe('broken');
   });
 
+  it('records a discovery failure on the adapter entry until a retry succeeds', async () => {
+    // Requirement: a failed discovery must surface as retryable, not as "no models".
+    const listModels = vi.fn(async (): Promise<unknown> => { throw new Error('harness blew up'); });
+    const daemon = daemonWith([adapterWith('flaky', listModels)]);
+    try {
+      await settle(); await settle();
+      expect(daemon.registeredAdapters()[0]).toMatchObject({ id: 'flaky', models_error: 'harness blew up' });
+      expect(daemon.registeredAdapters()[0]?.models).toBeUndefined();
+      listModels.mockResolvedValue({ models: ['a/b'], source: 'discovered' });
+      daemon.refreshAdapterAvailability(); await settle(); await settle();
+      expect(daemon.registeredAdapters()[0]).toMatchObject({ models: ['a/b'] });
+      expect(daemon.registeredAdapters()[0]?.models_error).toBeUndefined();
+    } finally { await daemon.close(); }
+  });
+
+  it('keeps a prior catalog while reporting the latest failure', async () => {
+    // Requirement: a later failure must not erase a working list, but must say so.
+    const listModels = vi.fn(async (): Promise<unknown> => ({ models: ['native/model'], source: 'discovered' }));
+    const daemon = daemonWith([adapterWith('codex', listModels)]);
+    try {
+      await settle(); await settle();
+      listModels.mockRejectedValueOnce(new Error('probe timed out'));
+      daemon.refreshAdapterAvailability(); await settle(); await settle();
+      expect(daemon.registeredAdapters()[0]).toMatchObject({
+        models: ['native/model'],
+        models_error: 'probe timed out',
+      });
+    } finally { await daemon.close(); }
+  });
+
   it('drops output it cannot validate rather than trusting harness stdout', async () => {
     const daemon = daemonWith([
       adapterWith('noisy', () => Promise.resolve({

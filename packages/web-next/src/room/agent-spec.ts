@@ -50,6 +50,8 @@ export interface AdapterLike {
     approvals?: string;
   };
   models?: string[];
+  /** Latest discovery failure message: the list is missing or stale, press Refresh to retry. */
+  models_error?: string;
 }
 
 /** Handle length cap enforced by the protocol's member schema. */

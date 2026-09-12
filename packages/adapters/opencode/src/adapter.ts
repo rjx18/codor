@@ -19,6 +19,104 @@ import { createTurnTranslator } from './translate.js';
 const DISCOVER_QUERY =
   'SELECT id FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC';
 
+/** Budget for the async `opencode models` probe: covers the observed worst case
+ *  without ever stalling the daemon, since the child no longer occupies the loop. */
+const MODEL_DISCOVERY_TIMEOUT_MS = 20_000;
+/** Hard cap on captured `opencode models` stdout, in bytes. */
+const MODEL_DISCOVERY_MAX_BYTES = 1_000_000;
+
+/** Confirm a discovery child is gone: SIGTERM, then SIGKILL on a finite bound. */
+async function stopDiscoveryProbe(child: ChildProcess, label: string): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    const finish = (error?: Error): void => {
+      clearTimeout(escalate); clearTimeout(deadline); child.off('exit', exited);
+      if (error) reject(error); else resolve();
+    };
+    const exited = (): void => finish();
+    const escalate = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* exit confirmation below remains required */ }
+    }, 1_000);
+    const deadline = setTimeout(() => finish(new Error(`${label} model probe did not exit`)), 2_000);
+    child.once('exit', exited);
+    try {
+      child.kill('SIGTERM');
+    } catch (error) { finish(error instanceof Error ? error : new Error(`${label} model probe cleanup failed`)); }
+  });
+}
+
+/**
+ * Run `command models` without occupying the event loop: async spawn, capped
+ * output, timeout rejection, and confirmed child termination on every path.
+ */
+async function runBoundedModelsCommand(
+  command: string,
+  timeoutMs: number,
+  maxBytes: number,
+): Promise<string> {
+  let child: ChildProcess | undefined;
+  let retired = false;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : MODEL_DISCOVERY_TIMEOUT_MS;
+  const work = async (): Promise<string> => {
+    const spawned = spawn(command, ['models'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    if (retired) {
+      await stopDiscoveryProbe(spawned, command);
+      throw new Error(`${command} models probe expired during spawn`);
+    }
+    child = spawned;
+    return await new Promise<string>((resolve, reject) => {
+      let stdout = '';
+      let stdoutBytes = 0;
+      let stderr = '';
+      let settled = false;
+      const fail = (error: Error): void => { if (!settled) { settled = true; reject(error); } };
+      const done = (value: string): void => { if (!settled) { settled = true; resolve(value); } };
+      spawned.stdout?.setEncoding('utf8');
+      spawned.stderr?.setEncoding('utf8');
+      spawned.stdout?.on('data', (chunk: string) => {
+        stdoutBytes += Buffer.byteLength(chunk, 'utf8');
+        if (stdoutBytes > maxBytes) {
+          fail(new Error(`${command} models output exceeded ${String(maxBytes)} bytes`));
+          return;
+        }
+        stdout += chunk;
+      });
+      spawned.stderr?.on('data', (chunk: string) => {
+        stderr = `${stderr}${chunk}`.slice(-8192);
+      });
+      spawned.once('error', (error) => {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      });
+      spawned.once('close', (code, signal) => {
+        if (code !== 0) {
+          const detail = stderr.trim();
+          fail(new Error(
+            `Command failed: ${command} models${signal ? ` (${signal})` : ''}${detail === '' ? '' : `\n${detail}`}`,
+          ));
+          return;
+        }
+        done(stdout);
+      });
+    });
+  };
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => {
+          retired = true;
+          reject(new Error(`${command} models timed out after ${String(budget)}ms`));
+        }, budget);
+      }),
+    ]);
+  } finally {
+    retired = true;
+    clearTimeout(deadline);
+    if (child) await stopDiscoveryProbe(child, command);
+  }
+}
+
 // harn:assume harness-declares-supported-thinking-levels ref=opencode-thinking-level-declaration
 export const OPENCODE_THINKING_LEVELS = [
   'low',
@@ -91,7 +189,10 @@ export class OpenCodeAdapter implements HarnessAdapter {
 
   private readonly children = new WeakMap<Session, ChildProcess>();
 
-  constructor(private readonly command = 'opencode') {}
+  constructor(
+    private readonly command = 'opencode',
+    private readonly modelDiscoveryTimeoutMs = MODEL_DISCOVERY_TIMEOUT_MS,
+  ) {}
 
   spawn(opts: SpawnOpts): Session {
     if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
@@ -115,19 +216,16 @@ export class OpenCodeAdapter implements HarnessAdapter {
   /**
    * opencode's models come from the operator's OWN configured providers, so no
    * fixed list can be right for every install — ask the CLI. Fixed argv (no
-   * shell), hard timeout, capped output; a failure throws and the daemon
-   * silently degrades this harness to the custom escape.
+   * shell), async probe with a 20 s budget and capped output; a failure throws
+   * and the daemon records it per harness for a retryable dialog.
    */
   async listModels(): Promise<ModelCatalog> {
-    const result = spawn.sync(this.command, ['models'], {
-      timeout: 5_000,
-      maxBuffer: 1_000_000,
-      encoding: 'utf8',
-    });
-    if (result.error) throw result.error;
-    if (result.status !== 0) throw new Error(`Command failed: ${this.command} models`);
-    const listed = result.stdout;
-    const models = listed.split('\n').map((line) => line.trim()).filter((line) => line !== '');
+    const stdout = await runBoundedModelsCommand(
+      this.command,
+      this.modelDiscoveryTimeoutMs,
+      MODEL_DISCOVERY_MAX_BYTES,
+    );
+    const models = stdout.split('\n').map((line) => line.trim()).filter((line) => line !== '');
     if (models.length === 0) throw new Error('opencode listed no models');
     return { models, source: 'discovered' };
   }

@@ -297,7 +297,13 @@ export function AgentControls(props: {
               aria-label="Model"
               data-testid={`${id}-model-input`}
             />
-            <p className="nx-note">This harness did not report a model list.</p>
+            {adapter?.models_error !== undefined ? (
+              <p className="nx-note is-error" role="alert" data-testid={`${id}-model-error`}>
+                Model discovery failed: {adapter.models_error} Press Refresh to retry.
+              </p>
+            ) : (
+              <p className="nx-note">This harness did not report a model list.</p>
+            )}
           </>
         ) : (
           <>
@@ -348,6 +354,11 @@ export function AgentControls(props: {
               aria-label="Custom model"
               data-testid={`${id}-model-custom`}
             />
+            {adapter?.models_error !== undefined && (
+              <p className="nx-note is-warn" role="status" data-testid={`${id}-model-stale`}>
+                Last refresh failed; showing the previous list. Press Refresh to retry.
+              </p>
+            )}
           </>
         )}
       </div>

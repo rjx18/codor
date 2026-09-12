@@ -532,6 +532,9 @@ export class Daemon {
   private acpProviderCatalog: AcpProviderMetadata[] = [];
   // harn:end adapter-catalog-distinguishes-installed-and-configurable
   private readonly modelCatalogs = new Map<string, ModelCatalog>();
+  /** Latest discovery failure per adapter, so the dialog can tell "failed, retry"
+   *  apart from "this harness reports no models". Cleared on the next success. */
+  private readonly modelDiscoveryErrors = new Map<string, string>();
   private pendingDiscoveries = 0;
   private readonly modelDiscoveryWork = new Map<string, Promise<void>>();
   private readonly sessions = new Map<string, Session>();
@@ -1364,10 +1367,11 @@ export class Daemon {
   // harn:assume adapters-own-their-model-catalog ref=adapter-model-discovery
   /**
    * Ask every adapter that can answer what models its harness takes. Runs in
-   * the background at registration or explicit refresh — never blocking a request, because a hung
-   * CLI must not be able to wedge /api/adapters, which gates both dialogs.
-   * Any failure leaves the harness without a list: the dialog then offers the
-   * custom escape, which is a worse UI, not a broken one.
+   * the background at registration or explicit refresh — never blocking a request,
+   * because each probe is asynchronous and a hung CLI must not be able to wedge
+   * /api/adapters, which gates both dialogs. A failure is recorded per harness
+   * (see `models_error` in `registeredAdapters`) so the dialog can offer a retry;
+   * a prior catalog is kept when one exists.
    */
   private discoverModels(): void {
     for (const adapter of this.adapters.values()) {
@@ -1382,9 +1386,12 @@ export class Daemon {
       if (!Array.isArray(catalog.models)) throw new Error(`${adapter.id} returned an invalid model catalog`);
       const models = catalog.models.filter((model) => MODEL_ID.test(model)).slice(0, MAX_MODELS);
       this.modelCatalogs.set(adapter.id, { ...catalog, models });
-    }).catch((error: unknown) => this.onBackgroundError(
-      error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`),
-    )).finally(() => {
+      this.modelDiscoveryErrors.delete(adapter.id);
+    }).catch((error: unknown) => {
+      const failure = error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`);
+      this.modelDiscoveryErrors.set(adapter.id, failure.message);
+      this.onBackgroundError(failure);
+    }).finally(() => {
       this.pendingDiscoveries -= 1;
       if (this.modelDiscoveryWork.get(adapter.id) === work) this.modelDiscoveryWork.delete(adapter.id);
     });
@@ -1441,6 +1448,8 @@ export class Daemon {
     capabilities: HarnessAdapter['capabilities'];
     models?: string[];
     models_source?: ModelCatalog['source'];
+    /** Latest discovery failure message, when the last attempt did not produce a catalog. */
+    models_error?: string;
   }[] {
     // Every entry carries its runtime harness id. The generic configurable ACP transport
     // is the sole `advanced` custom-command tile; named providers (acp:<id>) follow as a
@@ -1449,6 +1458,7 @@ export class Daemon {
       ...[...this.adapters.values()]
         .map((adapter) => {
           const catalog = this.modelCatalogs.get(adapter.id);
+          const modelsError = this.modelDiscoveryErrors.get(adapter.id);
           const configurable = (adapter as RegisteredHarnessAdapter).configurable === true;
           return {
             id: adapter.id,
@@ -1457,6 +1467,7 @@ export class Daemon {
             ...(configurable && { configurable: true, transport: 'acp' as const, advanced: true }),
             capabilities: adapter.capabilities,
             ...(catalog && { models: catalog.models, models_source: catalog.source }),
+            ...(modelsError !== undefined && { models_error: modelsError }),
           };
         })
         .sort((a, b) => a.id.localeCompare(b.id)),
