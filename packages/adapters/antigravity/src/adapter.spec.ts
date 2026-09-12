@@ -181,6 +181,8 @@ describe('AntigravityAdapter', () => {
   });
   // harn:end adapter-children-inherit-session-env
 
+  // Behavioral requirement: a two-column `agy models` listing yields slug ids, and the
+  // selected slug reaches `--model` exactly. Not redundant: it pins the argv a picker choice builds.
   it('parses the two-column agy catalog and passes the selected slug to --model', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable());
@@ -200,6 +202,8 @@ describe('AntigravityAdapter', () => {
     await expect(collision.listModels()).rejects.toThrow("collide at slug 'dup-x'");
   });
 
+  // Behavioral requirement: a one-column listing keeps the slug-safe id and maps the selection
+  // back to the listed value. Not redundant: it covers the older-build compatibility path.
   it('keeps single-column agy catalogs and their display-name mapping', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable({ models: ['Gemini 3.5 Flash (High)'] }));
@@ -212,6 +216,9 @@ describe('AntigravityAdapter', () => {
     }), 'hello');
     const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
     expect(argv[argv.indexOf('--model') + 1]).toBe('Gemini 3.5 Flash (High)');
+
+    const collision = new AntigravityAdapter(executable({ models: ['A B', 'A-B'] }));
+    await expect(collision.listModels()).rejects.toThrow("collide at slug 'a-b'");
   });
 
   it('classifies missing commands and nonzero exits as failed', async () => {
