@@ -151,7 +151,8 @@ observed 0.9–11.97 s spread of `opencode models`, but upstream allows 10 s per
 with retries, so a slower run can still time out — and then surfaces as the same retryable
 failure. The dialog falls back to its `Custom…` escape
 (placeholder `provider/model`, the form opencode's `--model` takes) only while no catalog
-was ever reported.
+was ever reported. The probe keeps no CLI output on failure, so to diagnose a failing
+harness run `opencode models` directly on the daemon host.
 Thinking is supported and maps to `run --variant <level>`.
 <!-- harn:end adapters-own-their-model-catalog -->
 

@@ -31,7 +31,9 @@ opencode probe; no slow `agy models` run was measured here, so a slower run surf
 the same retryable failure. The catalog is never hard-coded
 here. If two names collapse to the same slug, discovery fails rather than routing an
 operator selection to the wrong model; any failure is recorded per harness (`models_error`,
-a controlled category, never raw CLI text) so the dialog offers a retry.
+a controlled category, never raw CLI text) so the dialog offers a retry. The probe keeps
+no CLI output on failure, so to diagnose a failing harness run `agy models` directly on
+the daemon host.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 ## Resume boundary
