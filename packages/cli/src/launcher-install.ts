@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Injectable filesystem surface so the launcher logic is unit-testable. `home` and
@@ -10,6 +10,7 @@ export interface LauncherIo {
   read(path: string): string | undefined;
   write(path: string, content: string, mode?: number): void;
   rename(from: string, to: string): void;
+  remove(path: string): void;
   mkdirp(path: string, mode: number): void;
   chmod(path: string, mode: number): void;
   isSymlink(path: string): boolean;
@@ -26,6 +27,7 @@ export const defaultLauncherIo: LauncherIo = {
   },
   write: (path, content, mode) => writeFileSync(path, content, mode === undefined ? undefined : { mode }),
   rename: (from, to) => renameSync(from, to),
+  remove: (path) => { rmSync(path, { force: true }); },
   mkdirp: (path, mode) => { mkdirSync(path, { recursive: true, mode }); },
   chmod: (path, mode) => chmodSync(path, mode),
   isSymlink: (path) => {
@@ -83,8 +85,19 @@ export function installLauncherShim(options: {
   // The UUID suffix avoids reuse of the former predictable `codor.tmp` path; it
   // makes a collision negligible, not impossible.
   const staged = `${path}.tmp-${randomUUID()}`;
-  io.write(staged, desired, 0o755);
-  io.rename(staged, path);
+  try {
+    io.write(staged, desired, 0o755);
+    io.rename(staged, path);
+  } catch (error) {
+    // Best-effort cleanup after a failed write or rename. A cleanup failure must
+    // not replace the error that callers need to see, so it is swallowed.
+    try {
+      io.remove(staged);
+    } catch {
+      // The staging file is abandoned; the original error remains the signal.
+    }
+    throw error;
+  }
   return { path, action: existing === undefined ? 'created' : 'updated' };
 }
 // harn:end setup-installs-user-launcher-shim

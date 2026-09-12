@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,6 +47,12 @@ function fakeIo(seed: Record<string, string> = {}): FakeIo {
       }
       symlinks.delete(to); // rename replaces the destination entry
     },
+    remove: (path) => {
+      files.delete(path);
+      modes.delete(path);
+      symlinks.delete(path);
+      dirs.delete(path);
+    },
     mkdirp: (path) => void dirs.add(path),
     chmod: (path, mode) => void modes.set(path, mode),
     isSymlink: (path) => symlinks.has(path),
@@ -90,6 +96,23 @@ describe('installLauncherShim', () => {
     const result = installLauncherShim({ home: HOME, nodePath: '/opt/node', cliEntrypoint: ENTRY, io });
     expect(result.action).toBe('updated');
     expect(io.files.get(LAUNCHER)).toContain('/opt/node');
+  });
+
+  // Requirement: a cleanup failure must not replace the error that triggered it.
+  // Not covered by the real-filesystem cleanup test, whose cleanup succeeds.
+  it('preserves the primary error when the staged-file cleanup also fails', () => {
+    const io = fakeIo();
+    const primary = new Error('rename failed');
+    io.rename = () => { throw primary; };
+    io.remove = () => { throw new Error('cleanup failed'); };
+
+    let caught: unknown;
+    try {
+      installLauncherShim({ home: HOME, nodePath: NODE, cliEntrypoint: ENTRY, io });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(primary);
   });
 });
 
@@ -203,6 +226,23 @@ describe('installLauncherShim on a real filesystem', () => {
       expect(readFileSync(decoy, 'utf8')).toBe('// decoy\n');
       expect(lstatSync(legacyTmp).isSymbolicLink()).toBe(true);
       expect(lstatSync(join(bin, 'codor')).isSymbolicLink()).toBe(false);
+    });
+  });
+
+  // Requirement: a failed write or rename must not leave the staged launcher
+  // behind. The path is occupied by a directory so rename fails; a leftover
+  // `codor.tmp-<uuid>` there would accumulate on every failed attempt.
+  posixHostIt('removes the staged file when the rename fails', () => {
+    withTempHome((home) => {
+      const bin = join(home, '.local', 'bin');
+      const launcher = join(bin, 'codor');
+      mkdirSync(launcher, { recursive: true }); // a directory blocks the rename
+
+      expect(() => installLauncherShim({ home, nodePath: '/usr/bin/node', cliEntrypoint: '/tmp/entry.js' })).toThrow();
+
+      const leftovers = readdirSync(bin).filter((name) => name.startsWith('codor.tmp-'));
+      expect(leftovers).toEqual([]);
+      expect(lstatSync(launcher).isDirectory()).toBe(true);
     });
   });
 });
