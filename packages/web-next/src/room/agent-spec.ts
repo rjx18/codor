@@ -50,7 +50,7 @@ export interface AdapterLike {
     approvals?: string;
   };
   models?: string[];
-  /** Latest discovery failure message: the list is missing or stale, press Refresh to retry. */
+  /** Latest discovery failure, bounded to one short line: the list is missing or stale, press Refresh to retry. */
   models_error?: string;
 }
 

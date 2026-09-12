@@ -4148,6 +4148,22 @@ describe('adapter model discovery', () => {
     } finally { await daemon.close(); }
   });
 
+  it('publishes only a bounded first line of a discovery failure', async () => {
+    // Requirement: raw CLI diagnostics stay in the server log; the API carries a short line.
+    const daemon = daemonWith([
+      adapterWith('leaky', () => Promise.reject(new Error(`boom\n${'x'.repeat(8000)}`))),
+      adapterWith('chatty', () => Promise.reject(new Error(`w${'o'.repeat(500)}`))),
+    ]);
+    try {
+      await settle(); await settle();
+      const entries = new Map(daemon.registeredAdapters().map((entry) => [entry.id, entry]));
+      expect(entries.get('leaky')?.models_error).toBe('boom');
+      const chatty = entries.get('chatty')?.models_error ?? '';
+      expect(chatty).not.toContain('\n');
+      expect(chatty.length).toBeLessThanOrEqual(200);
+    } finally { await daemon.close(); }
+  });
+
   it('drops output it cannot validate rather than trusting harness stdout', async () => {
     const daemon = daemonWith([
       adapterWith('noisy', () => Promise.resolve({

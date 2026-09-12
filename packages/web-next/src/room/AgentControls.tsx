@@ -299,7 +299,7 @@ export function AgentControls(props: {
             />
             {adapter?.models_error !== undefined ? (
               <p className="nx-note is-error" role="alert" data-testid={`${id}-model-error`}>
-                Model discovery failed: {adapter.models_error} Press Refresh to retry.
+                Model discovery failed ({adapter.models_error}). Press Refresh to retry.
               </p>
             ) : (
               <p className="nx-note">This harness did not report a model list.</p>

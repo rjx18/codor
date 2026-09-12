@@ -84,15 +84,10 @@ async function runBoundedModelsCommand(
   maxBytes: number,
 ): Promise<string> {
   let child: ChildProcess | undefined;
-  let retired = false;
   let deadline: ReturnType<typeof setTimeout> | undefined;
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : MODEL_DISCOVERY_TIMEOUT_MS;
   const work = async (): Promise<string> => {
     const spawned = spawn(command, ['models'], { stdio: ['ignore', 'pipe', 'pipe'] });
-    if (retired) {
-      await stopDiscoveryProbe(spawned, command);
-      throw new Error(`${command} models probe expired during spawn`);
-    }
     child = spawned;
     return await new Promise<string>((resolve, reject) => {
       let stdout = '';
@@ -134,13 +129,11 @@ async function runBoundedModelsCommand(
       work(),
       new Promise<never>((_resolve, reject) => {
         deadline = setTimeout(() => {
-          retired = true;
           reject(new Error(`${command} models timed out after ${String(budget)}ms`));
         }, budget);
       }),
     ]);
   } finally {
-    retired = true;
     clearTimeout(deadline);
     if (child) await stopDiscoveryProbe(child, command);
   }
