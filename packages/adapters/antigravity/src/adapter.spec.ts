@@ -181,8 +181,7 @@ describe('AntigravityAdapter', () => {
   });
   // harn:end adapter-children-inherit-session-env
 
-  // Behavioral requirement: a two-column `agy models` listing yields slug ids, and the
-  // selected slug reaches `--model` exactly. Not redundant: it pins the argv a picker choice builds.
+  // Verifies: two-column agy output yields slug ids and the selected slug reaches --model exactly.
   it('parses the two-column agy catalog and passes the selected slug to --model', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable());
@@ -195,15 +194,9 @@ describe('AntigravityAdapter', () => {
     }), 'hello');
     const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
     expect(argv[argv.indexOf('--model') + 1]).toBe('gemini-3.5-flash-high');
-
-    const collision = new AntigravityAdapter(executable({
-      models: ['dup-x\tModel One', 'dup-x\tModel Two'],
-    }));
-    await expect(collision.listModels()).rejects.toThrow("collide at slug 'dup-x'");
   });
 
-  // Behavioral requirement: a one-column listing keeps the slug-safe id and maps the selection
-  // back to the listed value. Not redundant: it covers the older-build compatibility path.
+  // Verifies: one-column agy output keeps the slug-safe id and maps the selection back to the listed value.
   it('keeps single-column agy catalogs and their display-name mapping', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable({ models: ['Gemini 3.5 Flash (High)'] }));
@@ -216,9 +209,16 @@ describe('AntigravityAdapter', () => {
     }), 'hello');
     const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
     expect(argv[argv.indexOf('--model') + 1]).toBe('Gemini 3.5 Flash (High)');
+  });
 
-    const collision = new AntigravityAdapter(executable({ models: ['A B', 'A-B'] }));
-    await expect(collision.listModels()).rejects.toThrow("collide at slug 'a-b'");
+  // Verifies: both catalog shapes reject two entries that share an id.
+  it('rejects slug collisions in single-column and two-column catalogs', async () => {
+    const single = new AntigravityAdapter(executable({ models: ['A B', 'A-B'] }));
+    await expect(single.listModels()).rejects.toThrow("collide at slug 'a-b'");
+    const double = new AntigravityAdapter(executable({
+      models: ['dup-x\tModel One', 'dup-x\tModel Two'],
+    }));
+    await expect(double.listModels()).rejects.toThrow("collide at slug 'dup-x'");
   });
 
   it('classifies missing commands and nonzero exits as failed', async () => {
