@@ -854,10 +854,13 @@ describe('@codor/cli', () => {
         exec: (command, args) => {
           commands.push([command, ...args].join(' '));
           if (command === 'loginctl') return 'no';
+          if (args.join(' ') === 'status --json') {
+            return JSON.stringify({ Self: { DNSName: 'setup-host.example.ts.net.' } });
+          }
           // Serve is invoked through the resolved absolute path now, not the
           // bare command name; match on the arguments.
           if (args.join(' ') === 'serve status') {
-            return 'https://setup-host.example.ts.net (tailnet only)';
+            return 'https://setup-host.example.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8137';
           }
           return '';
         },
@@ -911,6 +914,7 @@ describe('@codor/cli', () => {
     expect(commands).toEqual([
       '/usr/bin/tailscale serve --help',
       '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      '/usr/bin/tailscale status --json',
       '/usr/bin/tailscale serve status',
       'systemctl --user daemon-reload',
       'systemctl --user enable codor.service', 'systemctl --user restart codor.service',

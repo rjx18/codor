@@ -465,9 +465,65 @@ export function tailscaleServeSupported(
   }
 }
 
+/** One Web origin from `tailscale serve status`, with its root-path proxy targets. */
+interface ServeOrigin {
+  scheme: 'http' | 'https';
+  /** The `host[:port]` authority exactly as printed. */
+  authority: string;
+  /** The authority with any port removed, compared against `Self.DNSName`. */
+  host: string;
+  /** Targets proxied from the root `/` handler only. */
+  proxies: string[];
+}
+
+/** Parse `tailscale serve status` text into its Web origins. The format is an
+ *  origin line per scheme/host/port, followed by `|-- <path> proxy <target>`
+ *  handler lines; the next origin line closes the previous origin, so an HTTP
+ *  handler never attaches to the HTTPS origin printed before it. */
+function parseServeOrigins(status: string): ServeOrigin[] {
+  const origins: ServeOrigin[] = [];
+  let current: ServeOrigin | undefined;
+  for (const raw of status.split(/\r?\n/)) {
+    const line = raw.trim();
+    const origin = line.match(/^(https?):\/\/([^\s/]+)/);
+    if (origin !== null) {
+      const scheme = origin[1];
+      const authority = origin[2];
+      if ((scheme !== 'http' && scheme !== 'https') || authority === undefined) continue;
+      current = { scheme, authority, host: authority.replace(/:\d+$/, ''), proxies: [] };
+      origins.push(current);
+      continue;
+    }
+    if (current === undefined || current.scheme !== 'https') continue;
+    const handler = line.match(/^\|--\s+(\S+)\s+(proxy|path|text)\s+(\S.*)$/);
+    if (handler === null) continue;
+    const mount = handler[1];
+    const type = handler[2];
+    const target = handler[3];
+    if (mount === '/' && type === 'proxy' && target !== undefined) current.proxies.push(target.trim());
+  }
+  return origins;
+}
+
+/** The current device FQDN from `tailscale status --json`, trailing dot removed. */
+function tailscaleSelfDnsName(statusJson: string): string | undefined {
+  try {
+    const parsed = JSON.parse(statusJson) as { Self?: { DNSName?: unknown } };
+    const name = parsed.Self?.DNSName;
+    if (typeof name !== 'string') return undefined;
+    const trimmed = name.trim().replace(/\.$/, '');
+    return trimmed === '' ? undefined : trimmed;
+  } catch {
+    return undefined;
+  }
+}
+
 // harn:assume setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable ref=tailscale-serve-consent-command
-/** Publish Serve through the resolved absolute path and return the HTTPS origin.
- *  Throws a distinct diagnostic when the serve command itself fails. */
+/** Publish Serve through the resolved absolute path and return the HTTPS origin
+ *  whose host matches the current device. Throws a distinct diagnostic when the
+ *  serve command fails, and when no published origin matches `Self.DNSName`.
+ *  `serve status` keeps a handler keyed by an old MagicDNS name after a tailnet
+ *  rename and can list it first, so the current device name decides. */
 export function configureTailscaleServe(
   tailscalePath: string,
   localEndpoint: string,
@@ -489,18 +545,44 @@ export function configureTailscaleServe(
     return parts.join('\n').trim() || String(error);
   };
   let status: string;
+  let statusJson: string;
   try {
     // Bounded: when the tailnet has no HTTPS certificates enabled, `serve --bg`
     // does not fail — it blocks waiting for interactive consent in a browser.
     // `serve status` never blocks this way, so only the first call gets a budget.
     exec(tailscalePath, ['serve', '--bg', localEndpoint], { timeoutMs: 20_000 });
+  } catch (error) {
+    throw new Error(`Tailscale Serve command failed: ${diagnostic(error)}`);
+  }
+  try {
+    // The current device name is the source of truth for origin selection; a
+    // stale Serve origin can sort first after a tailnet DNS rename.
+    statusJson = exec(tailscalePath, ['status', '--json']);
+  } catch (error) {
+    throw new Error(`Tailscale status command failed: ${diagnostic(error)}`);
+  }
+  try {
     status = exec(tailscalePath, ['serve', 'status']);
   } catch (error) {
     throw new Error(`Tailscale Serve command failed: ${diagnostic(error)}`);
   }
-  const origin = status.match(/https:\/\/[^\s/]+/)?.[0];
-  if (origin === undefined) throw new Error('Tailscale Serve did not report a private HTTPS origin');
-  return origin;
+  const host = tailscaleSelfDnsName(statusJson);
+  if (host === undefined) {
+    throw new Error('Tailscale Serve could not read the current device name from `tailscale status --json`');
+  }
+  const httpsOrigins = parseServeOrigins(status).filter((origin) => origin.scheme === 'https');
+  if (httpsOrigins.length === 0) throw new Error('Tailscale Serve did not report a private HTTPS origin');
+  const match = httpsOrigins.find((origin) =>
+    origin.host.toLowerCase() === host.toLowerCase() && origin.proxies.includes(localEndpoint),
+  );
+  if (match === undefined) {
+    const listed = httpsOrigins.map((origin) => `https://${origin.authority}`).join(', ');
+    throw new Error(
+      `Tailscale Serve does not publish ${localEndpoint} at ${host}; configured origins: ${listed}. ` +
+        '`tailscale serve reset` clears all Serve config on this node; re-run install to publish the current name',
+    );
+  }
+  return `https://${match.authority}`;
 }
 // harn:end setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable
 // harn:end setup-resolves-and-capability-probes-tailscale-serve
@@ -1111,6 +1193,7 @@ export async function runSetup(options: SetupOptions): Promise<void> {
     }
     if (access === 'tailscale') {
       options.out('[dry-run] tailscale serve --bg http://127.0.0.1:8137');
+      options.out('[dry-run] tailscale status --json');
       options.out('[dry-run] tailscale serve status');
     } else {
       options.out('[dry-run] access localhost; skip Tailscale Serve');

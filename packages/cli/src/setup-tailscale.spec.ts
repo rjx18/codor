@@ -43,18 +43,119 @@ describe('tailscaleServeSupported', () => {
 });
 
 describe('configureTailscaleServe', () => {
-  it('publishes Serve through the resolved absolute path and returns the HTTPS origin', () => {
+  const SELF_STATUS = (dnsName: string): string => JSON.stringify({ Self: { DNSName: dnsName } });
+
+  it('publishes Serve through the resolved absolute path and returns the current HTTPS origin', () => {
     const commands: string[] = [];
     const origin = configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (command, args) => {
       commands.push([command, ...args].join(' '));
-      if (args.join(' ') === 'serve status') return 'https://host.tail-abc.ts.net (tailnet only)';
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-abc.ts.net.');
+      if (args.join(' ') === 'serve status') {
+        return 'https://host.tail-abc.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8137';
+      }
       return '';
     });
     expect(origin).toBe('https://host.tail-abc.ts.net');
     expect(commands).toEqual([
       '/usr/bin/tailscale serve --bg http://127.0.0.1:8137',
+      '/usr/bin/tailscale status --json',
       '/usr/bin/tailscale serve status',
     ]);
+  });
+
+  it('selects the current device origin when a stale origin sorts first', () => {
+    const status = [
+      'https://host.tail-abc.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:8137',
+      '',
+      'https://host.tail-xyz.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:8137',
+    ].join('\n');
+    const origin = configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-xyz.ts.net.');
+      if (args.join(' ') === 'serve status') return status;
+      return '';
+    });
+    expect(origin).toBe('https://host.tail-xyz.ts.net');
+  });
+
+  it('names the configured origins and the reset when none matches the current device', () => {
+    const status = [
+      'https://host.tail-abc.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:8137',
+      '',
+      'https://host.tail-xyz.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:8137',
+    ].join('\n');
+    let message = '';
+    try {
+      configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+        if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-new.ts.net.');
+        if (args.join(' ') === 'serve status') return status;
+        return '';
+      });
+    } catch (caught) {
+      message = caught instanceof Error ? caught.message : String(caught);
+    }
+    expect(message).toContain('https://host.tail-abc.ts.net');
+    expect(message).toContain('https://host.tail-xyz.ts.net');
+    expect(message).toContain('tailscale serve reset');
+  });
+
+  it('rejects a current-name origin that does not proxy the Codor endpoint', () => {
+    const status = [
+      'https://host.tail-xyz.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:9999',
+    ].join('\n');
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-xyz.ts.net.');
+      return status;
+    })).toThrow(/does not publish http:\/\/127\.0\.0\.1:8137/);
+  });
+
+  it('ignores a handler that proxies the Codor endpoint below the root path', () => {
+    const status = [
+      'https://host.tail-xyz.ts.net:10443 (tailnet only)',
+      '|-- /codor proxy http://127.0.0.1:8137',
+      '',
+      'https://host.tail-xyz.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:8137',
+    ].join('\n');
+    const origin = configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-xyz.ts.net.');
+      if (args.join(' ') === 'serve status') return status;
+      return '';
+    });
+    expect(origin).toBe('https://host.tail-xyz.ts.net');
+  });
+
+  it('does not attach an HTTP handler to the HTTPS origin printed before it', () => {
+    const status = [
+      'https://host.tail-xyz.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:9999',
+      '',
+      'http://host.tail-xyz.ts.net (tailnet only)',
+      '|-- / proxy http://127.0.0.1:8137',
+    ].join('\n');
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-xyz.ts.net.');
+      if (args.join(' ') === 'serve status') return status;
+      return '';
+    })).toThrow(/does not publish http:\/\/127\.0\.0\.1:8137/);
+  });
+
+  it('fails clearly when the current device name is unreadable', () => {
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return 'not json';
+      return 'https://host.tail-abc.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8137';
+    })).toThrow(/could not read the current device name/);
+  });
+
+  it('labels a status --json failure as a status failure, not a Serve failure', () => {
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') throw new Error('tailscale status: not running');
+      return '';
+    })).toThrow(/Tailscale status command failed: tailscale status: not running/);
   });
 
   it('throws a distinct "Serve command failed" diagnostic when the serve command fails', () => {
@@ -101,14 +202,17 @@ describe('configureTailscaleServe', () => {
 
   it('wraps a serve status command failure as the Serve-command-failed category', () => {
     expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-abc.ts.net.');
       if (args.join(' ') === 'serve status') throw new Error('serve status: connection refused');
       return '';
     })).toThrow(/Serve command failed: serve status: connection refused/);
   });
 
   it('throws when serve status reports no HTTPS origin', () => {
-    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', () => 'no serve config'))
-      .toThrow(/did not report a private HTTPS origin/);
+    expect(() => configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args) => {
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-abc.ts.net.');
+      return 'no serve config';
+    })).toThrow(/did not report a private HTTPS origin/);
   });
 
   // harn:assume setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable ref=tailscale-serve-consent-regression
@@ -127,15 +231,19 @@ describe('configureTailscaleServe', () => {
     })).toThrow(/https:\/\/login\.tailscale\.com\/f\/https/);
   });
 
-  it('bounds the serve --bg call with a timeout but leaves serve status unbounded', () => {
+  it('bounds the serve --bg call with a timeout but leaves later reads unbounded', () => {
     const calls: Array<{ args: string[]; options: { timeoutMs?: number } | undefined }> = [];
     configureTailscaleServe('/usr/bin/tailscale', 'http://127.0.0.1:8137', (_command, args, options) => {
       calls.push({ args, options });
-      if (args.join(' ') === 'serve status') return 'https://host.tail-abc.ts.net (tailnet only)';
+      if (args.join(' ') === 'status --json') return SELF_STATUS('host.tail-abc.ts.net.');
+      if (args.join(' ') === 'serve status') {
+        return 'https://host.tail-abc.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8137';
+      }
       return '';
     });
     expect(calls[0]).toEqual({ args: ['serve', '--bg', 'http://127.0.0.1:8137'], options: { timeoutMs: 20_000 } });
-    expect(calls[1]).toEqual({ args: ['serve', 'status'], options: undefined });
+    expect(calls[1]).toEqual({ args: ['status', '--json'], options: undefined });
+    expect(calls[2]).toEqual({ args: ['serve', 'status'], options: undefined });
   });
   // harn:end setup-bounds-tailscale-serve-consent-and-keeps-diagnostics-actionable
 });
