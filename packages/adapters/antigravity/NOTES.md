@@ -9,7 +9,8 @@ claimed as live-provider verified.
 
 - `--print <prompt>` runs one prompt non-interactively and emits plain assistant
   text; there is no structured output format.
-- `--model <display name>` accepts names reported by `agy models`.
+- `--model <slug>` selects a model reported by `agy models`; the human-facing
+  display name is also accepted.
 - `--mode <accept-edits|plan>` selects execution behavior;
   `--dangerously-skip-permissions` auto-approves tool permissions.
 - `--conversation <id>` resumes a prior conversation.
@@ -22,12 +23,17 @@ switchboard's supervised child lifecycle.
 <!-- harn:assume adapters-own-their-model-catalog ref=antigravity-model-catalog-notes -->
 ## Model catalog
 
-The probe reported human-facing names such as `Gemini 3.5 Flash (High)`.
-`listModels()` runs `agy models` locally with a fixed argv and timeout, reports
-slug-safe ids to Codor, and owns the reverse mapping back to display names at
-spawn time. The catalog is never hard-coded here. If two names collapse to the
-same slug, discovery fails rather than routing an operator selection to the
-wrong model.
+`agy models` prints one model per line as two tab-separated columns: a model
+slug and a human-facing name, for example
+`gemini-3.8-flash-medium<TAB>Gemini 3.8 Flash (Medium)`. Older builds printed a
+single column and are still accepted.
+
+`listModels()` runs `agy models` locally with a fixed argv and timeout. It uses
+the first column as the model id and passes it to `--model`, which accepts the
+slug. A single-column listing keeps the older slug-safe id with the reverse
+mapping back to the listed value. The catalog is never hard-coded here. If two
+entries collapse to the same id, discovery fails rather than routing an operator
+selection to the wrong model.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 ## Resume boundary

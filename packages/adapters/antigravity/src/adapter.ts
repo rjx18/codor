@@ -114,7 +114,7 @@ export class AntigravityAdapter implements HarnessAdapter {
   // harn:end canonical-spawn-controls-enforced
 
   private readonly children = new WeakMap<Session, ChildProcess>();
-  private readonly displayNames = new Map<string, string>();
+  private readonly modelArgs = new Map<string, string>();
 
   constructor(private readonly command = 'agy') {}
 
@@ -142,25 +142,28 @@ export class AntigravityAdapter implements HarnessAdapter {
     if (result.status !== 0) {
       return Promise.reject(new Error(`Command failed: ${this.command} models`));
     }
-    const displays = String(result.stdout ?? '')
+    const lines = String(result.stdout ?? '')
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    if (displays.length === 0) return Promise.reject(new Error('agy listed no models'));
+    if (lines.length === 0) return Promise.reject(new Error('agy listed no models'));
 
-    const next = new Map<string, string>();
-    for (const display of displays) {
-      const slug = antigravitySlug(display);
-      if (slug === '') return Promise.reject(new Error(`agy model '${display}' has no safe slug`));
-      const existing = next.get(slug);
-      if (existing !== undefined && existing !== display) {
+    const models = new Map<string, string>();
+    for (const line of lines) {
+      const tab = line.indexOf('\t');
+      const slug = tab === -1 ? antigravitySlug(line) : line.slice(0, tab).trim();
+      if (slug === '') return Promise.reject(new Error(`agy model '${line}' has no safe slug`));
+      const existing = models.get(slug);
+      if (existing !== undefined && existing !== line) {
         return Promise.reject(new Error(`agy model names collide at slug '${slug}'`));
       }
-      next.set(slug, display);
+      models.set(slug, line);
     }
-    this.displayNames.clear();
-    for (const [slug, display] of next) this.displayNames.set(slug, display);
-    return Promise.resolve({ models: [...next.keys()], source: 'discovered' });
+    this.modelArgs.clear();
+    for (const [slug, line] of models) {
+      if (!line.includes('\t')) this.modelArgs.set(slug, line);
+    }
+    return Promise.resolve({ models: [...models.keys()], source: 'discovered' });
   }
   // harn:end adapters-own-their-model-catalog
 
@@ -177,7 +180,7 @@ export class AntigravityAdapter implements HarnessAdapter {
     const logFile = join(tmpdir(), `codor-antigravity-${randomUUID()}.log`);
     const model = session.model === undefined
       ? undefined
-      : this.displayNames.get(session.model) ?? session.model;
+      : this.modelArgs.get(session.model) ?? session.model;
     const child = spawn(this.command, antigravityArgs(session, payload, logFile, model), {
       cwd: session.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
