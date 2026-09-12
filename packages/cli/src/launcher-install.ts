@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Injectable filesystem surface so the launcher logic is unit-testable. `home` and
@@ -11,6 +12,7 @@ export interface LauncherIo {
   rename(from: string, to: string): void;
   mkdirp(path: string, mode: number): void;
   chmod(path: string, mode: number): void;
+  isSymlink(path: string): boolean;
 }
 
 export const defaultLauncherIo: LauncherIo = {
@@ -26,6 +28,13 @@ export const defaultLauncherIo: LauncherIo = {
   rename: (from, to) => renameSync(from, to),
   mkdirp: (path, mode) => { mkdirSync(path, { recursive: true, mode }); },
   chmod: (path, mode) => chmodSync(path, mode),
+  isSymlink: (path) => {
+    try {
+      return lstatSync(path).isSymbolicLink();
+    } catch {
+      return false;
+    }
+  },
 };
 
 export type LauncherAction = 'created' | 'updated' | 'unchanged';
@@ -62,13 +71,18 @@ export function installLauncherShim(options: {
   io.mkdirp(dir, 0o700);
   const desired = launcherShim(options.nodePath, options.cliEntrypoint);
   const existing = io.read(path);
-  if (existing === desired) {
+  // A symlink is never "unchanged", even when its target already holds the shim:
+  // the path entry itself must become the regular launcher file. `read` follows
+  // the link, so check the entry with lstat before trusting the content match.
+  if (!io.isSymlink(path) && existing === desired) {
     io.chmod(path, 0o755); // keep it executable even when the content already matches
     return { path, action: 'unchanged' };
   }
   // Stage a sibling and rename it into place: rename replaces the path entry
   // itself, so a pre-existing symlink is replaced rather than written through.
-  const staged = `${path}.tmp`;
+  // The random name keeps the staging path unpredictable, so a pre-existing
+  // symlink cannot be planted there and written through.
+  const staged = `${path}.tmp-${randomUUID()}`;
   io.write(staged, desired, 0o755);
   io.rename(staged, path);
   return { path, action: existing === undefined ? 'created' : 'updated' };

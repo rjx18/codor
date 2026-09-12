@@ -1,4 +1,4 @@
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -15,16 +15,19 @@ interface FakeIo extends LauncherIo {
   files: Map<string, string>;
   dirs: Set<string>;
   modes: Map<string, number>;
+  symlinks: Set<string>;
 }
 
 function fakeIo(seed: Record<string, string> = {}): FakeIo {
   const files = new Map(Object.entries(seed));
   const dirs = new Set<string>();
   const modes = new Map<string, number>();
+  const symlinks = new Set<string>();
   return {
     files,
     dirs,
     modes,
+    symlinks,
     exists: (path) => files.has(path) || dirs.has(path),
     read: (path) => files.get(path),
     write: (path, content, mode) => {
@@ -42,9 +45,11 @@ function fakeIo(seed: Record<string, string> = {}): FakeIo {
         modes.set(to, mode);
         modes.delete(from);
       }
+      symlinks.delete(to); // rename replaces the destination entry
     },
     mkdirp: (path) => void dirs.add(path),
     chmod: (path, mode) => void modes.set(path, mode),
+    isSymlink: (path) => symlinks.has(path),
   };
 }
 
@@ -127,13 +132,21 @@ describe('ensureLocalBinOnPath', () => {
 
 const posixHostIt = it.skipIf(process.platform === 'win32');
 
+function withTempHome(run: (home: string) => void): void {
+  const home = mkdtempSync(join(tmpdir(), 'codor-launcher-symlink-'));
+  try {
+    run(home);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
 describe('installLauncherShim on a real filesystem', () => {
   // Requirement: refreshing the launcher replaces the ~/.local/bin/codor path entry
   // and never writes through a symlink to its target. Not redundant with the
   // in-memory tests above, whose Map cannot represent a symlink.
   posixHostIt('replaces a pre-existing symlink without touching its target', () => {
-    const home = mkdtempSync(join(tmpdir(), 'codor-launcher-symlink-'));
-    try {
+    withTempHome((home) => {
       const bin = join(home, '.local', 'bin');
       mkdirSync(bin, { recursive: true });
       const entrypoint = join(home, 'cli-entrypoint.js');
@@ -146,8 +159,50 @@ describe('installLauncherShim on a real filesystem', () => {
       expect(readFileSync(entrypoint, 'utf8')).toBe('// compiled CLI entrypoint\n');
       expect(lstatSync(join(bin, 'codor')).isSymbolicLink()).toBe(false);
       expect(readFileSync(join(bin, 'codor'), 'utf8')).toBe(launcherShim('/usr/bin/node', entrypoint));
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
+    });
+  });
+
+  // Requirement: a symlink is never "unchanged", even when its target already holds
+  // the shim. The content check alone would leave the link in place and chmod its
+  // target; only an lstat-first check replaces the entry. Not covered above.
+  posixHostIt('replaces a symlink whose target already holds the desired shim', () => {
+    withTempHome((home) => {
+      const bin = join(home, '.local', 'bin');
+      mkdirSync(bin, { recursive: true });
+      const nodePath = '/usr/bin/node';
+      const entrypoint = '/tmp/entry.js';
+      const target = join(home, 'shim-copy');
+      writeFileSync(target, launcherShim(nodePath, entrypoint), { mode: 0o644 });
+      const before = statSync(target).mode;
+      symlinkSync(target, join(bin, 'codor'));
+
+      const result = installLauncherShim({ home, nodePath, cliEntrypoint: entrypoint });
+
+      expect(result.action).toBe('updated');
+      expect(lstatSync(join(bin, 'codor')).isSymbolicLink()).toBe(false);
+      expect(readFileSync(target, 'utf8')).toBe(launcherShim(nodePath, entrypoint));
+      expect(statSync(target).mode).toBe(before); // chmod must not follow the link
+    });
+  });
+
+  // Requirement: a pre-existing symlink at the staging path is never written
+  // through. A predictable staging name let that symlink's target be overwritten
+  // and the link itself renamed onto ~/.local/bin/codor. Not covered above.
+  posixHostIt('does not write through a symlink planted at the legacy staging path', () => {
+    withTempHome((home) => {
+      const bin = join(home, '.local', 'bin');
+      mkdirSync(bin, { recursive: true });
+      const decoy = join(home, 'decoy.js');
+      writeFileSync(decoy, '// decoy\n', { mode: 0o755 });
+      const legacyTmp = join(bin, 'codor.tmp');
+      symlinkSync(decoy, legacyTmp);
+
+      const result = installLauncherShim({ home, nodePath: '/usr/bin/node', cliEntrypoint: '/tmp/entry.js' });
+
+      expect(result.action).toBe('created');
+      expect(readFileSync(decoy, 'utf8')).toBe('// decoy\n');
+      expect(lstatSync(legacyTmp).isSymbolicLink()).toBe(true);
+      expect(lstatSync(join(bin, 'codor')).isSymbolicLink()).toBe(false);
+    });
   });
 });
