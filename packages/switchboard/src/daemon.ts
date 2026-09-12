@@ -350,7 +350,7 @@ function classifyDiscoveryError(message: string): string {
   if (/timed out/i.test(message)) return 'timed out';
   if (/ENOENT/i.test(message)) return 'harness not installed';
   if (/listed no models/i.test(message)) return 'harness reported no models';
-  if (/exceeded/i.test(message)) return 'output limit exceeded';
+  if (/output exceeded/i.test(message)) return 'output limit exceeded';
   return 'unexpected error';
 }
 

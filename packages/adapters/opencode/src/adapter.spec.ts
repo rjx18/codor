@@ -179,6 +179,16 @@ describe('opencode model discovery', () => {
       .rejects.toThrow();
   });
 
+  it('keeps CLI diagnostics out of probe errors', async () => {
+    // Requirement: harness stderr can carry secrets; it must not enter error text.
+    const command = stub("process.stderr.write('AUTH_TOKEN=hunter2\\n'); process.exit(1);");
+    const outcome = await new OpenCodeAdapter(command).listModels().then(
+      () => 'resolved',
+      (reason: unknown) => (reason instanceof Error ? reason.message : String(reason)),
+    );
+    expect(outcome).toBe(`Command failed: ${command} models (exit 1)`);
+  });
+
   it('lets the event loop run while the CLI answers', async () => {
     // Requirement: async bounded probe — discovery must not freeze the daemon.
     const dir = mkdtempSync(join(tmpdir(), 'codor-opencode-models-'));

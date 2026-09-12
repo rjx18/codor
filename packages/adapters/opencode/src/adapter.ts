@@ -58,17 +58,15 @@ async function runBoundedModelsCommand(
   let deadline: ReturnType<typeof setTimeout> | undefined;
   const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : MODEL_DISCOVERY_TIMEOUT_MS;
   const work = async (): Promise<string> => {
-    const spawned = spawn(command, ['models'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const spawned = spawn(command, ['models'], { stdio: ['ignore', 'pipe', 'ignore'] });
     child = spawned;
     return await new Promise<string>((resolve, reject) => {
       let stdout = '';
       let stdoutBytes = 0;
-      let stderr = '';
       let settled = false;
       const fail = (error: Error): void => { if (!settled) { settled = true; reject(error); } };
       const done = (value: string): void => { if (!settled) { settled = true; resolve(value); } };
       spawned.stdout?.setEncoding('utf8');
-      spawned.stderr?.setEncoding('utf8');
       spawned.stdout?.on('data', (chunk: string) => {
         stdoutBytes += Buffer.byteLength(chunk, 'utf8');
         if (stdoutBytes > maxBytes) {
@@ -77,17 +75,15 @@ async function runBoundedModelsCommand(
         }
         stdout += chunk;
       });
-      spawned.stderr?.on('data', (chunk: string) => {
-        stderr = `${stderr}${chunk}`.slice(-8192);
-      });
       spawned.once('error', (error) => {
         fail(error instanceof Error ? error : new Error(String(error)));
       });
       spawned.once('close', (code, signal) => {
+        // No stderr body here: harness diagnostics can carry secrets, and this
+        // text reaches both the server log and the client category. Exit evidence only.
         if (code !== 0) {
-          const detail = stderr.trim();
           fail(new Error(
-            `Command failed: ${command} models${signal ? ` (${signal})` : ''}${detail === '' ? '' : `\n${detail}`}`,
+            `Command failed: ${command} models${signal ? ` (signal ${signal})` : ` (exit ${String(code)})`}`,
           ));
           return;
         }

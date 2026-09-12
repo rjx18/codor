@@ -246,6 +246,20 @@ setInterval(() => {}, 1000);
     expect(alive).toBe(false);
   });
 
+  it('keeps CLI diagnostics out of probe errors', async () => {
+    // Requirement: harness stderr can carry secrets; it must not enter error text.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-antigravity-'));
+    temporary.push(dir);
+    const path = join(dir, 'agy');
+    writeFileSync(path, "#!/usr/bin/env node\nprocess.stderr.write('AUTH_TOKEN=hunter2\\n');\nprocess.exit(1);\n");
+    chmodSync(path, 0o755);
+    const outcome = await new AntigravityAdapter(path).listModels().then(
+      () => 'resolved',
+      (reason: unknown) => (reason instanceof Error ? reason.message : String(reason)),
+    );
+    expect(outcome).toBe(`Command failed: ${path} models (exit 1)`);
+  });
+
   it('classifies missing commands and nonzero exits as failed', async () => {
     const missing = new AntigravityAdapter(join(tmpdir(), 'codor-agy-missing'));
     expect((await collect(missing, missing.spawn({ cwd: process.cwd() }), 'hello')).at(-1))

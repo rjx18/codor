@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act } from 'react-dom/test-utils';
+import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { createElement } from 'react';
 
@@ -70,11 +70,11 @@ describe('adapter discovery poll budget', () => {
     document.body.appendChild(container);
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     if (root !== undefined) {
       const unmounting = root;
       root = undefined;
-      void act(async () => { unmounting.unmount(); });
+      await act(async () => { unmounting.unmount(); });
     }
     container.remove();
     vi.unstubAllGlobals();
