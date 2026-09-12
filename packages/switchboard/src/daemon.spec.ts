@@ -4118,6 +4118,62 @@ describe('adapter model discovery', () => {
     expect(adapter!.id).toBe('broken');
   });
 
+  it('records a discovery failure on the adapter entry until a retry succeeds', async () => {
+    // Requirement: a failed discovery must surface as retryable, not as "no models".
+    const listModels = vi.fn(async (): Promise<unknown> => { throw new Error('harness blew up'); });
+    const daemon = daemonWith([adapterWith('flaky', listModels)]);
+    try {
+      await settle(); await settle();
+      expect(daemon.registeredAdapters()[0]).toMatchObject({ id: 'flaky', models_error: 'unexpected error' });
+      expect(daemon.registeredAdapters()[0]?.models).toBeUndefined();
+      listModels.mockResolvedValue({ models: ['a/b'], source: 'discovered' });
+      daemon.refreshAdapterAvailability(); await settle(); await settle();
+      expect(daemon.registeredAdapters()[0]).toMatchObject({ models: ['a/b'] });
+      expect(daemon.registeredAdapters()[0]?.models_error).toBeUndefined();
+    } finally { await daemon.close(); }
+  });
+
+  it('keeps a prior catalog while reporting the latest failure', async () => {
+    // Requirement: a later failure must not erase a working list, but must say so.
+    const listModels = vi.fn(async (): Promise<unknown> => ({ models: ['native/model'], source: 'discovered' }));
+    const daemon = daemonWith([adapterWith('codex', listModels)]);
+    try {
+      await settle(); await settle();
+      listModels.mockRejectedValueOnce(new Error('probe timed out'));
+      daemon.refreshAdapterAvailability(); await settle(); await settle();
+      expect(daemon.registeredAdapters()[0]).toMatchObject({
+        models: ['native/model'],
+        models_error: 'timed out',
+      });
+    } finally { await daemon.close(); }
+  });
+
+  it('publishes a controlled error category instead of raw CLI diagnostics', async () => {
+    // Requirement: credentials and paths in CLI output never cross the API boundary.
+    const daemon = daemonWith([
+      adapterWith('leaky', () => Promise.reject(new Error(
+        `Command failed: /opt/agy models\nAUTH_TOKEN=hunter2\n${'x'.repeat(8000)}`,
+      ))),
+      adapterWith('slow', () => Promise.reject(new Error('agy models timed out after 20000ms'))),
+      adapterWith('missing', () => Promise.reject(new Error('spawn agy ENOENT'))),
+      adapterWith('empty', () => Promise.reject(new Error('agy listed no models'))),
+      adapterWith('huge', () => Promise.reject(new Error('agy models output exceeded 1000000 bytes'))),
+    ]);
+    try {
+      await settle(); await settle();
+      const entries = new Map(daemon.registeredAdapters().map((entry) => [entry.id, entry]));
+      expect(entries.get('leaky')?.models_error).toBe('unexpected error');
+      expect(entries.get('slow')?.models_error).toBe('timed out');
+      expect(entries.get('missing')?.models_error).toBe('harness not installed');
+      expect(entries.get('empty')?.models_error).toBe('harness reported no models');
+      expect(entries.get('huge')?.models_error).toBe('output limit exceeded');
+      for (const entry of entries.values()) {
+        expect(entry.models_error ?? '').not.toContain('hunter2');
+        expect(entry.models_error ?? '').not.toContain('/opt');
+      }
+    } finally { await daemon.close(); }
+  });
+
   it('drops output it cannot validate rather than trusting harness stdout', async () => {
     const daemon = daemonWith([
       adapterWith('noisy', () => Promise.resolve({

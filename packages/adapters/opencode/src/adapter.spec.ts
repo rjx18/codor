@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -177,6 +177,61 @@ describe('opencode model discovery', () => {
   it('fails when the harness exits non-zero', async () => {
     await expect(new OpenCodeAdapter(stub('process.stderr.write("boom\\n"); process.exit(1);')).listModels())
       .rejects.toThrow();
+  });
+
+  it('keeps CLI diagnostics out of probe errors', async () => {
+    // Requirement: harness stderr can carry secrets; it must not enter error text.
+    const command = stub("process.stderr.write('AUTH_TOKEN=hunter2\\n'); process.exit(1);");
+    const outcome = await new OpenCodeAdapter(command).listModels().then(
+      () => 'resolved',
+      (reason: unknown) => (reason instanceof Error ? reason.message : String(reason)),
+    );
+    expect(outcome).toBe(`Command failed: ${command} models (exit 1)`);
+  });
+
+  it('lets the event loop run while the CLI answers', async () => {
+    // Requirement: async bounded probe — discovery must not freeze the daemon.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-opencode-models-'));
+    dirs.push(dir);
+    const command = join(dir, 'opencode');
+    writeFileSync(command, '#!/usr/bin/env node\nsetTimeout(() => { console.log("anthropic/claude-sonnet-5\\nopenai/gpt-4o"); }, 1200);\n');
+    chmodSync(command, 0o755);
+    const start = Date.now();
+    let firedAt = -1;
+    setTimeout(() => { firedAt = Date.now(); }, 20);
+    const catalog = await new OpenCodeAdapter(command).listModels();
+    expect(catalog.models).toEqual(['anthropic/claude-sonnet-5', 'openai/gpt-4o']);
+    expect(firedAt).toBeGreaterThanOrEqual(start);
+    expect(firedAt - start).toBeLessThan(1000);
+  });
+
+  it('fails rather than buffering unbounded CLI output', async () => {
+    // Requirement: bounded probe — a runaway listing must fail, not balloon memory.
+    const command = stub("process.stdout.write('x'.repeat(1_200_000));");
+    await expect(new OpenCodeAdapter(command).listModels()).rejects.toThrow(/exceeded/);
+  });
+
+  it('terminates the child when the budget runs out', async () => {
+    // Requirement: confirmed cleanup — no orphan survives a timed-out probe.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-opencode-models-'));
+    dirs.push(dir);
+    const command = join(dir, 'opencode');
+    const pidFile = join(dir, 'pid');
+    writeFileSync(command, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setInterval(() => {}, 1000);
+`);
+    chmodSync(command, 0o755);
+    await expect(new OpenCodeAdapter(command, 2000).listModels()).rejects.toThrow(/timed out/);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    expect(Number.isInteger(pid)).toBe(true);
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
+    expect(alive).toBe(false);
   });
   // harn:end windows-cli-adapters-resolve-command-shims
 });

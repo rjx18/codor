@@ -48,6 +48,93 @@ function finalOutput(output: string, truncated: boolean): string {
   return `${utf8Prefix(output, MAX_OUTPUT_BYTES - markerBytes)}${TRUNCATED}`;
 }
 
+/** Budget for the async `agy models` probe: covers the observed worst case
+ *  without ever stalling the daemon, since the child no longer occupies the loop. */
+const MODEL_DISCOVERY_TIMEOUT_MS = 20_000;
+/** Hard cap on captured `agy models` stdout, in bytes. */
+const MODEL_DISCOVERY_MAX_BYTES = 1_000_000;
+
+/** Confirm a discovery child is gone: SIGTERM, then SIGKILL on a finite bound. */
+async function stopDiscoveryProbe(child: ChildProcess, label: string): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve, reject) => {
+    const finish = (error?: Error): void => {
+      clearTimeout(escalate); clearTimeout(deadline); child.off('exit', exited);
+      if (error) reject(error); else resolve();
+    };
+    const exited = (): void => finish();
+    const escalate = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch { /* exit confirmation below remains required */ }
+    }, 1_000);
+    const deadline = setTimeout(() => finish(new Error(`${label} model probe did not exit`)), 2_000);
+    child.once('exit', exited);
+    try {
+      child.kill('SIGTERM');
+    } catch (error) { finish(error instanceof Error ? error : new Error(`${label} model probe cleanup failed`)); }
+  });
+}
+
+/**
+ * Run `command models` without occupying the event loop: async spawn, capped
+ * output, timeout rejection, and confirmed child termination on every path.
+ */
+async function runBoundedModelsCommand(
+  command: string,
+  timeoutMs: number,
+  maxBytes: number,
+): Promise<string> {
+  let child: ChildProcess | undefined;
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  const budget = Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : MODEL_DISCOVERY_TIMEOUT_MS;
+  const work = async (): Promise<string> => {
+    const spawned = spawn(command, ['models'], { stdio: ['ignore', 'pipe', 'ignore'] });
+    child = spawned;
+    return await new Promise<string>((resolve, reject) => {
+      let stdout = '';
+      let stdoutBytes = 0;
+      let settled = false;
+      const fail = (error: Error): void => { if (!settled) { settled = true; reject(error); } };
+      const done = (value: string): void => { if (!settled) { settled = true; resolve(value); } };
+      spawned.stdout?.setEncoding('utf8');
+      spawned.stdout?.on('data', (chunk: string) => {
+        stdoutBytes += Buffer.byteLength(chunk, 'utf8');
+        if (stdoutBytes > maxBytes) {
+          fail(new Error(`${command} models output exceeded ${String(maxBytes)} bytes`));
+          return;
+        }
+        stdout += chunk;
+      });
+      spawned.once('error', (error) => {
+        fail(error instanceof Error ? error : new Error(String(error)));
+      });
+      spawned.once('close', (code, signal) => {
+        // No stderr body here: harness diagnostics can carry secrets, and this
+        // text reaches both the server log and the client category. Exit evidence only.
+        if (code !== 0) {
+          fail(new Error(
+            `Command failed: ${command} models${signal ? ` (signal ${signal})` : ` (exit ${String(code)})`}`,
+          ));
+          return;
+        }
+        done(stdout);
+      });
+    });
+  };
+  try {
+    return await Promise.race([
+      work(),
+      new Promise<never>((_resolve, reject) => {
+        deadline = setTimeout(() => {
+          reject(new Error(`${command} models timed out after ${String(budget)}ms`));
+        }, budget);
+      }),
+    ]);
+  } finally {
+    clearTimeout(deadline);
+    if (child) await stopDiscoveryProbe(child, command);
+  }
+}
+
 export interface AntigravityInvocation {
   mode: 'plan' | 'accept-edits';
   skipPermissions: boolean;
@@ -116,7 +203,10 @@ export class AntigravityAdapter implements HarnessAdapter {
   private readonly children = new WeakMap<Session, ChildProcess>();
   private readonly displayNames = new Map<string, string>();
 
-  constructor(private readonly command = 'agy') {}
+  constructor(
+    private readonly command = 'agy',
+    private readonly modelDiscoveryTimeoutMs = MODEL_DISCOVERY_TIMEOUT_MS,
+  ) {}
 
   spawn(opts: SpawnOpts): Session {
     antigravityMode(opts.policy);
@@ -132,17 +222,13 @@ export class AntigravityAdapter implements HarnessAdapter {
   }
 
   // harn:assume adapters-own-their-model-catalog ref=antigravity-model-catalog
-  listModels(): Promise<ModelCatalog> {
-    const result = spawn.sync(this.command, ['models'], {
-      timeout: 5_000,
-      maxBuffer: 1_000_000,
-      encoding: 'utf8',
-    });
-    if (result.error) return Promise.reject(result.error);
-    if (result.status !== 0) {
-      return Promise.reject(new Error(`Command failed: ${this.command} models`));
-    }
-    const displays = String(result.stdout ?? '')
+  async listModels(): Promise<ModelCatalog> {
+    const stdout = await runBoundedModelsCommand(
+      this.command,
+      this.modelDiscoveryTimeoutMs,
+      MODEL_DISCOVERY_MAX_BYTES,
+    );
+    const displays = stdout
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);

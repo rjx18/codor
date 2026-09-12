@@ -114,13 +114,21 @@ export interface AdapterCatalog {
 }
 
 // harn:assume agent-selection-shows-detected-acp-and-advanced-custom ref=detected-acp-catalog-client
+/**
+ * Discovery poll budget: the slowest model probe is the copilot 30 s HTTP
+ * timeout, so keep asking well past that before treating the catalog as final.
+ * Probe budgets live in the adapters; this window must outlast the slowest one.
+ */
+const ADAPTER_POLL_ATTEMPTS = 70;
+const ADAPTER_POLL_MS = 500;
+
 export function useAdapterCatalog(token: () => string): AdapterCatalog {
   const [adapters, setAdapters] = useState<AdapterRegistration[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string>();
   const active = useRef(true);
   const timer = useRef<ReturnType<typeof setTimeout>>();
-  const attemptsLeft = useRef(10);
+  const attemptsLeft = useRef(ADAPTER_POLL_ATTEMPTS);
 
   const poll = useCallback((listing: { adapters: AdapterRegistration[]; discovering: boolean }): void => {
     if (!active.current) return;
@@ -130,12 +138,12 @@ export function useAdapterCatalog(token: () => string): AdapterCatalog {
     if (timer.current !== undefined) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       void fetchAdapters({ token: token() }).then(poll).catch(() => undefined);
-    }, 500);
+    }, ADAPTER_POLL_MS);
   }, [token]);
 
   useEffect(() => {
     active.current = true;
-    attemptsLeft.current = 10;
+    attemptsLeft.current = ADAPTER_POLL_ATTEMPTS;
     void fetchAdapters({ token: token() }).then(poll).catch(() => undefined);
     return () => {
       active.current = false;
@@ -147,7 +155,7 @@ export function useAdapterCatalog(token: () => string): AdapterCatalog {
     if (refreshing) return;
     setRefreshing(true);
     setRefreshError(undefined);
-    attemptsLeft.current = 10;
+    attemptsLeft.current = ADAPTER_POLL_ATTEMPTS;
     void refreshAdapters({ token: token() }).then(
       (listing) => poll(listing),
       (error: unknown) => {

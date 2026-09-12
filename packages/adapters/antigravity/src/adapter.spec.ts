@@ -197,6 +197,69 @@ describe('AntigravityAdapter', () => {
     await expect(collision.listModels()).rejects.toThrow("collide at slug 'a-b'");
   });
 
+  it('lets the event loop run while the CLI answers', async () => {
+    // Requirement: async bounded probe — discovery must not freeze the daemon.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-antigravity-'));
+    temporary.push(dir);
+    const path = join(dir, 'agy');
+    writeFileSync(path, '#!/usr/bin/env node\nsetTimeout(() => { process.stdout.write("Gemini 3.5 Flash (High)\\n"); }, 1200);\n');
+    chmodSync(path, 0o755);
+    const start = Date.now();
+    let firedAt = -1;
+    setTimeout(() => { firedAt = Date.now(); }, 20);
+    const catalog = await new AntigravityAdapter(path).listModels();
+    expect(catalog.models).toEqual(['gemini-3.5-flash-high']);
+    expect(firedAt).toBeGreaterThanOrEqual(start);
+    expect(firedAt - start).toBeLessThan(1000);
+  });
+
+  it('fails rather than buffering unbounded CLI output', async () => {
+    // Requirement: bounded probe — a runaway listing must fail, not balloon memory.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-antigravity-'));
+    temporary.push(dir);
+    const path = join(dir, 'agy');
+    writeFileSync(path, "#!/usr/bin/env node\nprocess.stdout.write('x'.repeat(1_200_000));\n");
+    chmodSync(path, 0o755);
+    await expect(new AntigravityAdapter(path).listModels()).rejects.toThrow(/exceeded/);
+  });
+
+  it('terminates the child when the budget runs out', async () => {
+    // Requirement: confirmed cleanup — no orphan survives a timed-out probe.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-antigravity-'));
+    temporary.push(dir);
+    const path = join(dir, 'agy');
+    const pidFile = join(dir, 'pid');
+    writeFileSync(path, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setInterval(() => {}, 1000);
+`);
+    chmodSync(path, 0o755);
+    await expect(new AntigravityAdapter(path, 2000).listModels()).rejects.toThrow(/timed out/);
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    expect(Number.isInteger(pid)).toBe(true);
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      alive = false;
+    }
+    expect(alive).toBe(false);
+  });
+
+  it('keeps CLI diagnostics out of probe errors', async () => {
+    // Requirement: harness stderr can carry secrets; it must not enter error text.
+    const dir = mkdtempSync(join(tmpdir(), 'codor-antigravity-'));
+    temporary.push(dir);
+    const path = join(dir, 'agy');
+    writeFileSync(path, "#!/usr/bin/env node\nprocess.stderr.write('AUTH_TOKEN=hunter2\\n');\nprocess.exit(1);\n");
+    chmodSync(path, 0o755);
+    const outcome = await new AntigravityAdapter(path).listModels().then(
+      () => 'resolved',
+      (reason: unknown) => (reason instanceof Error ? reason.message : String(reason)),
+    );
+    expect(outcome).toBe(`Command failed: ${path} models (exit 1)`);
+  });
+
   it('classifies missing commands and nonzero exits as failed', async () => {
     const missing = new AntigravityAdapter(join(tmpdir(), 'codor-agy-missing'));
     expect((await collect(missing, missing.spawn({ cwd: process.cwd() }), 'hello')).at(-1))
