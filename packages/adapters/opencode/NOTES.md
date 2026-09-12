@@ -66,7 +66,8 @@ Presets behave differently: applying an opencode preset with a stored
 `thinking` value is refused with a named message rather than a failed
 turn, and the preset editor blocks save while the unsupported value is
 present. Clear it by switching the draft to another harness and back
-(`reconcileConfig` drops the level), or by editing or removing the
+(`reconcileConfig` drops the level, and also clears the model, which must
+be reselected), or by editing or removing the
 preset. A saved default roster holding such a preset fails channel
 creation at roster expansion, not one turn.
 
