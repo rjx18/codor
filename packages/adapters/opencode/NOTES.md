@@ -45,13 +45,23 @@ Phase 2 rechecked the installed `run --help` plus the first-party
 [permissions](https://opencode.ai/docs/permissions/) and
 [models](https://opencode.ai/docs/models/) references on 2026-07-11.
 Codor emits no policy flag for `read-only` or `workspace-write`, and maps
-`full-access` to `--auto`. Thinking is not offered: `--variant` names are
-per-model variant presets (see `opencode models --verbose`), not a fixed
-effort scale, and an unsupported or unknown value is accepted and silently
-ignored with exit 0, so a fixed low/medium/high control cannot tell the
-operator whether the value will be used. The adapter therefore declares
-`thinking:false` and never sends `--variant` until variants are exposed per
-model.
+`full-access` to `--auto`.
+
+2026-09-12 probe with opencode `0.0.0-dev-202609102034`: `--variant`
+names are per-model variant presets (see `opencode models --verbose`), not
+a fixed effort scale, and an unsupported or unknown value is accepted and
+silently ignored with exit 0, so a fixed low/medium/high control cannot
+tell the operator whether the value will be used. The adapter therefore
+declares `thinking:false` and never sends `--variant` until variants are
+exposed per model.
+
+Upgrade note: an existing opencode member with a persisted `thinking`
+value fails loudly on its next turn (`validateSpawnOptions` on rebuild,
+`openCodeArgs` on attach) with `adapter 'opencode' does not support
+thinking levels`. Recovery is a manual save in the Configure agent
+dialog, which submits `thinking: null` for an unsupported level and
+clears the stored value. The same applies to an agent preset carrying
+`thinking` for opencode.
 
 ## Invocation
 
