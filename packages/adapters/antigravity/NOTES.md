@@ -26,12 +26,12 @@ The probe reported human-facing names such as `Gemini 3.5 Flash (High)`.
 `listModels()` runs `agy models` as an async child with a fixed argv, a 20 s budget and
 capped output, reports slug-safe ids to Codor, and owns the reverse mapping back to
 display names at spawn time. The probe never occupies the event loop, and the child is
-confirmed terminated on every path, including the timeout. The 20 s budget covers the
-observed spread of `agy models`; a slower run times out and surfaces as the same retryable
-failure. The catalog is never hard-coded
+confirmed terminated on every path, including the timeout. The 20 s budget matches the
+opencode probe; no slow `agy models` run was measured here, so a slower run surfaces as
+the same retryable failure. The catalog is never hard-coded
 here. If two names collapse to the same slug, discovery fails rather than routing an
-operator selection to the wrong model; any failure is recorded per harness (`models_error`)
-so the dialog offers a retry.
+operator selection to the wrong model; any failure is recorded per harness (`models_error`,
+a controlled category, never raw CLI text) so the dialog offers a retry.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 ## Resume boundary

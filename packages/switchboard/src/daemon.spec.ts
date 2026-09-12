@@ -4124,7 +4124,7 @@ describe('adapter model discovery', () => {
     const daemon = daemonWith([adapterWith('flaky', listModels)]);
     try {
       await settle(); await settle();
-      expect(daemon.registeredAdapters()[0]).toMatchObject({ id: 'flaky', models_error: 'harness blew up' });
+      expect(daemon.registeredAdapters()[0]).toMatchObject({ id: 'flaky', models_error: 'unexpected error' });
       expect(daemon.registeredAdapters()[0]?.models).toBeUndefined();
       listModels.mockResolvedValue({ models: ['a/b'], source: 'discovered' });
       daemon.refreshAdapterAvailability(); await settle(); await settle();
@@ -4143,24 +4143,34 @@ describe('adapter model discovery', () => {
       daemon.refreshAdapterAvailability(); await settle(); await settle();
       expect(daemon.registeredAdapters()[0]).toMatchObject({
         models: ['native/model'],
-        models_error: 'probe timed out',
+        models_error: 'timed out',
       });
     } finally { await daemon.close(); }
   });
 
-  it('publishes only a bounded first line of a discovery failure', async () => {
-    // Requirement: raw CLI diagnostics stay in the server log; the API carries a short line.
+  it('publishes a controlled error category instead of raw CLI diagnostics', async () => {
+    // Requirement: credentials and paths in CLI output never cross the API boundary.
     const daemon = daemonWith([
-      adapterWith('leaky', () => Promise.reject(new Error(`boom\n${'x'.repeat(8000)}`))),
-      adapterWith('chatty', () => Promise.reject(new Error(`w${'o'.repeat(500)}`))),
+      adapterWith('leaky', () => Promise.reject(new Error(
+        `Command failed: /opt/agy models\nAUTH_TOKEN=hunter2\n${'x'.repeat(8000)}`,
+      ))),
+      adapterWith('slow', () => Promise.reject(new Error('agy models timed out after 20000ms'))),
+      adapterWith('missing', () => Promise.reject(new Error('spawn agy ENOENT'))),
+      adapterWith('empty', () => Promise.reject(new Error('agy listed no models'))),
+      adapterWith('huge', () => Promise.reject(new Error('agy models output exceeded 1000000 bytes'))),
     ]);
     try {
       await settle(); await settle();
       const entries = new Map(daemon.registeredAdapters().map((entry) => [entry.id, entry]));
-      expect(entries.get('leaky')?.models_error).toBe('boom');
-      const chatty = entries.get('chatty')?.models_error ?? '';
-      expect(chatty).not.toContain('\n');
-      expect(chatty.length).toBeLessThanOrEqual(200);
+      expect(entries.get('leaky')?.models_error).toBe('unexpected error');
+      expect(entries.get('slow')?.models_error).toBe('timed out');
+      expect(entries.get('missing')?.models_error).toBe('harness not installed');
+      expect(entries.get('empty')?.models_error).toBe('harness reported no models');
+      expect(entries.get('huge')?.models_error).toBe('output limit exceeded');
+      for (const entry of entries.values()) {
+        expect(entry.models_error ?? '').not.toContain('hunter2');
+        expect(entry.models_error ?? '').not.toContain('/opt');
+      }
     } finally { await daemon.close(); }
   });
 

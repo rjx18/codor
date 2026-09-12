@@ -145,7 +145,7 @@ Any hardcoded list would have been wrong for somebody.
 
 Discovery is best-effort by design. A missing binary, a non-zero exit, a hang past the
 budget, or output the daemon cannot validate all throw, and the daemon records the failure
-per harness (`models_error`, bounded to one short line) so the dialog offers a retry instead
+per harness (`models_error`, a controlled category) so the dialog offers a retry instead
 of reporting no models; a prior catalog is kept when one exists. The 20 s budget covers the
 observed 0.9–11.97 s spread of `opencode models`, but upstream allows 10 s per fetch attempt
 with retries, so a slower run can still time out — and then surfaces as the same retryable

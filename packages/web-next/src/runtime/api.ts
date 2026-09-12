@@ -65,7 +65,7 @@ export interface AdapterRegistration {
   /** Models the harness itself reported. The web never hardcodes a model id. */
   models?: string[];
   models_source?: 'discovered' | 'curated';
-  /** Latest discovery failure, bounded to one short line: the list is missing or stale, press Refresh to retry. */
+  /** Latest discovery failure as a controlled category; full detail stays server-side. */
   models_error?: string;
 }
 // harn:end agent-selection-shows-detected-acp-and-advanced-custom

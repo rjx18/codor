@@ -343,17 +343,15 @@ function countDiffLines(diff: string): { additions: number; deletions: number } 
  */
 const MODEL_ID = /^\w[\w.:-]*(?:\/[\w.:-]+)*$/;
 const MAX_MODELS = 200;
-/** Client-facing discovery errors carry one short line. The full diagnostic
- *  stays in the server log via onBackgroundError — raw CLI stderr must not
- *  cross the API boundary into the browser. */
-const MAX_DISCOVERY_ERROR_CHARS = 200;
-
-function sanitizeDiscoveryError(message: string): string {
-  const firstLine = message.split('\n', 1)[0] ?? '';
-  const trimmed = firstLine.trim();
-  return trimmed.length > MAX_DISCOVERY_ERROR_CHARS
-    ? `${trimmed.slice(0, MAX_DISCOVERY_ERROR_CHARS - 1)}…`
-    : trimmed;
+/** Client-facing discovery outcome: a controlled category, never raw CLI text.
+ *  A credential, path, or other diagnostic inside the raw message stays in the
+ *  server log via onBackgroundError and never crosses the API boundary. */
+function classifyDiscoveryError(message: string): string {
+  if (/timed out/i.test(message)) return 'timed out';
+  if (/ENOENT/i.test(message)) return 'harness not installed';
+  if (/listed no models/i.test(message)) return 'harness reported no models';
+  if (/exceeded/i.test(message)) return 'output limit exceeded';
+  return 'unexpected error';
 }
 
 export interface DaemonOptions {
@@ -1401,7 +1399,7 @@ export class Daemon {
       this.modelDiscoveryErrors.delete(adapter.id);
     }).catch((error: unknown) => {
       const failure = error instanceof Error ? error : new Error(`${adapter.id} model discovery failed`);
-      this.modelDiscoveryErrors.set(adapter.id, sanitizeDiscoveryError(failure.message));
+      this.modelDiscoveryErrors.set(adapter.id, classifyDiscoveryError(failure.message));
       this.onBackgroundError(failure);
     }).finally(() => {
       this.pendingDiscoveries -= 1;
@@ -1460,7 +1458,7 @@ export class Daemon {
     capabilities: HarnessAdapter['capabilities'];
     models?: string[];
     models_source?: ModelCatalog['source'];
-    /** Latest discovery failure, bounded to one short line; full detail stays server-side. */
+    /** Latest discovery failure as a controlled category; full detail stays server-side. */
     models_error?: string;
   }[] {
     // Every entry carries its runtime harness id. The generic configurable ACP transport
