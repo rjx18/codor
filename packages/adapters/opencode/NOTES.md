@@ -45,25 +45,51 @@ Phase 2 rechecked the installed `run --help` plus the first-party
 [permissions](https://opencode.ai/docs/permissions/) and
 [models](https://opencode.ai/docs/models/) references on 2026-07-11.
 Codor emits no policy flag for `read-only` or `workspace-write`, and maps
-`full-access` to `--auto`. Thinking `low`, `medium`, and `high` maps directly
-to `run --variant <level>`, so the adapter declares `thinking:true`.
-Variant availability is provider/model-dependent; the docs and no-spend help
-probe did not establish unsupported-model behavior, so a native rejection is
-reported as an ordinary failed turn.
+`full-access` to `--auto`.
+
+2026-09-12 probe with opencode `0.0.0-dev-202609102034`: `--variant`
+names are per-model variant presets (see `opencode models --verbose`), not
+a fixed effort scale, and an unsupported or unknown value is accepted and
+silently ignored with exit 0, so a fixed low/medium/high control cannot
+tell the operator whether the value will be used. The adapter therefore
+declares `thinking:false` and never sends `--variant` until variants are
+exposed per model.
+
+Upgrade note: an existing opencode member with a persisted `thinking`
+value fails loudly on its next turn (`validateSpawnOptions` on rebuild,
+`openCodeArgs` on attach) with `adapter 'opencode' does not support
+thinking levels`. Recovery is a manual save in the Configure agent
+dialog, which submits `thinking: null` for an unsupported level and
+clears the stored value.
+
+Presets behave differently: applying an opencode preset with a stored
+`thinking` value is refused with a named message rather than a failed
+turn, and the preset editor blocks save while the unsupported value is
+present. Clear it by switching the draft to another harness and back
+(`reconcileConfig` drops the level, and also clears the model, which
+must be reselected), by replacing the preset through the API without
+`thinking`, or by removing it from the default roster before deleting
+it. A saved default roster holding such a preset fails channel creation
+at roster expansion, not one turn.
 
 ## Invocation
 
 New turn:
 
 ```text
-opencode run --format json [--model PROVIDER/MODEL] [--auto] [--variant LEVEL] PAYLOAD
+opencode run --format json [--model PROVIDER/MODEL] [--auto] PAYLOAD
 ```
 
 Continued turn:
 
 ```text
-opencode run --format json [--model PROVIDER/MODEL] [--auto] [--variant LEVEL] --session SESSION_ID PAYLOAD
+opencode run --format json [--model PROVIDER/MODEL] [--auto] --session SESSION_ID PAYLOAD
 ```
+
+Codor never sends `--variant`. The CLI accepts it, but the name must come
+from the selected model's own `variants` object (`opencode models
+--verbose`), which varies per model and install and admits operator-defined
+custom names; an unknown name is ignored with exit 0.
 
 The process starts in the member's persisted cwd, stdin is closed, stdout is
 read through EOF, stderr is bounded for failure detail, and the detached process
@@ -122,7 +148,7 @@ unchanged and never derives prices from tokens.
 | ask | false | `run` exposes no question response channel |
 | approvals | spawn-time | `--auto` or CLI-owned rejection; no Codor runtime response |
 | extensions | false | completed task tools do not provide authoritative child lifecycle |
-| thinking | true | documented `run --variant`; argv tests cover low/medium/high |
+| thinking | false | `--variant` is per-model and silently ignored when unsupported; no fixed effort set is offered |
 
 `fixtures/live-pong-1.17.14.jsonl` is the one real authenticated capture required
 by P1.7b, using the configured free model and the tiny prompt `Reply PONG only.`.
@@ -144,7 +170,6 @@ Any hardcoded list would have been wrong for somebody.
 Discovery is best-effort by design. A missing binary, a non-zero exit, a hang, or output the
 daemon cannot validate all degrade silently to no list, and the dialog falls back to its
 `Custom…` escape (placeholder `provider/model`, the form opencode's `--model` takes).
-Thinking is supported and maps to `run --variant <level>`.
 <!-- harn:end adapters-own-their-model-catalog -->
 
 <!-- harn:assume live-inbox-capability-is-evidence-backed-v2 ref=opencode-live-inbox-notes -->

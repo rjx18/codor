@@ -6,7 +6,6 @@ import type { WireEvent } from '@codor/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
-  OPENCODE_THINKING_LEVELS,
   OpenCodeAdapter,
   openCodeArgs,
   openCodeAutoApprove,
@@ -44,18 +43,23 @@ describe('OpenCode subprocess and capability conformance', () => {
   });
 
   // harn:assume harness-declares-supported-thinking-levels ref=opencode-thinking-level-regression
-  it('maps canonical policies and its declared thinking levels to documented argv', () => {
+  it('maps canonical policies to documented argv and offers no thinking control', () => {
+    // Verifies the issue #30 fix: --variant names are per-model presets and an
+    // unsupported value is silently ignored, so no fixed effort set is offered.
     const base = { harness: 'opencode', cwd: '/work' };
     expect(openCodeArgs({ ...base, policy: 'read-only' }, 'go')).not.toContain('--auto');
     expect(openCodeArgs({ ...base, policy: 'workspace-write' }, 'go')).not.toContain('--auto');
     expect(openCodeArgs({ ...base, policy: 'full-access' }, 'go')).toContain('--auto');
-    for (const thinking of OPENCODE_THINKING_LEVELS) {
-      expect(openCodeArgs({ ...base, thinking }, 'go')).toEqual(
-        expect.arrayContaining(['--variant', thinking]),
+    expect(openCodeArgs({ ...base }, 'go')).not.toContain('--variant');
+    for (const thinking of ['low', 'medium', 'high', 'xhigh'] as const) {
+      expect(() => openCodeArgs({ ...base, thinking }, 'go')).toThrow(
+        "adapter 'opencode' does not support thinking levels",
       );
     }
-    expect(() => openCodeArgs({ ...base, thinking: 'xhigh' }, 'go')).toThrow(
-      "adapter 'opencode' does not support thinking level 'xhigh'",
+    expect(new OpenCodeAdapter().capabilities.thinking).toBe(false);
+    expect(new OpenCodeAdapter().capabilities).not.toHaveProperty('thinking_levels');
+    expect(() => new OpenCodeAdapter().spawn({ cwd: '/work', thinking: 'low' })).toThrow(
+      "adapter 'opencode' does not support thinking levels",
     );
   });
   // harn:end harness-declares-supported-thinking-levels
