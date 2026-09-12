@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Injectable filesystem surface so the launcher logic is unit-testable. `home` and
@@ -8,6 +8,7 @@ export interface LauncherIo {
   exists(path: string): boolean;
   read(path: string): string | undefined;
   write(path: string, content: string, mode?: number): void;
+  rename(from: string, to: string): void;
   mkdirp(path: string, mode: number): void;
   chmod(path: string, mode: number): void;
 }
@@ -22,6 +23,7 @@ export const defaultLauncherIo: LauncherIo = {
     }
   },
   write: (path, content, mode) => writeFileSync(path, content, mode === undefined ? undefined : { mode }),
+  rename: (from, to) => renameSync(from, to),
   mkdirp: (path, mode) => { mkdirSync(path, { recursive: true, mode }); },
   chmod: (path, mode) => chmodSync(path, mode),
 };
@@ -64,7 +66,11 @@ export function installLauncherShim(options: {
     io.chmod(path, 0o755); // keep it executable even when the content already matches
     return { path, action: 'unchanged' };
   }
-  io.write(path, desired, 0o755);
+  // Stage a sibling and rename it into place: rename replaces the path entry
+  // itself, so a pre-existing symlink is replaced rather than written through.
+  const staged = `${path}.tmp`;
+  io.write(staged, desired, 0o755);
+  io.rename(staged, path);
   return { path, action: existing === undefined ? 'created' : 'updated' };
 }
 // harn:end setup-installs-user-launcher-shim

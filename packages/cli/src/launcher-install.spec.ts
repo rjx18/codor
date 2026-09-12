@@ -1,3 +1,7 @@
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -26,6 +30,18 @@ function fakeIo(seed: Record<string, string> = {}): FakeIo {
     write: (path, content, mode) => {
       files.set(path, content);
       if (mode !== undefined) modes.set(path, mode);
+    },
+    rename: (from, to) => {
+      const content = files.get(from);
+      if (content !== undefined) {
+        files.set(to, content);
+        files.delete(from);
+      }
+      const mode = modes.get(from);
+      if (mode !== undefined) {
+        modes.set(to, mode);
+        modes.delete(from);
+      }
     },
     mkdirp: (path) => void dirs.add(path),
     chmod: (path, mode) => void modes.set(path, mode),
@@ -106,5 +122,32 @@ describe('ensureLocalBinOnPath', () => {
     expect(result.wrote).toBe(false);
     expect(io.files.has(ZPROFILE)).toBe(false);
     expect(logs.join(' ')).toMatch(/PATH/);
+  });
+});
+
+const posixHostIt = it.skipIf(process.platform === 'win32');
+
+describe('installLauncherShim on a real filesystem', () => {
+  // Requirement: refreshing the launcher replaces the ~/.local/bin/codor path entry
+  // and never writes through a symlink to its target. Not redundant with the
+  // in-memory tests above, whose Map cannot represent a symlink.
+  posixHostIt('replaces a pre-existing symlink without touching its target', () => {
+    const home = mkdtempSync(join(tmpdir(), 'codor-launcher-symlink-'));
+    try {
+      const bin = join(home, '.local', 'bin');
+      mkdirSync(bin, { recursive: true });
+      const entrypoint = join(home, 'cli-entrypoint.js');
+      writeFileSync(entrypoint, '// compiled CLI entrypoint\n', { mode: 0o755 });
+      symlinkSync(entrypoint, join(bin, 'codor'));
+
+      const result = installLauncherShim({ home, nodePath: '/usr/bin/node', cliEntrypoint: entrypoint });
+
+      expect(result.action).toBe('updated');
+      expect(readFileSync(entrypoint, 'utf8')).toBe('// compiled CLI entrypoint\n');
+      expect(lstatSync(join(bin, 'codor')).isSymbolicLink()).toBe(false);
+      expect(readFileSync(join(bin, 'codor'), 'utf8')).toBe(launcherShim('/usr/bin/node', entrypoint));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
