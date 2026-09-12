@@ -99,7 +99,7 @@ describe('adapter registry spawn controls', () => {
       ['cursor', false, undefined],
       ['gemini', false, undefined],
       ['grok', true, ['low', 'medium', 'high']],
-      ['opencode', true, ['low', 'medium', 'high']],
+      ['opencode', false, undefined],
     ]);
   });
 
@@ -116,7 +116,7 @@ describe('adapter registry spawn controls', () => {
 
   it('rejects thinking before delegating to unsupported adapters', async () => {
     const adapters = await loadAdapterRegistry();
-    for (const id of ['antigravity', 'copilot', 'copilot-vscode', 'gemini']) {
+    for (const id of ['antigravity', 'copilot', 'copilot-vscode', 'gemini', 'opencode']) {
       const adapter = adapters.find((candidate) => candidate.id === id)!;
       expect(() => adapter.spawn({ cwd: '/work', thinking: 'high' })).toThrow(
         `adapter '${id}' does not support thinking levels`,
@@ -128,15 +128,11 @@ describe('adapter registry spawn controls', () => {
     const adapters = await loadAdapterRegistry();
     const codex = adapters.find((adapter) => adapter.id === 'codex')!;
     const claude = adapters.find((adapter) => adapter.id === 'claude-code')!;
-    const opencode = adapters.find((adapter) => adapter.id === 'opencode')!;
     expect(() => codex.spawn({ cwd: '/work', thinking: 'ultracode' })).toThrow(
       "adapter 'codex' does not support thinking level 'ultracode'",
     );
     expect(() => claude.spawn({ cwd: '/work', thinking: 'ultra' })).toThrow(
       "adapter 'claude-code' does not support thinking level 'ultra'",
-    );
-    expect(() => opencode.spawn({ cwd: '/work', thinking: 'xhigh' })).toThrow(
-      "adapter 'opencode' does not support thinking level 'xhigh'",
     );
   });
 

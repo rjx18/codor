@@ -12,7 +12,7 @@ import type {
   ThinkingLevel,
   WireEvent,
 } from '@codor/protocol';
-import { PolicySchema, ThinkingLevelSchema } from '@codor/protocol';
+import { PolicySchema } from '@codor/protocol';
 
 import { createTurnTranslator } from './translate.js';
 
@@ -20,24 +20,20 @@ const DISCOVER_QUERY =
   'SELECT id FROM session WHERE parent_id IS NULL ORDER BY time_updated DESC';
 
 // harn:assume harness-declares-supported-thinking-levels ref=opencode-thinking-level-declaration
-export const OPENCODE_THINKING_LEVELS = [
-  'low',
-  'medium',
-  'high',
-] as const satisfies readonly ThinkingLevel[];
+// opencode --variant names are per-model variant presets, not a fixed effort
+// scale: `opencode models --verbose` shows models with `variants: {}`, models
+// without `medium`, and names like `minimal`, `xhigh`, `max`, `none`, and
+// `thinking`. An unknown --variant is accepted and silently ignored (exit 0),
+// so offering a fixed low/medium/high slider cannot tell the operator whether
+// the value will be used. The adapter therefore declares no effort control
+// until variants are exposed per model. See NOTES.md.
+function assertNoThinkingLevel(thinking: ThinkingLevel | undefined): void {
+  if (thinking === undefined) return;
+  throw new Error(`adapter 'opencode' does not support thinking levels`);
+}
 
 function invalidPolicy(policy: string): Error {
   return new Error(`unknown policy '${policy}'; valid policies: ${PolicySchema.options.join(', ')}`);
-}
-
-function assertThinkingLevel(thinking: ThinkingLevel | undefined): void {
-  if (thinking === undefined) return;
-  if (!(OPENCODE_THINKING_LEVELS as readonly string[]).includes(thinking)) {
-    throw new Error(
-      `adapter 'opencode' does not support thinking level '${thinking}'; ` +
-      `valid levels: ${OPENCODE_THINKING_LEVELS.join(', ')}`,
-    );
-  }
 }
 // harn:end harness-declares-supported-thinking-levels
 
@@ -53,11 +49,7 @@ export function openCodeArgs(session: Session, payload: string): string[] {
   const args = ['run', '--format', 'json'];
   if (session.model !== undefined) args.push('--model', session.model);
   if (autoApprove) args.push('--auto');
-  if (session.thinking !== undefined) {
-    ThinkingLevelSchema.parse(session.thinking);
-    assertThinkingLevel(session.thinking);
-    args.push('--variant', session.thinking);
-  }
+  assertNoThinkingLevel(session.thinking);
   if (session.session_ref !== undefined) args.push('--session', session.session_ref);
   args.push(payload);
   return args;
@@ -73,8 +65,7 @@ export class OpenCodeAdapter implements HarnessAdapter {
     ask: false,
     approvals: 'spawn-time',
     extensions: false,
-    thinking: true,
-    thinking_levels: OPENCODE_THINKING_LEVELS,
+    thinking: false,
     // harn:assume live-inbox-capability-is-evidence-backed-v2 ref=opencode-live-inbox-capability
     live_inbox: false,
     // harn:end live-inbox-capability-is-evidence-backed-v2
@@ -97,16 +88,12 @@ export class OpenCodeAdapter implements HarnessAdapter {
     if (opts.policy !== undefined && !PolicySchema.safeParse(opts.policy).success) {
       throw invalidPolicy(opts.policy);
     }
-    if (opts.thinking !== undefined) {
-      ThinkingLevelSchema.parse(opts.thinking);
-      assertThinkingLevel(opts.thinking);
-    }
+    assertNoThinkingLevel(opts.thinking);
     return {
       harness: this.id,
       cwd: opts.cwd,
       model: opts.model,
       policy: opts.policy,
-      thinking: opts.thinking,
     };
   }
   // harn:end canonical-spawn-controls-enforced
