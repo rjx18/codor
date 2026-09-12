@@ -60,8 +60,15 @@ value fails loudly on its next turn (`validateSpawnOptions` on rebuild,
 `openCodeArgs` on attach) with `adapter 'opencode' does not support
 thinking levels`. Recovery is a manual save in the Configure agent
 dialog, which submits `thinking: null` for an unsupported level and
-clears the stored value. The same applies to an agent preset carrying
-`thinking` for opencode.
+clears the stored value.
+
+Presets behave differently: applying an opencode preset with a stored
+`thinking` value is refused with a named message rather than a failed
+turn, and the preset editor blocks save while the unsupported value is
+present. Clear it by switching the draft to another harness and back
+(`reconcileConfig` drops the level), or by editing or removing the
+preset. A saved default roster holding such a preset fails channel
+creation at roster expansion, not one turn.
 
 ## Invocation
 
