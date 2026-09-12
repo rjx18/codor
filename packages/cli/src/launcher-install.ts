@@ -80,8 +80,8 @@ export function installLauncherShim(options: {
   }
   // Stage a sibling and rename it into place: rename replaces the path entry
   // itself, so a pre-existing symlink is replaced rather than written through.
-  // The random name keeps the staging path unpredictable, so a pre-existing
-  // symlink cannot be planted there and written through.
+  // The UUID suffix avoids reuse of the former predictable `codor.tmp` path; it
+  // makes a collision negligible, not impossible.
   const staged = `${path}.tmp-${randomUUID()}`;
   io.write(staged, desired, 0o755);
   io.rename(staged, path);
