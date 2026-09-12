@@ -25,7 +25,8 @@ function executable(options: {
   temporary.push(dir);
   const path = join(dir, 'agy');
   const reply = options.reply ?? 'the antigravity reply';
-  const models = options.models ?? ['Gemini 3.5 Flash (High)', 'Gemini 3.1 Pro (High)'];
+  const models = options.models
+    ?? ['gemini-3.5-flash-high\tGemini 3.5 Flash (High)', 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)'];
   const source = `#!/usr/bin/env node
 const fs = require('node:fs');
 const argv = process.argv.slice(2);
@@ -180,7 +181,7 @@ describe('AntigravityAdapter', () => {
   });
   // harn:end adapter-children-inherit-session-env
 
-  it('maps discovered slugs back to display names and rejects collisions', async () => {
+  it('parses the two-column agy catalog and passes the selected slug to --model', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable());
     await expect(adapter.listModels()).resolves.toEqual({
@@ -191,10 +192,26 @@ describe('AntigravityAdapter', () => {
       cwd: process.cwd(), model: 'gemini-3.5-flash-high',
     }), 'hello');
     const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
-    expect(argv[argv.indexOf('--model') + 1]).toBe('Gemini 3.5 Flash (High)');
+    expect(argv[argv.indexOf('--model') + 1]).toBe('gemini-3.5-flash-high');
 
-    const collision = new AntigravityAdapter(executable({ models: ['A B', 'A-B'] }));
-    await expect(collision.listModels()).rejects.toThrow("collide at slug 'a-b'");
+    const collision = new AntigravityAdapter(executable({
+      models: ['dup-x\tModel One', 'dup-x\tModel Two'],
+    }));
+    await expect(collision.listModels()).rejects.toThrow("collide at slug 'dup-x'");
+  });
+
+  it('keeps single-column agy catalogs and their display-name mapping', async () => {
+    process.env.CODOR_FAKE_ECHO_ARGV = '1';
+    const adapter = new AntigravityAdapter(executable({ models: ['Gemini 3.5 Flash (High)'] }));
+    await expect(adapter.listModels()).resolves.toEqual({
+      models: ['gemini-3.5-flash-high'],
+      source: 'discovered',
+    });
+    const events = await collect(adapter, adapter.spawn({
+      cwd: process.cwd(), model: 'gemini-3.5-flash-high',
+    }), 'hello');
+    const argv = String((events.at(-1) as { final_text?: string }).final_text).split('\n');
+    expect(argv[argv.indexOf('--model') + 1]).toBe('Gemini 3.5 Flash (High)');
   });
 
   it('classifies missing commands and nonzero exits as failed', async () => {

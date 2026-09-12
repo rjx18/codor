@@ -142,24 +142,27 @@ export class AntigravityAdapter implements HarnessAdapter {
     if (result.status !== 0) {
       return Promise.reject(new Error(`Command failed: ${this.command} models`));
     }
-    const displays = String(result.stdout ?? '')
+    const lines = String(result.stdout ?? '')
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    if (displays.length === 0) return Promise.reject(new Error('agy listed no models'));
+    if (lines.length === 0) return Promise.reject(new Error('agy listed no models'));
 
     const next = new Map<string, string>();
-    for (const display of displays) {
-      const slug = antigravitySlug(display);
-      if (slug === '') return Promise.reject(new Error(`agy model '${display}' has no safe slug`));
-      const existing = next.get(slug);
-      if (existing !== undefined && existing !== display) {
+    const seen = new Map<string, string>();
+    for (const line of lines) {
+      const tab = line.indexOf('\t');
+      const slug = tab === -1 ? antigravitySlug(line) : line.slice(0, tab).trim();
+      if (slug === '') return Promise.reject(new Error(`agy model '${line}' has no safe slug`));
+      const existing = seen.get(slug);
+      if (existing !== undefined && existing !== line) {
         return Promise.reject(new Error(`agy model names collide at slug '${slug}'`));
       }
-      next.set(slug, display);
+      seen.set(slug, line);
+      next.set(slug, tab === -1 ? line : slug);
     }
     this.displayNames.clear();
-    for (const [slug, display] of next) this.displayNames.set(slug, display);
+    for (const [slug, modelArg] of next) this.displayNames.set(slug, modelArg);
     return Promise.resolve({ models: [...next.keys()], source: 'discovered' });
   }
   // harn:end adapters-own-their-model-catalog
