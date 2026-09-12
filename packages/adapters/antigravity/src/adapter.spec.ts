@@ -181,7 +181,7 @@ describe('AntigravityAdapter', () => {
   });
   // harn:end adapter-children-inherit-session-env
 
-  // Verifies: two-column agy output yields slug ids and the selected slug reaches --model exactly.
+  // Verifies two-column agy output yields slug ids and --model receives the slug; not redundant because no other test pins the argv a picker selection builds.
   it('parses the two-column agy catalog and passes the selected slug to --model', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable());
@@ -196,7 +196,7 @@ describe('AntigravityAdapter', () => {
     expect(argv[argv.indexOf('--model') + 1]).toBe('gemini-3.5-flash-high');
   });
 
-  // Verifies: one-column agy output keeps the slug-safe id and maps the selection back to the listed value.
+  // Verifies one-column agy output keeps the slug-safe id and maps the selection back to the listed value; not redundant because it is the only older-build compatibility check.
   it('keeps single-column agy catalogs and their display-name mapping', async () => {
     process.env.CODOR_FAKE_ECHO_ARGV = '1';
     const adapter = new AntigravityAdapter(executable({ models: ['Gemini 3.5 Flash (High)'] }));
@@ -211,7 +211,7 @@ describe('AntigravityAdapter', () => {
     expect(argv[argv.indexOf('--model') + 1]).toBe('Gemini 3.5 Flash (High)');
   });
 
-  // Verifies: both catalog shapes reject two entries that share an id.
+  // Verifies both catalog shapes reject two entries that share an id; not redundant because the collision guard is otherwise uncovered.
   it('rejects slug collisions in single-column and two-column catalogs', async () => {
     const single = new AntigravityAdapter(executable({ models: ['A B', 'A-B'] }));
     await expect(single.listModels()).rejects.toThrow("collide at slug 'a-b'");
